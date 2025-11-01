@@ -9,9 +9,12 @@ def test_profile_manager(
     sample_duration=1.0, sample_interval=1.0, time_trace=True, likwid=False
 ):
 
-    from scope_profiler.profiling import (ProfileManager, ProfilingConfig,
-                                          pylikwid_markerclose,
-                                          pylikwid_markerinit)
+    from scope_profiler.profiling import (
+        ProfileManager,
+        ProfilingConfig,
+        pylikwid_markerclose,
+        pylikwid_markerinit,
+    )
 
     config = ProfilingConfig()
     config.likwid = likwid

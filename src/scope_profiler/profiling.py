@@ -14,6 +14,7 @@ LIKWID is imported only when profiling is enabled to avoid unnecessary overhead.
 import os
 import pickle
 import time
+
 # Import the profiling configuration class and context manager
 from functools import lru_cache
 

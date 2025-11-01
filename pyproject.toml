@@ -50,3 +50,6 @@ urls."Source" = "https://github.com/max-models/scope_profiler"
 
 [tool.setuptools.packages.find]
 where = [ "src" ]
+
+[tool.isort]
+profile = "black"
