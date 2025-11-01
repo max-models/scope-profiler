@@ -6,6 +6,7 @@
 import os
 import shutil
 
+
 def copy_tutorials(app):
     src = os.path.abspath("../tutorials")
     dst = os.path.abspath("source/tutorials")
@@ -68,10 +69,9 @@ html_theme_options = {
     "icon_links": [
         {
             "name": "GitHub",
-            "url": "https://github.com/max-models/template-python",
+            "url": "https://github.com/max-models/scope-profiler",
             "icon": "fab fa-github",
             "type": "fontawesome",
         },
     ],
 }
-
