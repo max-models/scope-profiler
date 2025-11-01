@@ -6,6 +6,7 @@
 import os
 import shutil
 
+
 def copy_tutorials(app):
     src = os.path.abspath("../tutorials")
     dst = os.path.abspath("source/tutorials")
@@ -74,4 +75,3 @@ html_theme_options = {
         },
     ],
 }
-
