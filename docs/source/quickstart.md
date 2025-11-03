@@ -18,3 +18,4 @@ open docs/_build/html/index.html
 
 ```{toctree}
 :maxdepth: 1
+```
