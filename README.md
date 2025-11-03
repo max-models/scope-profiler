@@ -12,7 +12,6 @@ pip install scope-profiler
 
 # Build docs
 
-
 ```
 make html
 cd ../
