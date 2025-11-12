@@ -1,3 +1,5 @@
+import pytest
+
 import scope_profiler.tests.examples as examples
 from scope_profiler.profiling import (
     ProfileManager,
@@ -5,12 +7,17 @@ from scope_profiler.profiling import (
 )
 
 
+@pytest.mark.parametrize("sample_duration", [1.0, 0.5, 2.0])
+@pytest.mark.parametrize("sample_interval", [1.0, 0.1, 0.5])
+@pytest.mark.parametrize("time_trace", [True, False])
+@pytest.mark.parametrize("use_likwid", [False])
+@pytest.mark.parametrize("num_loops", [10, 50, 100])
 def test_profile_manager(
-    sample_duration=1.0,
-    sample_interval=1.0,
-    time_trace=True,
-    use_likwid=False,
-    num_loops=100,
+    sample_duration,
+    sample_interval,
+    time_trace,
+    use_likwid,
+    num_loops,
 ):
 
     config = ProfilingConfig(
@@ -20,6 +27,7 @@ def test_profile_manager(
         time_trace=time_trace,
         simulation_label="",
     )
+    ProfileManager.reset()
 
     examples.loop(
         label="loop1",

@@ -226,6 +226,10 @@ class ProfileManager:
     _regions = {}
 
     @classmethod
+    def reset(cls) -> None:
+        cls._regions = {}
+
+    @classmethod
     def profile_region(cls, region_name) -> ProfileRegion:
         """
         Get an existing ProfileRegion by name, or create a new one if it doesn't exist.
