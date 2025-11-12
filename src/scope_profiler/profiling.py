@@ -148,22 +148,24 @@ class ProfileRegion:
         self._ncalls = 0
         self._start_times = np.empty(1, dtype=float)
         self._end_times = np.empty(1, dtype=float)
-        self._durations = np.empty(1, dtype=float)
+        self._duration = 0.0
         self._started = False
 
-    def __enter__(self) -> None:
-        if self._ncalls == len(self._start_times):
-            self._start_times = np.append(
-                self._start_times,
-                np.zeros_like(self._start_times),
-            )
-            self._end_times = np.append(self._end_times, np.zeros_like(self._end_times))
-            self._durations = np.append(self._durations, np.zeros_like(self._durations))
+    def __enter__(self):
 
         if self.config.use_likwid:
             self._pylikwid().markerstartregion(self.region_name)
 
         if self._time_trace:
+            if self._ncalls == len(self._start_times):
+                self._start_times = np.append(
+                    self._start_times,
+                    np.zeros_like(self._start_times),
+                )
+                self._end_times = np.append(
+                    self._end_times, np.zeros_like(self._end_times)
+                )
+
             self._start_time = time.perf_counter()
             if (
                 self._start_time % self.config.sample_interval
@@ -183,7 +185,6 @@ class ProfileRegion:
         if self._time_trace and self.started:
             end_time = time.perf_counter()
             self._end_times[self._ncalls - 1] = end_time
-            self._durations[self._ncalls - 1] = end_time - self._start_time
             self._started = False
 
     def _pylikwid(self):
@@ -195,7 +196,7 @@ class ProfileRegion:
 
     @property
     def durations(self) -> np.ndarray:
-        return self._durations
+        return self.end_times - self.start_times
 
     @property
     def end_times(self) -> np.ndarray:
