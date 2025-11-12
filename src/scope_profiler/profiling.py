@@ -17,6 +17,7 @@ import time
 
 # Import the profiling configuration class and context manager
 from functools import lru_cache
+from typing import Dict
 
 import numpy as np
 
@@ -183,7 +184,7 @@ class ProfileManager:
         return cls._regions.get(region_name)
 
     @classmethod
-    def get_all_regions(cls):
+    def get_all_regions(cls) -> Dict[str, "ProfileRegion"]:
         """
         Get all registered ProfileRegion instances.
 
@@ -219,7 +220,7 @@ class ProfileManager:
         local_data = {}
         for name, region in cls._regions.items():
             local_data[name] = {
-                "ncalls": region.ncalls,
+                "num_calls": region.num_calls,
                 "durations": np.array(region.durations, dtype=np.float64),
                 "start_times": np.array(region.start_times, dtype=np.float64),
                 "end_times": np.array(region.end_times, dtype=np.float64),
@@ -293,9 +294,9 @@ class ProfileManager:
         print("Profiling Summary:")
         print("=" * 40)
         for name, region in cls._regions.items():
-            if region.ncalls > 0:
+            if region.num_calls > 0:
                 total_duration = sum(region.durations)
-                average_duration = total_duration / region.ncalls
+                average_duration = total_duration / region.num_calls
                 min_duration = min(region.durations)
                 max_duration = max(region.durations)
                 std_duration = np.std(region.durations)
@@ -305,7 +306,7 @@ class ProfileManager:
                 ) = 0
 
             print(f"Region: {name}")
-            print(f"  Number of Calls: {region.ncalls}")
+            print(f"  Number of Calls: {region.num_calls}")
             print(f"  Total Duration: {total_duration:.6f} seconds")
             print(f"  Average Duration: {average_duration:.6f} seconds")
             print(f"  Min Duration: {min_duration:.6f} seconds")
@@ -380,7 +381,7 @@ class ProfileRegion:
         return self._end_times
 
     @property
-    def ncalls(self):
+    def num_calls(self):
         return self._ncalls
 
     @property

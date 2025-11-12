@@ -1,18 +1,17 @@
-def test_import_app():
-    from scope_profiler.main import main
-
-    print("app imported")
-    main()
+import scope_profiler.tests.examples as examples
+from scope_profiler.profiling import (
+    ProfileManager,
+    ProfilingConfig,
+)
 
 
 def test_profile_manager(
-    sample_duration=1.0, sample_interval=1.0, time_trace=True, use_likwid=False
+    sample_duration=1.0,
+    sample_interval=1.0,
+    time_trace=True,
+    use_likwid=False,
+    num_loops=100,
 ):
-
-    from scope_profiler.profiling import (
-        ProfileManager,
-        ProfilingConfig,
-    )
 
     config = ProfilingConfig(
         sample_duration=sample_duration,
@@ -21,17 +20,29 @@ def test_profile_manager(
         time_trace=time_trace,
         simulation_label="",
     )
-    config.pylikwid_markerinit()
+
+    examples.loop(
+        label="loop1",
+        num_loops=num_loops,
+    )
+
+    examples.loop(
+        label="loop2",
+        num_loops=num_loops * 2,
+    )
+
     with ProfileManager.profile_region("main"):
-        x = 0
-        for _ in range(10):
-            with ProfileManager.profile_region("iteration"):
-                x += 1.0
-    config.pylikwid_markerclose()
+        pass
+
     if config.time_trace:
         ProfileManager.print_summary()
-        # ProfileManager.save_to_pickle("profiling_time_trace.pkl")
+
+    regions = ProfileManager.get_all_regions()
+
+    assert regions["loop1"].num_calls == num_loops
+    assert regions["loop2"].num_calls == num_loops * 2
+    assert regions["main"].num_calls == 1
 
 
 if __name__ == "__main__":
-    test_import_app()
+    test_profile_manager()
