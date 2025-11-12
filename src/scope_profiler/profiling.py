@@ -33,54 +33,75 @@ class ProfilingConfig:
 
     _instance = None
 
-    def __new__(cls):
+    def __new__(cls, *args, **kwargs):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance.likwid = False  # Default value (profiling disabled)
+            # Default values
+            cls._instance.likwid = False
             cls._instance.simulation_label = ""
-            cls._instance.sample_duration = None
-            cls._instance.sample_interval = None
+            cls._instance.sample_duration = 1.0
+            cls._instance.sample_interval = 1.0
             cls._instance.time_trace = False
         return cls._instance
 
+    def __init__(
+        self,
+        likwid: bool = False,
+        simulation_label: str = "",
+        sample_duration: float = 1.0,
+        sample_interval: float = 1.0,
+        time_trace: bool = True,
+    ):
+        # Only update if value provided
+        self.likwid = likwid
+        self.simulation_label = simulation_label
+        self.sample_duration = sample_duration
+        self.sample_interval = sample_interval
+        self.time_trace = time_trace
+
     @property
-    def likwid(self):
+    def likwid(self) -> bool:
         return self._likwid
 
     @likwid.setter
-    def likwid(self, value):
+    def likwid(self, value: bool) -> None:
+        assert isinstance(value, bool)
         self._likwid = value
 
     @property
-    def simulation_label(self):
+    def simulation_label(self) -> str:
         return self._simulation_label
 
     @simulation_label.setter
-    def simulation_label(self, value):
+    def simulation_label(self, value: str) -> None:
+        assert isinstance(value, str)
         self._simulation_label = value
 
     @property
-    def sample_duration(self):
+    def sample_duration(self) -> float:
         return self._sample_duration
 
     @sample_duration.setter
-    def sample_duration(self, value):
+    def sample_duration(self, value) -> None:
+        assert isinstance(value, float)
         self._sample_duration = value
 
     @property
-    def sample_interval(self):
+    def sample_interval(self) -> float:
         return self._sample_interval
 
     @sample_interval.setter
-    def sample_interval(self, value):
+    def sample_interval(self, value) -> None:
+        assert isinstance(value, float)
         self._sample_interval = value
 
     @property
-    def time_trace(self):
+    def time_trace(self) -> bool:
         return self._time_trace
 
     @time_trace.setter
-    def time_trace(self, value):
+    def time_trace(self, value: bool) -> None:
+        assert isinstance(value, bool)
         if value:
             assert (
                 self.sample_interval is not None
@@ -163,7 +184,7 @@ class ProfileManager:
         _config = ProfilingConfig()
         if not _config.time_trace:
             print(
-                "time_trace is not set to True --> Time traces are not measured --> Skip saving..."
+                "time_trace is not set to True --> Time traces are not measured --> Skip saving...",
             )
             return
 
@@ -242,7 +263,7 @@ class ProfileManager:
         _config = ProfilingConfig()
         if not _config.time_trace:
             print(
-                "time_trace is not set to True --> Time traces are not measured --> Skip printing summary..."
+                "time_trace is not set to True --> Time traces are not measured --> Skip printing summary...",
             )
             return
 
@@ -288,7 +309,8 @@ class ProfileRegion:
     def __enter__(self):
         if self._ncalls == len(self._start_times):
             self._start_times = np.append(
-                self._start_times, np.zeros_like(self._start_times)
+                self._start_times,
+                np.zeros_like(self._start_times),
             )
             self._end_times = np.append(self._end_times, np.zeros_like(self._end_times))
             self._durations = np.append(self._durations, np.zeros_like(self._durations))

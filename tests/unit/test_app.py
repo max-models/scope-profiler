@@ -16,18 +16,20 @@ def test_profile_manager(
         pylikwid_markerinit,
     )
 
-    config = ProfilingConfig()
-    config.likwid = likwid
-    config.sample_duration = float(sample_duration)
-    config.sample_interval = float(sample_interval)
-    config.time_trace = time_trace
-    config.simulation_label = ""
+    print(f"{type(sample_duration) = }")
+    config = ProfilingConfig(
+        sample_duration=sample_duration,
+        sample_interval=sample_interval,
+        likwid=likwid,
+        time_trace=time_trace,
+        simulation_label="",
+    )
     pylikwid_markerinit()
     with ProfileManager.profile_region("main"):
-        print("hello")
-        for i in range(10):
+        x = 0
+        for _ in range(10):
             with ProfileManager.profile_region("iteration"):
-                print("iteration")
+                x += 1.0
     pylikwid_markerclose()
     if config.time_trace:
         ProfileManager.print_summary()
