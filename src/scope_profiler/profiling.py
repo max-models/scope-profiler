@@ -37,7 +37,7 @@ class ProfilingConfig:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             # Default values
-            cls._instance.likwid = False
+            cls._instance.use_likwid = False
             cls._instance.simulation_label = ""
             cls._instance.sample_duration = 1.0
             cls._instance.sample_interval = 1.0
@@ -46,25 +46,46 @@ class ProfilingConfig:
 
     def __init__(
         self,
-        likwid: bool = False,
+        use_likwid: bool = False,
         simulation_label: str = "",
-        sample_duration: float = 1.0,
-        sample_interval: float = 1.0,
+        sample_duration: float | int = 1.0,
+        sample_interval: float | int = 1.0,
         time_trace: bool = True,
     ):
         # Only update if value provided
-        self.likwid = likwid
+        self.use_likwid = use_likwid
         self.simulation_label = simulation_label
         self.sample_duration = sample_duration
         self.sample_interval = sample_interval
         self.time_trace = time_trace
 
+        self._pylikwid = None
+        if self.use_likwid:
+            try:
+                import pylikwid
+
+                self._pylikwid = pylikwid
+            except ImportError as e:
+                raise ImportError(
+                    "LIKWID profiling requested but pylikwid module not installed"
+                ) from e
+
+    def pylikwid_markerinit(self):
+        """Initialize LIKWID profiling markers."""
+        if self.use_likwid and self._pylikwid:
+            self._pylikwid.markerinit()
+
+    def pylikwid_markerclose(self):
+        """Close LIKWID profiling markers."""
+        if self.use_likwid and self._pylikwid:
+            self._pylikwid.markerclose()
+
     @property
-    def likwid(self) -> bool:
+    def use_likwid(self) -> bool:
         return self._likwid
 
-    @likwid.setter
-    def likwid(self, value: bool) -> None:
+    @use_likwid.setter
+    def use_likwid(self, value: bool) -> None:
         assert isinstance(value, bool)
         self._likwid = value
 
@@ -83,8 +104,9 @@ class ProfilingConfig:
 
     @sample_duration.setter
     def sample_duration(self, value) -> None:
-        assert isinstance(value, float)
-        self._sample_duration = value
+        if not isinstance(value, (float, int)):
+            raise TypeError("sample_duration must be a float")
+        self._sample_duration = float(value)
 
     @property
     def sample_interval(self) -> float:
@@ -92,8 +114,9 @@ class ProfilingConfig:
 
     @sample_interval.setter
     def sample_interval(self, value) -> None:
-        assert isinstance(value, float)
-        self._sample_interval = value
+        if not isinstance(value, (float, int)):
+            raise TypeError("sample_interval must be a float")
+        self._sample_interval = float(value)
 
     @property
     def time_trace(self) -> bool:
@@ -315,7 +338,7 @@ class ProfileRegion:
             self._end_times = np.append(self._end_times, np.zeros_like(self._end_times))
             self._durations = np.append(self._durations, np.zeros_like(self._durations))
 
-        if self.config.likwid:
+        if self.config.use_likwid:
             self._pylikwid().markerstartregion(self.region_name)
 
         if self._time_trace:
@@ -333,7 +356,7 @@ class ProfileRegion:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        if self.config.likwid:
+        if self.config.use_likwid:
             self._pylikwid().markerstopregion(self.region_name)
         if self._time_trace and self.started:
             end_time = time.perf_counter()
@@ -371,15 +394,3 @@ class ProfileRegion:
     @property
     def started(self):
         return self._started
-
-
-def pylikwid_markerinit():
-    """Initialize LIKWID profiling markers."""
-    if ProfilingConfig().likwid:
-        _import_pylikwid().markerinit()
-
-
-def pylikwid_markerclose():
-    """Close LIKWID profiling markers."""
-    if ProfilingConfig().likwid:
-        _import_pylikwid().markerclose()

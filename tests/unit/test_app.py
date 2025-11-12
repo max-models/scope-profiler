@@ -6,31 +6,28 @@ def test_import_app():
 
 
 def test_profile_manager(
-    sample_duration=1.0, sample_interval=1.0, time_trace=True, likwid=False
+    sample_duration=1.0, sample_interval=1.0, time_trace=True, use_likwid=False
 ):
 
     from scope_profiler.profiling import (
         ProfileManager,
         ProfilingConfig,
-        pylikwid_markerclose,
-        pylikwid_markerinit,
     )
 
-    print(f"{type(sample_duration) = }")
     config = ProfilingConfig(
         sample_duration=sample_duration,
         sample_interval=sample_interval,
-        likwid=likwid,
+        use_likwid=use_likwid,
         time_trace=time_trace,
         simulation_label="",
     )
-    pylikwid_markerinit()
+    config.pylikwid_markerinit()
     with ProfileManager.profile_region("main"):
         x = 0
         for _ in range(10):
             with ProfileManager.profile_region("iteration"):
                 x += 1.0
-    pylikwid_markerclose()
+    config.pylikwid_markerclose()
     if config.time_trace:
         ProfileManager.print_summary()
         # ProfileManager.save_to_pickle("profiling_time_trace.pkl")
