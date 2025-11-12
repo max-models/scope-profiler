@@ -17,7 +17,9 @@ import time
 
 # Import the profiling configuration class and context manager
 from functools import lru_cache
+from typing import Dict
 
+import h5py
 import numpy as np
 
 
@@ -33,54 +35,98 @@ class ProfilingConfig:
 
     _instance = None
 
-    def __new__(cls):
+    def __new__(cls, *args, **kwargs):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance.likwid = False  # Default value (profiling disabled)
+            # Default values
+            cls._instance.use_likwid = False
             cls._instance.simulation_label = ""
-            cls._instance.sample_duration = None
-            cls._instance.sample_interval = None
+            cls._instance.sample_duration = 1.0
+            cls._instance.sample_interval = 1.0
             cls._instance.time_trace = False
         return cls._instance
 
+    def __init__(
+        self,
+        use_likwid: bool = False,
+        simulation_label: str = "",
+        sample_duration: float | int = 1.0,
+        sample_interval: float | int = 1.0,
+        time_trace: bool = True,
+    ):
+        # Only update if value provided
+        self.use_likwid = use_likwid
+        self.simulation_label = simulation_label
+        self.sample_duration = sample_duration
+        self.sample_interval = sample_interval
+        self.time_trace = time_trace
+
+        self._pylikwid = None
+        if self.use_likwid:
+            try:
+                import pylikwid
+
+                self._pylikwid = pylikwid
+            except ImportError as e:
+                raise ImportError(
+                    "LIKWID profiling requested but pylikwid module not installed"
+                ) from e
+
+    def pylikwid_markerinit(self):
+        """Initialize LIKWID profiling markers."""
+        if self.use_likwid and self._pylikwid:
+            self._pylikwid.markerinit()
+
+    def pylikwid_markerclose(self):
+        """Close LIKWID profiling markers."""
+        if self.use_likwid and self._pylikwid:
+            self._pylikwid.markerclose()
+
     @property
-    def likwid(self):
+    def use_likwid(self) -> bool:
         return self._likwid
 
-    @likwid.setter
-    def likwid(self, value):
+    @use_likwid.setter
+    def use_likwid(self, value: bool) -> None:
+        assert isinstance(value, bool)
         self._likwid = value
 
     @property
-    def simulation_label(self):
+    def simulation_label(self) -> str:
         return self._simulation_label
 
     @simulation_label.setter
-    def simulation_label(self, value):
+    def simulation_label(self, value: str) -> None:
+        assert isinstance(value, str)
         self._simulation_label = value
 
     @property
-    def sample_duration(self):
+    def sample_duration(self) -> float:
         return self._sample_duration
 
     @sample_duration.setter
-    def sample_duration(self, value):
-        self._sample_duration = value
+    def sample_duration(self, value) -> None:
+        if not isinstance(value, (float, int)):
+            raise TypeError("sample_duration must be a float")
+        self._sample_duration = float(value)
 
     @property
-    def sample_interval(self):
+    def sample_interval(self) -> float:
         return self._sample_interval
 
     @sample_interval.setter
-    def sample_interval(self, value):
-        self._sample_interval = value
+    def sample_interval(self, value) -> None:
+        if not isinstance(value, (float, int)):
+            raise TypeError("sample_interval must be a float")
+        self._sample_interval = float(value)
 
     @property
-    def time_trace(self):
+    def time_trace(self) -> bool:
         return self._time_trace
 
     @time_trace.setter
-    def time_trace(self, value):
+    def time_trace(self, value: bool) -> None:
+        assert isinstance(value, bool)
         if value:
             assert (
                 self.sample_interval is not None
@@ -91,6 +137,132 @@ class ProfilingConfig:
         self._time_trace = value
 
 
+class ProfileRegion:
+    """Context manager for profiling specific code regions using LIKWID markers."""
+
+    def __init__(
+        self,
+        region_name: str,
+        time_trace: bool = False,
+        buffer_limit: int = 6,
+        file_path: str | None = None,
+    ):
+        if hasattr(self, "_initialized") and self._initialized:
+            return
+        self._config = ProfilingConfig()
+        self._region_name = self.config.simulation_label + region_name
+        self._time_trace = time_trace
+        self._ncalls = 0
+        self._start_times = []
+        self._end_times = []
+        self._duration = 0.0
+        self._started = False
+        self._buffer_limit = buffer_limit
+        self._file_path = file_path or "profiling_data.h5"
+
+        # Create file and datasets if not existing
+        if self._time_trace:
+            with h5py.File(self._file_path, "a") as f:
+                grp = f.require_group(f"regions/{self._region_name}")
+                for name in ["start_times", "end_times", "durations"]:
+                    if name not in grp:
+                        grp.create_dataset(
+                            name,
+                            shape=(0,),
+                            maxshape=(None,),
+                            dtype="f8",
+                            chunks=True,
+                            compression="gzip",
+                        )
+
+    def __enter__(self):
+
+        if self.config.use_likwid:
+            self._pylikwid().markerstartregion(self.region_name)
+
+        if self._time_trace:
+
+            self._start_time = time.perf_counter()
+            if (
+                self._start_time % self.config.sample_interval
+                < self.config.sample_duration
+                or self._ncalls == 0
+            ):
+                self._start_times.append(self._start_time)
+                self._started = True
+
+        self._ncalls += 1
+
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        if self.config.use_likwid:
+            self._pylikwid().markerstopregion(self.region_name)
+        if self._time_trace and self.started:
+            end_time = time.perf_counter()
+            self._end_times.append(end_time)
+            self._started = False
+
+            if len(self._start_times) >= self._buffer_limit:
+                self.flush_to_disk()
+
+    def flush_to_disk(self) -> None:
+        """Append buffered profiling data to the HDF5 file and clear memory."""
+        if not self._start_times:
+            return
+
+        starts = self.start_times  # np.array(self._start_times, dtype=np.float64)
+        ends = self.end_times  # np.array(self._end_times, dtype=np.float64)
+        durations = self.durations
+
+        with h5py.File(self._file_path, "a") as f:
+            grp = f.require_group(f"regions/{self._region_name}")
+            for name, data in [
+                ("start_times", starts),
+                ("end_times", ends),
+                ("durations", durations),
+            ]:
+                ds = grp[name]
+                old_size = ds.shape[0]
+                new_size = old_size + len(data)
+                ds.resize((new_size,))
+                ds[old_size:new_size] = data
+
+        self._start_times.clear()
+        self._end_times.clear()
+
+    def _pylikwid(self):
+        return _import_pylikwid()
+
+    @property
+    def config(self) -> ProfilingConfig:
+        return self._config
+
+    @property
+    def durations(self) -> np.ndarray:
+        return self.end_times - self.start_times
+
+    @property
+    def end_times(self) -> np.ndarray:
+        return np.array(self._end_times)
+
+    @property
+    def num_calls(self) -> int:
+        return self._ncalls
+
+    @property
+    def region_name(self) -> str:
+        return self._region_name
+
+    @property
+    def start_times(self) -> np.ndarray:
+        return np.array(self._start_times)
+
+    @property
+    def started(self) -> bool:
+        return self._started
+
+
 class ProfileManager:
     """
     Singleton class to manage and track all ProfileRegion instances.
@@ -99,7 +271,11 @@ class ProfileManager:
     _regions = {}
 
     @classmethod
-    def profile_region(cls, region_name):
+    def reset(cls) -> None:
+        cls._regions = {}
+
+    @classmethod
+    def profile_region(cls, region_name) -> ProfileRegion:
         """
         Get an existing ProfileRegion by name, or create a new one if it doesn't exist.
 
@@ -115,15 +291,15 @@ class ProfileManager:
         if region_name in cls._regions:
             return cls._regions[region_name]
         else:
-            # Check if time profiling is enabled
-            _config = ProfilingConfig()
             # Create and register a new ProfileRegion
-            new_region = ProfileRegion(region_name, time_trace=_config.time_trace)
-            cls._regions[region_name] = new_region
-            return new_region
+            cls._regions[region_name] = ProfileRegion(
+                region_name,
+                time_trace=ProfilingConfig().time_trace,
+            )
+            return cls._regions[region_name]
 
     @classmethod
-    def get_region(cls, region_name):
+    def get_region(cls, region_name) -> ProfileRegion:
         """
         Get a registered ProfileRegion by name.
 
@@ -139,7 +315,7 @@ class ProfileManager:
         return cls._regions.get(region_name)
 
     @classmethod
-    def get_all_regions(cls):
+    def get_all_regions(cls) -> Dict[str, "ProfileRegion"]:
         """
         Get all registered ProfileRegion instances.
 
@@ -150,7 +326,7 @@ class ProfileManager:
         return cls._regions
 
     @classmethod
-    def save_to_pickle(cls, file_path):
+    def save_to_pickle(cls, file_path) -> None:
         """
         Save profiling data to a single file using pickle and NumPy arrays in parallel.
 
@@ -163,7 +339,7 @@ class ProfileManager:
         _config = ProfilingConfig()
         if not _config.time_trace:
             print(
-                "time_trace is not set to True --> Time traces are not measured --> Skip saving..."
+                "time_trace is not set to True --> Time traces are not measured --> Skip saving...",
             )
             return
 
@@ -175,7 +351,7 @@ class ProfileManager:
         local_data = {}
         for name, region in cls._regions.items():
             local_data[name] = {
-                "ncalls": region.ncalls,
+                "num_calls": region.num_calls,
                 "durations": np.array(region.durations, dtype=np.float64),
                 "start_times": np.array(region.start_times, dtype=np.float64),
                 "end_times": np.array(region.end_times, dtype=np.float64),
@@ -234,7 +410,7 @@ class ProfileManager:
             print(f"Data saved to {absolute_path}")
 
     @classmethod
-    def print_summary(cls):
+    def print_summary(cls) -> None:
         """
         Print a summary of the profiling data for all regions.
         """
@@ -242,16 +418,16 @@ class ProfileManager:
         _config = ProfilingConfig()
         if not _config.time_trace:
             print(
-                "time_trace is not set to True --> Time traces are not measured --> Skip printing summary..."
+                "time_trace is not set to True --> Time traces are not measured --> Skip printing summary...",
             )
             return
 
         print("Profiling Summary:")
         print("=" * 40)
         for name, region in cls._regions.items():
-            if region.ncalls > 0:
+            if region.num_calls > 0:
                 total_duration = sum(region.durations)
-                average_duration = total_duration / region.ncalls
+                average_duration = total_duration / region.num_calls
                 min_duration = min(region.durations)
                 max_duration = max(region.durations)
                 std_duration = np.std(region.durations)
@@ -261,103 +437,10 @@ class ProfileManager:
                 ) = 0
 
             print(f"Region: {name}")
-            print(f"  Number of Calls: {region.ncalls}")
+            print(f"  Number of Calls: {region.num_calls}")
             print(f"  Total Duration: {total_duration:.6f} seconds")
             print(f"  Average Duration: {average_duration:.6f} seconds")
             print(f"  Min Duration: {min_duration:.6f} seconds")
             print(f"  Max Duration: {max_duration:.6f} seconds")
             print(f"  Std Deviation: {std_duration:.6f} seconds")
             print("-" * 40)
-
-
-class ProfileRegion:
-    """Context manager for profiling specific code regions using LIKWID markers."""
-
-    def __init__(self, region_name, time_trace=False):
-        if hasattr(self, "_initialized") and self._initialized:
-            return
-        self._config = ProfilingConfig()
-        self._region_name = self.config.simulation_label + region_name
-        self._time_trace = time_trace
-        self._ncalls = 0
-        self._start_times = np.empty(1, dtype=float)
-        self._end_times = np.empty(1, dtype=float)
-        self._durations = np.empty(1, dtype=float)
-        self._started = False
-
-    def __enter__(self):
-        if self._ncalls == len(self._start_times):
-            self._start_times = np.append(
-                self._start_times, np.zeros_like(self._start_times)
-            )
-            self._end_times = np.append(self._end_times, np.zeros_like(self._end_times))
-            self._durations = np.append(self._durations, np.zeros_like(self._durations))
-
-        if self.config.likwid:
-            self._pylikwid().markerstartregion(self.region_name)
-
-        if self._time_trace:
-            self._start_time = time.perf_counter()
-            if (
-                self._start_time % self.config.sample_interval
-                < self.config.sample_duration
-                or self._ncalls == 0
-            ):
-                self._start_times[self._ncalls] = self._start_time
-                self._started = True
-
-        self._ncalls += 1
-
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        if self.config.likwid:
-            self._pylikwid().markerstopregion(self.region_name)
-        if self._time_trace and self.started:
-            end_time = time.perf_counter()
-            self._end_times[self._ncalls - 1] = end_time
-            self._durations[self._ncalls - 1] = end_time - self._start_time
-            self._started = False
-
-    def _pylikwid(self):
-        return _import_pylikwid()
-
-    @property
-    def config(self):
-        return self._config
-
-    @property
-    def durations(self):
-        return self._durations
-
-    @property
-    def end_times(self):
-        return self._end_times
-
-    @property
-    def ncalls(self):
-        return self._ncalls
-
-    @property
-    def region_name(self):
-        return self._region_name
-
-    @property
-    def start_times(self):
-        return self._start_times
-
-    @property
-    def started(self):
-        return self._started
-
-
-def pylikwid_markerinit():
-    """Initialize LIKWID profiling markers."""
-    if ProfilingConfig().likwid:
-        _import_pylikwid().markerinit()
-
-
-def pylikwid_markerclose():
-    """Close LIKWID profiling markers."""
-    if ProfilingConfig().likwid:
-        _import_pylikwid().markerclose()
