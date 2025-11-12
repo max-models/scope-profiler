@@ -136,6 +136,88 @@ class ProfilingConfig:
         self._time_trace = value
 
 
+class ProfileRegion:
+    """Context manager for profiling specific code regions using LIKWID markers."""
+
+    def __init__(self, region_name, time_trace=False):
+        if hasattr(self, "_initialized") and self._initialized:
+            return
+        self._config = ProfilingConfig()
+        self._region_name = self.config.simulation_label + region_name
+        self._time_trace = time_trace
+        self._ncalls = 0
+        self._start_times = np.empty(1, dtype=float)
+        self._end_times = np.empty(1, dtype=float)
+        self._durations = np.empty(1, dtype=float)
+        self._started = False
+
+    def __enter__(self):
+        if self._ncalls == len(self._start_times):
+            self._start_times = np.append(
+                self._start_times,
+                np.zeros_like(self._start_times),
+            )
+            self._end_times = np.append(self._end_times, np.zeros_like(self._end_times))
+            self._durations = np.append(self._durations, np.zeros_like(self._durations))
+
+        if self.config.use_likwid:
+            self._pylikwid().markerstartregion(self.region_name)
+
+        if self._time_trace:
+            self._start_time = time.perf_counter()
+            if (
+                self._start_time % self.config.sample_interval
+                < self.config.sample_duration
+                or self._ncalls == 0
+            ):
+                self._start_times[self._ncalls] = self._start_time
+                self._started = True
+
+        self._ncalls += 1
+
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.config.use_likwid:
+            self._pylikwid().markerstopregion(self.region_name)
+        if self._time_trace and self.started:
+            end_time = time.perf_counter()
+            self._end_times[self._ncalls - 1] = end_time
+            self._durations[self._ncalls - 1] = end_time - self._start_time
+            self._started = False
+
+    def _pylikwid(self):
+        return _import_pylikwid()
+
+    @property
+    def config(self):
+        return self._config
+
+    @property
+    def durations(self):
+        return self._durations
+
+    @property
+    def end_times(self):
+        return self._end_times
+
+    @property
+    def num_calls(self):
+        return self._ncalls
+
+    @property
+    def region_name(self):
+        return self._region_name
+
+    @property
+    def start_times(self):
+        return self._start_times
+
+    @property
+    def started(self):
+        return self._started
+
+
 class ProfileManager:
     """
     Singleton class to manage and track all ProfileRegion instances.
@@ -144,7 +226,7 @@ class ProfileManager:
     _regions = {}
 
     @classmethod
-    def profile_region(cls, region_name):
+    def profile_region(cls, region_name) -> ProfileRegion:
         """
         Get an existing ProfileRegion by name, or create a new one if it doesn't exist.
 
@@ -168,7 +250,7 @@ class ProfileManager:
             return new_region
 
     @classmethod
-    def get_region(cls, region_name):
+    def get_region(cls, region_name) -> ProfileRegion:
         """
         Get a registered ProfileRegion by name.
 
@@ -195,7 +277,7 @@ class ProfileManager:
         return cls._regions
 
     @classmethod
-    def save_to_pickle(cls, file_path):
+    def save_to_pickle(cls, file_path) -> None:
         """
         Save profiling data to a single file using pickle and NumPy arrays in parallel.
 
@@ -279,7 +361,7 @@ class ProfileManager:
             print(f"Data saved to {absolute_path}")
 
     @classmethod
-    def print_summary(cls):
+    def print_summary(cls) -> None:
         """
         Print a summary of the profiling data for all regions.
         """
@@ -313,85 +395,3 @@ class ProfileManager:
             print(f"  Max Duration: {max_duration:.6f} seconds")
             print(f"  Std Deviation: {std_duration:.6f} seconds")
             print("-" * 40)
-
-
-class ProfileRegion:
-    """Context manager for profiling specific code regions using LIKWID markers."""
-
-    def __init__(self, region_name, time_trace=False):
-        if hasattr(self, "_initialized") and self._initialized:
-            return
-        self._config = ProfilingConfig()
-        self._region_name = self.config.simulation_label + region_name
-        self._time_trace = time_trace
-        self._ncalls = 0
-        self._start_times = np.empty(1, dtype=float)
-        self._end_times = np.empty(1, dtype=float)
-        self._durations = np.empty(1, dtype=float)
-        self._started = False
-
-    def __enter__(self):
-        if self._ncalls == len(self._start_times):
-            self._start_times = np.append(
-                self._start_times,
-                np.zeros_like(self._start_times),
-            )
-            self._end_times = np.append(self._end_times, np.zeros_like(self._end_times))
-            self._durations = np.append(self._durations, np.zeros_like(self._durations))
-
-        if self.config.use_likwid:
-            self._pylikwid().markerstartregion(self.region_name)
-
-        if self._time_trace:
-            self._start_time = time.perf_counter()
-            if (
-                self._start_time % self.config.sample_interval
-                < self.config.sample_duration
-                or self._ncalls == 0
-            ):
-                self._start_times[self._ncalls] = self._start_time
-                self._started = True
-
-        self._ncalls += 1
-
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        if self.config.use_likwid:
-            self._pylikwid().markerstopregion(self.region_name)
-        if self._time_trace and self.started:
-            end_time = time.perf_counter()
-            self._end_times[self._ncalls - 1] = end_time
-            self._durations[self._ncalls - 1] = end_time - self._start_time
-            self._started = False
-
-    def _pylikwid(self):
-        return _import_pylikwid()
-
-    @property
-    def config(self):
-        return self._config
-
-    @property
-    def durations(self):
-        return self._durations
-
-    @property
-    def end_times(self):
-        return self._end_times
-
-    @property
-    def num_calls(self):
-        return self._ncalls
-
-    @property
-    def region_name(self):
-        return self._region_name
-
-    @property
-    def start_times(self):
-        return self._start_times
-
-    @property
-    def started(self):
-        return self._started
