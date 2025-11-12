@@ -53,4 +53,10 @@ def test_profile_manager(
 
 
 if __name__ == "__main__":
-    test_profile_manager()
+    test_profile_manager(
+        sample_duration=1.0,
+        sample_interval=1.0,
+        time_trace=True,
+        use_likwid=False,
+        num_loops=100,
+    )
