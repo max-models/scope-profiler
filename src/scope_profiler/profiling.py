@@ -139,7 +139,7 @@ class ProfilingConfig:
 class ProfileRegion:
     """Context manager for profiling specific code regions using LIKWID markers."""
 
-    def __init__(self, region_name, time_trace=False):
+    def __init__(self, region_name: str, time_trace: bool = False):
         if hasattr(self, "_initialized") and self._initialized:
             return
         self._config = ProfilingConfig()
@@ -151,7 +151,7 @@ class ProfileRegion:
         self._durations = np.empty(1, dtype=float)
         self._started = False
 
-    def __enter__(self):
+    def __enter__(self) -> None:
         if self._ncalls == len(self._start_times):
             self._start_times = np.append(
                 self._start_times,
@@ -177,7 +177,7 @@ class ProfileRegion:
 
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
         if self.config.use_likwid:
             self._pylikwid().markerstopregion(self.region_name)
         if self._time_trace and self.started:
@@ -190,31 +190,31 @@ class ProfileRegion:
         return _import_pylikwid()
 
     @property
-    def config(self):
+    def config(self) -> ProfilingConfig:
         return self._config
 
     @property
-    def durations(self):
+    def durations(self) -> np.ndarray:
         return self._durations
 
     @property
-    def end_times(self):
+    def end_times(self) -> np.ndarray:
         return self._end_times
 
     @property
-    def num_calls(self):
+    def num_calls(self) -> int:
         return self._ncalls
 
     @property
-    def region_name(self):
+    def region_name(self) -> str:
         return self._region_name
 
     @property
-    def start_times(self):
+    def start_times(self) -> np.ndarray:
         return self._start_times
 
     @property
-    def started(self):
+    def started(self) -> bool:
         return self._started
 
 
@@ -246,12 +246,12 @@ class ProfileManager:
         if region_name in cls._regions:
             return cls._regions[region_name]
         else:
-            # Check if time profiling is enabled
-            _config = ProfilingConfig()
             # Create and register a new ProfileRegion
-            new_region = ProfileRegion(region_name, time_trace=_config.time_trace)
-            cls._regions[region_name] = new_region
-            return new_region
+            cls._regions[region_name] = ProfileRegion(
+                region_name,
+                time_trace=ProfilingConfig().time_trace,
+            )
+            return cls._regions[region_name]
 
     @classmethod
     def get_region(cls, region_name) -> ProfileRegion:
