@@ -146,8 +146,8 @@ class ProfileRegion:
         self._region_name = self.config.simulation_label + region_name
         self._time_trace = time_trace
         self._ncalls = 0
-        self._start_times = np.empty(1, dtype=float)
-        self._end_times = np.empty(1, dtype=float)
+        self._start_times = []
+        self._end_times = []
         self._duration = 0.0
         self._started = False
 
@@ -157,14 +157,6 @@ class ProfileRegion:
             self._pylikwid().markerstartregion(self.region_name)
 
         if self._time_trace:
-            if self._ncalls == len(self._start_times):
-                self._start_times = np.append(
-                    self._start_times,
-                    np.zeros_like(self._start_times),
-                )
-                self._end_times = np.append(
-                    self._end_times, np.zeros_like(self._end_times)
-                )
 
             self._start_time = time.perf_counter()
             if (
@@ -172,7 +164,7 @@ class ProfileRegion:
                 < self.config.sample_duration
                 or self._ncalls == 0
             ):
-                self._start_times[self._ncalls] = self._start_time
+                self._start_times.append(self._start_time)
                 self._started = True
 
         self._ncalls += 1
@@ -184,7 +176,7 @@ class ProfileRegion:
             self._pylikwid().markerstopregion(self.region_name)
         if self._time_trace and self.started:
             end_time = time.perf_counter()
-            self._end_times[self._ncalls - 1] = end_time
+            self._end_times.append(end_time)
             self._started = False
 
     def _pylikwid(self):
@@ -200,7 +192,7 @@ class ProfileRegion:
 
     @property
     def end_times(self) -> np.ndarray:
-        return self._end_times
+        return np.array(self._end_times)
 
     @property
     def num_calls(self) -> int:
@@ -212,7 +204,7 @@ class ProfileRegion:
 
     @property
     def start_times(self) -> np.ndarray:
-        return self._start_times
+        return np.array(self._start_times)
 
     @property
     def started(self) -> bool:
