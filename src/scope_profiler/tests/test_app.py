@@ -13,11 +13,11 @@ from scope_profiler.profiling import (
 @pytest.mark.parametrize("use_likwid", [False])
 @pytest.mark.parametrize("num_loops", [10, 50, 100])
 def test_profile_manager(
-    sample_duration,
-    sample_interval,
-    time_trace,
-    use_likwid,
-    num_loops,
+    sample_duration: int | float,
+    sample_interval: int | float,
+    time_trace: bool,
+    use_likwid: bool,
+    num_loops: int,
 ):
 
     config = ProfilingConfig(
