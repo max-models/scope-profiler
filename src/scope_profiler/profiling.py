@@ -19,6 +19,7 @@ import time
 from functools import lru_cache
 from typing import Dict
 
+import h5py
 import numpy as np
 
 
@@ -139,7 +140,13 @@ class ProfilingConfig:
 class ProfileRegion:
     """Context manager for profiling specific code regions using LIKWID markers."""
 
-    def __init__(self, region_name: str, time_trace: bool = False):
+    def __init__(
+        self,
+        region_name: str,
+        time_trace: bool = False,
+        buffer_limit: int = 6,
+        file_path: str | None = None,
+    ):
         if hasattr(self, "_initialized") and self._initialized:
             return
         self._config = ProfilingConfig()
@@ -150,6 +157,23 @@ class ProfileRegion:
         self._end_times = []
         self._duration = 0.0
         self._started = False
+        self._buffer_limit = buffer_limit
+        self._file_path = file_path or "profiling_data.h5"
+
+        # Create file and datasets if not existing
+        if self._time_trace:
+            with h5py.File(self._file_path, "a") as f:
+                grp = f.require_group(f"regions/{self._region_name}")
+                for name in ["start_times", "end_times", "durations"]:
+                    if name not in grp:
+                        grp.create_dataset(
+                            name,
+                            shape=(0,),
+                            maxshape=(None,),
+                            dtype="f8",
+                            chunks=True,
+                            compression="gzip",
+                        )
 
     def __enter__(self):
 
@@ -178,6 +202,34 @@ class ProfileRegion:
             end_time = time.perf_counter()
             self._end_times.append(end_time)
             self._started = False
+
+            if len(self._start_times) >= self._buffer_limit:
+                self.flush_to_disk()
+
+    def flush_to_disk(self) -> None:
+        """Append buffered profiling data to the HDF5 file and clear memory."""
+        if not self._start_times:
+            return
+
+        starts = self.start_times  # np.array(self._start_times, dtype=np.float64)
+        ends = self.end_times  # np.array(self._end_times, dtype=np.float64)
+        durations = self.durations
+
+        with h5py.File(self._file_path, "a") as f:
+            grp = f.require_group(f"regions/{self._region_name}")
+            for name, data in [
+                ("start_times", starts),
+                ("end_times", ends),
+                ("durations", durations),
+            ]:
+                ds = grp[name]
+                old_size = ds.shape[0]
+                new_size = old_size + len(data)
+                ds.resize((new_size,))
+                ds[old_size:new_size] = data
+
+        self._start_times.clear()
+        self._end_times.clear()
 
     def _pylikwid(self):
         return _import_pylikwid()
