@@ -44,6 +44,7 @@ class ProfilingConfig:
             cls._instance.sample_duration = 1.0
             cls._instance.sample_interval = 1.0
             cls._instance.time_trace = False
+            cls._instance.flush_to_disk = False
         return cls._instance
 
     def __init__(
@@ -53,6 +54,7 @@ class ProfilingConfig:
         sample_duration: float | int = 1.0,
         sample_interval: float | int = 1.0,
         time_trace: bool = True,
+        flush_to_disk: bool = False,
     ):
         # Only update if value provided
         self.use_likwid = use_likwid
@@ -60,6 +62,7 @@ class ProfilingConfig:
         self.sample_duration = sample_duration
         self.sample_interval = sample_interval
         self.time_trace = time_trace
+        self.flush_to_disk = flush_to_disk
 
         self._pylikwid = None
         if self.use_likwid:
@@ -124,6 +127,16 @@ class ProfilingConfig:
     def time_trace(self) -> bool:
         return self._time_trace
 
+    @property
+    def flush_to_disk(self) -> bool:
+        return self._flush_to_disk
+
+    @flush_to_disk.setter
+    def flush_to_disk(self, value) -> None:
+        if not isinstance(value, bool):
+            raise TypeError("flush_to_disk must be a bool")
+        self._flush_to_disk = value
+
     @time_trace.setter
     def time_trace(self, value: bool) -> None:
         assert isinstance(value, bool)
@@ -146,6 +159,7 @@ class ProfileRegion:
         time_trace: bool = False,
         buffer_limit: int = 6,
         file_path: str | None = None,
+        flush_to_disk: bool = False,
     ):
         if hasattr(self, "_initialized") and self._initialized:
             return
@@ -159,9 +173,10 @@ class ProfileRegion:
         self._started = False
         self._buffer_limit = buffer_limit
         self._file_path = file_path or "profiling_data.h5"
+        self._flush_to_disk = flush_to_disk
 
         # Create file and datasets if not existing
-        if self._time_trace:
+        if self.flush_to_disk and self._time_trace:
             with h5py.File(self._file_path, "a") as f:
                 grp = f.require_group(f"regions/{self._region_name}")
                 for name in ["start_times", "end_times", "durations"]:
@@ -203,10 +218,10 @@ class ProfileRegion:
             self._end_times.append(end_time)
             self._started = False
 
-            if len(self._start_times) >= self._buffer_limit:
-                self.flush_to_disk()
+            if self.flush_to_disk and len(self._start_times) >= self._buffer_limit:
+                self.flush()
 
-    def flush_to_disk(self) -> None:
+    def flush(self) -> None:
         """Append buffered profiling data to the HDF5 file and clear memory."""
         if not self._start_times:
             return
@@ -245,6 +260,10 @@ class ProfileRegion:
     @property
     def end_times(self) -> np.ndarray:
         return np.array(self._end_times)
+
+    @property
+    def flush_to_disk(self) -> bool:
+        return self._flush_to_disk
 
     @property
     def num_calls(self) -> int:
@@ -295,13 +314,15 @@ class ProfileManager:
             cls._regions[region_name] = ProfileRegion(
                 region_name,
                 time_trace=ProfilingConfig().time_trace,
+                flush_to_disk=ProfilingConfig().flush_to_disk,
             )
             return cls._regions[region_name]
 
     @classmethod
     def finalize(cls) -> None:
-        for name, region in cls.get_all_regions().items():
-            region.flush_to_disk()
+        if ProfilingConfig().flush_to_disk:
+            for name, region in cls.get_all_regions().items():
+                region.flush()
 
     @classmethod
     def get_region(cls, region_name) -> ProfileRegion:
