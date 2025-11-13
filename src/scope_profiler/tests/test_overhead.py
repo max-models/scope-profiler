@@ -3,8 +3,6 @@ import random
 import time
 
 import numpy as np
-import pytest
-from toml_fmt_common import T
 
 import scope_profiler.tests.examples as examples
 from scope_profiler.profiling import (
@@ -22,9 +20,6 @@ def random_math(N=100_000):
 
 
 def test_overhead():
-    from scope_profiler.profiling import (
-        ProfilingConfig,
-    )
 
     config = ProfilingConfig(
         sample_duration=1.0,
