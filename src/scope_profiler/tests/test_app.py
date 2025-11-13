@@ -45,6 +45,8 @@ def test_profile_manager(
     if config.time_trace:
         ProfileManager.print_summary()
 
+    ProfileManager.finalize()
+
     regions = ProfileManager.get_all_regions()
 
     assert regions["loop1"].num_calls == num_loops

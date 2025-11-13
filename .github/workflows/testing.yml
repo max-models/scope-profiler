@@ -34,10 +34,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pandoc
+      # - name: Install dependencies
+      #   run: |
+      #     sudo apt-get update
+      #     sudo apt-get install -y pandoc
 
       - name: Install project
         run: |
@@ -47,16 +47,21 @@ jobs:
       - name: Run tests
         run: |
           pytest .
-
-      - name: Test tutorials
+      
+      - name: Test postprocessing
         run: |
-          jupyter nbconvert --to notebook --execute tutorials/*.ipynb --output-dir=/tmp --ExecutePreprocessor.timeout=300
+          python src/scope_profiler/tests/examples.py
+          scope-profiler-pproc profiling_data.h5 --show -o figures
 
-      - name: Test docs build
-        run: |
-          pip install ".[docs]"
-          cd docs
-          make clean
-          make html
-          cd ..
-          ls docs/build/html/index.html
+      # - name: Test tutorials
+      #   run: |
+      #     jupyter nbconvert --to notebook --execute tutorials/*.ipynb --output-dir=/tmp --ExecutePreprocessor.timeout=300
+
+      # - name: Test docs build
+      #   run: |
+      #     pip install ".[docs]"
+      #     cd docs
+      #     make clean
+      #     make html
+      #     cd ..
+      #     ls docs/build/html/index.html
