@@ -9,3 +9,35 @@ def loop(
     for i in range(num_loops):
         with ProfileManager.profile_region(region_name=label):
             s += 1
+
+
+if __name__ == "__main__":
+    from scope_profiler.profiling import (
+        ProfilingConfig,
+    )
+
+    config = ProfilingConfig(
+        sample_duration=1.0,
+        sample_interval=1.0,
+        use_likwid=False,
+        time_trace=True,
+        simulation_label="",
+        flush_to_disk=True,
+    )
+
+    ProfileManager.reset()
+    num_loops = 10
+
+    loop(
+        label="loop1",
+        num_loops=num_loops,
+    )
+
+    loop(
+        label="loop2",
+        num_loops=num_loops * 2,
+    )
+
+    ProfileManager.print_summary()
+
+    ProfileManager.finalize()
