@@ -11,13 +11,13 @@ using LIKWID markers. It includes:
 LIKWID is imported only when profiling is enabled to avoid unnecessary overhead.
 """
 
-import os
-import pickle
+import functools
+import inspect
 import time
 
 # Import the profiling configuration class and context manager
 from functools import lru_cache
-from typing import Dict
+from typing import Callable, Dict
 
 import h5py
 import numpy as np
@@ -355,6 +355,52 @@ class ProfileManager:
                 profiling_activated=ProfilingConfig().profiling_activated,
             )
             return cls._regions[region_name]
+
+    @classmethod
+    def profile(cls, region_name: str | None = None) -> Callable:
+        """
+        Decorator factory for profiling a function.
+
+        Usage:
+          @ProfileManager.profile               # region name defaults to function.__name__
+          def foo(...): ...
+
+          @ProfileManager.profile("myregion")
+          def bar(...): ...
+        """
+
+        def decorator(func: Callable) -> Callable:
+            # Default to function.__name__ if region_name is None
+            name = region_name or func.__name__
+            region = cls.profile_region(name)
+
+            if inspect.iscoroutinefunction(func):
+                # async function wrapper
+                @functools.wraps(func)
+                async def async_wrapper(*args, **kwargs):
+                    with region:
+                        return await func(*args, **kwargs)
+
+                return async_wrapper
+            else:
+
+                @functools.wraps(func)
+                def sync_wrapper(*args, **kwargs):
+                    with region:
+                        return func(*args, **kwargs)
+
+                return sync_wrapper
+
+        # If decorator used without parentheses: @ProfileManager.profile
+        # Python will pass the function directly to the decorator factory call,
+        # but because this is a factory we should allow that too:
+        if callable(region_name):
+            # invoked as @ProfileManager.profile with no args
+            func = region_name
+            region_name = None
+            return decorator(func)
+
+        return decorator
 
     @classmethod
     def finalize(cls) -> None:
