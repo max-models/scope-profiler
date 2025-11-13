@@ -42,9 +42,6 @@ class ProfilingConfig:
             # Default values
             cls._instance.profiling_activated = True
             cls._instance.use_likwid = False
-            cls._instance.simulation_label = ""
-            cls._instance.sample_duration = 1.0
-            cls._instance.sample_interval = 1.0
             cls._instance.time_trace = False
             cls._instance.flush_to_disk = False
         return cls._instance
@@ -53,9 +50,6 @@ class ProfilingConfig:
         self,
         profiling_activated: bool = True,
         use_likwid: bool = False,
-        simulation_label: str = "",
-        sample_duration: float | int = 1.0,
-        sample_interval: float | int = 1.0,
         time_trace: bool = True,
         flush_to_disk: bool = False,
     ):
@@ -66,9 +60,6 @@ class ProfilingConfig:
         # Only update if value provided
         self.profiling_activated = profiling_activated
         self.use_likwid = use_likwid
-        self.simulation_label = simulation_label
-        self.sample_duration = sample_duration
-        self.sample_interval = sample_interval
         self.time_trace = time_trace
         self.flush_to_disk = flush_to_disk
 
@@ -119,35 +110,6 @@ class ProfilingConfig:
         self._likwid = value
 
     @property
-    def simulation_label(self) -> str:
-        return self._simulation_label
-
-    @simulation_label.setter
-    def simulation_label(self, value: str) -> None:
-        assert isinstance(value, str)
-        self._simulation_label = value
-
-    @property
-    def sample_duration(self) -> float:
-        return self._sample_duration
-
-    @sample_duration.setter
-    def sample_duration(self, value) -> None:
-        if not isinstance(value, (float, int)):
-            raise TypeError("sample_duration must be a float")
-        self._sample_duration = float(value)
-
-    @property
-    def sample_interval(self) -> float:
-        return self._sample_interval
-
-    @sample_interval.setter
-    def sample_interval(self, value) -> None:
-        if not isinstance(value, (float, int)):
-            raise TypeError("sample_interval must be a float")
-        self._sample_interval = float(value)
-
-    @property
     def time_trace(self) -> bool:
         return self._time_trace
 
@@ -164,13 +126,6 @@ class ProfilingConfig:
     @time_trace.setter
     def time_trace(self, value: bool) -> None:
         assert isinstance(value, bool)
-        if value:
-            assert (
-                self.sample_interval is not None
-            ), "sample_interval must be set first!"
-            assert (
-                self.sample_duration is not None
-            ), "sample_duration must be set first!"
         self._time_trace = value
 
 
@@ -189,7 +144,7 @@ class ProfileRegion:
         if hasattr(self, "_initialized") and self._initialized:
             return
         self._config = ProfilingConfig()
-        self._region_name = self.config.simulation_label + region_name
+        self._region_name = region_name
         self._time_trace = time_trace
         self._buffer_limit = buffer_limit
         self._file_path = file_path or "profiling_data.h5"
@@ -227,13 +182,8 @@ class ProfileRegion:
         if self._time_trace:
 
             self._start_time = time.perf_counter()
-            if (
-                self._start_time % self.config.sample_interval
-                < self.config.sample_duration
-                or self._ncalls == 0
-            ):
-                self._start_times.append(self._start_time)
-                self._started = True
+            self._start_times.append(self._start_time)
+            self._started = True
 
         self._ncalls += 1
 
