@@ -43,6 +43,13 @@ def test_profile_manager(
         num_loops=num_loops * 2,
     )
 
+    @ProfileManager.profile
+    def test_decorator():
+        return
+
+    for i in range(num_loops):
+        test_decorator()
+
     with ProfileManager.profile_region("main"):
         pass
 
@@ -56,10 +63,12 @@ def test_profile_manager(
     if profiling_activated:
         assert regions["loop1"].num_calls == num_loops
         assert regions["loop2"].num_calls == num_loops * 2
+        assert regions["test_decorator"].num_calls == num_loops
         assert regions["main"].num_calls == 1
     else:
         assert regions["loop1"].num_calls == 0
         assert regions["loop2"].num_calls == 0
+        assert regions["test_decorator"].num_calls == 0
         assert regions["main"].num_calls == 0
 
 
