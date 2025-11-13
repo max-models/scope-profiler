@@ -34,6 +34,7 @@ class ProfilingConfig:
     """Singleton class for managing global profiling configuration."""
 
     _instance = None
+    _initialized = False
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
@@ -56,6 +57,10 @@ class ProfilingConfig:
         time_trace: bool = True,
         flush_to_disk: bool = False,
     ):
+
+        if self._initialized:
+            return
+
         # Only update if value provided
         self.use_likwid = use_likwid
         self.simulation_label = simulation_label
@@ -74,6 +79,7 @@ class ProfilingConfig:
                 raise ImportError(
                     "LIKWID profiling requested but pylikwid module not installed"
                 ) from e
+        self._initialized = True
 
     def pylikwid_markerinit(self):
         """Initialize LIKWID profiling markers."""
@@ -308,8 +314,10 @@ class ProfileManager:
         ProfileRegion: The ProfileRegion instance.
         """
         if region_name in cls._regions:
+            # print(f"Using existing region '{region_name}'...")
             return cls._regions[region_name]
         else:
+            # print(f"Creating new region '{region_name}'...")
             # Create and register a new ProfileRegion
             cls._regions[region_name] = ProfileRegion(
                 region_name,
@@ -394,7 +402,7 @@ class ProfileManager:
 
         # Save the likwid configuration data
         likwid_data = {}
-        if ProfilingConfig().likwid:
+        if ProfilingConfig().use_likwid:
             pylikwid = _import_pylikwid()
 
             # Gather LIKWID-specific information
