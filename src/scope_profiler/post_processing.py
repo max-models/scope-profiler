@@ -1,8 +1,8 @@
 from scope_profiler.h5reader import ProfilingH5Reader
+import argparse
 
-if __name__ == "__main__":
-    import argparse
-
+def main():
+    """Main function for reading and summarizing profiling HDF5 data."""
     parser = argparse.ArgumentParser(
         description="Read and summarize profiling HDF5 data."
     )
@@ -22,3 +22,6 @@ if __name__ == "__main__":
         print(reader)
         reader.plot_gantt()
         reader.plot_durations()
+
+if __name__ == "__main__":
+    main()
