@@ -40,6 +40,7 @@ class ProfilingConfig:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             # Default values
+            cls._instance.profiling_activated = True
             cls._instance.use_likwid = False
             cls._instance.simulation_label = ""
             cls._instance.sample_duration = 1.0
@@ -50,6 +51,7 @@ class ProfilingConfig:
 
     def __init__(
         self,
+        profiling_activated: bool = True,
         use_likwid: bool = False,
         simulation_label: str = "",
         sample_duration: float | int = 1.0,
@@ -62,6 +64,7 @@ class ProfilingConfig:
             return
 
         # Only update if value provided
+        self.profiling_activated = profiling_activated
         self.use_likwid = use_likwid
         self.simulation_label = simulation_label
         self.sample_duration = sample_duration
@@ -81,6 +84,12 @@ class ProfilingConfig:
                 ) from e
         self._initialized = True
 
+    @classmethod
+    def reset(cls):
+        """Reset the singleton so it can be reinitialized."""
+        cls._instance = None
+        cls._initialized = False
+
     def pylikwid_markerinit(self):
         """Initialize LIKWID profiling markers."""
         if self.use_likwid and self._pylikwid:
@@ -90,6 +99,15 @@ class ProfilingConfig:
         """Close LIKWID profiling markers."""
         if self.use_likwid and self._pylikwid:
             self._pylikwid.markerclose()
+
+    @property
+    def profiling_activated(self) -> bool:
+        return self._profiling_activated
+
+    @profiling_activated.setter
+    def profiling_activated(self, value: bool) -> None:
+        assert isinstance(value, bool)
+        self._profiling_activated = value
 
     @property
     def use_likwid(self) -> bool:
@@ -163,23 +181,27 @@ class ProfileRegion:
         self,
         region_name: str,
         time_trace: bool = False,
-        buffer_limit: int = 6,
+        buffer_limit: int = 100000,
         file_path: str | None = None,
         flush_to_disk: bool = False,
+        profiling_activated: bool = True,
     ):
         if hasattr(self, "_initialized") and self._initialized:
             return
         self._config = ProfilingConfig()
         self._region_name = self.config.simulation_label + region_name
         self._time_trace = time_trace
+        self._buffer_limit = buffer_limit
+        self._file_path = file_path or "profiling_data.h5"
+        self._flush_to_disk = flush_to_disk
+        self._profiling_activated = profiling_activated
+
+        # Timer data
         self._ncalls = 0
         self._start_times = []
         self._end_times = []
         self._duration = 0.0
         self._started = False
-        self._buffer_limit = buffer_limit
-        self._file_path = file_path or "profiling_data.h5"
-        self._flush_to_disk = flush_to_disk
 
         # Create file and datasets if not existing
         if self.flush_to_disk and self._time_trace:
@@ -197,7 +219,8 @@ class ProfileRegion:
                         )
 
     def __enter__(self):
-
+        if not self.profiling_activated:
+            return self
         if self.config.use_likwid:
             self._pylikwid().markerstartregion(self.region_name)
 
@@ -217,6 +240,8 @@ class ProfileRegion:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
+        if not self.profiling_activated:
+            return
         if self.config.use_likwid:
             self._pylikwid().markerstopregion(self.region_name)
         if self._time_trace and self.started:
@@ -254,6 +279,10 @@ class ProfileRegion:
 
     def _pylikwid(self):
         return _import_pylikwid()
+
+    @property
+    def profiling_activated(self) -> bool:
+        return self._profiling_activated
 
     @property
     def config(self) -> ProfilingConfig:
@@ -323,6 +352,7 @@ class ProfileManager:
                 region_name,
                 time_trace=ProfilingConfig().time_trace,
                 flush_to_disk=ProfilingConfig().flush_to_disk,
+                profiling_activated=ProfilingConfig().profiling_activated,
             )
             return cls._regions[region_name]
 

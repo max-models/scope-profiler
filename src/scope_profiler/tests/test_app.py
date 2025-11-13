@@ -12,20 +12,24 @@ from scope_profiler.profiling import (
 @pytest.mark.parametrize("time_trace", [True, False])
 @pytest.mark.parametrize("use_likwid", [False])
 @pytest.mark.parametrize("num_loops", [10, 50, 100])
+@pytest.mark.parametrize("profiling_activated", [True, False])
 def test_profile_manager(
     sample_duration: int | float,
     sample_interval: int | float,
     time_trace: bool,
     use_likwid: bool,
     num_loops: int,
+    profiling_activated: bool,
 ):
 
+    ProfilingConfig().reset()
     config = ProfilingConfig(
         sample_duration=sample_duration,
         sample_interval=sample_interval,
         use_likwid=use_likwid,
         time_trace=time_trace,
         simulation_label="",
+        profiling_activated=profiling_activated,
     )
     ProfileManager.reset()
 
@@ -49,9 +53,14 @@ def test_profile_manager(
 
     regions = ProfileManager.get_all_regions()
 
-    assert regions["loop1"].num_calls == num_loops
-    assert regions["loop2"].num_calls == num_loops * 2
-    assert regions["main"].num_calls == 1
+    if profiling_activated:
+        assert regions["loop1"].num_calls == num_loops
+        assert regions["loop2"].num_calls == num_loops * 2
+        assert regions["main"].num_calls == 1
+    else:
+        assert regions["loop1"].num_calls == 0
+        assert regions["loop2"].num_calls == 0
+        assert regions["main"].num_calls == 0
 
 
 if __name__ == "__main__":
