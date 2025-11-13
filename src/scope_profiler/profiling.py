@@ -299,6 +299,11 @@ class ProfileManager:
             return cls._regions[region_name]
 
     @classmethod
+    def finalize(cls) -> None:
+        for name, region in cls.get_all_regions().items():
+            region.flush_to_disk()
+
+    @classmethod
     def get_region(cls, region_name) -> ProfileRegion:
         """
         Get a registered ProfileRegion by name.
