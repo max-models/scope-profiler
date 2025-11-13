@@ -22,7 +22,6 @@ def test_profile_manager(
     config = ProfilingConfig(
         use_likwid=use_likwid,
         time_trace=time_trace,
-        simulation_label="",
         profiling_activated=profiling_activated,
     )
     ProfileManager.reset()
