@@ -47,6 +47,11 @@ jobs:
       - name: Run tests
         run: |
           pytest .
+      
+      - name: Test postprocessing
+        run: |
+          python src/scope_profiler/tests/examples.py
+          scope-profiler-pproc profiling_data.h5 --show -o figures
 
       - name: Test tutorials
         run: |
