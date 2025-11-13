@@ -25,6 +25,7 @@ classifiers = [
 dependencies = [
   "h5py",
   "numpy",
+  "matplotlib",
 ]
 
 optional-dependencies.dev = [
