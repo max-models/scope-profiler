@@ -7,15 +7,11 @@ from scope_profiler.profiling import (
 )
 
 
-@pytest.mark.parametrize("sample_duration", [1.0, 0.5, 2.0])
-@pytest.mark.parametrize("sample_interval", [1.0, 0.1, 0.5])
 @pytest.mark.parametrize("time_trace", [True, False])
 @pytest.mark.parametrize("use_likwid", [False])
 @pytest.mark.parametrize("num_loops", [10, 50, 100])
 @pytest.mark.parametrize("profiling_activated", [True, False])
 def test_profile_manager(
-    sample_duration: int | float,
-    sample_interval: int | float,
     time_trace: bool,
     use_likwid: bool,
     num_loops: int,
@@ -24,8 +20,6 @@ def test_profile_manager(
 
     ProfilingConfig().reset()
     config = ProfilingConfig(
-        sample_duration=sample_duration,
-        sample_interval=sample_interval,
         use_likwid=use_likwid,
         time_trace=time_trace,
         simulation_label="",
@@ -74,8 +68,6 @@ def test_profile_manager(
 
 if __name__ == "__main__":
     test_profile_manager(
-        sample_duration=1.0,
-        sample_interval=1.0,
         time_trace=True,
         use_likwid=False,
         num_loops=100,

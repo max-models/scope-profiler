@@ -22,8 +22,6 @@ def random_math(N=100_000):
 def test_overhead():
 
     config = ProfilingConfig(
-        sample_duration=1.0,
-        sample_interval=1.0,
         use_likwid=False,
         time_trace=True,
         simulation_label="",
