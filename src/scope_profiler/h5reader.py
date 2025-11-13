@@ -109,7 +109,12 @@ class ProfilingH5Reader:
     def get_region(self, region_name: str) -> Region:
         return self._region_dict[region_name]
 
-    def plot_gantt(self, regions: List[str] | None = None) -> None:
+    def plot_gantt(
+        self,
+        regions: List[str] | str | None = None,
+        filepath: str | None = None,
+        show: bool = False,
+    ) -> None:
         """
         Plot a Gantt chart of all (or selected) regions.
 
@@ -120,10 +125,8 @@ class ProfilingH5Reader:
         """
         if regions is None:
             regions = list(self._region_dict.keys())
-
-        if not regions:
-            print("No regions to plot.")
-            return
+        elif isinstance(regions, str):
+            regions = [regions]
 
         fig, ax = plt.subplots(figsize=(10, 0.7 * len(regions)))
         colors = plt.cm.tab20(np.linspace(0, 1, len(regions)))
@@ -147,9 +150,18 @@ class ProfilingH5Reader:
         ax.set_title("Profiling Gantt Chart")
         ax.grid(True, axis="x", linestyle="--", alpha=0.5)
         fig.tight_layout()
-        plt.show()
+        if filepath:
+            plt.savefig(filepath, dpi=300)
+        if show:
+            plt.show()
 
-    def plot_durations(self, regions: List[str] | None = None, bins: int = 30) -> None:
+    def plot_durations(
+        self,
+        regions: List[str] | str | None = None,
+        filepath: str | None = None,
+        show: bool = False,
+        bins: int = 30,
+    ) -> None:
         """
         Plot duration histograms for each region.
 
@@ -162,10 +174,8 @@ class ProfilingH5Reader:
         """
         if regions is None:
             regions = list(self._region_dict.keys())
-
-        if not regions:
-            print("No regions to plot.")
-            return
+        elif isinstance(regions, str):
+            regions = [regions]
 
         n = len(regions)
         fig, axes = plt.subplots(nrows=n, ncols=1, figsize=(8, 3 * n))
@@ -189,7 +199,10 @@ class ProfilingH5Reader:
 
         fig.suptitle("Region Duration Distributions", fontsize=14)
         fig.tight_layout()
-        plt.show()
+        if filepath:
+            plt.savefig(filepath, dpi=300)
+        if show:
+            plt.show()
 
     def __repr__(self) -> str:
         _out = ""
