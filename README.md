@@ -1,6 +1,9 @@
-# scope-profiler - Python Profiling System with Optional LIKWID Integration
+# scope-profiler
 
-This module provides a unified profiling system for Python applications, with optional integration of [LIKWID](https://github.com/RRZE-HPC/likwid) markers using the [pylikwid](https://github.com/RRZE-HPC/pylikwid) marker API for hardware performance counters. It allows you to:
+This module provides a unified profiling system for Python applications, with optional integration of [LIKWID](https://github.com/RRZE-HPC/likwid) markers using the [pylikwid](https://github.com/RRZE-HPC/pylikwid) marker API for hardware performance counters.
+
+It allows you to:
+
 - Configure profiling globally via a singleton ProfilingConfig.
 - Collect timing data via context-managed profiling regions.
 - Use a clean decorator syntax to profile functions.
@@ -11,6 +14,8 @@ This module provides a unified profiling system for Python applications, with op
 Documentation: https://max-models.github.io/scope-profiler/
 
 ## Install
+
+Install from [PyPI](https://pypi.org/project/scope-profiler/):
 
 ```
 pip install scope-profiler
