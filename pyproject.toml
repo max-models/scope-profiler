@@ -26,6 +26,7 @@ classifiers = [
 dependencies = [
   "h5py",
   "matplotlib",
+  "mpi4py",
   "numpy",
 ]
 
