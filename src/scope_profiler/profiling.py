@@ -13,6 +13,7 @@ LIKWID is imported only when profiling is enabled to avoid unnecessary overhead.
 
 import functools
 import inspect
+import os
 import time
 
 # Import the profiling configuration class and context manager
@@ -21,6 +22,7 @@ from typing import Callable, Dict
 
 import h5py
 import numpy as np
+from mpi4py.MPI import Comm
 
 
 @lru_cache(maxsize=None)  # Cache the import result to avoid repeated imports
@@ -40,28 +42,37 @@ class ProfilingConfig:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             # Default values
+            cls._instance.comm = None
             cls._instance.profiling_activated = True
             cls._instance.use_likwid = False
             cls._instance.time_trace = False
             cls._instance.flush_to_disk = False
+            cls._instance.buffer_limit = 10_000
+            cls._instance.file_path = "profiling_data.h5"
         return cls._instance
 
     def __init__(
         self,
+        comm: Comm | None = None,
         profiling_activated: bool = True,
         use_likwid: bool = False,
         time_trace: bool = True,
         flush_to_disk: bool = False,
+        buffer_limit: int = 10_000,
+        file_path: str = "profiling_data.h5",
     ):
 
         if self._initialized:
             return
 
         # Only update if value provided
+        self.comm = comm
         self.profiling_activated = profiling_activated
         self.use_likwid = use_likwid
         self.time_trace = time_trace
         self.flush_to_disk = flush_to_disk
+        self.buffer_limit = buffer_limit
+        self.file_path = file_path
 
         self._pylikwid = None
         if self.use_likwid:
@@ -92,6 +103,15 @@ class ProfilingConfig:
             self._pylikwid.markerclose()
 
     @property
+    def comm(self) -> Comm | None:
+        return self._comm
+
+    @comm.setter
+    def comm(self, value: Comm | None) -> None:
+        assert value is None or isinstance(value, Comm)
+        self._comm = value
+
+    @property
     def profiling_activated(self) -> bool:
         return self._profiling_activated
 
@@ -99,6 +119,24 @@ class ProfilingConfig:
     def profiling_activated(self, value: bool) -> None:
         assert isinstance(value, bool)
         self._profiling_activated = value
+
+    @property
+    def buffer_limit(self) -> int:
+        return self._buffer_limit
+
+    @buffer_limit.setter
+    def buffer_limit(self, value: int) -> None:
+        assert isinstance(value, int)
+        self._buffer_limit = value
+
+    @property
+    def file_path(self) -> str:
+        return self._file_path
+
+    @file_path.setter
+    def file_path(self, value: str) -> None:
+        assert isinstance(value, str)
+        self._file_path = value
 
     @property
     def use_likwid(self) -> bool:
@@ -135,21 +173,31 @@ class ProfileRegion:
     def __init__(
         self,
         region_name: str,
-        time_trace: bool = False,
-        buffer_limit: int = 100000,
-        file_path: str | None = None,
-        flush_to_disk: bool = False,
-        profiling_activated: bool = True,
+        config: ProfilingConfig,
+        # comm: Comm | None,
+        # time_trace: bool = False,
+        # buffer_limit: int = 100000,
+        # file_path: str | None = None,
+        # flush_to_disk: bool = False,
+        # profiling_activated: bool = True,
     ):
         if hasattr(self, "_initialized") and self._initialized:
             return
-        self._config = ProfilingConfig()
+
+        # comm=config.comm,
+        # time_trace=config.time_trace,
+        # flush_to_disk=config.flush_to_disk,
+        # profiling_activated=config.profiling_activated,
+
         self._region_name = region_name
-        self._time_trace = time_trace
-        self._buffer_limit = buffer_limit
-        self._file_path = file_path or "profiling_data.h5"
-        self._flush_to_disk = flush_to_disk
-        self._profiling_activated = profiling_activated
+        self._config = config
+
+        self._comm = self.config.comm
+        self._time_trace = self.config.time_trace
+        self._buffer_limit = self.config.buffer_limit
+
+        self._flush_to_disk = self.config.flush_to_disk
+        self._profiling_activated = self.config.profiling_activated
 
         # Timer data
         self._ncalls = 0
@@ -158,20 +206,29 @@ class ProfileRegion:
         self._duration = 0.0
         self._started = False
 
-        # Create file and datasets if not existing
-        if self.flush_to_disk and self._time_trace:
-            with h5py.File(self._file_path, "a") as f:
-                grp = f.require_group(f"regions/{self._region_name}")
-                for name in ["start_times", "end_times", "durations"]:
-                    if name not in grp:
-                        grp.create_dataset(
-                            name,
-                            shape=(0,),
-                            maxshape=(None,),
-                            dtype="f8",
-                            chunks=True,
-                            compression="gzip",
-                        )
+        comm = self.comm
+        self._rank = 0 if comm is None else comm.Get_rank()
+        self._global_file_path = self.config.file_path or "profiling_data.h5"
+        self._local_file_path = self._global_file_path.replace(
+            ".h5", f"{self._rank}.h5"
+        )
+
+        # Construct per-rank filename
+
+        region_group = f"regions/{self._region_name}"
+
+        with h5py.File(self._local_file_path, "w") as f:
+            grp = f.require_group(region_group)
+            for name in ("start_times", "end_times", "durations"):
+                if name not in grp:
+                    grp.create_dataset(
+                        name,
+                        shape=(0,),
+                        maxshape=(None,),
+                        dtype="f8",
+                        chunks=True,
+                        # compression="gzip",
+                    )
 
     def __enter__(self):
         if not self.profiling_activated:
@@ -211,7 +268,7 @@ class ProfileRegion:
         ends = self.end_times  # np.array(self._end_times, dtype=np.float64)
         durations = self.durations
 
-        with h5py.File(self._file_path, "a") as f:
+        with h5py.File(self._local_file_path, "a") as f:
             grp = f.require_group(f"regions/{self._region_name}")
             for name, data in [
                 ("start_times", starts),
@@ -229,6 +286,10 @@ class ProfileRegion:
 
     def _pylikwid(self):
         return _import_pylikwid()
+
+    @property
+    def comm(self) -> Comm | None:
+        return self._comm
 
     @property
     def profiling_activated(self) -> bool:
@@ -298,11 +359,10 @@ class ProfileManager:
         else:
             # print(f"Creating new region '{region_name}'...")
             # Create and register a new ProfileRegion
+            config = ProfilingConfig()
             cls._regions[region_name] = ProfileRegion(
                 region_name,
-                time_trace=ProfilingConfig().time_trace,
-                flush_to_disk=ProfilingConfig().flush_to_disk,
-                profiling_activated=ProfilingConfig().profiling_activated,
+                config=config,
             )
             return cls._regions[region_name]
 
@@ -354,9 +414,41 @@ class ProfileManager:
 
     @classmethod
     def finalize(cls) -> None:
-        if ProfilingConfig().flush_to_disk:
-            for name, region in cls.get_all_regions().items():
+        # if ProfilingConfig().flush_to_disk:
+        #     for name, region in cls.get_all_regions().items():
+        #         region.flush()
+
+        cfg = ProfilingConfig()
+        comm = cfg.comm
+        rank = 0 if comm is None else comm.Get_rank()
+        size = 1 if comm is None else comm.Get_size()
+
+        # 1. Flush all buffered regions to per-rank files
+        if cfg.flush_to_disk:
+            for region in cls.get_all_regions().values():
                 region.flush()
+
+        # 2. Barrier to ensure all ranks finished flushing
+        if comm is not None:
+            comm.Barrier()
+
+        # 3. Only rank 0 performs the merge
+        if rank == 0:
+            merged_file_path = cfg.file_path
+            with h5py.File(merged_file_path, "w") as fout:
+                for r in range(size):
+                    rank_file = merged_file_path.replace(".h5", f"{r}.h5")
+                    if not os.path.exists(rank_file):
+                        continue
+                    with h5py.File(rank_file, "r") as fin:
+                        # Copy all groups from the rank file under /rank<r>
+                        fout.copy(fin, f"rank{r}")
+
+            # 4. Optionally remove per-rank files after merge
+            for r in range(size):
+                rank_file = merged_file_path.replace(".h5", f"{r}.h5")
+                if os.path.exists(rank_file):
+                    os.remove(rank_file)
 
     @classmethod
     def get_region(cls, region_name) -> ProfileRegion:
