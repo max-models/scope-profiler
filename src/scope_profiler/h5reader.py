@@ -157,7 +157,7 @@ class ProfilingH5Reader:
                         y=y,
                         width=end - start,
                         left=start,
-                        height=0.8,
+                        height=1.0,
                         color=colors[i],
                         edgecolor="black",
                         alpha=0.7,
