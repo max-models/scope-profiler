@@ -23,29 +23,37 @@ pip install scope-profiler
 
 ## Usage
 
+To set up the configuration, create an instance of `ProfilingConfig`, this should be done once at application startup and will persist until the program exits or is explicitly finalized (see below). Note that the config applies to any profiling contexts created (even in other files) after it has been initialized.
+
 ```python
 from scope_profiler.profiling import (
     ProfilingConfig,
     ProfileManager,
 )
 
+# Setup global profiling configuration
 config = ProfilingConfig(
     use_likwid=False,
     time_trace=True,
     flush_to_disk=True,
 )
 
+# Profile the main() function with a decorator
 @ProfileManager.profile("main")
 def main():
     x = 0
     for i in range(10):
+        # Profile each iteration with a context manager
         with ProfileManager.profile_region(region_name="iteration"):
             x += 1
 
+# Call main
 main()    
 
+# Print summary of profiling results
 ProfileManager.print_summary()
 
+# Finalize profiler
 ProfileManager.finalize()
 ```
 
