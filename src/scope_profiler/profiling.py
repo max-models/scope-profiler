@@ -275,11 +275,21 @@ class ProfileRegion:
                 ("end_times", ends),
                 ("durations", durations),
             ]:
-                ds = grp[name]
-                old_size = ds.shape[0]
-                new_size = old_size + len(data)
-                ds.resize((new_size,))
-                ds[old_size:new_size] = data
+                if name in grp:
+                    ds = grp[name]
+                    old_size = ds.shape[0]
+                    new_size = old_size + len(data)
+                    ds.resize((new_size,))
+                    ds[old_size:new_size] = data
+                else:
+                    grp.create_dataset(
+                        name,
+                        data=data,
+                        maxshape=(None,),
+                        chunks=True,
+                        dtype="f8",
+                        # compression="gzip",  # optional
+                    )
 
         self._start_times.clear()
         self._end_times.clear()
