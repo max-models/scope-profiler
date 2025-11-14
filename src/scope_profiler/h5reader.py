@@ -86,70 +86,98 @@ class ProfilingH5Reader:
         if not self.file_path.exists():
             raise FileNotFoundError(f"HDF5 file not found: {self.file_path}")
 
-        # Verify it's an HDF5 file
-        try:
-            with h5py.File(self.file_path, "r") as f:
-                if "regions" not in f:
-                    raise ValueError("Invalid profiling file: missing 'regions' group.")
-        except OSError as e:
-            raise ValueError(f"Cannot open {self.file_path} as an HDF5 file") from e
-
         # Read the file
         self._region_dict = {}
-        with h5py.File(self.file_path, "r") as f:
-            # region_names = list(f["regions"].keys())
 
-            for region_name, region in f["regions"].items():
-                # grp = f[f"regions/{region_name}"]
-                self._region_dict[region_name] = Region(
-                    region["start_times"][()],
-                    region["end_times"][()],
-                )
+        with h5py.File(self.file_path, "r") as f:
+            # Iterate over all rank groups
+            for rank_group_name, rank_group in f.items():
+                print(rank_group_name, rank_group)
+                rank = int(rank_group_name.replace("rank", ""))
+                if "regions" not in rank_group:
+                    continue
+                regions_group = rank_group["regions"]
+
+                for region_name, region_grp in regions_group.items():
+                    starts = region_grp["start_times"][()]
+                    ends = region_grp["end_times"][()]
+
+                    # # Merge if region already exists (from another rank)
+                    if region_name in self._region_dict:
+                        self._region_dict[region_name][rank] = Region(starts, ends)
+                    else:
+                        self._region_dict[region_name] = {rank: Region(starts, ends)}
+        # print(f"{self._region_dict["main"].keys() = }")
 
     def get_region(self, region_name: str) -> Region:
         return self._region_dict[region_name]
 
     def plot_gantt(
         self,
-        regions: List[str] | str | None = None,
+        ranks: list[int] | None = None,
+        regions: list[str] | str | None = None,
         filepath: str | None = None,
         show: bool = False,
     ) -> None:
         """
-        Plot a Gantt chart of all (or selected) regions.
+        Plot a Gantt chart of all (or selected) regions with per-rank lanes.
 
         Parameters
         ----------
         regions : list[str] | None
             List of region names to plot. If None, plot all.
+        ranks : list[int] | None
+            List of ranks to include. If None, include all ranks.
         """
         if regions is None:
             regions = list(self._region_dict.keys())
         elif isinstance(regions, str):
             regions = [regions]
 
-        fig, ax = plt.subplots(figsize=(10, 0.7 * len(regions)))
+        # Determine number of ranks from the first region
+        first_region = self._region_dict[regions[0]]
+        n_ranks = len(first_region.keys())
+
+        if ranks is None:
+            ranks = list(range(n_ranks))
+
+        # Compute figure height: 0.5 per rank per region
+        fig, ax = plt.subplots(figsize=(12, 1 * len(regions) * n_ranks))
         colors = plt.cm.tab20(np.linspace(0, 1, len(regions)))
 
+        # Draw bars
         for i, region_name in enumerate(regions):
             region = self._region_dict[region_name]
-            for start, end in zip(region.start_times, region.end_times):
-                ax.barh(
-                    y=i,
-                    width=end - start,
-                    left=start,
-                    height=0.4,
-                    color=colors[i],
-                    edgecolor="black",
-                    alpha=0.7,
-                )
+            for r in ranks:
+                starts = region[r].start_times
+                ends = region[r].end_times
+                y = i * n_ranks + r  # stack ranks vertically within the region
+                for start, end in zip(starts, ends):
+                    ax.barh(
+                        y=y,
+                        width=end - start,
+                        left=start,
+                        height=0.8,
+                        color=colors[i],
+                        edgecolor="black",
+                        alpha=0.7,
+                    )
 
+        # Configure y-axis labels
+        yticks = []
+        yticklabels = []
+        for i, region_name in enumerate(regions):
+            for r in range(n_ranks):
+                yticks.append(i * n_ranks + r)
+                yticklabels.append(f"{region_name} (rank {r})")
+
+        ax.set_yticks(yticks)
+        ax.set_yticklabels(yticklabels)
         ax.set_xlabel("Time (seconds)")
-        ax.set_yticks(range(len(regions)))
-        ax.set_yticklabels(regions)
         ax.set_title("Profiling Gantt Chart")
         ax.grid(True, axis="x", linestyle="--", alpha=0.5)
         fig.tight_layout()
+
         if filepath:
             plt.savefig(filepath, dpi=300)
         if show:
