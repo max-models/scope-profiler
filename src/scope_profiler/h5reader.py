@@ -185,48 +185,78 @@ class ProfilingH5Reader:
 
     def plot_durations(
         self,
-        regions: List[str] | str | None = None,
+        ranks: list[int] | None = None,
+        regions: list[str] | str | None = None,
         filepath: str | None = None,
         show: bool = False,
         bins: int = 30,
     ) -> None:
         """
-        Plot duration histograms for each region.
+        Plot duration histograms for each region with per-rank lanes.
 
         Parameters
         ----------
         regions : list[str] | None
             List of region names to plot. If None, plot all.
+        ranks : list[int] | None
+            List of ranks to include. If None, include all ranks.
         bins : int
             Number of histogram bins.
         """
+        import matplotlib.pyplot as plt
+        import numpy as np
+
         if regions is None:
             regions = list(self._region_dict.keys())
         elif isinstance(regions, str):
             regions = [regions]
 
-        n = len(regions)
-        fig, axes = plt.subplots(nrows=n, ncols=1, figsize=(8, 3 * n))
-        if n == 1:
+        # Determine number of ranks from first region
+        first_region = self._region_dict[regions[0]]
+        n_ranks = len(first_region.keys())
+        if ranks is None:
+            ranks = list(range(n_ranks))
+
+        # Compute figure height: 1 unit per rank per region
+        fig, axes = plt.subplots(
+            nrows=len(regions), ncols=1, figsize=(10, 1 * len(regions) * n_ranks)
+        )
+        if len(regions) == 1:
             axes = [axes]
+
+        colors = plt.cm.tab20(np.linspace(0, 1, n_ranks))
 
         for ax, region_name in zip(axes, regions):
             region = self._region_dict[region_name]
-            durations = region.durations
-            if len(durations) == 0:
-                ax.text(0.5, 0.5, "No data", ha="center", va="center")
-                continue
 
-            ax.hist(
-                durations, bins=bins, color="steelblue", alpha=0.7, edgecolor="black"
-            )
+            # Determine max y for proper stacking
+            y_positions = {r: r for r in ranks}  # rank -> vertical offset within region
+            max_y = max(y_positions.values()) + 1
+
+            for r in ranks:
+                subregion = region[r]
+                starts = subregion.start_times
+                ends = subregion.end_times
+                y = y_positions[r]
+                if len(starts) == 0:
+                    continue
+                ax.hist(
+                    starts,  # use start times as representative events for histogram
+                    bins=bins,
+                    alpha=0.6,
+                    color=colors[r],
+                    label=f"Rank {r}",
+                )
+
             ax.set_title(f"Region: {region_name}")
-            ax.set_xlabel("Duration (s)")
+            ax.set_xlabel("Time (seconds)")
             ax.set_ylabel("Frequency")
+            ax.legend()
             ax.grid(True, alpha=0.4)
 
-        fig.suptitle("Region Duration Distributions", fontsize=14)
+        fig.suptitle("Region Duration Distributions per Rank", fontsize=14)
         fig.tight_layout()
+
         if filepath:
             plt.savefig(filepath, dpi=300)
         if show:

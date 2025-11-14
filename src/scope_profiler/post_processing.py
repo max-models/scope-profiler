@@ -44,7 +44,7 @@ def main():
 
     # Call the plotting functions with the appropriate arguments
     reader.plot_gantt(regions=regions, filepath=gantt_path, show=args.show)
-    # reader.plot_durations(regions=regions, filepath=durations_path, show=args.show)
+    reader.plot_durations(regions=regions, filepath=durations_path, show=args.show)
 
     # If saving only (no show), print confirmation
     if args.output and not args.show:
