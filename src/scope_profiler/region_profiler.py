@@ -87,12 +87,6 @@ class BaseProfileRegion:
 
 # Disabled region: does nothing
 class DisabledProfileRegion(BaseProfileRegion):
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        pass
-
     def append(self, start, end):
         pass
 
@@ -102,11 +96,25 @@ class DisabledProfileRegion(BaseProfileRegion):
     def get_durations_numpy(self):
         return np.array([])
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
+
 
 class NCallsOnlyProfileRegion(BaseProfileRegion):
-
     def __init__(self, region_name: str, config: ProfilingConfig):
         super().__init__(region_name, config)
+
+    def append(self, start, end):
+        pass
+
+    def flush(self):
+        pass
+
+    def get_durations_numpy(self):
+        return np.array([])
 
     def __enter__(self):
         self.num_calls += 1
@@ -114,15 +122,6 @@ class NCallsOnlyProfileRegion(BaseProfileRegion):
 
     def __exit__(self, exc_type, exc_value, traceback):
         pass
-
-    def append(self, start, end):
-        pass
-
-    def flush(self):
-        pass
-
-    def get_durations_numpy(self):
-        return np.array([])
 
 
 # Time-only region

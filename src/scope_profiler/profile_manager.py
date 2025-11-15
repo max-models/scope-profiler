@@ -2,6 +2,7 @@ import dis
 import functools
 import inspect
 import os
+import time
 from time import perf_counter_ns
 from typing import TYPE_CHECKING, Callable, Dict
 
@@ -45,10 +46,8 @@ class ProfileManager:
     """
 
     _regions = {}
-    _config = ProfilingConfig()
+    _config = None
     _region_cls = None
-
-    _region_cls = None  # we'll set it dynamically
 
     @classmethod
     def _update_region_cls(cls):
@@ -69,12 +68,6 @@ class ProfileManager:
             cls._region_cls = LikwidOnlyProfileRegion
         else:
             cls._region_cls = NCallsOnlyProfileRegion
-
-    @classmethod
-    def reset(cls) -> None:
-        cls._regions = {}
-        cls._config = ProfilingConfig()
-        cls._update_region_cls()
 
     @classmethod
     def profile_region(cls, region_name) -> BaseProfileRegion:
@@ -117,7 +110,6 @@ class ProfileManager:
 
                 @functools.wraps(func)
                 async def async_wrapper(*args, **kwargs):
-
                     region = profile_region(name)
 
                     if not profiling_activated:
@@ -137,7 +129,6 @@ class ProfileManager:
 
                 @functools.wraps(func)
                 def sync_wrapper(*args, **kwargs):
-
                     region = profile_region(name)
 
                     if not profiling_activated:
@@ -268,9 +259,47 @@ class ProfileManager:
         return cls._regions
 
     @classmethod
+    def setup(
+        cls,
+        profiling_activated: bool = True,
+        use_likwid: bool = False,
+        time_trace: bool = True,
+        flush_to_disk: bool = True,
+        buffer_limit: int = 100_000,
+        file_path: str = "profiling_data.h5",
+    ):
+        ProfilingConfig().reset()
+        config = ProfilingConfig(
+            profiling_activated=profiling_activated,
+            use_likwid=use_likwid,
+            time_trace=time_trace,
+            flush_to_disk=flush_to_disk,
+            buffer_limit=buffer_limit,
+            file_path=file_path,
+        )
+        cls.set_config(config=config)
+
+    @classmethod
     def set_config(cls, config: ProfilingConfig) -> None:
-        cls._config = config
+        cls._regions.clear()  # Clear old regions
+        cls._config = config  # Update the config
+        cls._update_region_cls()  # Set the proper region class
 
     @classmethod
     def get_config(cls) -> ProfilingConfig:
         return cls._config
+
+    @classmethod
+    def _reset_regions(cls) -> None:
+        cls._regions = {}
+
+    @classmethod
+    def _reset_config(cls) -> None:
+        ProfilingConfig().reset()
+        cls._config = ProfilingConfig()
+
+    @classmethod
+    def _reset(cls) -> None:
+        cls._reset_regions()
+        cls._reset_config()
+        cls._update_region_cls()
