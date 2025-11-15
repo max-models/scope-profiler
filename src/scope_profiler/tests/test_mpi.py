@@ -3,10 +3,7 @@ import random
 
 from mpi4py import MPI
 
-from scope_profiler.profiling import (
-    ProfileManager,
-    ProfilingConfig,
-)
+from scope_profiler import ProfileManager, ProfilingConfig
 
 
 def random_math(N=100_000):
