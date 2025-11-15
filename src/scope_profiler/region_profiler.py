@@ -135,6 +135,7 @@ class TimeOnlyProfileRegionNoFlush(BaseProfileRegion):
     def __exit__(self, exc_type, exc_value, traceback):
         self.end_times.append(perf_counter_ns())
 
+
 class TimeOnlyProfileRegion(BaseProfileRegion):
     def __enter__(self):
         self.start_times.append(perf_counter_ns())
@@ -182,6 +183,7 @@ class FullProfileRegionNoFlush(TimeOnlyProfileRegion, LikwidOnlyProfileRegion):
     def __exit__(self, exc_type, exc_value, traceback):
         self.likwid_marker_stop(self.region_name)
         self.end_times.append(perf_counter_ns())
+
 
 class FullProfileRegion(TimeOnlyProfileRegion, LikwidOnlyProfileRegion):
     __slots__ = ("likwid_marker_start", "likwid_marker_stop")

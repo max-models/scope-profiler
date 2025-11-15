@@ -13,10 +13,10 @@ from scope_profiler.region_profiler import (
     BaseProfileRegion,
     DisabledProfileRegion,
     FullProfileRegion,
+    FullProfileRegionNoFlush,
     LikwidOnlyProfileRegion,
     NCallsOnlyProfileRegion,
     TimeOnlyProfileRegion,
-    FullProfileRegionNoFlush,
     TimeOnlyProfileRegionNoFlush,
 )
 
