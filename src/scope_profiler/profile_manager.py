@@ -47,7 +47,7 @@ class ProfileManager:
 
     _regions = {}
     _config = None
-    _region_cls = None
+    _region_cls = DisabledProfileRegion
 
     @classmethod
     def _update_region_cls(cls):
