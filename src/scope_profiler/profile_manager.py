@@ -1,3 +1,4 @@
+import dis
 import functools
 import inspect
 import os
@@ -8,10 +9,17 @@ import h5py
 import numpy as np
 
 from scope_profiler.profile_config import ProfilingConfig
-from scope_profiler.region_profiler import MockProfileRegion, ProfileRegion
+from scope_profiler.region_profiler import (
+    BaseProfileRegion,
+    DisabledProfileRegion,
+    FullProfileRegion,
+    LikwidOnlyProfileRegion,
+    NCallsOnlyProfileRegion,
+    TimeOnlyProfileRegion,
+)
 
 
-def _record_and_run(region: ProfileRegion, func, *args, **kwargs):
+def _record_and_run(region: BaseProfileRegion, func, *args, **kwargs):
     """Synchronous profiling."""
     start = perf_counter_ns()
     try:
@@ -20,7 +28,7 @@ def _record_and_run(region: ProfileRegion, func, *args, **kwargs):
         region.append(start, perf_counter_ns())
 
 
-async def _record_and_run_async(region: ProfileRegion, func, *args, **kwargs):
+async def _record_and_run_async(region: BaseProfileRegion, func, *args, **kwargs):
     """Asynchronous profiling."""
     start = perf_counter_ns()
     try:
@@ -36,18 +44,42 @@ class ProfileManager:
 
     _regions = {}
     _config = ProfilingConfig()
-    _region_cls = ProfileRegion if _config.profiling_activated else MockProfileRegion
+    _region_cls = None
+
+    _region_cls = None  # we'll set it dynamically
+
+    @classmethod
+    def _update_region_cls(cls):
+        cfg = cls._config
+        if not cfg.profiling_activated:
+            cls._region_cls = DisabledProfileRegion
+        elif cfg.time_trace and cfg.use_likwid:
+            cls._region_cls = FullProfileRegion
+        elif cfg.time_trace:
+
+            cls._region_cls = TimeOnlyProfileRegion
+        elif cfg.use_likwid:
+
+            cls._region_cls = LikwidOnlyProfileRegion
+        elif cfg.profiling_activated and not cfg.time_trace and not cfg.use_likwid:
+
+            cls._region_cls = NCallsOnlyProfileRegion
+        else:
+            # cfg.profiling_activated = True cfg.time_trace = False cfg.use_likwid = False
+            print(
+                f"\n\n\n{cfg.profiling_activated = } {cfg.time_trace = } {cfg.use_likwid = }"
+            )
+            # fallback to disabled if profiling activated but no features
+            cls._region_cls = DisabledProfileRegion
 
     @classmethod
     def reset(cls) -> None:
         cls._regions = {}
         cls._config = ProfilingConfig()
-        cls._region_cls = (
-            ProfileRegion if cls._config.profiling_activated else MockProfileRegion
-        )
+        cls._update_region_cls()
 
     @classmethod
-    def profile_region(cls, region_name) -> ProfileRegion | MockProfileRegion:
+    def profile_region(cls, region_name) -> BaseProfileRegion:
         """
         Get an existing ProfileRegion by name, or create a new one if it doesn't exist.
 
@@ -58,7 +90,7 @@ class ProfileManager:
 
         Returns
         -------
-        ProfileRegion | MockProfileRegion: The ProfileRegion instance.
+        ProfileRegion : The ProfileRegion instance.
         """
 
         return cls._regions.setdefault(
@@ -211,7 +243,7 @@ class ProfileManager:
             config.pylikwid_markerclose()
 
     @classmethod
-    def get_region(cls, region_name) -> ProfileRegion:
+    def get_region(cls, region_name) -> BaseProfileRegion:
         """
         Get a registered ProfileRegion by name.
 
@@ -227,7 +259,7 @@ class ProfileManager:
         return cls._regions.get(region_name)
 
     @classmethod
-    def get_all_regions(cls) -> Dict[str, "ProfileRegion"]:
+    def get_all_regions(cls) -> Dict[str, "BaseProfileRegion"]:
         """
         Get all registered ProfileRegion instances.
 
