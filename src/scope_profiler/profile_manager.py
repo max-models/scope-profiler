@@ -11,6 +11,24 @@ from scope_profiler.profile_config import ProfilingConfig
 from scope_profiler.region_profiler import MockProfileRegion, ProfileRegion
 
 
+def _record_and_run(region: ProfileRegion, func, *args, **kwargs):
+    """Synchronous profiling."""
+    start = perf_counter_ns()
+    try:
+        return func(*args, **kwargs)
+    finally:
+        region.append(start, perf_counter_ns())
+
+
+async def _record_and_run_async(region: ProfileRegion, func, *args, **kwargs):
+    """Asynchronous profiling."""
+    start = perf_counter_ns()
+    try:
+        return await func(*args, **kwargs)
+    finally:
+        region.append(start, perf_counter_ns())
+
+
 class ProfileManager:
     """
     Singleton class to manage and track all ProfileRegion instances.
@@ -70,21 +88,19 @@ class ProfileManager:
                 @functools.wraps(func)
                 async def async_wrapper(*args, **kwargs):
 
-                    # ALWAYS create the region object in the dictionary
                     region = profile_region(name)
 
-                    # print(f"Calling wrapped function {name}")
-                    if profiling_activated:
-                        region._ncalls += 1
-                        if time_trace:
-                            start = perf_counter_ns()
-                            try:
-                                return await func(*args, **kwargs)
-                            finally:
-                                end = perf_counter_ns()
-                                region.append(start, end)
-                        else:
-                            return await func(*args, **kwargs)
+                    if not profiling_activated:
+                        return await func(*args, **kwargs)
+
+                    region._ncalls += 1
+
+                    if time_trace:
+                        return await _record_and_run_async(
+                            region, func, *args, **kwargs
+                        )
+                    else:
+                        return await func(*args, **kwargs)
 
                 return async_wrapper
             else:
@@ -92,21 +108,17 @@ class ProfileManager:
                 @functools.wraps(func)
                 def sync_wrapper(*args, **kwargs):
 
-                    # ALWAYS create the region object in the dictionary
                     region = profile_region(name)
 
-                    # print(f"Calling wrapped function {name}")
-                    if profiling_activated:
-                        region._ncalls += 1
-                        if time_trace:
-                            start = perf_counter_ns()
-                            try:
-                                return func(*args, **kwargs)
-                            finally:
-                                end = perf_counter_ns()
-                                region.append(start, end)
-                        else:
-                            return func(*args, **kwargs)
+                    if not profiling_activated:
+                        return func(*args, **kwargs)
+
+                    region._ncalls += 1
+
+                    if time_trace:
+                        return _record_and_run(region, func, *args, **kwargs)
+                    else:
+                        return func(*args, **kwargs)
 
                 return sync_wrapper
 

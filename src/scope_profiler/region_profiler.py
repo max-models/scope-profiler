@@ -98,8 +98,6 @@ class ProfileRegion:
 
     def append(self, start: float, end: float) -> None:
         """Append a timing directly (used by decorator for speed)."""
-        if not self._profiling_activated or not self._time_trace:
-            return
         self._start_times.append(start)
         self._end_times.append(end)
         if self._flush_to_disk and len(self._start_times) >= self._buffer_limit:
