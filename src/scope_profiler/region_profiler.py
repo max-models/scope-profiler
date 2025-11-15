@@ -35,6 +35,15 @@ class MockProfileRegion:
     def __exit__(self, exc_type, exc_value, traceback):
         pass
 
+    def get_durations_numpy(self) -> None:
+        return None
+
+    def get_end_times_numpy(self) -> None:
+        return None
+
+    def get_start_times_numpy(self) -> None:
+        return None
+
 
 class ProfileRegion:
     """Context manager for profiling specific code regions using LIKWID markers."""

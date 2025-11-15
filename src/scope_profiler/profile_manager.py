@@ -205,11 +205,12 @@ class ProfileManager:
         print("=" * 40)
         for name, region in cls._regions.items():
             if region.num_calls > 0:
-                total_duration = sum(region.durations) / 1e9
+                durations = region.get_durations_numpy()
+                total_duration = sum(durations) / 1e9
                 average_duration = (total_duration / region.num_calls) / 1e9
-                min_duration = min(region.durations) / 1e9
-                max_duration = max(region.durations) / 1e9
-                std_duration = np.std(region.durations) / 1e9
+                min_duration = min(durations) / 1e9
+                max_duration = max(durations) / 1e9
+                std_duration = np.std(durations) / 1e9
             else:
                 total_duration = average_duration = min_duration = max_duration = (
                     std_duration
