@@ -1,7 +1,7 @@
 import functools
 import inspect
 import os
-import time
+from time import perf_counter_ns
 from typing import TYPE_CHECKING, Callable, Dict
 
 import h5py
@@ -56,23 +56,32 @@ class ProfileManager:
 
         def decorator(func: Callable) -> Callable:
             name = region_name or func.__name__
-            # ALWAYS create the region object in the dictionary
-            region = cls.profile_region(name)
             config = cls.get_config()
+
+            # Cache config once at decoration time
+            profiling_activated = config.profiling_activated
+            time_trace = config.time_trace
+
+            # Fast references (local variables always faster)
+            profile_region = cls.profile_region
 
             if inspect.iscoroutinefunction(func):
 
                 @functools.wraps(func)
                 async def async_wrapper(*args, **kwargs):
+
+                    # ALWAYS create the region object in the dictionary
+                    region = profile_region(name)
+
                     # print(f"Calling wrapped function {name}")
-                    if config.profiling_activated:
+                    if profiling_activated:
                         region._ncalls += 1
-                        if config.time_trace:
-                            start = time.perf_counter_ns()
+                        if time_trace:
+                            start = perf_counter_ns()
                             try:
                                 return await func(*args, **kwargs)
                             finally:
-                                end = time.perf_counter_ns()
+                                end = perf_counter_ns()
                                 region.append(start, end)
                         else:
                             return await func(*args, **kwargs)
@@ -82,15 +91,19 @@ class ProfileManager:
 
                 @functools.wraps(func)
                 def sync_wrapper(*args, **kwargs):
+
+                    # ALWAYS create the region object in the dictionary
+                    region = profile_region(name)
+
                     # print(f"Calling wrapped function {name}")
-                    if config.profiling_activated:
+                    if profiling_activated:
                         region._ncalls += 1
-                        if config.time_trace:
-                            start = time.perf_counter_ns()
+                        if time_trace:
+                            start = perf_counter_ns()
                             try:
                                 return func(*args, **kwargs)
                             finally:
-                                end = time.perf_counter_ns()
+                                end = perf_counter_ns()
                                 region.append(start, end)
                         else:
                             return func(*args, **kwargs)
@@ -126,7 +139,7 @@ class ProfileManager:
             merged_file_path = config.file_path
             with h5py.File(merged_file_path, "w") as fout:
                 for r in range(size):
-                    rank_file = config.get_local_filepath(rank)
+                    rank_file = config.get_local_filepath(r)
                     if not os.path.exists(rank_file):
                         # print("warning: Profiling file is missing!")
                         continue
