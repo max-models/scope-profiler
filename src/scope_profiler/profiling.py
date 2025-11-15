@@ -91,9 +91,8 @@ class ProfilingConfig:
         self._pylikwid = None
         if self.use_likwid:
             try:
-                import pylikwid
-
-                self._pylikwid = pylikwid
+                self._pylikwid = _import_pylikwid()
+                self.pylikwid_markerinit()
             except ImportError as e:
                 raise ImportError(
                     "LIKWID profiling requested but pylikwid module not installed"
@@ -266,6 +265,13 @@ class ProfileRegion:
                         # compression="gzip",
                     )
 
+        if self.config.use_likwid:
+            self._likwid_marker_start = _import_pylikwid().markerstartregion
+            self._likwid_marker_stop = _import_pylikwid().markerstopregion
+        else:
+            self._likwid_marker_start = None
+            self._likwid_marker_stop = None
+
     def append(self, start: float, end: float) -> None:
         """Append a timing directly (used by decorator for speed)."""
         if not self._profiling_activated or not self._time_trace:
@@ -310,9 +316,6 @@ class ProfileRegion:
         self._start_times.clear()
         self._end_times.clear()
 
-    def _pylikwid(self):
-        return _import_pylikwid()
-
     @property
     def comm(self) -> Comm | None:
         return self._comm
@@ -356,8 +359,10 @@ class ProfileRegion:
     def __enter__(self):
         if not self.profiling_activated:
             return self
-        if self.config.use_likwid:
-            self._pylikwid().markerstartregion(self.region_name)
+
+        # Pylikwid markerstartregion
+        if self._likwid_marker_start:
+            self._likwid_marker_start(self.region_name)
 
         if self._time_trace:
             self._start_time = time.perf_counter_ns()
@@ -371,8 +376,11 @@ class ProfileRegion:
     def __exit__(self, exc_type, exc_value, traceback) -> None:
         if not self.profiling_activated:
             return
-        if self.config.use_likwid:
-            self._pylikwid().markerstopregion(self.region_name)
+
+        # Pylikwid markerstartregion
+        if self._likwid_marker_stop:
+            self._likwid_marker_stop(self.region_name)
+
         if self._time_trace and self.started:
             end_time = time.perf_counter_ns()
             self._end_times.append(end_time)
@@ -504,6 +512,9 @@ class ProfileManager:
                     with h5py.File(rank_file, "r") as fin:
                         # Copy all groups from the rank file under /rank<r>
                         fout.copy(fin, f"rank{r}")
+
+        if config.use_likwid:
+            config.pylikwid_markerclose()
 
     @classmethod
     def get_region(cls, region_name) -> ProfileRegion:
