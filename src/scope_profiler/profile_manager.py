@@ -46,7 +46,7 @@ class ProfileManager:
     """
 
     _regions = {}
-    _config = None
+    _config = ProfilingConfig()
     _region_cls = DisabledProfileRegion
 
     @classmethod
