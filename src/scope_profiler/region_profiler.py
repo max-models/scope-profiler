@@ -43,7 +43,11 @@ class BaseProfileRegion:
             for name in ("start_times", "end_times"):
                 if name not in grp:
                     grp.create_dataset(
-                        name, shape=(0,), maxshape=(None,), dtype="i8", chunks=True
+                        name,
+                        shape=(0,),
+                        maxshape=(None,),
+                        dtype="i8",
+                        chunks=True,
                     )
 
     def append(self, start: float, end: float) -> None:
@@ -100,11 +104,9 @@ class DisabledProfileRegion(BaseProfileRegion):
 
 
 class NCallsOnlyProfileRegion(BaseProfileRegion):
-    __slots__ = "num_calls"
 
     def __init__(self, region_name: str, config: ProfilingConfig):
         super().__init__(region_name, config)
-        self.num_calls = 0
 
     def __enter__(self):
         self.num_calls += 1
@@ -113,8 +115,26 @@ class NCallsOnlyProfileRegion(BaseProfileRegion):
     def __exit__(self, exc_type, exc_value, traceback):
         pass
 
+    def append(self, start, end):
+        pass
+
+    def flush(self):
+        pass
+
+    def get_durations_numpy(self):
+        return np.array([])
+
 
 # Time-only region
+class TimeOnlyProfileRegionNoFlush(BaseProfileRegion):
+    def __enter__(self):
+        self.start_times.append(perf_counter_ns())
+        self.num_calls += 1
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.end_times.append(perf_counter_ns())
+
 class TimeOnlyProfileRegion(BaseProfileRegion):
     def __enter__(self):
         self.start_times.append(perf_counter_ns())
@@ -150,6 +170,19 @@ class LikwidOnlyProfileRegion(BaseProfileRegion):
 
 
 # Full region: time + LIKWID
+class FullProfileRegionNoFlush(TimeOnlyProfileRegion, LikwidOnlyProfileRegion):
+    __slots__ = ("likwid_marker_start", "likwid_marker_stop")
+
+    def __enter__(self):
+        self.likwid_marker_start(self.region_name)
+        self.start_times.append(perf_counter_ns())
+        self.num_calls += 1
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.likwid_marker_stop(self.region_name)
+        self.end_times.append(perf_counter_ns())
+
 class FullProfileRegion(TimeOnlyProfileRegion, LikwidOnlyProfileRegion):
     __slots__ = ("likwid_marker_start", "likwid_marker_stop")
 

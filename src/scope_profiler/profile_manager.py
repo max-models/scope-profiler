@@ -16,6 +16,8 @@ from scope_profiler.region_profiler import (
     LikwidOnlyProfileRegion,
     NCallsOnlyProfileRegion,
     TimeOnlyProfileRegion,
+    FullProfileRegionNoFlush,
+    TimeOnlyProfileRegionNoFlush,
 )
 
 
@@ -54,23 +56,19 @@ class ProfileManager:
         if not cfg.profiling_activated:
             cls._region_cls = DisabledProfileRegion
         elif cfg.time_trace and cfg.use_likwid:
-            cls._region_cls = FullProfileRegion
+            if cfg.flush_to_disk:
+                cls._region_cls = FullProfileRegion
+            else:
+                cls._region_cls = FullProfileRegionNoFlush
         elif cfg.time_trace:
-
-            cls._region_cls = TimeOnlyProfileRegion
+            if cfg.flush_to_disk:
+                cls._region_cls = TimeOnlyProfileRegion
+            else:
+                cls._region_cls = TimeOnlyProfileRegionNoFlush
         elif cfg.use_likwid:
-
             cls._region_cls = LikwidOnlyProfileRegion
-        elif cfg.profiling_activated and not cfg.time_trace and not cfg.use_likwid:
-
-            cls._region_cls = NCallsOnlyProfileRegion
         else:
-            # cfg.profiling_activated = True cfg.time_trace = False cfg.use_likwid = False
-            print(
-                f"\n\n\n{cfg.profiling_activated = } {cfg.time_trace = } {cfg.use_likwid = }"
-            )
-            # fallback to disabled if profiling activated but no features
-            cls._region_cls = DisabledProfileRegion
+            cls._region_cls = NCallsOnlyProfileRegion
 
     @classmethod
     def reset(cls) -> None:
