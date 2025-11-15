@@ -33,7 +33,7 @@ def test_mpi():
     for _ in range(num_computations):
         with ProfileManager.profile_region("main"):
             random_math(N)
-        time.sleep(0.1)
+        time.sleep(0.01)
 
     ProfileManager.finalize()
 
