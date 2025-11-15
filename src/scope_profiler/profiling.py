@@ -219,7 +219,7 @@ class ProfileRegion:
                         name,
                         shape=(0,),
                         maxshape=(None,),
-                        dtype="f8",
+                        dtype="i8",
                         chunks=True,
                         # compression="gzip",
                     )
@@ -232,7 +232,7 @@ class ProfileRegion:
 
         if self._time_trace:
 
-            self._start_time = time.perf_counter()
+            self._start_time = time.perf_counter_ns()
             self._start_times.append(self._start_time)
             self._started = True
 
@@ -246,7 +246,7 @@ class ProfileRegion:
         if self.config.use_likwid:
             self._pylikwid().markerstopregion(self.region_name)
         if self._time_trace and self.started:
-            end_time = time.perf_counter()
+            end_time = time.perf_counter_ns()
             self._end_times.append(end_time)
             self._started = False
 
@@ -258,8 +258,8 @@ class ProfileRegion:
         if not self._start_times:
             return
 
-        starts = self.start_times  # np.array(self._start_times, dtype=np.float64)
-        ends = self.end_times  # np.array(self._end_times, dtype=np.float64)
+        starts = self.start_times
+        ends = self.end_times
         durations = self.durations
 
         with h5py.File(self.config._local_file_path, "a") as f:
@@ -281,7 +281,7 @@ class ProfileRegion:
                         data=data,
                         maxshape=(None,),
                         chunks=True,
-                        dtype="f8",
+                        dtype="i8",
                         # compression="gzip",  # optional
                     )
 
@@ -309,7 +309,7 @@ class ProfileRegion:
 
     @property
     def end_times(self) -> np.ndarray:
-        return np.array(self._end_times)
+        return np.array(self._end_times, dtype=int)
 
     @property
     def flush_to_disk(self) -> bool:
@@ -325,7 +325,7 @@ class ProfileRegion:
 
     @property
     def start_times(self) -> np.ndarray:
-        return np.array(self._start_times)
+        return np.array(self._start_times, dtype=int)
 
     @property
     def started(self) -> bool:
@@ -489,11 +489,11 @@ class ProfileManager:
         print("=" * 40)
         for name, region in cls._regions.items():
             if region.num_calls > 0:
-                total_duration = sum(region.durations)
-                average_duration = total_duration / region.num_calls
-                min_duration = min(region.durations)
-                max_duration = max(region.durations)
-                std_duration = np.std(region.durations)
+                total_duration = sum(region.durations) / 1e9
+                average_duration = (total_duration / region.num_calls) / 1e9
+                min_duration = min(region.durations) / 1e9
+                max_duration = max(region.durations) / 1e9
+                std_duration = np.std(region.durations) / 1e9
             else:
                 total_duration = average_duration = min_duration = max_duration = (
                     std_duration
@@ -501,11 +501,11 @@ class ProfileManager:
 
             print(f"Region: {name}")
             print(f"  Number of Calls: {region.num_calls}")
-            print(f"  Total Duration: {total_duration:.6f} seconds")
-            print(f"  Average Duration: {average_duration:.6f} seconds")
-            print(f"  Min Duration: {min_duration:.6f} seconds")
-            print(f"  Max Duration: {max_duration:.6f} seconds")
-            print(f"  Std Deviation: {std_duration:.6f} seconds")
+            print(f"  Total Duration: {total_duration} seconds")
+            print(f"  Average Duration: {average_duration} seconds")
+            print(f"  Min Duration: {min_duration} seconds")
+            print(f"  Max Duration: {max_duration} seconds")
+            print(f"  Std Deviation: {std_duration} seconds")
             print("-" * 40)
 
     @classmethod
