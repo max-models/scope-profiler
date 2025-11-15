@@ -32,8 +32,6 @@ def test_mpi():
 
     ProfileManager.finalize()
 
-    # ProfileManager.print_summary()
-
 
 if __name__ == "__main__":
     test_mpi()

@@ -31,6 +31,4 @@ if __name__ == "__main__":
         num_loops=num_loops * 2,
     )
 
-    ProfileManager.print_summary()
-
     ProfileManager.finalize()

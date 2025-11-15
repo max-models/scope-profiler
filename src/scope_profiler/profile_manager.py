@@ -131,7 +131,10 @@ class ProfileManager:
         return decorator
 
     @classmethod
-    def finalize(cls) -> None:
+    def finalize(
+        cls,
+        verbose: bool = True,
+    ) -> None:
         config = cls.get_config()
         comm = config.comm
         rank = config._rank
@@ -159,6 +162,43 @@ class ProfileManager:
                         # Copy all groups from the rank file under /rank<r>
                         fout.copy(fin, f"rank{r}")
 
+                if verbose:
+                    # 4. Gather statistics for printing
+                    for region_name, region in cls.get_all_regions().items():
+                        all_starts = []
+                        all_ends = []
+
+                        # Collect from each rank's file
+                        for r in range(size):
+                            rank_file = config.get_local_filepath(r)
+                            if not os.path.exists(rank_file):
+                                continue
+                            with h5py.File(rank_file, "r") as fin:
+                                grp = fin[f"regions/{region_name}"]
+                                starts = grp["start_times"][:]
+                                ends = grp["end_times"][:]
+                                all_starts.append(starts)
+                                all_ends.append(ends)
+
+                        if all_starts:
+                            starts = np.concatenate(all_starts)
+                            ends = np.concatenate(all_ends)
+                            durations = ends - starts
+                            total_calls = len(durations)
+                            total_time = durations.sum() / 1e9
+                            avg_time = durations.mean() / 1e9
+                            min_time = durations.min() / 1e9
+                            max_time = durations.max() / 1e9
+                            std_time = durations.std() / 1e9
+
+                            print(f"Region: {region_name}")
+                            print(f"  Total Calls : {total_calls}")
+                            print(f"  Total Time  : {total_time} s")
+                            print(f"  Avg Time    : {avg_time} s")
+                            print(f"  Min Time    : {min_time} s")
+                            print(f"  Max Time    : {max_time} s")
+                            print(f"  Std Dev     : {std_time} s")
+                            print("-" * 40)
         if config.use_likwid:
             config.pylikwid_markerclose()
 
@@ -188,42 +228,6 @@ class ProfileManager:
         dict: Dictionary of all registered ProfileRegion instances.
         """
         return cls._regions
-
-    @classmethod
-    def print_summary(cls) -> None:
-        """
-        Print a summary of the profiling data for all regions.
-        """
-
-        if not cls._config.time_trace:
-            print(
-                "time_trace is not set to True --> Time traces are not measured --> Skip printing summary...",
-            )
-            return
-
-        print("Profiling Summary:")
-        print("=" * 40)
-        for name, region in cls._regions.items():
-            if region.num_calls > 0:
-                durations = region.get_durations_numpy()
-                total_duration = sum(durations) / 1e9
-                average_duration = (total_duration / region.num_calls) / 1e9
-                min_duration = min(durations) / 1e9
-                max_duration = max(durations) / 1e9
-                std_duration = np.std(durations) / 1e9
-            else:
-                total_duration = average_duration = min_duration = max_duration = (
-                    std_duration
-                ) = 0
-
-            print(f"Region: {name}")
-            print(f"  Number of Calls: {region.num_calls}")
-            print(f"  Total Duration: {total_duration} seconds")
-            print(f"  Average Duration: {average_duration} seconds")
-            print(f"  Min Duration: {min_duration} seconds")
-            print(f"  Max Duration: {max_duration} seconds")
-            print(f"  Std Deviation: {std_duration} seconds")
-            print("-" * 40)
 
     @classmethod
     def set_config(cls, config: ProfilingConfig) -> None:
