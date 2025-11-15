@@ -1,10 +1,7 @@
 import pytest
 
 import scope_profiler.tests.examples as examples
-from scope_profiler.profiling import (
-    ProfileManager,
-    ProfilingConfig,
-)
+from scope_profiler import ProfileManager, ProfilingConfig
 
 
 @pytest.mark.parametrize("time_trace", [True, False])
