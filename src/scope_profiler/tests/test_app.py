@@ -34,32 +34,41 @@ def test_profile_manager(
         num_loops=num_loops * 2,
     )
 
-    @ProfileManager.profile
+    @ProfileManager.profile("test_decorator_labeled")
     def test_decorator():
+        return
+    
+    @ProfileManager.profile
+    def test_decorator_unlabeled():
         return
 
     for i in range(num_loops):
         test_decorator()
+        test_decorator_unlabeled()
 
     with ProfileManager.profile_region("main"):
         pass
 
-    if config.time_trace:
-        ProfileManager.print_summary()
+    # if config.time_trace:
+    #     ProfileManager.print_summary()
 
     ProfileManager.finalize()
 
     regions = ProfileManager.get_all_regions()
 
+    print(f"{profiling_activated = } {time_trace = }")
+
     if profiling_activated:
         assert regions["loop1"].num_calls == num_loops
         assert regions["loop2"].num_calls == num_loops * 2
-        assert regions["test_decorator"].num_calls == num_loops
+        assert regions["test_decorator_labeled"].num_calls == num_loops
+        assert regions["test_decorator_unlabeled"].num_calls == num_loops
         assert regions["main"].num_calls == 1
     else:
         assert regions["loop1"].num_calls == 0
         assert regions["loop2"].num_calls == 0
-        assert regions["test_decorator"].num_calls == 0
+        assert regions["test_decorator_labeled"].num_calls == 0
+        assert regions["test_decorator_unlabeled"].num_calls == 0
         assert regions["main"].num_calls == 0
 
 

@@ -235,6 +235,15 @@ class ProfileRegion:
                         # compression="gzip",
                     )
 
+    def append(self, start: float, end: float) -> None:
+        """Append a timing directly (used by decorator for speed)."""
+        if not self._profiling_activated or not self._time_trace:
+            return
+        self._start_times.append(start)
+        self._end_times.append(end)
+        if self._flush_to_disk and len(self._start_times) >= self._buffer_limit:
+            self.flush()
+
     def __enter__(self):
         if not self.profiling_activated:
             return self
@@ -386,57 +395,67 @@ class ProfileManager:
     def profile(cls, region_name: str | None = None) -> Callable:
         """
         Decorator factory for profiling a function.
-
-        Usage:
-          @ProfileManager.profile               # region name defaults to function.__name__
-          def foo(...): ...
-
-          @ProfileManager.profile("myregion")
-          def bar(...): ...
         """
 
         def decorator(func: Callable) -> Callable:
-            # Default to function.__name__ if region_name is None
             name = region_name or func.__name__
+            # ALWAYS create the region object in the dictionary
             region = cls.profile_region(name)
+            config = cls.get_config()
 
             if inspect.iscoroutinefunction(func):
-                # async function wrapper
+
                 @functools.wraps(func)
                 async def async_wrapper(*args, **kwargs):
-                    with region:
-                        return await func(*args, **kwargs)
+                    # print(f"Calling wrapped function {name}")
+                    if config.profiling_activated:
+                        region._ncalls += 1
+                        if config.time_trace:
+                            start = time.perf_counter_ns()
+                            try:
+                                return await func(*args, **kwargs)
+                            finally:
+                                end = time.perf_counter_ns()
+                                region.append(start, end)
+                        else:
+                            return await func(*args, **kwargs)
 
                 return async_wrapper
             else:
 
                 @functools.wraps(func)
                 def sync_wrapper(*args, **kwargs):
-                    with region:
-                        return func(*args, **kwargs)
+                    # print(f"Calling wrapped function {name}")
+                    if config.profiling_activated:
+                        region._ncalls += 1
+                        if config.time_trace:
+                            start = time.perf_counter_ns()
+                            try:
+                                return func(*args, **kwargs)
+                            finally:
+                                end = time.perf_counter_ns()
+                                region.append(start, end)
+                        else:
+                            return func(*args, **kwargs)
 
                 return sync_wrapper
 
-        # If decorator used without parentheses: @ProfileManager.profile
-        # Python will pass the function directly to the decorator factory call,
-        # but because this is a factory we should allow that too:
+        # Support @ProfileManager.profile without parentheses
         if callable(region_name):
-            # invoked as @ProfileManager.profile with no args
-            func = region_name
-            region_name = None
-            return decorator(func)
+            return decorator(region_name)
 
         return decorator
 
     @classmethod
     def finalize(cls) -> None:
 
-        comm = cls._config.comm
-        rank = cls._config._rank
-        size = cls._config._size
+        config = cls.get_config()
+        comm = config.comm
+        rank = config._rank
+        size = config._size
 
         # 1. Flush all buffered regions to per-rank files
-        if cls._config.flush_to_disk:
+        if config.flush_to_disk:
             for region in cls.get_all_regions().values():
                 region.flush()
 
@@ -446,10 +465,10 @@ class ProfileManager:
 
         # 3. Only rank 0 performs the merge
         if rank == 0:
-            merged_file_path = cls._config.file_path
+            merged_file_path = config.file_path
             with h5py.File(merged_file_path, "w") as fout:
                 for r in range(size):
-                    rank_file = cls._config.get_local_filepath(rank)
+                    rank_file = config.get_local_filepath(rank)
                     if not os.path.exists(rank_file):
                         # print("warning: Profiling file is missing!")
                         continue
