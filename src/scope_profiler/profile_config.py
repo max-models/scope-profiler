@@ -22,14 +22,6 @@ class ProfilingConfig:
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            # Default values
-            cls._instance.comm = None
-            cls._instance.profiling_activated = True
-            cls._instance.use_likwid = False
-            cls._instance.time_trace = False
-            cls._instance.flush_to_disk = True
-            cls._instance.buffer_limit = 100_000
-            cls._instance.file_path = "profiling_data.h5"
         return cls._instance
 
     def __init__(
