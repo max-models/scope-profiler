@@ -58,6 +58,11 @@ jobs:
           python src/scope_profiler/tests/examples.py
           scope-profiler-pproc profiling_data.h5 --show -o figures
 
+      - name: Test postprocessing (MPI)
+        run: |
+          mpirun -n 2 python src/scope_profiler/tests/test_mpi.py
+          scope-profiler-pproc profiling_data.h5 --show -o figures
+
       # - name: Test tutorials
       #   run: |
       #     jupyter nbconvert --to notebook --execute tutorials/*.ipynb --output-dir=/tmp --ExecutePreprocessor.timeout=300
