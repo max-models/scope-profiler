@@ -71,7 +71,6 @@ class ProfileRegion:
         self._ncalls = 0
         self._start_times = []
         self._end_times = []
-        self._duration = 0.0
         self._started = False
 
         self._group_path = f"regions/{self._region_name}"
@@ -79,7 +78,7 @@ class ProfileRegion:
         # Construct per-rank filename
         with h5py.File(self.config._local_file_path, "a") as f:
             grp = f.require_group(self._group_path)
-            for name in ("start_times", "end_times", "durations"):
+            for name in ("start_times", "end_times"):
                 if name not in grp:
                     grp.create_dataset(
                         name,
@@ -113,14 +112,12 @@ class ProfileRegion:
 
         starts = self.start_times
         ends = self.end_times
-        durations = self.durations
 
         with h5py.File(self.config._local_file_path, "a") as f:
             grp = f[self._group_path]
             for name, data in [
                 ("start_times", starts),
                 ("end_times", ends),
-                ("durations", durations),
             ]:
                 ds = grp[name]
                 old_size = ds.shape[0]
