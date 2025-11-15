@@ -37,7 +37,7 @@ def test_profile_manager(
     @ProfileManager.profile("test_decorator_labeled")
     def test_decorator():
         return
-    
+
     @ProfileManager.profile
     def test_decorator_unlabeled():
         return

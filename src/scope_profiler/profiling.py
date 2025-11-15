@@ -442,7 +442,9 @@ class ProfileManager:
 
         # Support @ProfileManager.profile without parentheses
         if callable(region_name):
-            return decorator(region_name)
+            func = region_name
+            region_name = None  # reset, so decorator picks func.__name__
+            return decorator(func)
 
         return decorator
 
