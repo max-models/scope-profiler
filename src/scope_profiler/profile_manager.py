@@ -46,8 +46,8 @@ class ProfileManager:
     """
 
     _regions = {}
-    _config = None
-    _region_cls = None
+    _config = ProfilingConfig()
+    _region_cls = DisabledProfileRegion
 
     @classmethod
     def _update_region_cls(cls):
