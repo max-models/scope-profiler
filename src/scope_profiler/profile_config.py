@@ -1,6 +1,6 @@
 import os
 import tempfile
-import time
+from time import perf_counter_ns
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -44,18 +44,18 @@ class ProfilingConfig:
         if self._initialized:
             return
 
-        self.config_creation_time = time.perf_counter_ns()
+        self._config_creation_time = perf_counter_ns()
 
         if _MPI_AVAILABLE:
             self._comm = MPI.COMM_WORLD
         else:
             self._comm = None
-        self.profiling_activated = profiling_activated
-        self.use_likwid = use_likwid
-        self.time_trace = time_trace
-        self.flush_to_disk = flush_to_disk
-        self.buffer_limit = buffer_limit
-        self.file_path = file_path
+        self._profiling_activated = profiling_activated
+        self._use_likwid = use_likwid
+        self._time_trace = time_trace
+        self._flush_to_disk = flush_to_disk
+        self._buffer_limit = buffer_limit
+        self._file_path = file_path
 
         comm = self.comm  # TODO, just use MPI.COMM_WORLD
         self._rank = 0 if comm is None else comm.Get_rank()
@@ -103,71 +103,30 @@ class ProfilingConfig:
     def comm(self) -> "Intercomm | None":
         return self._comm
 
-    @comm.setter
-    def comm(self, value: "Intercomm | None") -> None:
-        assert value is None or isinstance(value, Intercomm)
-        self._comm = value
-
     @property
     def profiling_activated(self) -> bool:
         return self._profiling_activated
-
-    @profiling_activated.setter
-    def profiling_activated(self, value: bool) -> None:
-        assert isinstance(value, bool)
-        self._profiling_activated = value
 
     @property
     def buffer_limit(self) -> int:
         return self._buffer_limit
 
-    @buffer_limit.setter
-    def buffer_limit(self, value: int) -> None:
-        assert isinstance(value, int)
-        self._buffer_limit = value
-
     @property
     def file_path(self) -> str:
         return self._file_path
 
-    @file_path.setter
-    def file_path(self, value: str) -> None:
-        assert isinstance(value, str)
-        self._file_path = value
-
     @property
     def use_likwid(self) -> bool:
-        return self._likwid
-
-    @use_likwid.setter
-    def use_likwid(self, value: bool) -> None:
-        assert isinstance(value, bool)
-        self._likwid = value
+        return self._use_likwid
 
     @property
     def flush_to_disk(self) -> bool:
         return self._flush_to_disk
 
-    @flush_to_disk.setter
-    def flush_to_disk(self, value) -> None:
-        if not isinstance(value, bool):
-            raise TypeError("flush_to_disk must be a bool")
-        self._flush_to_disk = value
-
     @property
     def time_trace(self) -> bool:
         return self._time_trace
 
-    @time_trace.setter
-    def time_trace(self, value: bool) -> None:
-        assert isinstance(value, bool)
-        self._time_trace = value
-
     @property
     def config_creation_time(self) -> int:
         return self._config_creation_time
-
-    @config_creation_time.setter
-    def config_creation_time(self, value: int) -> None:
-        assert isinstance(value, int)
-        self._config_creation_time = value
