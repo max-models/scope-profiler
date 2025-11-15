@@ -297,6 +297,7 @@ class ProfileManager:
 
     @classmethod
     def _reset_config(cls) -> None:
+        ProfilingConfig().reset()
         cls._config = ProfilingConfig()
 
     @classmethod

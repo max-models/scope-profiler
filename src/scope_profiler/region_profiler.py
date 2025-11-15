@@ -96,6 +96,7 @@ class DisabledProfileRegion(BaseProfileRegion):
 
     def get_durations_numpy(self):
         return np.array([])
+
     def __enter__(self):
         return self
 
