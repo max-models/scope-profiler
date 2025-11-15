@@ -110,7 +110,6 @@ class ProfileManager:
 
                 @functools.wraps(func)
                 async def async_wrapper(*args, **kwargs):
-
                     region = profile_region(name)
 
                     if not profiling_activated:
@@ -130,7 +129,6 @@ class ProfileManager:
 
                 @functools.wraps(func)
                 def sync_wrapper(*args, **kwargs):
-
                     region = profile_region(name)
 
                     if not profiling_activated:

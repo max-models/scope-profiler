@@ -26,7 +26,6 @@ def test_profile_manager(
     num_loops: int,
     profiling_activated: bool,
 ):
-
     ProfileManager.setup(
         use_likwid=use_likwid,
         time_trace=time_trace,
@@ -82,7 +81,6 @@ def test_profile_manager(
 
 
 def test_all_region_types():
-
     # Disabled region
     ProfileManager.setup(
         use_likwid=False,

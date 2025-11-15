@@ -87,7 +87,6 @@ class BaseProfileRegion:
 
 # Disabled region: does nothing
 class DisabledProfileRegion(BaseProfileRegion):
-
     def append(self, start, end):
         pass
 
@@ -105,7 +104,6 @@ class DisabledProfileRegion(BaseProfileRegion):
 
 
 class NCallsOnlyProfileRegion(BaseProfileRegion):
-
     def __init__(self, region_name: str, config: ProfilingConfig):
         super().__init__(region_name, config)
 
