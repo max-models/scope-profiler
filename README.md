@@ -11,8 +11,6 @@ It allows you to:
 - Automatically initialize and close LIKWID markers only when needed.
 - Print aggregated summaries of all profiling regions.
 
-Documentation: https://max-models.github.io/scope-profiler/
-
 ## Install
 
 Install from [PyPI](https://pypi.org/project/scope-profiler/):

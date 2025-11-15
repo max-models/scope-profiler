@@ -5,7 +5,7 @@ requires = [ "setuptools", "wheel" ]
 
 [project]
 name = "scope-profiler"
-version = "0.1.4"
+version = "0.1.5"
 description = "Profile code regions in python, optionally with LIKWID markers."
 readme = "README.md"
 keywords = [ "python" ]
@@ -55,7 +55,7 @@ optional-dependencies.test = [
   "coverage",
   "pytest",
 ]
-urls."Source" = "https://github.com/max-models/scope_profiler"
+urls."Source" = "https://github.com/max-models/scope-profiler"
 
 scripts.scope-profiler-pproc = "scope_profiler.post_processing:main"
 
