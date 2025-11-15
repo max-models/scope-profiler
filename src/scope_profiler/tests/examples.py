@@ -1,4 +1,4 @@
-from scope_profiler import ProfileManager, ProfilingConfig
+from scope_profiler import ProfileManager
 
 
 def loop(
@@ -12,13 +12,12 @@ def loop(
 
 
 if __name__ == "__main__":
-    config = ProfilingConfig(
+    ProfileManager.setup(
         use_likwid=False,
         time_trace=True,
         flush_to_disk=True,
     )
 
-    ProfileManager.reset()
     num_loops = 10
 
     loop(
@@ -30,7 +29,5 @@ if __name__ == "__main__":
         label="loop2",
         num_loops=num_loops * 2,
     )
-
-    ProfileManager.print_summary()
 
     ProfileManager.finalize()

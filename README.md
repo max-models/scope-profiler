@@ -23,13 +23,13 @@ pip install scope-profiler
 
 ## Usage
 
-To set up the configuration, create an instance of `ProfilingConfig`, this should be done once at application startup and will persist until the program exits or is explicitly finalized (see below). Note that the config applies to any profiling contexts created (even in other files) after it has been initialized.
+To set up the configuration, create an instance of `ProfilingConfig` and add it to the `ProfileManager`, this should be done once at application startup and will persist until the program exits or is explicitly finalized (see below). Note that the config applies to any profiling contexts created (even in other files) after it has been initialized.
 
 ```python
-from scope_profiler import ProfilingConfig, ProfileManager
+from scope_profiler import ProfileManager
 
 # Setup global profiling configuration
-config = ProfilingConfig(
+ProfileManager.setup(
     use_likwid=False,
     time_trace=True,
     flush_to_disk=True,
@@ -45,10 +45,7 @@ def main():
             x += 1
 
 # Call main
-main()    
-
-# Print summary of profiling results
-ProfileManager.print_summary()
+main()
 
 # Finalize profiler
 ProfileManager.finalize()
@@ -58,22 +55,20 @@ Execution:
 
 ```bash
 ❯ python test.py
-Profiling Summary:
-========================================
 Region: main
-  Number of Calls: 1
-  Total Duration: 0.000315 seconds
-  Average Duration: 0.000315 seconds
-  Min Duration: 0.000315 seconds
-  Max Duration: 0.000315 seconds
-  Std Deviation: 0.000000 seconds
+  Total Calls : 1
+  Total Time  : 0.001503709 s
+  Avg Time    : 0.001503709 s
+  Min Time    : 0.001503709 s
+  Max Time    : 0.001503709 s
+  Std Dev     : 0.0 s
 ----------------------------------------
 Region: iteration
-  Number of Calls: 10
-  Total Duration: 0.000007 seconds
-  Average Duration: 0.000001 seconds
-  Min Duration: 0.000000 seconds
-  Max Duration: 0.000003 seconds
-  Std Deviation: 0.000001 seconds
+  Total Calls : 10
+  Total Time  : 3.832e-06 s
+  Avg Time    : 3.832e-07 s
+  Min Time    : 2.08e-07 s
+  Max Time    : 8.75e-07 s
+  Std Dev     : 2.2431888016838885e-07 s
 ----------------------------------------
 ```

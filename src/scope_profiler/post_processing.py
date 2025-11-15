@@ -34,7 +34,7 @@ def main():
     else:
         regions = None
         print(reader)
-    exit()
+
     # Prepare output filepaths if requested
     gantt_path = durations_path = None
     if args.output:

@@ -1,9 +1,7 @@
 import math
 import random
 
-from mpi4py import MPI
-
-from scope_profiler import ProfileManager, ProfilingConfig
+from scope_profiler import ProfileManager
 
 
 def random_math(N=100_000):
@@ -15,16 +13,12 @@ def random_math(N=100_000):
 
 
 def test_mpi():
-    comm = MPI.COMM_WORLD
-
-    config = ProfilingConfig(
-        comm=comm,
+    ProfileManager.setup(
         use_likwid=False,
         time_trace=True,
         flush_to_disk=True,
     )
 
-    ProfileManager.reset()
     num_computations = 10
     N = 100_000
     import time
@@ -35,8 +29,6 @@ def test_mpi():
         time.sleep(0.01)
 
     ProfileManager.finalize()
-
-    # ProfileManager.print_summary()
 
 
 if __name__ == "__main__":
