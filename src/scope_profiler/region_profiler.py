@@ -74,10 +74,11 @@ class ProfileRegion:
         self._duration = 0.0
         self._started = False
 
+        self._group_path = f"regions/{self._region_name}"
+
         # Construct per-rank filename
-        region_group = f"regions/{self._region_name}"
         with h5py.File(self.config._local_file_path, "a") as f:
-            grp = f.require_group(region_group)
+            grp = f.require_group(self._group_path)
             for name in ("start_times", "end_times", "durations"):
                 if name not in grp:
                     grp.create_dataset(
@@ -115,27 +116,17 @@ class ProfileRegion:
         durations = self.durations
 
         with h5py.File(self.config._local_file_path, "a") as f:
-            grp = f.require_group(f"regions/{self._region_name}")
+            grp = f[self._group_path]
             for name, data in [
                 ("start_times", starts),
                 ("end_times", ends),
                 ("durations", durations),
             ]:
-                if name in grp:
-                    ds = grp[name]
-                    old_size = ds.shape[0]
-                    new_size = old_size + len(data)
-                    ds.resize((new_size,))
-                    ds[old_size:new_size] = data
-                else:
-                    grp.create_dataset(
-                        name,
-                        data=data,
-                        maxshape=(None,),
-                        chunks=True,
-                        dtype="i8",
-                        # compression="gzip",  # optional
-                    )
+                ds = grp[name]
+                old_size = ds.shape[0]
+                new_size = old_size + len(data)
+                ds.resize((new_size,))
+                ds[old_size:new_size] = data
 
         self._start_times.clear()
         self._end_times.clear()
