@@ -1,3 +1,5 @@
+from time import sleep
+
 import pytest
 
 import scope_profiler.tests.examples as examples
@@ -32,6 +34,7 @@ def test_profile_manager(
         flush_to_disk=True,
     )
     ProfileManager.reset()
+    ProfileManager.set_config(config)
 
     examples.loop(
         label="loop1",
@@ -78,36 +81,6 @@ def test_profile_manager(
         assert regions["main"].num_calls == 0
 
 
-def test_readme():
-    from scope_profiler import ProfileManager, ProfilingConfig
-
-    # Setup global profiling configuration
-    config = ProfilingConfig(
-        use_likwid=False,
-        time_trace=True,
-        flush_to_disk=True,
-    )
-    ProfileManager.reset()
-
-    # Profile the main() function with a decorator
-    @ProfileManager.profile("main")
-    def main():
-        x = 0
-        for i in range(10):
-            # Profile each iteration with a context manager
-            with ProfileManager.profile_region(region_name="iteration"):
-                x += 1
-
-    # Call main
-    main()
-
-    # Finalize profiler
-    ProfileManager.finalize()
-
-
-from time import sleep
-
-
 def test_all_region_types():
     # Reset configuration and profiler
     ProfilingConfig().reset()
@@ -119,7 +92,6 @@ def test_all_region_types():
         profiling_activated=False,
         flush_to_disk=False,
     )
-    ProfileManager.reset()
     ProfileManager.set_config(config)
 
     with ProfileManager.profile_region("disabled_region"):
