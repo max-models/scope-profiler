@@ -1,4 +1,4 @@
-import time
+from time import perf_counter_ns
 from typing import TYPE_CHECKING
 
 import h5py
@@ -168,15 +168,15 @@ class ProfileRegion:
         return self._started
 
     def __enter__(self):
-        if not self.profiling_activated:
+        if not self._profiling_activated:
             return self
 
         # Pylikwid markerstartregion
         if self._likwid_marker_start:
-            self._likwid_marker_start(self.region_name)
+            self._likwid_marker_start(self._region_name)
 
         if self._time_trace:
-            self._start_time = time.perf_counter_ns()
+            self._start_time = perf_counter_ns()
             self._start_times.append(self._start_time)
             self._started = True
 
@@ -185,17 +185,17 @@ class ProfileRegion:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
-        if not self.profiling_activated:
+        if not self._profiling_activated:
             return
 
         # Pylikwid markerstartregion
         if self._likwid_marker_stop:
-            self._likwid_marker_stop(self.region_name)
+            self._likwid_marker_stop(self._region_name)
 
         if self._time_trace and self.started:
-            end_time = time.perf_counter_ns()
+            end_time = perf_counter_ns()
             self._end_times.append(end_time)
             self._started = False
 
-            if self.flush_to_disk and len(self._start_times) >= self._buffer_limit:
+            if self._flush_to_disk and len(self._start_times) >= self._buffer_limit:
                 self.flush()
