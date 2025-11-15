@@ -62,7 +62,6 @@ class ProfilingConfig:
         buffer_limit: int = 10_000,
         file_path: str = "profiling_data.h5",
     ):
-
         if self._initialized:
             return
 
@@ -194,6 +193,39 @@ class ProfilingConfig:
         self._config_creation_time = value
 
 
+class MockProfileRegion:
+    """A dummy ProfileRegion that does nothing, used when profiling is disabled."""
+
+    def __init__(self, region_name, config=None):
+        self._region_name = region_name
+        self._ncalls = 0
+        self._started = False
+
+    def append(self, start, end):
+        pass
+
+    def flush(self):
+        pass
+
+    @property
+    def region_name(self):
+        return self._region_name
+
+    @property
+    def num_calls(self):
+        return self._ncalls
+
+    @property
+    def started(self):
+        return False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
+
+
 class ProfileRegion:
     """Context manager for profiling specific code regions using LIKWID markers."""
 
@@ -202,7 +234,6 @@ class ProfileRegion:
         region_name: str,
         config: ProfilingConfig,
     ):
-
         self._region_name = region_name
         self._config = config
 
@@ -243,35 +274,6 @@ class ProfileRegion:
         self._end_times.append(end)
         if self._flush_to_disk and len(self._start_times) >= self._buffer_limit:
             self.flush()
-
-    def __enter__(self):
-        if not self.profiling_activated:
-            return self
-        if self.config.use_likwid:
-            self._pylikwid().markerstartregion(self.region_name)
-
-        if self._time_trace:
-
-            self._start_time = time.perf_counter_ns()
-            self._start_times.append(self._start_time)
-            self._started = True
-
-        self._ncalls += 1
-
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        if not self.profiling_activated:
-            return
-        if self.config.use_likwid:
-            self._pylikwid().markerstopregion(self.region_name)
-        if self._time_trace and self.started:
-            end_time = time.perf_counter_ns()
-            self._end_times.append(end_time)
-            self._started = False
-
-            if self.flush_to_disk and len(self._start_times) >= self._buffer_limit:
-                self.flush()
 
     def flush(self) -> None:
         """Append buffered profiling data to the HDF5 file and clear memory."""
@@ -351,6 +353,34 @@ class ProfileRegion:
     def started(self) -> bool:
         return self._started
 
+    def __enter__(self):
+        if not self.profiling_activated:
+            return self
+        if self.config.use_likwid:
+            self._pylikwid().markerstartregion(self.region_name)
+
+        if self._time_trace:
+            self._start_time = time.perf_counter_ns()
+            self._start_times.append(self._start_time)
+            self._started = True
+
+        self._ncalls += 1
+
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        if not self.profiling_activated:
+            return
+        if self.config.use_likwid:
+            self._pylikwid().markerstopregion(self.region_name)
+        if self._time_trace and self.started:
+            end_time = time.perf_counter_ns()
+            self._end_times.append(end_time)
+            self._started = False
+
+            if self.flush_to_disk and len(self._start_times) >= self._buffer_limit:
+                self.flush()
+
 
 class ProfileManager:
     """
@@ -359,14 +389,18 @@ class ProfileManager:
 
     _regions = {}
     _config = ProfilingConfig()
+    _region_cls = ProfileRegion if _config.profiling_activated else MockProfileRegion
 
     @classmethod
     def reset(cls) -> None:
         cls._regions = {}
         cls._config = ProfilingConfig()
+        cls._region_cls = (
+            ProfileRegion if cls._config.profiling_activated else MockProfileRegion
+        )
 
     @classmethod
-    def profile_region(cls, region_name) -> ProfileRegion:
+    def profile_region(cls, region_name) -> ProfileRegion | MockProfileRegion:
         """
         Get an existing ProfileRegion by name, or create a new one if it doesn't exist.
 
@@ -377,19 +411,13 @@ class ProfileManager:
 
         Returns
         -------
-        ProfileRegion: The ProfileRegion instance.
+        ProfileRegion | MockProfileRegion: The ProfileRegion instance.
         """
-        if region_name in cls._regions:
-            # print(f"Using existing region '{region_name}'...")
-            return cls._regions[region_name]
-        else:
-            # print(f"Creating new region '{region_name}'...")
-            # Create and register a new ProfileRegion
-            cls._regions[region_name] = ProfileRegion(
-                region_name,
-                config=cls._config,
-            )
-            return cls._regions[region_name]
+
+        return cls._regions.setdefault(
+            region_name,
+            cls._region_cls(region_name, config=cls._config),
+        )
 
     @classmethod
     def profile(cls, region_name: str | None = None) -> Callable:
@@ -450,7 +478,6 @@ class ProfileManager:
 
     @classmethod
     def finalize(cls) -> None:
-
         config = cls.get_config()
         comm = config.comm
         rank = config._rank

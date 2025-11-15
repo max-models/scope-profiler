@@ -23,16 +23,6 @@ class Region:
             "std_duration": self.std_duration,
         }
 
-    def __repr__(self) -> str:
-        """Print summaries for all regions in the file."""
-        # print(f"\nProfiling data summary for: {self.file_path}")
-        _out = "-" * 60 + "\n"
-        stats = self.get_summary()
-        for key, value in stats.items():
-            _out += f"  {key:>18}: {value}\n"
-        _out += "-" * 60 + "\n\n"
-        return _out
-
     @property
     def start_times(self) -> np.ndarray:
         return self._start_times / 1e9
@@ -74,6 +64,16 @@ class Region:
     def std_duration(self) -> float:
         """Standard deviation of durations."""
         return float(np.std(self._durations)) if self.num_calls else 0.0
+
+    def __repr__(self) -> str:
+        """Print summaries for all regions in the file."""
+        # print(f"\nProfiling data summary for: {self.file_path}")
+        _out = "-" * 60 + "\n"
+        stats = self.get_summary()
+        for key, value in stats.items():
+            _out += f"  {key:>18}: {value}\n"
+        _out += "-" * 60 + "\n\n"
+        return _out
 
 
 class ProfilingH5Reader:
@@ -265,13 +265,6 @@ class ProfilingH5Reader:
         if show:
             plt.show()
 
-    def __repr__(self) -> str:
-        _out = ""
-        for region_name, region in self._region_dict.items():
-            _out += f"Region: {region_name}\n"
-            _out += str(region)
-        return _out
-
     @property
     def file_path(self) -> Path:
         return self._file_path
@@ -279,3 +272,10 @@ class ProfilingH5Reader:
     @property
     def regions(self) -> List[Region]:
         return self._regions
+
+    def __repr__(self) -> str:
+        _out = ""
+        for region_name, region in self._region_dict.items():
+            _out += f"Region: {region_name}\n"
+            _out += str(region)
+        return _out

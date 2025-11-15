@@ -12,7 +12,6 @@ def loop(
 
 
 if __name__ == "__main__":
-
     config = ProfilingConfig(
         use_likwid=False,
         time_trace=True,
