@@ -89,6 +89,7 @@ class ProfileRegion:
                         # compression="gzip",
                     )
 
+        # Cache likwid markers
         if self.config.use_likwid:
             self._likwid_marker_start = _import_pylikwid().markerstartregion
             self._likwid_marker_stop = _import_pylikwid().markerstopregion
