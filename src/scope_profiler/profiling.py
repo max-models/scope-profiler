@@ -201,12 +201,6 @@ class MockProfileRegion:
         self._ncalls = 0
         self._started = False
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        pass
-
     def append(self, start, end):
         pass
 
@@ -224,6 +218,12 @@ class MockProfileRegion:
     @property
     def started(self):
         return False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
 
 
 class ProfileRegion:
@@ -274,34 +274,6 @@ class ProfileRegion:
         self._end_times.append(end)
         if self._flush_to_disk and len(self._start_times) >= self._buffer_limit:
             self.flush()
-
-    def __enter__(self):
-        if not self.profiling_activated:
-            return self
-        if self.config.use_likwid:
-            self._pylikwid().markerstartregion(self.region_name)
-
-        if self._time_trace:
-            self._start_time = time.perf_counter_ns()
-            self._start_times.append(self._start_time)
-            self._started = True
-
-        self._ncalls += 1
-
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        if not self.profiling_activated:
-            return
-        if self.config.use_likwid:
-            self._pylikwid().markerstopregion(self.region_name)
-        if self._time_trace and self.started:
-            end_time = time.perf_counter_ns()
-            self._end_times.append(end_time)
-            self._started = False
-
-            if self.flush_to_disk and len(self._start_times) >= self._buffer_limit:
-                self.flush()
 
     def flush(self) -> None:
         """Append buffered profiling data to the HDF5 file and clear memory."""
@@ -380,6 +352,34 @@ class ProfileRegion:
     @property
     def started(self) -> bool:
         return self._started
+
+    def __enter__(self):
+        if not self.profiling_activated:
+            return self
+        if self.config.use_likwid:
+            self._pylikwid().markerstartregion(self.region_name)
+
+        if self._time_trace:
+            self._start_time = time.perf_counter_ns()
+            self._start_times.append(self._start_time)
+            self._started = True
+
+        self._ncalls += 1
+
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        if not self.profiling_activated:
+            return
+        if self.config.use_likwid:
+            self._pylikwid().markerstopregion(self.region_name)
+        if self._time_trace and self.started:
+            end_time = time.perf_counter_ns()
+            self._end_times.append(end_time)
+            self._started = False
+
+            if self.flush_to_disk and len(self._start_times) >= self._buffer_limit:
+                self.flush()
 
 
 class ProfileManager:
