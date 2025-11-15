@@ -14,7 +14,6 @@ def test_profile_manager(
     num_loops: int,
     profiling_activated: bool,
 ):
-
     ProfilingConfig().reset()
     config = ProfilingConfig(
         use_likwid=use_likwid,

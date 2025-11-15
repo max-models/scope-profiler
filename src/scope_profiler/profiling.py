@@ -62,7 +62,6 @@ class ProfilingConfig:
         buffer_limit: int = 10_000,
         file_path: str = "profiling_data.h5",
     ):
-
         if self._initialized:
             return
 
@@ -202,7 +201,6 @@ class ProfileRegion:
         region_name: str,
         config: ProfilingConfig,
     ):
-
         self._region_name = region_name
         self._config = config
 
@@ -251,7 +249,6 @@ class ProfileRegion:
             self._pylikwid().markerstartregion(self.region_name)
 
         if self._time_trace:
-
             self._start_time = time.perf_counter_ns()
             self._start_times.append(self._start_time)
             self._started = True
@@ -450,7 +447,6 @@ class ProfileManager:
 
     @classmethod
     def finalize(cls) -> None:
-
         config = cls.get_config()
         comm = config.comm
         rank = config._rank

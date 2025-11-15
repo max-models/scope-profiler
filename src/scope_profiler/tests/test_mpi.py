@@ -15,7 +15,6 @@ def random_math(N=100_000):
 
 
 def test_mpi():
-
     comm = MPI.COMM_WORLD
 
     config = ProfilingConfig(
