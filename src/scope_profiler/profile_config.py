@@ -3,6 +3,8 @@ import tempfile
 from time import perf_counter_ns
 from typing import TYPE_CHECKING
 
+from numpy import isin
+
 if TYPE_CHECKING:
     from mpi4py.MPI import Intercomm
 
@@ -57,13 +59,22 @@ class ProfilingConfig:
         self._buffer_limit = buffer_limit
         self._file_path = file_path
 
-        comm = self.comm  # TODO, just use MPI.COMM_WORLD
-        self._rank = 0 if comm is None else comm.Get_rank()
-        self._size = 1 if comm is None else comm.Get_size()
+        self._rank = 0 if self._comm is None else self._comm.Get_rank()
+        self._size = 1 if self._comm is None else self._comm.Get_size()
 
-        self.temp_dir_obj = tempfile.TemporaryDirectory(prefix="profile_h5_")
-        self.temp_dir = self.temp_dir_obj.name
+        # Only rank 0 creates the TemporaryDirectory
+        if self._rank == 0:
+            self._temp_dir_obj = tempfile.TemporaryDirectory(prefix="profile_h5_")
+            temp_dir = self._temp_dir_obj.name
+        else:
+            temp_dir = None
+            self._temp_dir_obj = None  # still define to keep the attribute
 
+        # Broadcast the directory path to all ranks
+        if self._comm is not None:
+            temp_dir = self._comm.bcast(temp_dir, root=0)
+
+        self.temp_dir = temp_dir
         self._global_file_path = self.file_path
 
         # Temporary file with rank-specific timings

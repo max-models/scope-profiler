@@ -62,6 +62,7 @@ class ProfileRegion:
         "group_path",
         "likwid_marker_start",
         "likwid_marker_stop",
+        "local_file_path",
     )
 
     def __init__(
@@ -85,9 +86,10 @@ class ProfileRegion:
         self.end_times = []
 
         self.group_path = f"regions/{self.region_name}"
+        self.local_file_path = self.config._local_file_path
 
         # Construct per-rank filename
-        with h5py.File(self.config._local_file_path, "a") as f:
+        with h5py.File(self.local_file_path, "a") as f:
             grp = f.require_group(self.group_path)
             for name in ("start_times", "end_times"):
                 if name not in grp:
@@ -117,13 +119,12 @@ class ProfileRegion:
 
     def flush(self) -> None:
         """Append buffered profiling data to the HDF5 file and clear memory."""
+
         if not self.start_times:
             return
-
         starts = self.get_start_times_numpy()
         ends = self.get_end_times_numpy()
-
-        with h5py.File(self.config._local_file_path, "a") as f:
+        with h5py.File(self.local_file_path, "a") as f:
             grp = f[self.group_path]
             for name, data in [
                 ("start_times", starts),
@@ -134,7 +135,6 @@ class ProfileRegion:
                 new_size = old_size + len(data)
                 ds.resize((new_size,))
                 ds[old_size:new_size] = data
-
         self.start_times.clear()
         self.end_times.clear()
 

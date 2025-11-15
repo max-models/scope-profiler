@@ -171,7 +171,6 @@ class ProfileManager:
                     for region_name, region in cls.get_all_regions().items():
                         all_starts = []
                         all_ends = []
-
                         # Collect from each rank's file
                         for r in range(size):
                             rank_file = config.get_local_filepath(r)
@@ -188,7 +187,7 @@ class ProfileManager:
                             starts = np.concatenate(all_starts)
                             ends = np.concatenate(all_ends)
                             durations = ends - starts
-                            total_calls = len(durations)
+                            total_calls = round(len(durations) / size)
                             if total_calls > 0:
                                 total_time = durations.sum() / 1e9
                                 avg_time = durations.mean() / 1e9
