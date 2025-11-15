@@ -66,6 +66,8 @@ class ProfilingConfig:
         if self._initialized:
             return
 
+        self.config_creation_time = time.perf_counter_ns()
+
         # Only update if value provided
         self.comm = comm
         self.profiling_activated = profiling_activated
@@ -164,10 +166,6 @@ class ProfilingConfig:
         self._likwid = value
 
     @property
-    def time_trace(self) -> bool:
-        return self._time_trace
-
-    @property
     def flush_to_disk(self) -> bool:
         return self._flush_to_disk
 
@@ -177,10 +175,23 @@ class ProfilingConfig:
             raise TypeError("flush_to_disk must be a bool")
         self._flush_to_disk = value
 
+    @property
+    def time_trace(self) -> bool:
+        return self._time_trace
+
     @time_trace.setter
     def time_trace(self, value: bool) -> None:
         assert isinstance(value, bool)
         self._time_trace = value
+
+    @property
+    def config_creation_time(self) -> int:
+        return self._config_creation_time
+
+    @config_creation_time.setter
+    def config_creation_time(self, value: int) -> None:
+        assert isinstance(value, int)
+        self._config_creation_time = value
 
 
 class ProfileRegion:
@@ -309,7 +320,7 @@ class ProfileRegion:
 
     @property
     def end_times(self) -> np.ndarray:
-        return np.array(self._end_times, dtype=int)
+        return np.array(self._end_times, dtype=int) - self.config.config_creation_time
 
     @property
     def flush_to_disk(self) -> bool:
@@ -325,7 +336,7 @@ class ProfileRegion:
 
     @property
     def start_times(self) -> np.ndarray:
-        return np.array(self._start_times, dtype=int)
+        return np.array(self._start_times, dtype=int) - self.config.config_creation_time
 
     @property
     def started(self) -> bool:
