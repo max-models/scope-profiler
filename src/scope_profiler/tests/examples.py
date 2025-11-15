@@ -1,4 +1,4 @@
-from scope_profiler.profiling import ProfileManager
+from scope_profiler import ProfileManager, ProfilingConfig
 
 
 def loop(
@@ -12,10 +12,6 @@ def loop(
 
 
 if __name__ == "__main__":
-    from scope_profiler.profiling import (
-        ProfilingConfig,
-    )
-
     config = ProfilingConfig(
         use_likwid=False,
         time_trace=True,

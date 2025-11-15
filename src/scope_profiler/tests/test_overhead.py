@@ -4,11 +4,7 @@ import time
 
 import numpy as np
 
-import scope_profiler.tests.examples as examples
-from scope_profiler.profiling import (
-    ProfileManager,
-    ProfilingConfig,
-)
+from scope_profiler import ProfileManager, ProfilingConfig
 
 
 def random_math(N=100_000):
@@ -20,7 +16,6 @@ def random_math(N=100_000):
 
 
 def test_overhead():
-
     config = ProfilingConfig(
         use_likwid=False,
         time_trace=True,
