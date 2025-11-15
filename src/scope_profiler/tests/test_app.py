@@ -48,9 +48,6 @@ def test_profile_manager(
     with ProfileManager.profile_region("main"):
         pass
 
-    # if config.time_trace:
-    #     ProfileManager.print_summary()
-
     ProfileManager.finalize()
 
     regions = ProfileManager.get_all_regions()

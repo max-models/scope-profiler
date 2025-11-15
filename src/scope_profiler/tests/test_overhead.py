@@ -63,8 +63,6 @@ def test_overhead():
 
     ProfileManager.finalize()
 
-    # ProfileManager.print_summary()
-
 
 if __name__ == "__main__":
     test_overhead()
