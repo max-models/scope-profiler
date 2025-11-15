@@ -428,7 +428,9 @@ class ProfileManager:
         def decorator(func: Callable) -> Callable:
             name = region_name or func.__name__
             # ALWAYS create the region object in the dictionary
-            region = cls.profile_region(name)
+            region = cls._regions.setdefault(
+                name, cls._region_cls(name, config=cls._config)
+            )
             config = cls.get_config()
 
             if inspect.iscoroutinefunction(func):
