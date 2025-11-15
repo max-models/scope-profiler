@@ -92,6 +92,7 @@ class ProfilingH5Reader:
         with h5py.File(self.file_path, "r") as f:
             # Iterate over all rank groups
             for rank_group_name, rank_group in f.items():
+                print(f"{rank_group_name = }")
                 print(rank_group_name, rank_group)
                 rank = int(rank_group_name.replace("rank", ""))
                 if "regions" not in rank_group:
@@ -101,8 +102,8 @@ class ProfilingH5Reader:
                 for region_name, region_grp in regions_group.items():
                     starts = region_grp["start_times"][()]
                     ends = region_grp["end_times"][()]
-
-                    # # Merge if region already exists (from another rank)
+                    print(f"{region_name = }")
+                    # Merge if region already exists (from another rank)
                     if region_name in self._region_dict:
                         self._region_dict[region_name][rank] = Region(starts, ends)
                     else:
@@ -135,6 +136,8 @@ class ProfilingH5Reader:
             regions = [regions]
 
         # Determine number of ranks from the first region
+
+        print(f"{self._region_dict = }")
         first_region = self._region_dict[regions[0]]
         n_ranks = len(first_region.keys())
 

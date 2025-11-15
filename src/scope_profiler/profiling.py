@@ -47,7 +47,7 @@ class ProfilingConfig:
             cls._instance.profiling_activated = True
             cls._instance.use_likwid = False
             cls._instance.time_trace = False
-            cls._instance.flush_to_disk = False
+            cls._instance.flush_to_disk = True
             cls._instance.buffer_limit = 10_000
             cls._instance.file_path = "profiling_data.h5"
         return cls._instance
@@ -58,7 +58,7 @@ class ProfilingConfig:
         profiling_activated: bool = True,
         use_likwid: bool = False,
         time_trace: bool = True,
-        flush_to_disk: bool = False,
+        flush_to_disk: bool = True,
         buffer_limit: int = 10_000,
         file_path: str = "profiling_data.h5",
     ):
@@ -75,8 +75,17 @@ class ProfilingConfig:
         self.buffer_limit = buffer_limit
         self.file_path = file_path
 
+        comm = self.comm  # TODO, just use MPI.COMM_WORLD
+        self._rank = 0 if comm is None else comm.Get_rank()
+        self._size = 1 if comm is None else comm.Get_size()
+
         self.temp_dir_obj = tempfile.TemporaryDirectory(prefix="profile_h5_")
         self.temp_dir = self.temp_dir_obj.name
+
+        self._global_file_path = self.file_path
+
+        # Temporary file with rank-specific timings
+        self._local_file_path = self.get_local_filepath(self._rank)
 
         self._pylikwid = None
         if self.use_likwid:
@@ -89,6 +98,9 @@ class ProfilingConfig:
                     "LIKWID profiling requested but pylikwid module not installed"
                 ) from e
         self._initialized = True
+
+    def get_local_filepath(self, rank):
+        return os.path.join(self.temp_dir, f"rank_{rank}.h5")
 
     @classmethod
     def reset(cls):
@@ -197,18 +209,9 @@ class ProfileRegion:
         self._duration = 0.0
         self._started = False
 
-        comm = self.comm
-        self._rank = 0 if comm is None else comm.Get_rank()
-        self._global_file_path = self.config.file_path or "profiling_data.h5"
-
-        # Temporary file with rank-specific timings
-        self._local_file_path = os.path.join(
-            self.config.temp_dir, f"rank_{self._rank}.h5"
-        )
-
         # Construct per-rank filename
         region_group = f"regions/{self._region_name}"
-        with h5py.File(self._local_file_path, "a") as f:
+        with h5py.File(self.config._local_file_path, "a") as f:
             grp = f.require_group(region_group)
             for name in ("start_times", "end_times", "durations"):
                 if name not in grp:
@@ -259,7 +262,7 @@ class ProfileRegion:
         ends = self.end_times  # np.array(self._end_times, dtype=np.float64)
         durations = self.durations
 
-        with h5py.File(self._local_file_path, "a") as f:
+        with h5py.File(self.config._local_file_path, "a") as f:
             grp = f.require_group(f"regions/{self._region_name}")
             for name, data in [
                 ("start_times", starts),
@@ -418,8 +421,8 @@ class ProfileManager:
     def finalize(cls) -> None:
 
         comm = cls._config.comm
-        rank = 0 if comm is None else comm.Get_rank()
-        size = 1 if comm is None else comm.Get_size()
+        rank = cls._config._rank
+        size = cls._config._size
 
         # 1. Flush all buffered regions to per-rank files
         if cls._config.flush_to_disk:
@@ -435,8 +438,9 @@ class ProfileManager:
             merged_file_path = cls._config.file_path
             with h5py.File(merged_file_path, "w") as fout:
                 for r in range(size):
-                    rank_file = merged_file_path.replace(".h5", f"{r}.h5")
+                    rank_file = cls._config.get_local_filepath(rank)
                     if not os.path.exists(rank_file):
+                        # print("warning: Profiling file is missing!")
                         continue
                     with h5py.File(rank_file, "r") as fin:
                         # Copy all groups from the rank file under /rank<r>

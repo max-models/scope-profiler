@@ -23,6 +23,7 @@ def test_profile_manager(
         use_likwid=use_likwid,
         time_trace=time_trace,
         profiling_activated=profiling_activated,
+        flush_to_disk=True,
     )
     ProfileManager.reset()
 
