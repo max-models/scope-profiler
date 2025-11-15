@@ -5,7 +5,7 @@ requires = [ "setuptools", "wheel" ]
 
 [project]
 name = "scope-profiler"
-version = "0.1.2"
+version = "0.1.3"
 description = "Profile code regions in python, optionally with LIKWID markers."
 readme = "README.md"
 keywords = [ "python" ]
@@ -25,16 +25,19 @@ classifiers = [
 ]
 dependencies = [
   "h5py",
-  "matplotlib",
-  "mpi4py",
   "numpy",
+]
+
+optional-dependencies.mpi = [
+  "mpi4py",
 ]
 
 optional-dependencies.dev = [
   "black[jupyter]",
   "isort",
   "ruff",
-  "scope-profiler[docs,test]",
+  "matplotlib",
+  "scope-profiler[docs,test,mpi]",
 ]
 # https://medium.com/@pratikdomadiya123/build-project-documentation-quickly-with-the-sphinx-python-2a9732b66594
 optional-dependencies.docs = [
