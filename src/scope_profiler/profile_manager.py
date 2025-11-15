@@ -270,6 +270,7 @@ class ProfileManager:
     @classmethod
     def set_config(cls, config: ProfilingConfig) -> None:
         cls._config = config
+        cls._update_region_cls()
 
     @classmethod
     def get_config(cls) -> ProfilingConfig:
