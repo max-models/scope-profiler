@@ -14,6 +14,7 @@ LIKWID is imported only when profiling is enabled to avoid unnecessary overhead.
 import functools
 import inspect
 import os
+import tempfile
 import time
 
 # Import the profiling configuration class and context manager
@@ -46,7 +47,7 @@ class ProfilingConfig:
             cls._instance.profiling_activated = True
             cls._instance.use_likwid = False
             cls._instance.time_trace = False
-            cls._instance.flush_to_disk = False
+            cls._instance.flush_to_disk = True
             cls._instance.buffer_limit = 10_000
             cls._instance.file_path = "profiling_data.h5"
         return cls._instance
@@ -57,7 +58,7 @@ class ProfilingConfig:
         profiling_activated: bool = True,
         use_likwid: bool = False,
         time_trace: bool = True,
-        flush_to_disk: bool = False,
+        flush_to_disk: bool = True,
         buffer_limit: int = 10_000,
         file_path: str = "profiling_data.h5",
     ):
@@ -74,6 +75,18 @@ class ProfilingConfig:
         self.buffer_limit = buffer_limit
         self.file_path = file_path
 
+        comm = self.comm  # TODO, just use MPI.COMM_WORLD
+        self._rank = 0 if comm is None else comm.Get_rank()
+        self._size = 1 if comm is None else comm.Get_size()
+
+        self.temp_dir_obj = tempfile.TemporaryDirectory(prefix="profile_h5_")
+        self.temp_dir = self.temp_dir_obj.name
+
+        self._global_file_path = self.file_path
+
+        # Temporary file with rank-specific timings
+        self._local_file_path = self.get_local_filepath(self._rank)
+
         self._pylikwid = None
         if self.use_likwid:
             try:
@@ -85,6 +98,9 @@ class ProfilingConfig:
                     "LIKWID profiling requested but pylikwid module not installed"
                 ) from e
         self._initialized = True
+
+    def get_local_filepath(self, rank):
+        return os.path.join(self.temp_dir, f"rank_{rank}.h5")
 
     @classmethod
     def reset(cls):
@@ -174,20 +190,7 @@ class ProfileRegion:
         self,
         region_name: str,
         config: ProfilingConfig,
-        # comm: Comm | None,
-        # time_trace: bool = False,
-        # buffer_limit: int = 100000,
-        # file_path: str | None = None,
-        # flush_to_disk: bool = False,
-        # profiling_activated: bool = True,
     ):
-        if hasattr(self, "_initialized") and self._initialized:
-            return
-
-        # comm=config.comm,
-        # time_trace=config.time_trace,
-        # flush_to_disk=config.flush_to_disk,
-        # profiling_activated=config.profiling_activated,
 
         self._region_name = region_name
         self._config = config
@@ -206,18 +209,9 @@ class ProfileRegion:
         self._duration = 0.0
         self._started = False
 
-        comm = self.comm
-        self._rank = 0 if comm is None else comm.Get_rank()
-        self._global_file_path = self.config.file_path or "profiling_data.h5"
-        self._local_file_path = self._global_file_path.replace(
-            ".h5", f"{self._rank}.h5"
-        )
-
         # Construct per-rank filename
-
         region_group = f"regions/{self._region_name}"
-
-        with h5py.File(self._local_file_path, "w") as f:
+        with h5py.File(self.config._local_file_path, "a") as f:
             grp = f.require_group(region_group)
             for name in ("start_times", "end_times", "durations"):
                 if name not in grp:
@@ -268,7 +262,7 @@ class ProfileRegion:
         ends = self.end_times  # np.array(self._end_times, dtype=np.float64)
         durations = self.durations
 
-        with h5py.File(self._local_file_path, "a") as f:
+        with h5py.File(self.config._local_file_path, "a") as f:
             grp = f.require_group(f"regions/{self._region_name}")
             for name, data in [
                 ("start_times", starts),
@@ -344,10 +338,12 @@ class ProfileManager:
     """
 
     _regions = {}
+    _config = ProfilingConfig()
 
     @classmethod
     def reset(cls) -> None:
         cls._regions = {}
+        cls._config = ProfilingConfig()
 
     @classmethod
     def profile_region(cls, region_name) -> ProfileRegion:
@@ -369,10 +365,9 @@ class ProfileManager:
         else:
             # print(f"Creating new region '{region_name}'...")
             # Create and register a new ProfileRegion
-            config = ProfilingConfig()
             cls._regions[region_name] = ProfileRegion(
                 region_name,
-                config=config,
+                config=cls._config,
             )
             return cls._regions[region_name]
 
@@ -424,17 +419,13 @@ class ProfileManager:
 
     @classmethod
     def finalize(cls) -> None:
-        # if ProfilingConfig().flush_to_disk:
-        #     for name, region in cls.get_all_regions().items():
-        #         region.flush()
 
-        cfg = ProfilingConfig()
-        comm = cfg.comm
-        rank = 0 if comm is None else comm.Get_rank()
-        size = 1 if comm is None else comm.Get_size()
+        comm = cls._config.comm
+        rank = cls._config._rank
+        size = cls._config._size
 
         # 1. Flush all buffered regions to per-rank files
-        if cfg.flush_to_disk:
+        if cls._config.flush_to_disk:
             for region in cls.get_all_regions().values():
                 region.flush()
 
@@ -444,21 +435,16 @@ class ProfileManager:
 
         # 3. Only rank 0 performs the merge
         if rank == 0:
-            merged_file_path = cfg.file_path
+            merged_file_path = cls._config.file_path
             with h5py.File(merged_file_path, "w") as fout:
                 for r in range(size):
-                    rank_file = merged_file_path.replace(".h5", f"{r}.h5")
+                    rank_file = cls._config.get_local_filepath(rank)
                     if not os.path.exists(rank_file):
+                        # print("warning: Profiling file is missing!")
                         continue
                     with h5py.File(rank_file, "r") as fin:
                         # Copy all groups from the rank file under /rank<r>
                         fout.copy(fin, f"rank{r}")
-
-            # 4. Optionally remove per-rank files after merge
-            for r in range(size):
-                rank_file = merged_file_path.replace(".h5", f"{r}.h5")
-                if os.path.exists(rank_file):
-                    os.remove(rank_file)
 
     @classmethod
     def get_region(cls, region_name) -> ProfileRegion:
@@ -493,8 +479,7 @@ class ProfileManager:
         Print a summary of the profiling data for all regions.
         """
 
-        _config = ProfilingConfig()
-        if not _config.time_trace:
+        if not cls._config.time_trace:
             print(
                 "time_trace is not set to True --> Time traces are not measured --> Skip printing summary...",
             )
@@ -522,3 +507,11 @@ class ProfileManager:
             print(f"  Max Duration: {max_duration:.6f} seconds")
             print(f"  Std Deviation: {std_duration:.6f} seconds")
             print("-" * 40)
+
+    @classmethod
+    def set_config(cls, config: ProfilingConfig) -> None:
+        cls._config = config
+
+    @classmethod
+    def get_config(cls) -> ProfilingConfig:
+        return cls._config
