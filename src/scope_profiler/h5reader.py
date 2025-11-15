@@ -35,15 +35,15 @@ class Region:
 
     @property
     def start_times(self) -> np.ndarray:
-        return self._start_times
+        return self._start_times / 1e9
 
     @property
     def end_times(self) -> np.ndarray:
-        return self._end_times
+        return self._end_times / 1e9
 
     @property
     def durations(self) -> np.ndarray:
-        return self._durations
+        return self._durations / 1e9
 
     @property
     def num_calls(self) -> int:
