@@ -174,20 +174,7 @@ class ProfileRegion:
         self,
         region_name: str,
         config: ProfilingConfig,
-        # comm: Comm | None,
-        # time_trace: bool = False,
-        # buffer_limit: int = 100000,
-        # file_path: str | None = None,
-        # flush_to_disk: bool = False,
-        # profiling_activated: bool = True,
     ):
-        if hasattr(self, "_initialized") and self._initialized:
-            return
-
-        # comm=config.comm,
-        # time_trace=config.time_trace,
-        # flush_to_disk=config.flush_to_disk,
-        # profiling_activated=config.profiling_activated,
 
         self._region_name = region_name
         self._config = config
