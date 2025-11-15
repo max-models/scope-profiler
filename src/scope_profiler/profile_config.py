@@ -6,6 +6,14 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from mpi4py.MPI import Intercomm
 
+try:
+    from mpi4py import MPI
+
+    _MPI_AVAILABLE = True
+except ImportError:
+    MPI = None
+    _MPI_AVAILABLE = False
+
 
 def _import_pylikwid():
     import pylikwid
@@ -26,7 +34,6 @@ class ProfilingConfig:
 
     def __init__(
         self,
-        comm: "Intercomm | None" = None,
         profiling_activated: bool = True,
         use_likwid: bool = False,
         time_trace: bool = True,
@@ -39,8 +46,10 @@ class ProfilingConfig:
 
         self.config_creation_time = time.perf_counter_ns()
 
-        # Only update if value provided
-        self.comm = comm
+        if _MPI_AVAILABLE:
+            self._comm = MPI.COMM_WORLD
+        else:
+            self._comm = None
         self.profiling_activated = profiling_activated
         self.use_likwid = use_likwid
         self.time_trace = time_trace
