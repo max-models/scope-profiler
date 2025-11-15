@@ -14,6 +14,7 @@ LIKWID is imported only when profiling is enabled to avoid unnecessary overhead.
 import functools
 import inspect
 import os
+import tempfile
 import time
 
 # Import the profiling configuration class and context manager
@@ -73,6 +74,9 @@ class ProfilingConfig:
         self.flush_to_disk = flush_to_disk
         self.buffer_limit = buffer_limit
         self.file_path = file_path
+
+        self.temp_dir_obj = tempfile.TemporaryDirectory(prefix="profile_h5_")
+        self.temp_dir = self.temp_dir_obj.name
 
         self._pylikwid = None
         if self.use_likwid:
@@ -196,15 +200,15 @@ class ProfileRegion:
         comm = self.comm
         self._rank = 0 if comm is None else comm.Get_rank()
         self._global_file_path = self.config.file_path or "profiling_data.h5"
-        self._local_file_path = self._global_file_path.replace(
-            ".h5", f"{self._rank}.h5"
+
+        # Temporary file with rank-specific timings
+        self._local_file_path = os.path.join(
+            self.config.temp_dir, f"rank_{self._rank}.h5"
         )
 
         # Construct per-rank filename
-
         region_group = f"regions/{self._region_name}"
-
-        with h5py.File(self._local_file_path, "w") as f:
+        with h5py.File(self._local_file_path, "a") as f:
             grp = f.require_group(region_group)
             for name in ("start_times", "end_times", "durations"):
                 if name not in grp:
@@ -437,12 +441,6 @@ class ProfileManager:
                     with h5py.File(rank_file, "r") as fin:
                         # Copy all groups from the rank file under /rank<r>
                         fout.copy(fin, f"rank{r}")
-
-            # 4. Optionally remove per-rank files after merge
-            for r in range(size):
-                rank_file = merged_file_path.replace(".h5", f"{r}.h5")
-                if os.path.exists(rank_file):
-                    os.remove(rank_file)
 
     @classmethod
     def get_region(cls, region_name) -> ProfileRegion:
