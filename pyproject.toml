@@ -55,7 +55,7 @@ optional-dependencies.test = [
   "coverage",
   "pytest",
 ]
-urls."Source" = "https://github.com/max-models/scope_profiler"
+urls."Source" = "https://github.com/max-models/scope-profiler"
 
 scripts.scope-profiler-pproc = "scope_profiler.post_processing:main"
 
