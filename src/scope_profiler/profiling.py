@@ -344,10 +344,12 @@ class ProfileManager:
     """
 
     _regions = {}
+    _config = ProfilingConfig()
 
     @classmethod
     def reset(cls) -> None:
         cls._regions = {}
+        cls._config = ProfilingConfig()
 
     @classmethod
     def profile_region(cls, region_name) -> ProfileRegion:
@@ -369,10 +371,9 @@ class ProfileManager:
         else:
             # print(f"Creating new region '{region_name}'...")
             # Create and register a new ProfileRegion
-            config = ProfilingConfig()
             cls._regions[region_name] = ProfileRegion(
                 region_name,
-                config=config,
+                config=cls._config,
             )
             return cls._regions[region_name]
 
@@ -424,17 +425,13 @@ class ProfileManager:
 
     @classmethod
     def finalize(cls) -> None:
-        # if ProfilingConfig().flush_to_disk:
-        #     for name, region in cls.get_all_regions().items():
-        #         region.flush()
 
-        cfg = ProfilingConfig()
-        comm = cfg.comm
+        comm = cls._config.comm
         rank = 0 if comm is None else comm.Get_rank()
         size = 1 if comm is None else comm.Get_size()
 
         # 1. Flush all buffered regions to per-rank files
-        if cfg.flush_to_disk:
+        if cls._config.flush_to_disk:
             for region in cls.get_all_regions().values():
                 region.flush()
 
@@ -444,7 +441,7 @@ class ProfileManager:
 
         # 3. Only rank 0 performs the merge
         if rank == 0:
-            merged_file_path = cfg.file_path
+            merged_file_path = cls._config.file_path
             with h5py.File(merged_file_path, "w") as fout:
                 for r in range(size):
                     rank_file = merged_file_path.replace(".h5", f"{r}.h5")
@@ -493,8 +490,7 @@ class ProfileManager:
         Print a summary of the profiling data for all regions.
         """
 
-        _config = ProfilingConfig()
-        if not _config.time_trace:
+        if not cls._config.time_trace:
             print(
                 "time_trace is not set to True --> Time traces are not measured --> Skip printing summary...",
             )
@@ -522,3 +518,11 @@ class ProfileManager:
             print(f"  Max Duration: {max_duration:.6f} seconds")
             print(f"  Std Deviation: {std_duration:.6f} seconds")
             print("-" * 40)
+
+    @classmethod
+    def set_config(cls, config: ProfilingConfig) -> None:
+        cls._config = config
+
+    @classmethod
+    def get_config(cls) -> ProfilingConfig:
+        return cls._config
