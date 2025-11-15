@@ -150,7 +150,7 @@ class ProfileManager:
             comm.Barrier()
 
         # 3. Only rank 0 performs the merge
-        if rank == 0:
+        if rank == 0 and config.profiling_activated:
             merged_file_path = config.file_path
             with h5py.File(merged_file_path, "w") as fout:
                 for r in range(size):
@@ -185,11 +185,14 @@ class ProfileManager:
                             ends = np.concatenate(all_ends)
                             durations = ends - starts
                             total_calls = len(durations)
-                            total_time = durations.sum() / 1e9
-                            avg_time = durations.mean() / 1e9
-                            min_time = durations.min() / 1e9
-                            max_time = durations.max() / 1e9
-                            std_time = durations.std() / 1e9
+                            if total_calls > 0:
+                                total_time = durations.sum() / 1e9
+                                avg_time = durations.mean() / 1e9
+                                min_time = durations.min() / 1e9
+                                max_time = durations.max() / 1e9
+                                std_time = durations.std() / 1e9
+                            else:
+                                total_time = avg_time = min_time = max_time = std_time = 0.0
 
                             print(f"Region: {region_name}")
                             print(f"  Total Calls : {total_calls}")
