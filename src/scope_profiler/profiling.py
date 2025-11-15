@@ -19,11 +19,10 @@ import time
 
 # Import the profiling configuration class and context manager
 from functools import lru_cache
-from typing import Callable, Dict
+from typing import TYPE_CHECKING, Callable, Dict
 
 import h5py
 import numpy as np
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from mpi4py.MPI import Intercomm
