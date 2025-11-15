@@ -93,7 +93,7 @@ class ProfileManager:
                     if not profiling_activated:
                         return await func(*args, **kwargs)
 
-                    region._ncalls += 1
+                    region.num_calls += 1
 
                     if time_trace:
                         return await _record_and_run_async(
@@ -113,7 +113,7 @@ class ProfileManager:
                     if not profiling_activated:
                         return func(*args, **kwargs)
 
-                    region._ncalls += 1
+                    region.num_calls += 1
 
                     if time_trace:
                         return _record_and_run(region, func, *args, **kwargs)
