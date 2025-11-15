@@ -40,6 +40,23 @@ class MockProfileRegion:
 class ProfileRegion:
     """Context manager for profiling specific code regions using LIKWID markers."""
 
+    __slots__ = (
+        "region_name",
+        "config",
+        "comm",
+        "time_trace",
+        "buffer_limit",
+        "flush_to_disk",
+        "profiling_activated",
+        "num_calls",
+        "start_times",
+        "end_times",
+        "started",
+        "group_path",
+        "likwid_marker_start",
+        "likwid_marker_stop",
+    )
+
     def __init__(
         self,
         region_name: str,
@@ -61,11 +78,11 @@ class ProfileRegion:
         self.end_times = []
         self.started = False
 
-        self._group_path = f"regions/{self.region_name}"
+        self.group_path = f"regions/{self.region_name}"
 
         # Construct per-rank filename
         with h5py.File(self.config._local_file_path, "a") as f:
-            grp = f.require_group(self._group_path)
+            grp = f.require_group(self.group_path)
             for name in ("start_times", "end_times"):
                 if name not in grp:
                     grp.create_dataset(
@@ -101,7 +118,7 @@ class ProfileRegion:
         ends = self.get_end_times_numpy()
 
         with h5py.File(self.config._local_file_path, "a") as f:
-            grp = f[self._group_path]
+            grp = f[self.group_path]
             for name, data in [
                 ("start_times", starts),
                 ("end_times", ends),
@@ -124,9 +141,8 @@ class ProfileRegion:
             self.likwid_marker_start(self.region_name)
 
         if self.time_trace:
-            self._start_time = perf_counter_ns()
-            self.start_times.append(self._start_time)
-            self._started = True
+            self.start_times.append(perf_counter_ns())
+            self.started = True
 
         self.num_calls += 1
 
@@ -143,7 +159,7 @@ class ProfileRegion:
         if self.time_trace and self.started:
             end_time = perf_counter_ns()
             self.end_times.append(end_time)
-            self._started = False
+            self.started = False
 
             if self.flush_to_disk and len(self.start_times) >= self.buffer_limit:
                 self.flush()
