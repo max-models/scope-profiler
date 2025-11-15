@@ -22,7 +22,6 @@ class MockProfileRegion:
     def __init__(self, region_name, config=None):
         self.region_name = region_name
         self.num_calls = 0
-        self.started = False
 
     def append(self, start, end):
         pass
@@ -51,7 +50,6 @@ class ProfileRegion:
         "num_calls",
         "start_times",
         "end_times",
-        "started",
         "group_path",
         "likwid_marker_start",
         "likwid_marker_stop",
@@ -76,7 +74,6 @@ class ProfileRegion:
         self.num_calls = 0
         self.start_times = []
         self.end_times = []
-        self.started = False
 
         self.group_path = f"regions/{self.region_name}"
 
@@ -142,7 +139,6 @@ class ProfileRegion:
 
         if self.time_trace:
             self.start_times.append(perf_counter_ns())
-            self.started = True
 
         self.num_calls += 1
 
@@ -156,10 +152,8 @@ class ProfileRegion:
         if self.likwid_marker_stop:
             self.likwid_marker_stop(self.region_name)
 
-        if self.time_trace and self.started:
-            end_time = perf_counter_ns()
-            self.end_times.append(end_time)
-            self.started = False
+        if self.time_trace:
+            self.end_times.append(perf_counter_ns())
 
             if self.flush_to_disk and len(self.start_times) >= self.buffer_limit:
                 self.flush()
