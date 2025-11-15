@@ -1,13 +1,12 @@
 def test_readme():
-    from scope_profiler import ProfileManager, ProfilingConfig
+    from scope_profiler import ProfileManager
 
     # Setup global profiling configuration
-    config = ProfilingConfig(
+    ProfileManager.setup(
         use_likwid=False,
         time_trace=True,
         flush_to_disk=True,
     )
-    ProfileManager.set_config(config)
 
     # Profile the main() function with a decorator
     @ProfileManager.profile("main")

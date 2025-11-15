@@ -3,7 +3,7 @@ from time import sleep
 import pytest
 
 import scope_profiler.tests.examples as examples
-from scope_profiler import ProfileManager, ProfilingConfig
+from scope_profiler import ProfileManager
 from scope_profiler.region_profiler import (
     BaseProfileRegion,
     DisabledProfileRegion,
@@ -26,15 +26,13 @@ def test_profile_manager(
     num_loops: int,
     profiling_activated: bool,
 ):
-    ProfilingConfig().reset()
-    config = ProfilingConfig(
+
+    ProfileManager.setup(
         use_likwid=use_likwid,
         time_trace=time_trace,
         profiling_activated=profiling_activated,
         flush_to_disk=True,
     )
-    ProfileManager.reset()
-    ProfileManager.set_config(config)
 
     examples.loop(
         label="loop1",
@@ -65,7 +63,9 @@ def test_profile_manager(
 
     regions = ProfileManager.get_all_regions()
 
-    print(f"{profiling_activated = } {time_trace = }")
+    print(
+        f"{profiling_activated = } {time_trace = } {ProfileManager._config.profiling_activated = }"
+    )
 
     if profiling_activated:
         assert regions["loop1"].num_calls == num_loops
@@ -82,17 +82,14 @@ def test_profile_manager(
 
 
 def test_all_region_types():
-    # Reset configuration and profiler
-    ProfilingConfig().reset()
 
     # Disabled region
-    config = ProfilingConfig(
+    ProfileManager.setup(
         use_likwid=False,
         time_trace=False,
         profiling_activated=False,
         flush_to_disk=False,
     )
-    ProfileManager.set_config(config)
 
     with ProfileManager.profile_region("disabled_region"):
         pass
@@ -102,14 +99,12 @@ def test_all_region_types():
     assert region.num_calls == 0
 
     # NCallsOnly region
-    config = ProfilingConfig(
+    ProfileManager.setup(
         use_likwid=False,
         time_trace=False,
         profiling_activated=True,
         flush_to_disk=False,
     )
-    ProfileManager.set_config(config)
-    ProfileManager._region_cls = NCallsOnlyProfileRegion
 
     with ProfileManager.profile_region("ncalls_region"):
         pass

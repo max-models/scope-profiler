@@ -4,7 +4,7 @@ import time
 
 import numpy as np
 
-from scope_profiler import ProfileManager, ProfilingConfig
+from scope_profiler import ProfileManager
 
 
 def random_math(N=100_000):
@@ -16,13 +16,12 @@ def random_math(N=100_000):
 
 
 def test_overhead():
-    config = ProfilingConfig(
+    ProfileManager.setup(
         use_likwid=False,
         time_trace=True,
         flush_to_disk=True,
     )
 
-    ProfileManager.reset()
     num_computations = 1
     num_tests = 10
     N = 1_000_000

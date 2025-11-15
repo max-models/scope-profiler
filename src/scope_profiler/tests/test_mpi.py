@@ -1,7 +1,7 @@
 import math
 import random
 
-from scope_profiler import ProfileManager, ProfilingConfig
+from scope_profiler import ProfileManager
 
 
 def random_math(N=100_000):
@@ -14,13 +14,12 @@ def random_math(N=100_000):
 
 def test_mpi():
 
-    config = ProfilingConfig(
+    ProfileManager.setup(
         use_likwid=False,
         time_trace=True,
         flush_to_disk=True,
     )
 
-    ProfileManager.reset()
     num_computations = 10
     N = 100_000
     import time
