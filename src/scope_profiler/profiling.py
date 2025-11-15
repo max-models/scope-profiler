@@ -193,6 +193,39 @@ class ProfilingConfig:
         self._config_creation_time = value
 
 
+class MockProfileRegion:
+    """A dummy ProfileRegion that does nothing, used when profiling is disabled."""
+
+    def __init__(self, region_name, config=None):
+        self._region_name = region_name
+        self._ncalls = 0
+        self._started = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
+
+    def append(self, start, end):
+        pass
+
+    def flush(self):
+        pass
+
+    @property
+    def region_name(self):
+        return self._region_name
+
+    @property
+    def num_calls(self):
+        return self._ncalls
+
+    @property
+    def started(self):
+        return False
+
+
 class ProfileRegion:
     """Context manager for profiling specific code regions using LIKWID markers."""
 
@@ -356,14 +389,18 @@ class ProfileManager:
 
     _regions = {}
     _config = ProfilingConfig()
+    _region_cls = ProfileRegion if _config.profiling_activated else MockProfileRegion
 
     @classmethod
     def reset(cls) -> None:
         cls._regions = {}
         cls._config = ProfilingConfig()
+        cls._region_cls = (
+            ProfileRegion if cls._config.profiling_activated else MockProfileRegion
+        )
 
     @classmethod
-    def profile_region(cls, region_name) -> ProfileRegion:
+    def profile_region(cls, region_name) -> ProfileRegion | MockProfileRegion:
         """
         Get an existing ProfileRegion by name, or create a new one if it doesn't exist.
 
@@ -374,19 +411,13 @@ class ProfileManager:
 
         Returns
         -------
-        ProfileRegion: The ProfileRegion instance.
+        ProfileRegion | MockProfileRegion: The ProfileRegion instance.
         """
-        if region_name in cls._regions:
-            # print(f"Using existing region '{region_name}'...")
-            return cls._regions[region_name]
-        else:
-            # print(f"Creating new region '{region_name}'...")
-            # Create and register a new ProfileRegion
-            cls._regions[region_name] = ProfileRegion(
-                region_name,
-                config=cls._config,
-            )
-            return cls._regions[region_name]
+
+        return cls._regions.setdefault(
+            region_name,
+            cls._region_cls(region_name, config=cls._config),
+        )
 
     @classmethod
     def profile(cls, region_name: str | None = None) -> Callable:
