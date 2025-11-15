@@ -60,7 +60,7 @@ jobs:
 
       - name: Test postprocessing (MPI)
         run: |
-          mpirun -n 2 python src/scope_profiler/tests/test_mpi.py
+          mpirun -n 2 python src/scope_profiler/tests/mpi_example.py
           scope-profiler-pproc profiling_data.h5 --show -o figures
 
       # - name: Test tutorials

@@ -23,7 +23,10 @@ from typing import Callable, Dict
 
 import h5py
 import numpy as np
-from mpi4py.MPI import Comm
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mpi4py.MPI import Intercomm
 
 
 @lru_cache(maxsize=None)  # Cache the import result to avoid repeated imports
@@ -54,7 +57,7 @@ class ProfilingConfig:
 
     def __init__(
         self,
-        comm: Comm | None = None,
+        comm: "Intercomm | None" = None,
         profiling_activated: bool = True,
         use_likwid: bool = False,
         time_trace: bool = True,
@@ -119,12 +122,12 @@ class ProfilingConfig:
             self._pylikwid.markerclose()
 
     @property
-    def comm(self) -> Comm | None:
+    def comm(self) -> "Intercomm | None":
         return self._comm
 
     @comm.setter
-    def comm(self, value: Comm | None) -> None:
-        assert value is None or isinstance(value, Comm)
+    def comm(self, value: "Intercomm | None") -> None:
+        assert value is None or isinstance(value, Intercomm)
         self._comm = value
 
     @property
@@ -317,7 +320,7 @@ class ProfileRegion:
         self._end_times.clear()
 
     @property
-    def comm(self) -> Comm | None:
+    def comm(self) -> "Intercomm | None":
         return self._comm
 
     @property
