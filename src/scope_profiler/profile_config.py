@@ -28,7 +28,7 @@ class ProfilingConfig:
             cls._instance.use_likwid = False
             cls._instance.time_trace = False
             cls._instance.flush_to_disk = True
-            cls._instance.buffer_limit = 10_000
+            cls._instance.buffer_limit = 100_000
             cls._instance.file_path = "profiling_data.h5"
         return cls._instance
 
@@ -39,7 +39,7 @@ class ProfilingConfig:
         use_likwid: bool = False,
         time_trace: bool = True,
         flush_to_disk: bool = True,
-        buffer_limit: int = 10_000,
+        buffer_limit: int = 100_000,
         file_path: str = "profiling_data.h5",
     ):
         if self._initialized:
