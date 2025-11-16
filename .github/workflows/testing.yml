@@ -68,7 +68,7 @@ jobs:
 
     - name: Test pylikwid readme example
       run: |
-        likwid-mpirun -n 1 -g FLOPS_SP -mpi openmpi -stats python3 -c src/scope_profiler/tests/pylikwid_readme.py
+        likwid-mpirun -n 1 -g FLOPS_SP -mpi openmpi -stats python3 src/scope_profiler/tests/pylikwid_readme.py
 
     - name: Install project
       run: |
