@@ -46,11 +46,9 @@ jobs:
     - name: Test
       run: |
         export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+        sudo ldconfig
         python3 -c "import pylikwid"
-    # ./tests/testtopo.py
-    # ./tests/testpin.py
-    # ./tests/testaffinity.py
-    
+
     - name: Install project
       run: |
         pip install --upgrade pip
