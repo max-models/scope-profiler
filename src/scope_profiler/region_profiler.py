@@ -1,3 +1,4 @@
+import functools
 from time import perf_counter_ns
 from typing import TYPE_CHECKING
 
@@ -50,6 +51,15 @@ class BaseProfileRegion:
                         chunks=True,
                     )
 
+    def wrap(self, func):
+        """Override this in subclasses."""
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+
+        return wrapper
+
     def append(self, start: float, end: float) -> None:
         self.start_times.append(start)
         self.end_times.append(end)
@@ -87,6 +97,13 @@ class BaseProfileRegion:
 
 # Disabled region: does nothing
 class DisabledProfileRegion(BaseProfileRegion):
+    def wrap(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+
+        return wrapper
+
     def append(self, start, end):
         pass
 
@@ -104,6 +121,15 @@ class DisabledProfileRegion(BaseProfileRegion):
 
 
 class NCallsOnlyProfileRegion(BaseProfileRegion):
+    def wrap(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            self.num_calls += 1
+            out = func(*args, **kwargs)
+            return out
+
+        return wrapper
+
     def __init__(self, region_name: str, config: ProfilingConfig):
         super().__init__(region_name, config)
 
@@ -126,6 +152,19 @@ class NCallsOnlyProfileRegion(BaseProfileRegion):
 
 # Time-only region
 class TimeOnlyProfileRegionNoFlush(BaseProfileRegion):
+    def wrap(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            self.num_calls += 1
+            start = perf_counter_ns()
+            out = func(*args, **kwargs)
+            end = perf_counter_ns()
+            self.start_times.append(start)
+            self.end_times.append(end)
+            return out
+
+        return wrapper
+
     def __enter__(self):
         self.start_times.append(perf_counter_ns())
         self.num_calls += 1
@@ -136,6 +175,24 @@ class TimeOnlyProfileRegionNoFlush(BaseProfileRegion):
 
 
 class TimeOnlyProfileRegion(BaseProfileRegion):
+    def wrap(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            self.num_calls += 1
+            start = perf_counter_ns()
+            out = func(*args, **kwargs)
+            end = perf_counter_ns()
+            self.start_times.append(start)
+            self.end_times.append(end)
+            if (
+                self.config.flush_to_disk
+                and len(self.start_times) >= self.config.buffer_limit
+            ):
+                self.flush()
+            return out
+
+        return wrapper
+
     def __enter__(self):
         self.start_times.append(perf_counter_ns())
         self.num_calls += 1
@@ -154,6 +211,17 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
 class LikwidOnlyProfileRegion(BaseProfileRegion):
     __slots__ = ("likwid_marker_start", "likwid_marker_stop")
 
+    def wrap(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            self.num_calls += 1
+            self.likwid_marker_start(self.region_name)
+            out = func(*args, **kwargs)
+            self.likwid_marker_stop(self.region_name)
+            return out
+
+        return wrapper
+
     def __init__(self, region_name: str, config: ProfilingConfig):
         super().__init__(region_name, config)
         pylikwid = _import_pylikwid()
@@ -161,8 +229,8 @@ class LikwidOnlyProfileRegion(BaseProfileRegion):
         self.likwid_marker_stop = pylikwid.markerstopregion
 
     def __enter__(self):
-        self.likwid_marker_start(self.region_name)
         self.num_calls += 1
+        self.likwid_marker_start(self.region_name)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -172,6 +240,27 @@ class LikwidOnlyProfileRegion(BaseProfileRegion):
 # Full region: time + LIKWID
 class FullProfileRegionNoFlush(TimeOnlyProfileRegion, LikwidOnlyProfileRegion):
     __slots__ = ("likwid_marker_start", "likwid_marker_stop")
+
+    def wrap(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            self.num_calls += 1
+            start = perf_counter_ns()
+            self.likwid_marker_start(self.region_name)
+            out = func(*args, **kwargs)
+            self.likwid_marker_stop(self.region_name)
+            end = perf_counter_ns()
+            self.start_times.append(start)
+            self.end_times.append(end)
+            return out
+
+        return wrapper
+
+    def __init__(self, region_name: str, config: ProfilingConfig):
+        super().__init__(region_name, config)
+        pylikwid = _import_pylikwid()
+        self.likwid_marker_start = pylikwid.markerstartregion
+        self.likwid_marker_stop = pylikwid.markerstopregion
 
     def __enter__(self):
         self.likwid_marker_start(self.region_name)
@@ -186,6 +275,32 @@ class FullProfileRegionNoFlush(TimeOnlyProfileRegion, LikwidOnlyProfileRegion):
 
 class FullProfileRegion(TimeOnlyProfileRegion, LikwidOnlyProfileRegion):
     __slots__ = ("likwid_marker_start", "likwid_marker_stop")
+
+    def wrap(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            self.num_calls += 1
+            start = perf_counter_ns()
+            self.likwid_marker_start(self.region_name)
+            out = func(*args, **kwargs)
+            self.likwid_marker_stop(self.region_name)
+            end = perf_counter_ns()
+            self.start_times.append(start)
+            self.end_times.append(end)
+            if (
+                self.config.flush_to_disk
+                and len(self.start_times) >= self.config.buffer_limit
+            ):
+                self.flush()
+            return out
+
+        return wrapper
+
+    def __init__(self, region_name: str, config: ProfilingConfig):
+        super().__init__(region_name, config)
+        pylikwid = _import_pylikwid()
+        self.likwid_marker_start = pylikwid.markerstartregion
+        self.likwid_marker_stop = pylikwid.markerstopregion
 
     def __enter__(self):
         self.likwid_marker_start(self.region_name)
