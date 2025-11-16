@@ -91,7 +91,7 @@ jobs:
     
     - name: Test examples with pylikwid
       run: |
-        likwid-mpirun -n 2 -g FLOPS_SP -mpi openmpi -stats python3 src/scope_profiler/tests/pylikwid.py
+        likwid-mpirun -n 2 -g FLOPS_SP -mpi openmpi -stats python3 src/scope_profiler/tests/examples_pylikwid.py
 
     # - name: Test tutorials
     #   run: |
