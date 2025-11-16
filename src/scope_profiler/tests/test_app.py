@@ -120,8 +120,8 @@ def test_all_region_types():
     region = ProfileManager.get_region("time_only_region")
     assert isinstance(region, TimeOnlyProfileRegion)
     assert region.num_calls == 1
+    assert region.ptr == 1
     durations = region.get_durations_numpy()
-    assert durations.size == 1
     assert durations[0] > 0
 
     # Time-only region without flush
@@ -132,8 +132,8 @@ def test_all_region_types():
     region = ProfileManager.get_region("time_only_noflush")
     assert isinstance(region, TimeOnlyProfileRegionNoFlush)
     assert region.num_calls == 1
+    assert region.ptr == 1
     durations = region.get_durations_numpy()
-    assert durations.size == 1
     assert durations[0] > 0
 
     # LIKWID-only region (mocked if pylikwid not installed)

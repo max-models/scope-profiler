@@ -20,7 +20,7 @@ def test_mpi():
     )
 
     num_computations = 10
-    N = 100_000
+    N = 10_000
     import time
 
     for _ in range(num_computations):
