@@ -1,63 +1,101 @@
-name: Tests
+name: Test with pylikwid
 
 on:
   push:
-    branches:
-      - main
-      - devel
+    branches: [ main, devel ]
   pull_request:
-    branches:
-      - main
-      - devel
+    branches: [ main, devel ]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
-
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+    
     steps:
-      # Checkout the repository
-      - name: Checkout code
-        uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
-      # Set up Python
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.10"
+    - uses: actions/setup-python@v5
+      name: Set up Python ${{ matrix.python-version }}
+      with:
+        python-version: ${{ matrix.python-version }}
 
-      - name: Install MPI prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libopenmpi-dev openmpi-bin
+    - name: Install MPI prerequisites
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libopenmpi-dev openmpi-bin
 
-      - name: Install project
-        run: |
-          pip install --upgrade pip
-          pip install ".[dev]"
+    - name: Install LIKWID (with shared library support)
+      run: |
+        git clone https://github.com/RRZE-HPC/likwid.git
+        cd likwid
+        make ENABLE_SHARED=1
+        sudo make install
+        echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/likwid.conf
+        sudo ldconfig
+        likwid-perfctr -a
 
-      - name: Run tests
-        run: |
-          pytest .
+    - name: Install pylikwid from source
+      run: |
+        git clone https://github.com/RRZE-HPC/pylikwid.git
+        cd pylikwid
+        # Build extension, provide include/lib paths
+        python3 setup.py build_ext \
+        -I/usr/local/include \
+        -L/usr/local/lib \
+        -R/usr/local/lib
+        # Install it
+        python3 setup.py install
+
+    # - name: Install pylikwid from pypi
+    #   run: |
+    #     python3 -m pip install --upgrade pip
+    #     python3 -m pip install setuptools
+    #     python3 -m pip install pylikwid
+
+    - name: Verify pylikwid import
+      run: |
+        python3 -c "import pylikwid"
+    
+    - name: Test likwid-mpirun
+      run: |
+        likwid-perfctr -a
+        likwid-mpirun -h
+        likwid-mpirun -n 1 -g FLOPS_SP -mpi openmp -stats python3 -c "import pylikwid"
+
+    - name: Install project
+      run: |
+        pip install --upgrade pip
+        pip install ".[dev]"
+
+    - name: Run tests
+      run: |
+        pytest .
       
-      - name: Test postprocessing
-        run: |
-          python src/scope_profiler/tests/examples.py
-          scope-profiler-pproc profiling_data.h5 --show -o figures
+    - name: Test postprocessing
+      run: |
+        python src/scope_profiler/tests/examples.py
+        scope-profiler-pproc profiling_data.h5 --show -o figures
 
-      - name: Test postprocessing (MPI)
-        run: |
-          mpirun -n 2 python src/scope_profiler/tests/test_mpi.py
-          scope-profiler-pproc profiling_data.h5 --show -o figures
+    - name: Test postprocessing (MPI)
+      run: |
+        mpirun -n 2 python src/scope_profiler/tests/test_mpi.py
+        scope-profiler-pproc profiling_data.h5 --show -o figures
+    
+    - name: Test examples with pylikwid
+      run: |
+        likwid-mpirun -n 2 -g FLOPS_SP -mpi openmp -stats python src/scope_profiler/tests/pylikwid.py
 
-      # - name: Test tutorials
-      #   run: |
-      #     jupyter nbconvert --to notebook --execute tutorials/*.ipynb --output-dir=/tmp --ExecutePreprocessor.timeout=300
+    # - name: Test tutorials
+    #   run: |
+    #     jupyter nbconvert --to notebook --execute tutorials/*.ipynb --output-dir=/tmp --ExecutePreprocessor.timeout=300
 
-      # - name: Test docs build
-      #   run: |
-      #     pip install ".[docs]"
-      #     cd docs
-      #     make clean
-      #     make html
-      #     cd ..
-      #     ls docs/build/html/index.html
+    # - name: Test docs build
+    #   run: |
+    #     pip install ".[docs]"
+    #     cd docs
+    #     make clean
+    #     make html
+    #     cd ..
+    #     ls docs/build/html/index.html
