@@ -61,7 +61,7 @@ class BaseProfileRegion:
         self.start_times[self.ptr] = start
         self.end_times[self.ptr] = end
         self.ptr += 1
-        if  self.ptr >= self.buffer_limit:
+        if self.ptr >= self.buffer_limit:
             self.flush()
 
     def flush(self):
@@ -194,7 +194,7 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
             self.start_times[self.ptr] = start
             self.end_times[self.ptr] = end
             self.ptr += 1
-            if  self.ptr >= self.buffer_limit:
+            if self.ptr >= self.buffer_limit:
                 self.flush()
             return out
 
@@ -208,7 +208,7 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
     def __exit__(self, exc_type, exc_value, traceback):
         self.end_times[self.ptr] = np.int64(perf_counter_ns())
         self.ptr += 1
-        if  self.ptr >= self.buffer_limit:
+        if self.ptr >= self.buffer_limit:
             self.flush()
 
 
@@ -295,7 +295,7 @@ class FullProfileRegion(BaseProfileRegion):
             self.start_times[self.ptr] = start
             self.end_times[self.ptr] = end
             self.ptr += 1
-            if  self.ptr >= self.buffer_limit:
+            if self.ptr >= self.buffer_limit:
                 self.flush()
             return out
 
@@ -317,5 +317,5 @@ class FullProfileRegion(BaseProfileRegion):
         self.likwid_marker_stop(self.region_name)
         self.end_times[self.ptr] = np.int64(perf_counter_ns())
         self.ptr += 1
-        if  self.ptr >= self.buffer_limit:
+        if self.ptr >= self.buffer_limit:
             self.flush()
