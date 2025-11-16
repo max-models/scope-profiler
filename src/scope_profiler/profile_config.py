@@ -16,13 +16,13 @@ except ImportError:
     MPI = None
     _MPI_AVAILABLE = False
 
-try:
-    import pylikwid
+# try:
+import pylikwid
 
-    _PYLIKWID_AVAILABLE = True
-except ImportError:
-    pylikwid = None
-    _PYLIKWID_AVAILABLE = False
+#     _PYLIKWID_AVAILABLE = True
+# except ImportError:
+#     pylikwid = None
+#     _PYLIKWID_AVAILABLE = False
 
 
 def _import_pylikwid():
