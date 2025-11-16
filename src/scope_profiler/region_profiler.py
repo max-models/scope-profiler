@@ -27,6 +27,9 @@ class BaseProfileRegion:
         "num_calls",
         "group_path",
         "local_file_path",
+        "hdf5_initialized",
+        # "ds_start",
+        # "ds_end",
     )
 
     def __init__(self, region_name: str, config: ProfilingConfig):
@@ -37,19 +40,7 @@ class BaseProfileRegion:
         self.end_times = []
         self.group_path = f"regions/{self.region_name}"
         self.local_file_path = self.config._local_file_path
-
-        # Create HDF5 group if not exists
-        with h5py.File(self.local_file_path, "a") as f:
-            grp = f.require_group(self.group_path)
-            for name in ("start_times", "end_times"):
-                if name not in grp:
-                    grp.create_dataset(
-                        name,
-                        shape=(0,),
-                        maxshape=(None,),
-                        dtype="i8",
-                        chunks=True,
-                    )
+        self.hdf5_initialized = False
 
     def wrap(self, func):
         """Override this in subclasses."""
@@ -69,19 +60,32 @@ class BaseProfileRegion:
         ):
             self.flush()
 
-    def flush(self) -> None:
+    def flush(self):
         if not self.start_times:
             return
-        starts = self.get_start_times_numpy()
-        ends = self.get_end_times_numpy()
+
         with h5py.File(self.local_file_path, "a") as f:
-            grp = f[self.group_path]
-            for name, data in [("start_times", starts), ("end_times", ends)]:
-                ds = grp[name]
-                old_size = ds.shape[0]
-                new_size = old_size + len(data)
-                ds.resize((new_size,))
-                ds[old_size:new_size] = data
+            grp = f.require_group(self.group_path)
+
+            if not self.hdf5_initialized:
+                # Only create datasets once
+                for name in ("start_times", "end_times"):
+                    if name not in grp:
+                        grp.create_dataset(
+                            name, shape=(0,), maxshape=(None,), dtype="i8", chunks=True
+                        )
+                self.hdf5_initialized = True
+
+            ds_start = grp["start_times"]
+            ds_end = grp["end_times"]
+
+            old_size = ds_start.shape[0]
+            new_size = old_size + len(self.start_times)
+            ds_start.resize((new_size,))
+            ds_end.resize((new_size,))
+            ds_start[old_size:new_size] = np.array(self.start_times, dtype=int)
+            ds_end[old_size:new_size] = np.array(self.end_times, dtype=int)
+
         self.start_times.clear()
         self.end_times.clear()
 
