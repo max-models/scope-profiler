@@ -90,13 +90,14 @@ class ProfilingConfig:
 
         self._pylikwid = None
         if self.use_likwid:
-            try:
-                self._pylikwid = _import_pylikwid()
-                self.pylikwid_markerinit()
-            except ImportError as e:
-                raise ImportError(
-                    "LIKWID profiling requested but pylikwid module not installed"
-                ) from e
+            pylikwid.markerinit()
+            # try:
+            #     self._pylikwid = _import_pylikwid()
+            #     self.pylikwid_markerinit()
+            # except ImportError as e:
+            #     raise ImportError(
+            #         "LIKWID profiling requested but pylikwid module not installed"
+            #     ) from e
         self._initialized = True
 
     def get_local_filepath(self, rank):
@@ -110,15 +111,15 @@ class ProfilingConfig:
 
     def pylikwid_markerinit(self):
         """Initialize LIKWID profiling markers."""
-        if self.use_likwid and self._pylikwid:
-            pylikwid.markerinit()
-            # self._pylikwid.markerinit()
+        # if self.use_likwid and self._pylikwid:
+        pylikwid.markerinit()
+        # self._pylikwid.markerinit()
 
     def pylikwid_markerclose(self):
         """Close LIKWID profiling markers."""
-        if self.use_likwid and self._pylikwid:
-            # self._pylikwid.markerclose()
-            pylikwid.markerclose()
+        # if self.use_likwid and self._pylikwid:
+        #    # self._pylikwid.markerclose()
+        pylikwid.markerclose()
 
     @property
     def comm(self) -> "Intercomm | None":
