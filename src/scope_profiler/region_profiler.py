@@ -163,9 +163,9 @@ class TimeOnlyProfileRegionNoFlush(BaseProfileRegion):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             self.num_calls += 1
-            start = perf_counter_ns()
+            start = np.int64(perf_counter_ns())
             out = func(*args, **kwargs)
-            end = perf_counter_ns()
+            end = np.int64(perf_counter_ns())
             self.start_times[self.ptr] = start
             self.end_times[self.ptr] = end
             self.ptr += 1
@@ -175,11 +175,11 @@ class TimeOnlyProfileRegionNoFlush(BaseProfileRegion):
 
     def __enter__(self):
         self.num_calls += 1
-        self.start_times[self.ptr] = perf_counter_ns()
+        self.start_times[self.ptr] = np.int64(perf_counter_ns())
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.end_times[self.ptr] = perf_counter_ns()
+        self.end_times[self.ptr] = np.int64(perf_counter_ns())
         self.ptr += 1
 
 
@@ -188,9 +188,9 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             self.num_calls += 1
-            start = perf_counter_ns()
+            start = np.int64(perf_counter_ns())
             out = func(*args, **kwargs)
-            end = perf_counter_ns()
+            end = np.int64(perf_counter_ns())
             self.start_times[self.ptr] = start
             self.end_times[self.ptr] = end
             self.ptr += 1
@@ -201,12 +201,12 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
         return wrapper
 
     def __enter__(self):
-        self.start_times[self.ptr] = perf_counter_ns()
+        self.start_times[self.ptr] = np.int64(perf_counter_ns())
         self.num_calls += 1
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.end_times[self.ptr] = perf_counter_ns()
+        self.end_times[self.ptr] = np.int64(perf_counter_ns())
         self.ptr += 1
         if self.config.flush_to_disk and self.ptr >= self.buffer_limit:
             self.flush()
@@ -250,11 +250,11 @@ class FullProfileRegionNoFlush(BaseProfileRegion):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             self.num_calls += 1
-            start = perf_counter_ns()
+            start = np.int64(perf_counter_ns())
             self.likwid_marker_start(self.region_name)
             out = func(*args, **kwargs)
             self.likwid_marker_stop(self.region_name)
-            end = perf_counter_ns()
+            end = np.int64(perf_counter_ns())
             self.start_times[self.ptr] = start
             self.end_times[self.ptr] = end
             self.ptr += 1
@@ -270,13 +270,13 @@ class FullProfileRegionNoFlush(BaseProfileRegion):
 
     def __enter__(self):
         self.likwid_marker_start(self.region_name)
-        self.start_times[self.ptr] = perf_counter_ns()
+        self.start_times[self.ptr] = np.int64(perf_counter_ns())
         self.num_calls += 1
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.likwid_marker_stop(self.region_name)
-        self.end_times[self.ptr] = perf_counter_ns()
+        self.end_times[self.ptr] = np.int64(perf_counter_ns())
         self.ptr += 1
 
 
@@ -287,11 +287,11 @@ class FullProfileRegion(BaseProfileRegion):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             self.num_calls += 1
-            start = perf_counter_ns()
+            start = np.int64(perf_counter_ns())
             self.likwid_marker_start(self.region_name)
             out = func(*args, **kwargs)
             self.likwid_marker_stop(self.region_name)
-            end = perf_counter_ns()
+            end = np.int64(perf_counter_ns())
             self.start_times[self.ptr] = start
             self.end_times[self.ptr] = end
             self.ptr += 1
@@ -309,13 +309,13 @@ class FullProfileRegion(BaseProfileRegion):
 
     def __enter__(self):
         self.num_calls += 1
-        self.start_times[self.ptr] = perf_counter_ns()
+        self.start_times[self.ptr] = np.int64(perf_counter_ns())
         self.likwid_marker_start(self.region_name)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.likwid_marker_stop(self.region_name)
-        self.end_times[self.ptr] = perf_counter_ns()
+        self.end_times[self.ptr] = np.int64(perf_counter_ns())
         self.ptr += 1
         if self.config.flush_to_disk and self.ptr >= self.buffer_limit:
             self.flush()
