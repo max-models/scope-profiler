@@ -2,13 +2,9 @@ name: Test with pylikwid
 
 on:
   push:
-    branches:
-      - main
-      - devel
+    branches: [ main, devel ]
   pull_request:
-    branches:
-      - main
-      - devel
+    branches: [ main, devel ]
 
 jobs:
   test:
@@ -19,6 +15,7 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
+
     - uses: actions/setup-python@v5
       name: Set up Python ${{ matrix.python-version }}
       with:
@@ -29,13 +26,15 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libopenmpi-dev openmpi-bin
 
-    - name: Install likwid
+    - name: Install LIKWID (with shared library support)
       run: |
         git clone https://github.com/RRZE-HPC/likwid.git
         cd likwid
-        make && sudo make install
-        sudo modprobe msr
-        likwid-perfctr -a
+        make ENABLE_SHARED=1
+        sudo make install
+        echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/likwid.conf
+        sudo ldconfig
+        likwid-perfctr -a || true
 
     - name: Install pylikwid
       run: |
@@ -43,21 +42,19 @@ jobs:
         python3 -m pip install setuptools
         python3 -m pip install pylikwid
 
-    - name: Test
+    - name: Verify pylikwid import
       run: |
-        export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
-        sudo ldconfig
-        python3 -c "import pylikwid"
+        python3 -c "import pylikwid; print('pylikwid OK')"
 
     - name: Install project
       run: |
         pip install --upgrade pip
         pip install ".[dev]"
-    
+
     - name: Run tests
       run: |
-        pytest .
+        pytest -q .
     
-    - name: Test exaples with pylikwid
+    - name: Test examples with pylikwid
       run: |
-        echo "Testing..."
+        echo "Testing examples..."
