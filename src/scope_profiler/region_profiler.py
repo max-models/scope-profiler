@@ -28,8 +28,6 @@ class BaseProfileRegion:
         "group_path",
         "local_file_path",
         "hdf5_initialized",
-        # "ds_start",
-        # "ds_end",
     )
 
     def __init__(self, region_name: str, config: ProfilingConfig):
