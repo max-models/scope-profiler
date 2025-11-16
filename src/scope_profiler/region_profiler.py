@@ -93,13 +93,13 @@ class BaseProfileRegion:
         self.ptr = 0
 
     def get_durations_numpy(self) -> np.ndarray:
-        return self.get_end_times_numpy() - self.get_start_times_numpy()
+        return self.end_times[: self.ptr] - self.start_times[: self.ptr]
 
     def get_end_times_numpy(self) -> np.ndarray:
-        return self.end_times - self.config.config_creation_time
+        return self.end_times[: self.ptr] - self.config.config_creation_time
 
     def get_start_times_numpy(self) -> np.ndarray:
-        return self.start_times - self.config.config_creation_time
+        return self.start_times[: self.ptr] - self.config.config_creation_time
 
 
 # Disabled region: does nothing
