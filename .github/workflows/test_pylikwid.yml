@@ -36,11 +36,23 @@ jobs:
         sudo ldconfig
         likwid-perfctr -a || true
 
-    - name: Install pylikwid
+    - name: Install pylikwid from source
       run: |
-        python3 -m pip install --upgrade pip
-        python3 -m pip install setuptools
-        python3 -m pip install pylikwid
+        git clone https://github.com/RRZE-HPC/pylikwid.git
+        cd pylikwid
+        # Build extension, provide include/lib paths
+        python3 setup.py build_ext \
+        -I/usr/local/include \
+        -L/usr/local/lib \
+        -R/usr/local/lib
+        # Install it
+        python3 setup.py install
+
+    # - name: Install pylikwid from pypi
+    #   run: |
+    #     python3 -m pip install --upgrade pip
+    #     python3 -m pip install setuptools
+    #     python3 -m pip install pylikwid
 
     - name: Verify pylikwid import
       run: |
