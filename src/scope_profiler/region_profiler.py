@@ -25,6 +25,8 @@ class BaseProfileRegion:
         "start_times",
         "end_times",
         "num_calls",
+        "ptr",
+        "buffer_limit",
         "group_path",
         "local_file_path",
         "hdf5_initialized",
@@ -34,8 +36,14 @@ class BaseProfileRegion:
         self.region_name = region_name
         self.config = config
         self.num_calls = 0
-        self.start_times = []
-        self.end_times = []
+
+        # Preallocate buffers
+        self.ptr = 0
+        self.buffer_limit = config.buffer_limit
+        self.start_times = np.empty(self.buffer_limit, dtype=np.int64)
+        self.end_times = np.empty(self.buffer_limit, dtype=np.int64)
+
+        # Setu p paths
         self.group_path = f"regions/{self.region_name}"
         self.local_file_path = self.config._local_file_path
         self.hdf5_initialized = False
@@ -50,51 +58,48 @@ class BaseProfileRegion:
         return wrapper
 
     def append(self, start: float, end: float) -> None:
-        self.start_times.append(start)
-        self.end_times.append(end)
-        if (
-            self.config.flush_to_disk
-            and len(self.start_times) >= self.config.buffer_limit
-        ):
+        self.start_times[self.ptr] = start
+        self.end_times[self.ptr] = end
+        self.ptr += 1
+        if self.ptr >= self.buffer_limit:
             self.flush()
 
     def flush(self):
-        if not self.start_times:
+        if self.ptr == 0:
             return
 
-        with h5py.File(self.local_file_path, "a") as f:
-            grp = f.require_group(self.group_path)
-
-            if not self.hdf5_initialized:
-                # Only create datasets once
+        if not self.hdf5_initialized:
+            with h5py.File(self.config._local_file_path, "a") as f:
+                grp = f.require_group(f"regions/{self.region_name}")
                 for name in ("start_times", "end_times"):
                     if name not in grp:
                         grp.create_dataset(
                             name, shape=(0,), maxshape=(None,), dtype="i8", chunks=True
                         )
-                self.hdf5_initialized = True
+            self.hdf5_initialized = True
 
-            ds_start = grp["start_times"]
-            ds_end = grp["end_times"]
+        with h5py.File(self.config._local_file_path, "a") as f:
+            grp = f[f"regions/{self.region_name}"]
+            for name, data in [
+                ("start_times", self.start_times[: self.ptr]),
+                ("end_times", self.end_times[: self.ptr]),
+            ]:
+                ds = grp[name]
+                old_size = ds.shape[0]
+                new_size = old_size + self.ptr
+                ds.resize((new_size,))
+                ds[old_size:new_size] = data
 
-            old_size = ds_start.shape[0]
-            new_size = old_size + len(self.start_times)
-            ds_start.resize((new_size,))
-            ds_end.resize((new_size,))
-            ds_start[old_size:new_size] = np.array(self.start_times, dtype=int)
-            ds_end[old_size:new_size] = np.array(self.end_times, dtype=int)
-
-        self.start_times.clear()
-        self.end_times.clear()
+        self.ptr = 0
 
     def get_durations_numpy(self) -> np.ndarray:
         return self.get_end_times_numpy() - self.get_start_times_numpy()
 
     def get_end_times_numpy(self) -> np.ndarray:
-        return np.array(self.end_times, dtype=int) - self.config.config_creation_time
+        return self.end_times - self.config.config_creation_time
 
     def get_start_times_numpy(self) -> np.ndarray:
-        return np.array(self.start_times, dtype=int) - self.config.config_creation_time
+        return self.start_times - self.config.config_creation_time
 
 
 # Disabled region: does nothing
@@ -158,22 +163,24 @@ class TimeOnlyProfileRegionNoFlush(BaseProfileRegion):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             self.num_calls += 1
-            start = perf_counter_ns()
+            start = np.int64(perf_counter_ns())
             out = func(*args, **kwargs)
-            end = perf_counter_ns()
-            self.start_times.append(start)
-            self.end_times.append(end)
+            end = np.int64(perf_counter_ns())
+            self.start_times[self.ptr] = start
+            self.end_times[self.ptr] = end
+            self.ptr += 1
             return out
 
         return wrapper
 
     def __enter__(self):
-        self.start_times.append(perf_counter_ns())
         self.num_calls += 1
+        self.start_times[self.ptr] = np.int64(perf_counter_ns())
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.end_times.append(perf_counter_ns())
+        self.end_times[self.ptr] = np.int64(perf_counter_ns())
+        self.ptr += 1
 
 
 class TimeOnlyProfileRegion(BaseProfileRegion):
@@ -181,31 +188,27 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             self.num_calls += 1
-            start = perf_counter_ns()
+            start = np.int64(perf_counter_ns())
             out = func(*args, **kwargs)
-            end = perf_counter_ns()
-            self.start_times.append(start)
-            self.end_times.append(end)
-            if (
-                self.config.flush_to_disk
-                and len(self.start_times) >= self.config.buffer_limit
-            ):
+            end = np.int64(perf_counter_ns())
+            self.start_times[self.ptr] = start
+            self.end_times[self.ptr] = end
+            self.ptr += 1
+            if self.ptr >= self.buffer_limit:
                 self.flush()
             return out
 
         return wrapper
 
     def __enter__(self):
-        self.start_times.append(perf_counter_ns())
+        self.start_times[self.ptr] = np.int64(perf_counter_ns())
         self.num_calls += 1
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.end_times.append(perf_counter_ns())
-        if (
-            self.config.flush_to_disk
-            and len(self.start_times) >= self.config.buffer_limit
-        ):
+        self.end_times[self.ptr] = np.int64(perf_counter_ns())
+        self.ptr += 1
+        if self.ptr >= self.buffer_limit:
             self.flush()
 
 
@@ -247,13 +250,14 @@ class FullProfileRegionNoFlush(BaseProfileRegion):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             self.num_calls += 1
-            start = perf_counter_ns()
+            start = np.int64(perf_counter_ns())
             self.likwid_marker_start(self.region_name)
             out = func(*args, **kwargs)
             self.likwid_marker_stop(self.region_name)
-            end = perf_counter_ns()
-            self.start_times.append(start)
-            self.end_times.append(end)
+            end = np.int64(perf_counter_ns())
+            self.start_times[self.ptr] = start
+            self.end_times[self.ptr] = end
+            self.ptr += 1
             return out
 
         return wrapper
@@ -266,13 +270,14 @@ class FullProfileRegionNoFlush(BaseProfileRegion):
 
     def __enter__(self):
         self.likwid_marker_start(self.region_name)
-        self.start_times.append(perf_counter_ns())
+        self.start_times[self.ptr] = np.int64(perf_counter_ns())
         self.num_calls += 1
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.likwid_marker_stop(self.region_name)
-        self.end_times.append(perf_counter_ns())
+        self.end_times[self.ptr] = np.int64(perf_counter_ns())
+        self.ptr += 1
 
 
 class FullProfileRegion(BaseProfileRegion):
@@ -282,17 +287,15 @@ class FullProfileRegion(BaseProfileRegion):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             self.num_calls += 1
-            start = perf_counter_ns()
+            start = np.int64(perf_counter_ns())
             self.likwid_marker_start(self.region_name)
             out = func(*args, **kwargs)
             self.likwid_marker_stop(self.region_name)
-            end = perf_counter_ns()
-            self.start_times.append(start)
-            self.end_times.append(end)
-            if (
-                self.config.flush_to_disk
-                and len(self.start_times) >= self.config.buffer_limit
-            ):
+            end = np.int64(perf_counter_ns())
+            self.start_times[self.ptr] = start
+            self.end_times[self.ptr] = end
+            self.ptr += 1
+            if self.ptr >= self.buffer_limit:
                 self.flush()
             return out
 
@@ -306,15 +309,13 @@ class FullProfileRegion(BaseProfileRegion):
 
     def __enter__(self):
         self.num_calls += 1
-        self.start_times.append(perf_counter_ns())
+        self.start_times[self.ptr] = np.int64(perf_counter_ns())
         self.likwid_marker_start(self.region_name)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.likwid_marker_stop(self.region_name)
-        self.end_times.append(perf_counter_ns())
-        if (
-            self.config.flush_to_disk
-            and len(self.start_times) >= self.config.buffer_limit
-        ):
+        self.end_times[self.ptr] = np.int64(perf_counter_ns())
+        self.ptr += 1
+        if self.ptr >= self.buffer_limit:
             self.flush()
