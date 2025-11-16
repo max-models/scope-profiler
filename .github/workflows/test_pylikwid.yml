@@ -56,13 +56,13 @@ jobs:
 
     - name: Verify pylikwid import
       run: |
-        python3 -c "import pylikwid; print('pylikwid OK')"
+        python3 -c "import pylikwid"
     
     - name: Test likwid-mpirun
       run: |
         likwid-perfctr -a
         likwid-mpirun -h
-        likwid-mpirun -n 1 -g FLOPS_SP -stats python3 -c "import pylikwid; print('pylikwid OK')"
+        likwid-mpirun -n 1 -g FLOPS_SP -mpi openmp -stats python3 -c "import pylikwid"
 
     - name: Install project
       run: |
@@ -75,4 +75,4 @@ jobs:
     
     - name: Test examples with pylikwid
       run: |
-        likwid-mpirun -n 2 -g FLOPS_SP python src/scope_profiler/tests/test_mpi.py
+        likwid-mpirun -n 2 -g FLOPS_SP -mpi openmp -stats python src/scope_profiler/tests/test_mpi.py
