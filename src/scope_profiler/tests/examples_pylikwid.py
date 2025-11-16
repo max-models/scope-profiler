@@ -1,35 +1,22 @@
-import math
-import random
-
 from scope_profiler import ProfileManager
 
 
-def random_math(N=100_000):
-    s = 0.0
-    for _ in range(N):
-        x = random.random()
-        s += math.sin(x) * math.sqrt(x + 1.2345)
-    return s
-
-
-def test_mpi():
+def test_pylikwid():
     ProfileManager.setup(
         use_likwid=True,
         time_trace=True,
         flush_to_disk=True,
     )
 
-    num_computations = 10
-    N = 10_000
-    import time
-
-    for _ in range(num_computations):
-        with ProfileManager.profile_region("main"):
-            random_math(N)
-        time.sleep(0.01)
+    with ProfileManager.profile_region("main"):
+        x = 0
+        for i in range(10):
+            # Profile each iteration with a context manager
+            with ProfileManager.profile_region(region_name="iteration"):
+                x += 1
 
     ProfileManager.finalize()
 
 
 if __name__ == "__main__":
-    test_mpi()
+    test_pylikwid()
