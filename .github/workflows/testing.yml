@@ -81,17 +81,17 @@ jobs:
       
     - name: Test postprocessing
       run: |
-        python src/scope_profiler/tests/examples.py
+        python3 src/scope_profiler/tests/examples.py
         scope-profiler-pproc profiling_data.h5 --show -o figures
 
     - name: Test postprocessing (MPI)
       run: |
-        mpirun -n 2 python src/scope_profiler/tests/test_mpi.py
+        mpirun -n 2 python3 src/scope_profiler/tests/test_mpi.py
         scope-profiler-pproc profiling_data.h5 --show -o figures
     
     - name: Test examples with pylikwid
       run: |
-        likwid-mpirun -n 2 -g FLOPS_SP -mpi openmpi -stats python src/scope_profiler/tests/pylikwid.py
+        likwid-mpirun -n 2 -g FLOPS_SP -mpi openmpi -stats python3 src/scope_profiler/tests/pylikwid.py
 
     # - name: Test tutorials
     #   run: |
