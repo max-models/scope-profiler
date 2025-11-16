@@ -61,6 +61,7 @@ jobs:
     - name: Test likwid-mpirun
       run: |
         likwid-perfctr -a
+        likwid-mpirun -h
         likwid-mpirun -n 1 -g FLOPS_SP -stats python3 -c "import pylikwid; print('pylikwid OK')"
 
     - name: Install project
@@ -74,4 +75,4 @@ jobs:
     
     - name: Test examples with pylikwid
       run: |
-        echo "Testing examples..."
+        likwid-mpirun -n 2 -g FLOPS_SP python src/scope_profiler/tests/test_mpi.py
