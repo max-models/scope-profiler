@@ -14,7 +14,7 @@ def random_math(N=100_000):
 
 def test_mpi():
     ProfileManager.setup(
-        use_likwid=False,
+        use_likwid=True,
         time_trace=True,
         flush_to_disk=True,
     )

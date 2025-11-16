@@ -75,4 +75,4 @@ jobs:
     
     - name: Test examples with pylikwid
       run: |
-        likwid-mpirun -n 2 -g FLOPS_SP -mpi openmp -stats python src/scope_profiler/tests/test_mpi.py
+        likwid-mpirun -n 2 -g FLOPS_SP -mpi openmp -stats python src/scope_profiler/tests/pylikwid.py
