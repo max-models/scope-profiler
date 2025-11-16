@@ -1,8 +1,6 @@
-import dis
 import functools
 import inspect
 import os
-import time
 from time import perf_counter_ns
 from typing import TYPE_CHECKING, Callable, Dict
 
@@ -20,24 +18,6 @@ from scope_profiler.region_profiler import (
     TimeOnlyProfileRegion,
     TimeOnlyProfileRegionNoFlush,
 )
-
-
-def _record_and_run(region: BaseProfileRegion, func, *args, **kwargs):
-    """Synchronous profiling."""
-    start = perf_counter_ns()
-    try:
-        return func(*args, **kwargs)
-    finally:
-        region.append(start, perf_counter_ns())
-
-
-async def _record_and_run_async(region: BaseProfileRegion, func, *args, **kwargs):
-    """Asynchronous profiling."""
-    start = perf_counter_ns()
-    try:
-        return await func(*args, **kwargs)
-    finally:
-        region.append(start, perf_counter_ns())
 
 
 class ProfileManager:
@@ -95,53 +75,10 @@ class ProfileManager:
         Decorator factory for profiling a function.
         """
 
-        def decorator(func: Callable) -> Callable:
+        def decorator(func):
             name = region_name or func.__name__
-            config = cls.get_config()
-
-            # Cache config once at decoration time
-            profiling_activated = config.profiling_activated
-            time_trace = config.time_trace
-
-            # Fast references (local variables always faster)
-            profile_region = cls.profile_region
-
-            if inspect.iscoroutinefunction(func):
-
-                @functools.wraps(func)
-                async def async_wrapper(*args, **kwargs):
-                    region = profile_region(name)
-
-                    if not profiling_activated:
-                        return await func(*args, **kwargs)
-
-                    region.num_calls += 1
-
-                    if time_trace:
-                        return await _record_and_run_async(
-                            region, func, *args, **kwargs
-                        )
-                    else:
-                        return await func(*args, **kwargs)
-
-                return async_wrapper
-            else:
-
-                @functools.wraps(func)
-                def sync_wrapper(*args, **kwargs):
-                    region = profile_region(name)
-
-                    if not profiling_activated:
-                        return func(*args, **kwargs)
-
-                    region.num_calls += 1
-
-                    if time_trace:
-                        return _record_and_run(region, func, *args, **kwargs)
-                    else:
-                        return func(*args, **kwargs)
-
-                return sync_wrapper
+            region = cls.profile_region(name)
+            return region.wrap(func)
 
         # Support @ProfileManager.profile without parentheses
         if callable(region_name):
