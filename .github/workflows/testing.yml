@@ -1,4 +1,4 @@
-name: Test with pylikwid
+name: Testing
 
 on:
   push:
@@ -26,12 +26,12 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libopenmpi-dev openmpi-bin
 
-    - name: Install LIKWID (with shared library support)
+    - name: Install LIKWID
       run: |
         git clone https://github.com/RRZE-HPC/likwid.git
         cd likwid
-        make ENABLE_SHARED=1
-        sudo make install
+        make && sudo make install
+        sudo modprobe msr
         echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/likwid.conf
         sudo ldconfig
         likwid-perfctr -a
@@ -40,6 +40,8 @@ jobs:
       run: |
         git clone https://github.com/RRZE-HPC/pylikwid.git
         cd pylikwid
+        python3 -m pip install --upgrade pip
+        python3 -m pip install setuptools
         # Build extension, provide include/lib paths
         python3 setup.py build_ext \
         -I/usr/local/include \
@@ -62,7 +64,7 @@ jobs:
       run: |
         likwid-perfctr -a
         likwid-mpirun -h
-        likwid-mpirun -n 1 -g FLOPS_SP -mpi openmp -stats python3 -c "import pylikwid"
+        likwid-mpirun -n 1 -g FLOPS_SP -mpi openmpi -stats python3 -c "import pylikwid"
 
     - name: Install project
       run: |
@@ -85,7 +87,7 @@ jobs:
     
     - name: Test examples with pylikwid
       run: |
-        likwid-mpirun -n 2 -g FLOPS_SP -mpi openmp -stats python src/scope_profiler/tests/pylikwid.py
+        likwid-mpirun -n 2 -g FLOPS_SP -mpi openmpi -stats python src/scope_profiler/tests/pylikwid.py
 
     # - name: Test tutorials
     #   run: |
