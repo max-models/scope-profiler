@@ -35,6 +35,7 @@ jobs:
         cd likwid
         make && sudo make install
         sudo modprobe msr
+        likwid-perfctr -a
 
     - name: Install pylikwid
       run: |
