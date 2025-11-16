@@ -16,6 +16,14 @@ except ImportError:
     MPI = None
     _MPI_AVAILABLE = False
 
+try:
+    import pylikwid
+
+    _PYLIKWID_AVAILABLE = True
+except ImportError:
+    pylikwid = None
+    _PYLIKWID_AVAILABLE = False
+
 
 def _import_pylikwid():
     import pylikwid
@@ -103,12 +111,14 @@ class ProfilingConfig:
     def pylikwid_markerinit(self):
         """Initialize LIKWID profiling markers."""
         if self.use_likwid and self._pylikwid:
-            self._pylikwid.markerinit()
+            pylikwid.markerinit()
+            # self._pylikwid.markerinit()
 
     def pylikwid_markerclose(self):
         """Close LIKWID profiling markers."""
         if self.use_likwid and self._pylikwid:
-            self._pylikwid.markerclose()
+            # self._pylikwid.markerclose()
+            pylikwid.markerclose()
 
     @property
     def comm(self) -> "Intercomm | None":
