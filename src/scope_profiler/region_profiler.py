@@ -238,7 +238,7 @@ class LikwidOnlyProfileRegion(BaseProfileRegion):
 
 
 # Full region: time + LIKWID
-class FullProfileRegionNoFlush(TimeOnlyProfileRegion, LikwidOnlyProfileRegion):
+class FullProfileRegionNoFlush(BaseProfileRegion):
     __slots__ = ("likwid_marker_start", "likwid_marker_stop")
 
     def wrap(self, func):
@@ -273,7 +273,7 @@ class FullProfileRegionNoFlush(TimeOnlyProfileRegion, LikwidOnlyProfileRegion):
         self.end_times.append(perf_counter_ns())
 
 
-class FullProfileRegion(TimeOnlyProfileRegion, LikwidOnlyProfileRegion):
+class FullProfileRegion(BaseProfileRegion):
     __slots__ = ("likwid_marker_start", "likwid_marker_stop")
 
     def wrap(self, func):
@@ -303,9 +303,9 @@ class FullProfileRegion(TimeOnlyProfileRegion, LikwidOnlyProfileRegion):
         self.likwid_marker_stop = pylikwid.markerstopregion
 
     def __enter__(self):
-        self.likwid_marker_start(self.region_name)
-        self.start_times.append(perf_counter_ns())
         self.num_calls += 1
+        self.start_times.append(perf_counter_ns())
+        self.likwid_marker_start(self.region_name)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
