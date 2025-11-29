@@ -356,7 +356,7 @@ class ProfilingH5Reader:
         List[Region]
             List of Region objects.
         """
-        return self._regions
+        return list(self._region_dict.values())
 
     def __repr__(self) -> str:
         """
