@@ -8,12 +8,30 @@ import numpy as np
 
 class Region:
     def __init__(self, start_times: np.ndarray, end_times: np.ndarray) -> None:
+        """
+        Initialize a Region with timing information for multiple calls.
+
+        Parameters
+        ----------
+        start_times : np.ndarray
+            Start times of all calls in nanoseconds.
+        end_times : np.ndarray
+            End times of all calls in nanoseconds.
+        """
         self._start_times = start_times
         self._end_times = end_times
         self._durations = end_times - start_times
 
     def get_summary(self) -> Dict[str, Any]:
-        """Return a summary of the region’s statistics as a dictionary."""
+        """
+        Return a summary of the region's statistics as a dictionary.
+
+        Returns
+        -------
+        Dict[str, Any]
+            Dictionary containing statistics: num_calls, total_duration,
+            average_duration, min_duration, max_duration, and std_duration.
+        """
         return {
             "num_calls": self.num_calls,
             "total_duration": self.total_duration,
@@ -25,14 +43,17 @@ class Region:
 
     @property
     def start_times(self) -> np.ndarray:
+        """Start times of all calls in seconds."""
         return self._start_times / 1e9
 
     @property
     def end_times(self) -> np.ndarray:
+        """End times of all calls in seconds."""
         return self._end_times / 1e9
 
     @property
     def durations(self) -> np.ndarray:
+        """Duration of all calls in seconds."""
         return self._durations / 1e9
 
     @property
@@ -66,7 +87,14 @@ class Region:
         return float(np.std(self._durations)) if self.num_calls else 0.0
 
     def __repr__(self) -> str:
-        """Print summaries for all regions in the file."""
+        """
+        Return a string representation of the region's statistics.
+
+        Returns
+        -------
+        str
+            Formatted string with region statistics.
+        """
         # print(f"\nProfiling data summary for: {self.file_path}")
         _out = "-" * 60 + "\n"
         stats = self.get_summary()
@@ -82,6 +110,19 @@ class ProfilingH5Reader:
     """
 
     def __init__(self, file_path: str | Path):
+        """
+        Initialize the HDF5 reader by loading profiling data from the specified file.
+
+        Parameters
+        ----------
+        file_path : str | Path
+            Path to the HDF5 file containing profiling data.
+
+        Raises
+        ------
+        FileNotFoundError
+            If the specified HDF5 file does not exist.
+        """
         self._file_path = Path(file_path)
         if not self.file_path.exists():
             raise FileNotFoundError(f"HDF5 file not found: {self.file_path}")
@@ -111,6 +152,24 @@ class ProfilingH5Reader:
         # print(f"{self._region_dict["main"].keys() = }")
 
     def get_region(self, region_name: str) -> Region:
+        """
+        Retrieve profiling data for a specific region.
+
+        Parameters
+        ----------
+        region_name : str
+            Name of the region to retrieve.
+
+        Returns
+        -------
+        Region
+            Region object containing profiling data for all ranks.
+
+        Raises
+        ------
+        KeyError
+            If the specified region name does not exist.
+        """
         return self._region_dict[region_name]
 
     def plot_gantt(
@@ -125,10 +184,15 @@ class ProfilingH5Reader:
 
         Parameters
         ----------
-        regions : list[str] | None
-            List of region names to plot. If None, plot all.
         ranks : list[int] | None
             List of ranks to include. If None, include all ranks.
+        regions : list[str] | str | None
+            List of region names to plot, or a single region name as a string.
+            If None, plot all regions.
+        filepath : str | None
+            Path to save the figure. If None, figure is not saved.
+        show : bool
+            Whether to display the plot. Default is False.
         """
         if regions is None:
             regions = list(self._region_dict.keys())
@@ -199,12 +263,17 @@ class ProfilingH5Reader:
 
         Parameters
         ----------
-        regions : list[str] | None
-            List of region names to plot. If None, plot all.
         ranks : list[int] | None
             List of ranks to include. If None, include all ranks.
+        regions : list[str] | str | None
+            List of region names to plot, or a single region name as a string.
+            If None, plot all regions.
+        filepath : str | None
+            Path to save the figure. If None, figure is not saved.
+        show : bool
+            Whether to display the plot. Default is False.
         bins : int
-            Number of histogram bins.
+            Number of histogram bins. Default is 30.
         """
         import matplotlib.pyplot as plt
         import numpy as np
@@ -267,13 +336,37 @@ class ProfilingH5Reader:
 
     @property
     def file_path(self) -> Path:
+        """
+        Get the path to the HDF5 file.
+
+        Returns
+        -------
+        Path
+            The file path as a pathlib.Path object.
+        """
         return self._file_path
 
     @property
     def regions(self) -> List[Region]:
+        """
+        Get a list of all regions.
+
+        Returns
+        -------
+        List[Region]
+            List of Region objects.
+        """
         return self._regions
 
     def __repr__(self) -> str:
+        """
+        Return a string representation of all regions and their profiling statistics.
+
+        Returns
+        -------
+        str
+            Formatted string containing profiling data for all regions.
+        """
         _out = ""
         for region_name, region in self._region_dict.items():
             _out += f"Region: {region_name}\n"
