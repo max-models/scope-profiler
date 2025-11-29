@@ -31,6 +31,12 @@ class ProfileManager:
 
     @classmethod
     def _update_region_cls(cls):
+        """
+        Update the active region class based on current configuration settings.
+
+        Selects the appropriate ProfileRegion subclass based on profiling options
+        including time tracing, LIKWID hardware counters, and disk flushing.
+        """
         cfg = cls._config
         if not cfg.profiling_activated:
             cls._region_cls = DisabledProfileRegion
@@ -73,6 +79,17 @@ class ProfileManager:
     def profile(cls, region_name: str | None = None) -> Callable:
         """
         Decorator factory for profiling a function.
+
+        Parameters
+        ----------
+        region_name : str, optional
+            Name for the profiling region. If not provided, uses the decorated
+            function's name. Supports being used with or without parentheses.
+
+        Returns
+        -------
+        Callable
+            Decorated function wrapped with profiling instrumentation.
         """
 
         def decorator(func):
@@ -93,6 +110,18 @@ class ProfileManager:
         cls,
         verbose: bool = True,
     ) -> None:
+        """
+        Finalize profiling and merge results from all MPI ranks.
+
+        Flushes buffered profiling data to disk, synchronizes across MPI ranks,
+        and merges per-rank profiling files into a single output file. Optionally
+        prints profiling statistics for each region.
+
+        Parameters
+        ----------
+        verbose : bool, optional
+            If True, prints profiling statistics for each region (default: True).
+        """
         config = cls.get_config()
 
         if not config.profiling_activated:
@@ -205,6 +234,24 @@ class ProfileManager:
         buffer_limit: int = 100_000,
         file_path: str = "profiling_data.h5",
     ):
+        """
+        Initialize and configure the profiling system.
+
+        Parameters
+        ----------
+        profiling_activated : bool, optional
+            Enable or disable profiling (default: True).
+        use_likwid : bool, optional
+            Enable LIKWID hardware counter collection (default: False).
+        time_trace : bool, optional
+            Enable timing trace collection (default: True).
+        flush_to_disk : bool, optional
+            Enable flushing profiling data to disk (default: True).
+        buffer_limit : int, optional
+            Maximum number of profiling events per buffer before flushing (default: 100_000).
+        file_path : str, optional
+            Path to the output profiling data file (default: "profiling_data.h5").
+        """
         ProfilingConfig().reset()
         config = ProfilingConfig(
             profiling_activated=profiling_activated,
@@ -218,20 +265,42 @@ class ProfileManager:
 
     @classmethod
     def set_config(cls, config: ProfilingConfig) -> None:
+        """
+        Set a new profiling configuration and update the region class.
+
+        Parameters
+        ----------
+        config : ProfilingConfig
+            The new profiling configuration to apply.
+        """
         cls._regions.clear()  # Clear old regions
         cls._config = config  # Update the config
         cls._update_region_cls()  # Set the proper region class
 
     @classmethod
     def get_config(cls) -> ProfilingConfig:
+        """
+        Get the current profiling configuration.
+
+        Returns
+        -------
+        ProfilingConfig
+            The current profiling configuration.
+        """
         return cls._config
 
     @classmethod
     def _reset_regions(cls) -> None:
+        """
+        Clear all registered profiling regions.
+        """
         cls._regions = {}
 
     @classmethod
     def _reset_config(cls) -> None:
+        """
+        Reset the profiling configuration to its default state.
+        """
         ProfilingConfig().reset()
         cls._config = ProfilingConfig()
 

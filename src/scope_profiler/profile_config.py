@@ -25,18 +25,37 @@ except ImportError:
 
 
 def _import_pylikwid():
+    """Dynamically import the pylikwid module.
+
+    Returns
+    -------
+    module
+        The imported `pylikwid` module.
+
+    Raises
+    ------
+    ImportError
+        If the module cannot be imported.
+    """
     import pylikwid
 
     return pylikwid
 
 
 class ProfilingConfig:
-    """Singleton class for managing global profiling configuration."""
+    """Singleton class for managing global profiling settings.
+
+    This class centralizes configuration for time tracing,
+    LIKWID performance counters, buffer limits, and file paths.
+    It ensures consistent profiling state across MPI ranks and
+    creates per-rank temporary storage for profiling output.
+    """
 
     _instance = None
     _initialized = False
 
     def __new__(cls, *args, **kwargs):
+        """Ensure only one instance of ProfilingConfig exists."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
@@ -50,6 +69,24 @@ class ProfilingConfig:
         buffer_limit: int = 100_000,
         file_path: str = "profiling_data.h5",
     ):
+        """Initialize the profiling configuration.
+
+        Parameters
+        ----------
+        profiling_activated : bool
+            Whether profiling features are enabled.
+        use_likwid : bool
+            Enable LIKWID marker API if available.
+        time_trace : bool
+            Enable time trace profiling.
+        flush_to_disk : bool
+            If True, flush profiling buffers to disk periodically.
+        buffer_limit : int
+            Maximum number of in-memory records before flushing.
+        file_path : str
+            Global output file path for combined profiling data.
+        """
+
         if self._initialized:
             return
 
@@ -100,6 +137,18 @@ class ProfilingConfig:
         self._initialized = True
 
     def get_local_filepath(self, rank):
+        """Return the per-rank local profiling file path.
+
+        Parameters
+        ----------
+        rank : int
+            MPI rank identifier.
+
+        Returns
+        -------
+        str
+            The path to the per-rank HDF5 file.
+        """
         return os.path.join(self.temp_dir, f"rank_{rank}.h5")
 
     @classmethod
@@ -109,41 +158,49 @@ class ProfilingConfig:
         cls._initialized = False
 
     def pylikwid_markerinit(self):
-        """Initialize LIKWID profiling markers."""
+        """Initialize LIKWID markers if LIKWID is enabled."""
         self._pylikwid.markerinit()
 
     def pylikwid_markerclose(self):
-        """Close LIKWID profiling markers."""
+        """Close LIKWID markers to finalize measurement regions."""
         self._pylikwid.markerclose()
 
     @property
     def comm(self) -> "Intercomm | None":
+        """MPI communicator or None if MPI is unavailable."""
         return self._comm
 
     @property
     def profiling_activated(self) -> bool:
+        """Return whether profiling is globally enabled."""
         return self._profiling_activated
 
     @property
     def buffer_limit(self) -> int:
+        """Maximum number of buffered profiling records."""
         return self._buffer_limit
 
     @property
     def file_path(self) -> str:
+        """Global output file path for combined profiling data."""
         return self._file_path
 
     @property
     def use_likwid(self) -> bool:
+        """Return whether LIKWID profiling is enabled."""
         return self._use_likwid
 
     @property
     def flush_to_disk(self) -> bool:
+        """Return whether profiling buffers should flush to disk."""
         return self._flush_to_disk
 
     @property
     def time_trace(self) -> bool:
+        """Return whether time trace profiling is enabled."""
         return self._time_trace
 
     @property
     def config_creation_time(self) -> int:
+        """Timestamp (ns) when the configuration was created."""
         return self._config_creation_time
