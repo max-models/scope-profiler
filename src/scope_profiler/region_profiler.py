@@ -12,6 +12,11 @@ if TYPE_CHECKING:
 
 
 def _import_pylikwid():
+    """Import and return the pylikwid module.
+
+    This function exists to defer the import of pylikwid until needed,
+    preventing unnecessary overhead when LIKWID profiling is disabled.
+    """
     import pylikwid
 
     return pylikwid
@@ -19,6 +24,12 @@ def _import_pylikwid():
 
 # Base class with common functionality (flush, append, HDF5 handling)
 class BaseProfileRegion:
+    """Base class providing shared profiling logic.
+
+    Handles start/end time buffering, call counting, lazy HDF5 dataset
+    initialization, and flushing data to disk when buffers fill.
+    """
+
     __slots__ = (
         "region_name",
         "config",
@@ -33,6 +44,16 @@ class BaseProfileRegion:
     )
 
     def __init__(self, region_name: str, config: ProfilingConfig):
+        """Initialize a profiling region.
+
+        Parameters
+        ----------
+        region_name : str
+        Name of the profiled region.
+        config : ProfilingConfig
+        Profiling configuration containing buffer limits,
+        file paths, and timing reference.
+        """
         self.region_name = region_name
         self.config = config
         self.num_calls = 0
@@ -49,7 +70,11 @@ class BaseProfileRegion:
         self.hdf5_initialized = False
 
     def wrap(self, func):
-        """Override this in subclasses."""
+        """Wrap a function for profiling.
+
+        Subclasses must override this method to implement the appropriate
+        profiling behavior.
+        """
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -58,6 +83,11 @@ class BaseProfileRegion:
         return wrapper
 
     def append(self, start: float, end: float) -> None:
+        """Append a start/end time pair to the buffer.
+
+        Automatically triggers a flush if the buffer becomes full.
+        """
+
         self.start_times[self.ptr] = start
         self.end_times[self.ptr] = end
         self.ptr += 1
@@ -65,6 +95,11 @@ class BaseProfileRegion:
             self.flush()
 
     def flush(self):
+        """Flush buffered start/end times to the HDF5 file.
+
+        Lazily initializes datasets on the first flush.
+        Subsequent flushes append to the existing datasets.
+        """
         if self.ptr == 0:
             return
 
@@ -93,18 +128,28 @@ class BaseProfileRegion:
         self.ptr = 0
 
     def get_durations_numpy(self) -> np.ndarray:
+        """Return durations (end - start) for buffered entries as a NumPy array."""
         return self.end_times[: self.ptr] - self.start_times[: self.ptr]
 
     def get_end_times_numpy(self) -> np.ndarray:
+        """Return end times offset by config creation time."""
         return self.end_times[: self.ptr] - self.config.config_creation_time
 
     def get_start_times_numpy(self) -> np.ndarray:
+        """Return start times offset by config creation time."""
         return self.start_times[: self.ptr] - self.config.config_creation_time
 
 
 # Disabled region: does nothing
 class DisabledProfileRegion(BaseProfileRegion):
+    """Profiling region that performs no measurements.
+
+    Used when profiling is disabled but code paths must remain valid.
+    """
+
     def wrap(self, func):
+        """Return the original function without profiling."""
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             return func(*args, **kwargs)
@@ -112,23 +157,32 @@ class DisabledProfileRegion(BaseProfileRegion):
         return wrapper
 
     def append(self, start, end):
+        """Ignored: no data recorded."""
         pass
 
     def flush(self):
+        """Ignored: no data recorded."""
         pass
 
     def get_durations_numpy(self):
+        """Return an empty array since nothing is recorded."""
         return np.array([])
 
     def __enter__(self):
+        """Enter a non-operational context manager."""
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        """Exit a non-operational context manager."""
         pass
 
 
 class NCallsOnlyProfileRegion(BaseProfileRegion):
+    """Region that records only the number of calls, not timing."""
+
     def wrap(self, func):
+        """Wrap a function and increment the call counter for each invocation."""
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             self.num_calls += 1
@@ -138,28 +192,41 @@ class NCallsOnlyProfileRegion(BaseProfileRegion):
         return wrapper
 
     def __init__(self, region_name: str, config: ProfilingConfig):
+        """Initialize the region without allocating timing buffers."""
         super().__init__(region_name, config)
 
     def append(self, start, end):
+        """Ignored: timing information is not stored."""
         pass
 
     def flush(self):
+        """Ignored: no data to flush."""
         pass
 
     def get_durations_numpy(self):
+        """Return an empty array because no timing data is collected."""
         return np.array([])
 
     def __enter__(self):
+        """Increment the call counter when entering the context."""
         self.num_calls += 1
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        """Context exit does nothing."""
         pass
 
 
 # Time-only region
 class TimeOnlyProfileRegionNoFlush(BaseProfileRegion):
+    """Region that records timing but never flushes to disk.
+
+    Used for lightweight profiling where in-memory results are sufficient.
+    """
+
     def wrap(self, func):
+        """Wrap a function to measure start and end time without flushing."""
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             self.num_calls += 1
@@ -174,17 +241,23 @@ class TimeOnlyProfileRegionNoFlush(BaseProfileRegion):
         return wrapper
 
     def __enter__(self):
+        """Record the start time on context entry."""
         self.num_calls += 1
         self.start_times[self.ptr] = np.int64(perf_counter_ns())
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        """Record the end time on context exit."""
         self.end_times[self.ptr] = np.int64(perf_counter_ns())
         self.ptr += 1
 
 
 class TimeOnlyProfileRegion(BaseProfileRegion):
+    """Region that records timing and flushes to disk when buffers fill."""
+
     def wrap(self, func):
+        """Wrap a function to measure execution time and flush when needed."""
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             self.num_calls += 1
@@ -201,11 +274,13 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
         return wrapper
 
     def __enter__(self):
+        """Record start time and increment call count."""
         self.start_times[self.ptr] = np.int64(perf_counter_ns())
         self.num_calls += 1
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        """Record end time and flush if needed."""
         self.end_times[self.ptr] = np.int64(perf_counter_ns())
         self.ptr += 1
         if self.ptr >= self.buffer_limit:
@@ -214,9 +289,18 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
 
 # LIKWID-only region
 class LikwidOnlyProfileRegion(BaseProfileRegion):
+    """Region that wraps a LIKWID marker region without recording timing.
+
+    This region enables hardware performance counter collection using LIKWID,
+    but does not store timing or write data to HDF5. Useful when the user only
+    wants LIKWID metrics while still using the unified region API.
+    """
+
     __slots__ = ("likwid_marker_start", "likwid_marker_stop")
 
     def wrap(self, func):
+        """Wrap a function to enclose it in a LIKWID marker region."""
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             self.num_calls += 1
@@ -228,22 +312,31 @@ class LikwidOnlyProfileRegion(BaseProfileRegion):
         return wrapper
 
     def __init__(self, region_name: str, config: ProfilingConfig):
+        """Initialize LIKWID marker callbacks."""
         super().__init__(region_name, config)
         pylikwid = _import_pylikwid()
         self.likwid_marker_start = pylikwid.markerstartregion
         self.likwid_marker_stop = pylikwid.markerstopregion
 
     def __enter__(self):
+        """Record start time and increment call count."""
         self.num_calls += 1
         self.likwid_marker_start(self.region_name)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        """Stop the LIKWID marker region on context exit."""
         self.likwid_marker_stop(self.region_name)
 
 
 # Full region: time + LIKWID
 class FullProfileRegionNoFlush(BaseProfileRegion):
+    """Region that records both timing and LIKWID metrics, without flushing.
+
+    Useful for high-frequency profiling where the user retrieves metrics only
+    from in-memory buffers. No HDF5 writes occur.
+    """
+
     __slots__ = ("likwid_marker_start", "likwid_marker_stop")
 
     def wrap(self, func):
@@ -263,24 +356,33 @@ class FullProfileRegionNoFlush(BaseProfileRegion):
         return wrapper
 
     def __init__(self, region_name: str, config: ProfilingConfig):
+        """Initialize timing buffers and LIKWID marker callbacks."""
         super().__init__(region_name, config)
         pylikwid = _import_pylikwid()
         self.likwid_marker_start = pylikwid.markerstartregion
         self.likwid_marker_stop = pylikwid.markerstopregion
 
     def __enter__(self):
+        """Start LIKWID region and record start time and increase num_calls by 1."""
         self.likwid_marker_start(self.region_name)
         self.start_times[self.ptr] = np.int64(perf_counter_ns())
         self.num_calls += 1
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        """Record end time and stop LIKWID region."""
         self.likwid_marker_stop(self.region_name)
         self.end_times[self.ptr] = np.int64(perf_counter_ns())
         self.ptr += 1
 
 
 class FullProfileRegion(BaseProfileRegion):
+    """Region that records both timing and LIKWID metrics, and flushes to HDF5.
+
+    This is the most complete profiling mode: users obtain LIKWID markers,
+    nanosecond-resolution timing, and persistent on-disk storage.
+    """
+
     __slots__ = ("likwid_marker_start", "likwid_marker_stop")
 
     def wrap(self, func):
@@ -302,18 +404,21 @@ class FullProfileRegion(BaseProfileRegion):
         return wrapper
 
     def __init__(self, region_name: str, config: ProfilingConfig):
+        """Initialize timing buffers, HDF5 paths, and LIKWID callbacks."""
         super().__init__(region_name, config)
         pylikwid = _import_pylikwid()
         self.likwid_marker_start = pylikwid.markerstartregion
         self.likwid_marker_stop = pylikwid.markerstopregion
 
     def __enter__(self):
+        """Start LIKWID region and record start time."""
         self.num_calls += 1
         self.start_times[self.ptr] = np.int64(perf_counter_ns())
         self.likwid_marker_start(self.region_name)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        """Record end time, stop LIKWID region, and flush if needed."""
         self.likwid_marker_stop(self.region_name)
         self.end_times[self.ptr] = np.int64(perf_counter_ns())
         self.ptr += 1
