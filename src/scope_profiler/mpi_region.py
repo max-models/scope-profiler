@@ -1,9 +1,4 @@
-import re
-from pathlib import Path
-from typing import Any, Dict, List
-
-import h5py
-import numpy as np
+from typing import Dict
 
 from scope_profiler.region import Region
 

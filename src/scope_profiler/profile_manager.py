@@ -1,8 +1,5 @@
-import functools
-import inspect
 import os
-from time import perf_counter_ns
-from typing import TYPE_CHECKING, Callable, Dict
+from typing import Callable, Dict
 
 import h5py
 import numpy as np

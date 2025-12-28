@@ -1,9 +1,8 @@
 import re
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import List
 
 import h5py
-import numpy as np
 
 from scope_profiler.mpi_region import MPIRegion
 from scope_profiler.region import Region

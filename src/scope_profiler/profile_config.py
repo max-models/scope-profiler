@@ -3,8 +3,6 @@ import tempfile
 from time import perf_counter_ns
 from typing import TYPE_CHECKING
 
-from numpy import isin
-
 if TYPE_CHECKING:
     from mpi4py.MPI import Intercomm
 

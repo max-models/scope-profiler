@@ -8,7 +8,7 @@ import numpy as np
 from scope_profiler.profile_config import ProfilingConfig
 
 if TYPE_CHECKING:
-    from mpi4py.MPI import Intercomm
+    pass
 
 
 def _import_pylikwid():
