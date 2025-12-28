@@ -2,6 +2,7 @@ import argparse
 import os
 
 from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler.plotting_scripts import plot_gantt  # , plot_durations
 
 
 def main():
@@ -28,11 +29,11 @@ def main():
 
     # Handle optional region selection
     if args.region:
-        regions = [args.region]
+        include = [args.region]
         print(f"\nRegion: {args.region}")
         print(reader.get_region(args.region))
     else:
-        regions = None
+        include = None
         print(reader)
 
     # Prepare output filepaths if requested
@@ -43,8 +44,13 @@ def main():
         durations_path = os.path.join(args.output, "durations_plot.png")
 
     # Call the plotting functions with the appropriate arguments
-    reader.plot_gantt(regions=regions, filepath=gantt_path, show=args.show)
-    reader.plot_durations(regions=regions, filepath=durations_path, show=args.show)
+    plot_gantt(
+        profiling_data=reader,
+        include=include,
+        filepath=gantt_path,
+        show=args.show,
+    )
+    # plot_durations(profiling_data=reader, regions=regions, filepath=durations_path, show=args.show,)
 
     # If saving only (no show), print confirmation
     if args.output and not args.show:

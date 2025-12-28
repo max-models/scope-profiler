@@ -2,12 +2,17 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import h5py
-import matplotlib.pyplot as plt
+from matplotlib.pylab import f
 import numpy as np
+import re
 
 
 class Region:
-    def __init__(self, start_times: np.ndarray, end_times: np.ndarray) -> None:
+    def __init__(
+        self,
+        start_times: np.ndarray,
+        end_times: np.ndarray,
+    ) -> None:
         """
         Initialize a Region with timing information for multiple calls.
 
@@ -45,6 +50,11 @@ class Region:
     def start_times(self) -> np.ndarray:
         """Start times of all calls in seconds."""
         return self._start_times / 1e9
+
+    @property
+    def first_start_time(self) -> float:
+        """First start time in seconds."""
+        return float(np.min(self._start_times)) / 1e9 if self.num_calls else 0.0
 
     @property
     def end_times(self) -> np.ndarray:
@@ -104,12 +114,125 @@ class Region:
         return _out
 
 
+class MPIRegion:
+    def __init__(self, name: str, regions: Dict[int, Region]) -> None:
+        """
+        Initialize an MPIRegion containing Region data for multiple ranks.
+
+        Parameters
+        ----------
+        regions : Dict[int, Region]
+            Dictionary mapping rank IDs to their corresponding Region objects.
+        """
+        self._name = name
+        self._regions = regions
+
+    @property
+    def name(self) -> str:
+        """Name of the region."""
+        return self._name
+
+    @property
+    def regions(self) -> Dict[int, Region]:
+        """Dictionary of rank IDs to their corresponding Region objects."""
+        return self._regions
+
+    def __getitem__(self, rank: int) -> Region:
+        """
+        Get the Region object for a specific rank.
+
+        Parameters
+        ----------
+        rank : int
+            Rank ID.
+
+        Returns
+        -------
+        Region
+            Region object for the specified rank.
+        """
+        return self._regions[rank]
+
+    def average_durations(self) -> Dict[int, float]:
+        """
+        Get the average duration for each rank.
+
+        Returns
+        -------
+        Dict[int, float]
+            Dictionary mapping rank IDs to their average durations.
+        """
+        return {rank: region.average_duration for rank, region in self._regions.items()}
+
+    def min_durations(self) -> Dict[int, float]:
+        """
+        Get the minimum duration for each rank.
+
+        Returns
+        -------
+        Dict[int, float]
+            Dictionary mapping rank IDs to their minimum durations.
+        """
+        return {rank: region.min_duration for rank, region in self._regions.items()}
+
+    def max_durations(self) -> Dict[int, float]:
+        """
+        Get the maximum duration for each rank.
+
+        Returns
+        -------
+        Dict[int, float]
+            Dictionary mapping rank IDs to their maximum durations.
+        """
+        return {rank: region.max_duration for rank, region in self._regions.items()}
+
+    @property
+    def min_duration(self) -> float:
+        """
+        Get the minimum duration across all ranks.
+
+        Returns
+        -------
+        float
+            The minimum duration among all ranks.
+        """
+        return min(region.min_duration for region in self._regions.values())
+
+    @property
+    def max_duration(self) -> float:
+        """
+        Get the maximum duration across all ranks.
+
+        Returns
+        -------
+        float
+            The maximum duration among all ranks.
+        """
+        return max(region.max_duration for region in self._regions.values())
+
+    @property
+    def first_start_time(self) -> float:
+        """
+        Get the earliest start time across all ranks.
+
+        Returns
+        -------
+        float
+            The earliest start time among all ranks.
+        """
+        return min(region.first_start_time for region in self._regions.values())
+
+
 class ProfilingH5Reader:
     """
     Reads profiling data stored by ProfileRegion in an HDF5 file.
     """
 
-    def __init__(self, file_path: str | Path):
+    def __init__(
+        self,
+        file_path: str | Path,
+        verbose: bool = False,
+    ) -> None:
         """
         Initialize the HDF5 reader by loading profiling data from the specified file.
 
@@ -124,34 +247,44 @@ class ProfilingH5Reader:
             If the specified HDF5 file does not exist.
         """
         self._file_path = Path(file_path)
+        self._num_ranks = 0
         if not self.file_path.exists():
             raise FileNotFoundError(f"HDF5 file not found: {self.file_path}")
 
         # Read the file
-        self._region_dict = {}
-
+        _region_dict = {}
+        region_names = []
         with h5py.File(self.file_path, "r") as f:
             # Iterate over all rank groups
             for rank_group_name, rank_group in f.items():
-                # print(f"{rank_group_name = }")
-                # print(rank_group_name, rank_group)
+                self._num_ranks += 1
+                if verbose:
+                    print(f"{rank_group_name = }")
+                    print(rank_group_name, rank_group)
                 rank = int(rank_group_name.replace("rank", ""))
                 if "regions" not in rank_group:
                     continue
                 regions_group = rank_group["regions"]
 
                 for region_name, region_grp in regions_group.items():
+                    region_names.append(region_name)
                     starts = region_grp["start_times"][()]
                     ends = region_grp["end_times"][()]
                     # print(f"{region_name = }")
                     # Merge if region already exists (from another rank)
-                    if region_name in self._region_dict:
-                        self._region_dict[region_name][rank] = Region(starts, ends)
+                    if region_name in _region_dict:
+                        _region_dict[region_name][rank] = Region(starts, ends)
                     else:
-                        self._region_dict[region_name] = {rank: Region(starts, ends)}
-        # print(f"{self._region_dict["main"].keys() = }")
+                        _region_dict[region_name] = {rank: Region(starts, ends)}
 
-    def get_region(self, region_name: str) -> Region:
+        self._region_dict = {}
+
+        for region_name in region_names:
+            self._region_dict[region_name] = MPIRegion(
+                name=region_name, regions=_region_dict[region_name]
+            )
+
+    def get_region(self, region_name: str) -> MPIRegion:
         """
         Retrieve profiling data for a specific region.
 
@@ -172,168 +305,6 @@ class ProfilingH5Reader:
         """
         return self._region_dict[region_name]
 
-    def plot_gantt(
-        self,
-        ranks: list[int] | None = None,
-        regions: list[str] | str | None = None,
-        filepath: str | None = None,
-        show: bool = False,
-    ) -> None:
-        """
-        Plot a Gantt chart of all (or selected) regions with per-rank lanes.
-
-        Parameters
-        ----------
-        ranks : list[int] | None
-            List of ranks to include. If None, include all ranks.
-        regions : list[str] | str | None
-            List of region names to plot, or a single region name as a string.
-            If None, plot all regions.
-        filepath : str | None
-            Path to save the figure. If None, figure is not saved.
-        show : bool
-            Whether to display the plot. Default is False.
-        """
-        if regions is None:
-            regions = list(self._region_dict.keys())
-        elif isinstance(regions, str):
-            regions = [regions]
-
-        # Determine number of ranks from the first region
-
-        # print(f"{self._region_dict = }")
-        first_region = self._region_dict[regions[0]]
-        n_ranks = len(first_region.keys())
-
-        if ranks is None:
-            ranks = list(range(n_ranks))
-
-        # Compute figure height: 0.5 per rank per region
-        fig, ax = plt.subplots(figsize=(12, 1 * len(regions) * n_ranks))
-        colors = plt.cm.tab20(np.linspace(0, 1, len(regions)))
-
-        # Draw bars
-        for i, region_name in enumerate(regions):
-            region = self._region_dict[region_name]
-            for r in ranks:
-                starts = region[r].start_times
-                ends = region[r].end_times
-                y = i * n_ranks + r  # stack ranks vertically within the region
-                for start, end in zip(starts, ends):
-                    ax.barh(
-                        y=y,
-                        width=end - start,
-                        left=start,
-                        height=1.0,
-                        color=colors[i],
-                        edgecolor="black",
-                        alpha=0.7,
-                    )
-
-        # Configure y-axis labels
-        yticks = []
-        yticklabels = []
-        for i, region_name in enumerate(regions):
-            for r in range(n_ranks):
-                yticks.append(i * n_ranks + r)
-                yticklabels.append(f"{region_name} (rank {r})")
-
-        ax.set_yticks(yticks)
-        ax.set_yticklabels(yticklabels)
-        ax.set_xlabel("Time (seconds)")
-        ax.set_title("Profiling Gantt Chart")
-        ax.grid(True, axis="x", linestyle="--", alpha=0.5)
-        fig.tight_layout()
-
-        if filepath:
-            plt.savefig(filepath, dpi=300)
-        if show:
-            plt.show()
-
-    def plot_durations(
-        self,
-        ranks: list[int] | None = None,
-        regions: list[str] | str | None = None,
-        filepath: str | None = None,
-        show: bool = False,
-        bins: int = 30,
-    ) -> None:
-        """
-        Plot duration histograms for each region with per-rank lanes.
-
-        Parameters
-        ----------
-        ranks : list[int] | None
-            List of ranks to include. If None, include all ranks.
-        regions : list[str] | str | None
-            List of region names to plot, or a single region name as a string.
-            If None, plot all regions.
-        filepath : str | None
-            Path to save the figure. If None, figure is not saved.
-        show : bool
-            Whether to display the plot. Default is False.
-        bins : int
-            Number of histogram bins. Default is 30.
-        """
-        import matplotlib.pyplot as plt
-        import numpy as np
-
-        if regions is None:
-            regions = list(self._region_dict.keys())
-        elif isinstance(regions, str):
-            regions = [regions]
-
-        # Determine number of ranks from first region
-        first_region = self._region_dict[regions[0]]
-        n_ranks = len(first_region.keys())
-        if ranks is None:
-            ranks = list(range(n_ranks))
-
-        # Compute figure height: 1 unit per rank per region
-        fig, axes = plt.subplots(
-            nrows=len(regions), ncols=1, figsize=(10, 1 * len(regions) * n_ranks)
-        )
-        if len(regions) == 1:
-            axes = [axes]
-
-        colors = plt.cm.tab20(np.linspace(0, 1, n_ranks))
-
-        for ax, region_name in zip(axes, regions):
-            region = self._region_dict[region_name]
-
-            # Determine max y for proper stacking
-            y_positions = {r: r for r in ranks}  # rank -> vertical offset within region
-            max_y = max(y_positions.values()) + 1
-
-            for r in ranks:
-                subregion = region[r]
-                starts = subregion.start_times
-                ends = subregion.end_times
-                y = y_positions[r]
-                if len(starts) == 0:
-                    continue
-                ax.hist(
-                    starts,  # use start times as representative events for histogram
-                    bins=bins,
-                    alpha=0.6,
-                    color=colors[r],
-                    label=f"Rank {r}",
-                )
-
-            ax.set_title(f"Region: {region_name}")
-            ax.set_xlabel("Time (seconds)")
-            ax.set_ylabel("Frequency")
-            ax.legend()
-            ax.grid(True, alpha=0.4)
-
-        fig.suptitle("Region Duration Distributions per Rank", fontsize=14)
-        fig.tight_layout()
-
-        if filepath:
-            plt.savefig(filepath, dpi=300)
-        if show:
-            plt.show()
-
     @property
     def file_path(self) -> Path:
         """
@@ -347,16 +318,56 @@ class ProfilingH5Reader:
         return self._file_path
 
     @property
-    def regions(self) -> List[Region]:
+    def num_ranks(self) -> int:
         """
-        Get a list of all regions.
+        Get the number of ranks recorded in the profiling data.
+
+        Returns
+        -------
+        int
+            Number of ranks.
+        """
+        return self._num_ranks
+
+    def get_regions(
+        self,
+        include: list[str] | str | None = None,
+        exclude: list[str] | str | None = None,
+    ) -> List[MPIRegion]:
+        """Get a list of all regions in order of appearance.
 
         Returns
         -------
         List[Region]
             List of Region objects.
         """
-        return self._regions
+
+        if isinstance(include, str):
+            include = [include]
+        if isinstance(exclude, str):
+            exclude = [exclude]
+
+        regions = []
+
+        # Collect regions based on include/exclude filters
+        for region_name, region in self._region_dict.items():
+            # print(f"{region_name = } {region = }")
+            # Match with regex patterns if provided
+            if include is not None:
+                if not any([re.match(pattern, region_name) for pattern in include]):
+                    continue
+            if exclude is not None:
+                if any([re.match(pattern, region_name) for pattern in exclude]):
+                    continue
+
+            regions.append(region)
+
+        # Sort regions based on first start time across all ranks
+        regions.sort(
+            key=lambda r: min(region.first_start_time for region in r.regions.values())
+        )
+
+        return regions
 
     def __repr__(self) -> str:
         """
