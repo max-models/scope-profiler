@@ -36,9 +36,8 @@ def plot_gantt(
     elif isinstance(ranks, int):
         ranks = [ranks]
     else:
-        assert all(
-            0 <= r < profiling_data.num_ranks for r in ranks
-        ), "Invalid rank in ranks list."
+        num_ranks = profiling_data.num_ranks
+        assert all(0 <= r < num_ranks for r in ranks), "Invalid rank in ranks list."
     if verbose:
         print(f"Plotting Gantt chart for ranks: {ranks}")
     num_ranks = len(ranks)
