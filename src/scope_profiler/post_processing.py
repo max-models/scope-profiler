@@ -1,8 +1,30 @@
 import argparse
 import os
 
+from matplotlib.pylab import f
+
 from scope_profiler.h5reader import ProfilingH5Reader
 from scope_profiler.plotting_scripts import plot_gantt  # , plot_durations
+
+
+def parse_ranks(spec: str, verbose: bool = False) -> list[int]:
+    """Parse a rank specification string into a list of integers.
+
+    Supports comma-separated values and ranges (e.g., '1-3,5').
+    """
+    ranks = []
+    for part in spec.split(","):
+        if verbose:
+            print(f"Parsing rank part: {part}")
+        part = part.strip()
+        if "-" in part:
+            start, end = map(int, part.split("-"))
+            ranks.extend(range(start, end + 1))
+        else:
+            ranks.append(int(part))
+    if verbose:
+        print(f"Parsed ranks: {ranks}")
+    return ranks
 
 
 def main():
@@ -48,7 +70,22 @@ def main():
         default=None,
         help="List of region names to exclude from the plots (optional)",
     )
+    parser.add_argument(
+        "--ranks",
+        "-r",
+        nargs="*",
+        type=str,
+        default=None,
+        help="List of ranks to include in the plots (optional). Supports comma-separated values and ranges (e.g., 1-3,5).",
+    )
     args = parser.parse_args()
+
+    # Parse ranks if provided
+    if args.ranks:
+        ranks = []
+        for spec in args.ranks:
+            ranks.extend(parse_ranks(spec))
+        args.ranks = sorted(list(set(ranks)))  # unique and sorted
 
     reader = ProfilingH5Reader(args.file)
 
@@ -66,6 +103,7 @@ def main():
         show=args.show,
         include=args.include,
         exclude=args.exclude,
+        ranks=args.ranks,
     )
     # plot_durations(profiling_data=reader, regions=regions, filepath=durations_path, show=args.show,)
 
