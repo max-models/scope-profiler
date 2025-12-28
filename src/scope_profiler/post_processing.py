@@ -1,8 +1,6 @@
 import argparse
 import os
 
-from matplotlib.pylab import f
-
 from scope_profiler.h5reader import ProfilingH5Reader
 from scope_profiler.plotting_scripts import plot_gantt  # , plot_durations
 
