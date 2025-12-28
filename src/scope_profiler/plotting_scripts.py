@@ -28,6 +28,7 @@ def plot_gantt(
     show : bool
         Whether to display the plot. Default is False.
     """
+    first_start_time = profiling_data.minimum_start_time
     regions = profiling_data.get_regions(include=include, exclude=exclude)
 
     if ranks is None:
@@ -53,8 +54,8 @@ def plot_gantt(
         )
     ):
         for irank, rank in enumerate(ranks):
-            starts = region[rank].start_times
-            ends = region[rank].end_times
+            starts = region[rank].start_times - first_start_time
+            ends = region[rank].end_times - first_start_time
             y = i * num_ranks + irank  # stack ranks vertically within the region
             for start, end in zip(starts, ends):
                 ax.barh(

@@ -114,6 +114,23 @@ class ProfilingH5Reader:
         """
         return self._num_ranks
 
+    @property
+    def minimum_start_time(self) -> float:
+        """
+        Get the minimum start time across all regions and ranks.
+
+        Returns
+        -------
+        float
+            Minimum start time in seconds.
+        """
+        min_start = float("inf")
+        for region in self.get_regions():
+            region_min = min(r.first_start_time for r in region.regions.values())
+            if region_min < min_start:
+                min_start = region_min
+        return min_start
+
     def get_regions(
         self,
         include: list[str] | str | None = None,
