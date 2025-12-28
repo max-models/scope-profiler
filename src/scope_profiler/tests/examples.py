@@ -21,7 +21,7 @@ if __name__ == "__main__":
     num_loops = 10
 
     loop(
-        label="loop1",
+        label="loop3",
         num_loops=num_loops,
     )
 
