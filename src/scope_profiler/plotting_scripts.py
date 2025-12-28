@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
-from scope_profiler.h5reader import ProfilingH5Reader
 import numpy as np
+
+from scope_profiler.h5reader import ProfilingH5Reader
 
 
 def plot_gantt(

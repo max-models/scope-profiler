@@ -1,10 +1,9 @@
+import re
 from pathlib import Path
 from typing import Any, Dict, List
 
 import h5py
-from matplotlib.pylab import f
 import numpy as np
-import re
 
 
 class Region:
@@ -137,22 +136,6 @@ class MPIRegion:
         """Dictionary of rank IDs to their corresponding Region objects."""
         return self._regions
 
-    def __getitem__(self, rank: int) -> Region:
-        """
-        Get the Region object for a specific rank.
-
-        Parameters
-        ----------
-        rank : int
-            Rank ID.
-
-        Returns
-        -------
-        Region
-            Region object for the specified rank.
-        """
-        return self._regions[rank]
-
     def average_durations(self) -> Dict[int, float]:
         """
         Get the average duration for each rank.
@@ -221,6 +204,22 @@ class MPIRegion:
             The earliest start time among all ranks.
         """
         return min(region.first_start_time for region in self._regions.values())
+
+    def __getitem__(self, rank: int) -> Region:
+        """
+        Get the Region object for a specific rank.
+
+        Parameters
+        ----------
+        rank : int
+            Rank ID.
+
+        Returns
+        -------
+        Region
+            Region object for the specified rank.
+        """
+        return self._regions[rank]
 
 
 class ProfilingH5Reader:
