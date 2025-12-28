@@ -8,7 +8,7 @@ import numpy as np
 from scope_profiler.profile_config import ProfilingConfig
 
 if TYPE_CHECKING:
-    from mpi4py.MPI import Intercomm
+    pass
 
 
 def _import_pylikwid():
@@ -180,6 +180,10 @@ class DisabledProfileRegion(BaseProfileRegion):
 class NCallsOnlyProfileRegion(BaseProfileRegion):
     """Region that records only the number of calls, not timing."""
 
+    def __init__(self, region_name: str, config: ProfilingConfig):
+        """Initialize the region without allocating timing buffers."""
+        super().__init__(region_name, config)
+
     def wrap(self, func):
         """Wrap a function and increment the call counter for each invocation."""
 
@@ -190,10 +194,6 @@ class NCallsOnlyProfileRegion(BaseProfileRegion):
             return out
 
         return wrapper
-
-    def __init__(self, region_name: str, config: ProfilingConfig):
-        """Initialize the region without allocating timing buffers."""
-        super().__init__(region_name, config)
 
     def append(self, start, end):
         """Ignored: timing information is not stored."""
@@ -298,6 +298,13 @@ class LikwidOnlyProfileRegion(BaseProfileRegion):
 
     __slots__ = ("likwid_marker_start", "likwid_marker_stop")
 
+    def __init__(self, region_name: str, config: ProfilingConfig):
+        """Initialize LIKWID marker callbacks."""
+        super().__init__(region_name, config)
+        pylikwid = _import_pylikwid()
+        self.likwid_marker_start = pylikwid.markerstartregion
+        self.likwid_marker_stop = pylikwid.markerstopregion
+
     def wrap(self, func):
         """Wrap a function to enclose it in a LIKWID marker region."""
 
@@ -310,13 +317,6 @@ class LikwidOnlyProfileRegion(BaseProfileRegion):
             return out
 
         return wrapper
-
-    def __init__(self, region_name: str, config: ProfilingConfig):
-        """Initialize LIKWID marker callbacks."""
-        super().__init__(region_name, config)
-        pylikwid = _import_pylikwid()
-        self.likwid_marker_start = pylikwid.markerstartregion
-        self.likwid_marker_stop = pylikwid.markerstopregion
 
     def __enter__(self):
         """Record start time and increment call count."""
@@ -339,6 +339,13 @@ class FullProfileRegionNoFlush(BaseProfileRegion):
 
     __slots__ = ("likwid_marker_start", "likwid_marker_stop")
 
+    def __init__(self, region_name: str, config: ProfilingConfig):
+        """Initialize timing buffers and LIKWID marker callbacks."""
+        super().__init__(region_name, config)
+        pylikwid = _import_pylikwid()
+        self.likwid_marker_start = pylikwid.markerstartregion
+        self.likwid_marker_stop = pylikwid.markerstopregion
+
     def wrap(self, func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -354,13 +361,6 @@ class FullProfileRegionNoFlush(BaseProfileRegion):
             return out
 
         return wrapper
-
-    def __init__(self, region_name: str, config: ProfilingConfig):
-        """Initialize timing buffers and LIKWID marker callbacks."""
-        super().__init__(region_name, config)
-        pylikwid = _import_pylikwid()
-        self.likwid_marker_start = pylikwid.markerstartregion
-        self.likwid_marker_stop = pylikwid.markerstopregion
 
     def __enter__(self):
         """Start LIKWID region and record start time and increase num_calls by 1."""
@@ -385,6 +385,13 @@ class FullProfileRegion(BaseProfileRegion):
 
     __slots__ = ("likwid_marker_start", "likwid_marker_stop")
 
+    def __init__(self, region_name: str, config: ProfilingConfig):
+        """Initialize timing buffers, HDF5 paths, and LIKWID callbacks."""
+        super().__init__(region_name, config)
+        pylikwid = _import_pylikwid()
+        self.likwid_marker_start = pylikwid.markerstartregion
+        self.likwid_marker_stop = pylikwid.markerstopregion
+
     def wrap(self, func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -402,13 +409,6 @@ class FullProfileRegion(BaseProfileRegion):
             return out
 
         return wrapper
-
-    def __init__(self, region_name: str, config: ProfilingConfig):
-        """Initialize timing buffers, HDF5 paths, and LIKWID callbacks."""
-        super().__init__(region_name, config)
-        pylikwid = _import_pylikwid()
-        self.likwid_marker_start = pylikwid.markerstartregion
-        self.likwid_marker_stop = pylikwid.markerstopregion
 
     def __enter__(self):
         """Start LIKWID region and record start time."""

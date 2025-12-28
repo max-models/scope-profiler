@@ -2,6 +2,7 @@ import argparse
 import os
 
 from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler.plotting_scripts import plot_gantt  # , plot_durations
 
 
 def main():
@@ -9,8 +10,17 @@ def main():
     parser = argparse.ArgumentParser(
         description="Read and summarize profiling HDF5 data."
     )
-    parser.add_argument("file", type=str, help="Path to the profiling_data.h5 file")
-    parser.add_argument("--region", type=str, help="Region name to inspect (optional)")
+    parser.add_argument(
+        "file",
+        type=str,
+        help="Path to the profiling_data.h5 file",
+    )
+
+    # parser.add_argument(
+    #     "--region",
+    #     type=str,
+    #     help="Region name to inspect (optional)",
+    # )
     parser.add_argument(
         "--show",
         action="store_true",
@@ -22,18 +32,25 @@ def main():
         type=str,
         help="Directory or file prefix to save plots instead of displaying them",
     )
+    parser.add_argument(
+        "--include",
+        "-i",
+        nargs="*",
+        type=str,
+        default=None,
+        help="List of region names to include in the plots (optional)",
+    )
+    parser.add_argument(
+        "--exclude",
+        "-e",
+        nargs="*",
+        type=str,
+        default=None,
+        help="List of region names to exclude from the plots (optional)",
+    )
     args = parser.parse_args()
 
     reader = ProfilingH5Reader(args.file)
-
-    # Handle optional region selection
-    if args.region:
-        regions = [args.region]
-        print(f"\nRegion: {args.region}")
-        print(reader.get_region(args.region))
-    else:
-        regions = None
-        print(reader)
 
     # Prepare output filepaths if requested
     gantt_path = durations_path = None
@@ -43,8 +60,14 @@ def main():
         durations_path = os.path.join(args.output, "durations_plot.png")
 
     # Call the plotting functions with the appropriate arguments
-    reader.plot_gantt(regions=regions, filepath=gantt_path, show=args.show)
-    reader.plot_durations(regions=regions, filepath=durations_path, show=args.show)
+    plot_gantt(
+        profiling_data=reader,
+        filepath=gantt_path,
+        show=args.show,
+        include=args.include,
+        exclude=args.exclude,
+    )
+    # plot_durations(profiling_data=reader, regions=regions, filepath=durations_path, show=args.show,)
 
     # If saving only (no show), print confirmation
     if args.output and not args.show:
