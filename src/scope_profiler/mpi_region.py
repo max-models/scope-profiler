@@ -1,3 +1,5 @@
+"""Container for per-rank Region data within an MPI-parallel profiling run."""
+
 from typing import Dict
 
 from scope_profiler.region import Region

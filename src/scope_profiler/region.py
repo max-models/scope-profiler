@@ -1,3 +1,5 @@
+"""Data container for a single profiling region loaded from HDF5."""
+
 from typing import Any, Dict
 
 import numpy as np
