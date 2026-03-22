@@ -12,9 +12,9 @@ jobs:
     environment:
       name: pypi
       url: https://pypi.org/project/scope-profiler/
-    
+
     permissions:
-      id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
+      id-token: write # IMPORTANT: this permission is mandatory for trusted publishing
 
     steps:
       - name: Checkout repository
