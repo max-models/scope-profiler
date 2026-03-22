@@ -79,7 +79,7 @@ against a bare function call:
 
 ![Profiling overhead by region type](figures/benchmark_overhead.png)
 
-The two modes most relevant to HPC **NCallsOnly** and **TimeOnly** — add
+The two modes most relevant to HPC **NCallsOnly** and **TimeOnly** - add
 roughly **50 ns** and **700 ns** per instrumented call respectively.
 
 Profiling can also be fully deactivated at setup time

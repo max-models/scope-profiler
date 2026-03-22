@@ -1,3 +1,5 @@
+"""Singleton manager for creating, configuring, and finalizing profiling regions."""
+
 import os
 from typing import Callable, Dict
 

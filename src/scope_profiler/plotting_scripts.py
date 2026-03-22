@@ -1,3 +1,5 @@
+"""Plotting utilities for visualizing profiling data as Gantt charts."""
+
 import matplotlib.pyplot as plt
 import numpy as np
 
