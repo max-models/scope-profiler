@@ -8,6 +8,7 @@ from scope_profiler.region_profiler import (
     DisabledProfileRegion,
     FullProfileRegion,
     LikwidOnlyProfileRegion,
+    LineProfilerRegion,
     NCallsOnlyProfileRegion,
     TimeOnlyProfileRegion,
     TimeOnlyProfileRegionNoFlush,
@@ -163,6 +164,60 @@ def test_all_region_types():
     ProfileManager.finalize(verbose=False)
 
 
+def test_line_profiler_decorator():
+    ProfileManager.setup(
+        use_line_profiler=True,
+        time_trace=True,
+        flush_to_disk=True,
+    )
+
+    @ProfileManager.profile("lp_func")
+    def work(n=1000):
+        s = 0
+        for i in range(n):
+            s += i
+        return s
+
+    for _ in range(5):
+        work()
+
+    region = ProfileManager.get_region("lp_func")
+    assert isinstance(region, LineProfilerRegion)
+    assert region.num_calls == 5
+    assert region.ptr == 5
+    durations = region.get_durations_numpy()
+    assert durations.size == 5
+    assert all(d > 0 for d in durations)
+
+    # Verify line_profiler captured stats
+    stats = region.get_stats()
+    assert len(stats.timings) > 0
+
+    ProfileManager.finalize(verbose=False)
+
+
+def test_line_profiler_context_manager():
+    ProfileManager.setup(
+        use_line_profiler=True,
+        time_trace=True,
+        flush_to_disk=True,
+    )
+
+    with ProfileManager.profile_region("lp_ctx"):
+        sleep(0.001)
+
+    region = ProfileManager.get_region("lp_ctx")
+    assert isinstance(region, LineProfilerRegion)
+    assert region.num_calls == 1
+    assert region.ptr == 1
+    durations = region.get_durations_numpy()
+    assert durations[0] > 0
+    stats = region.get_stats()
+    print(stats)
+    ProfileManager.finalize(verbose=False)
+
+
 if __name__ == "__main__":
     # test_readme()
-    test_all_region_types()
+    # test_all_region_types()
+    test_line_profiler_context_manager()
