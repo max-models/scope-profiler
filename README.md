@@ -70,3 +70,23 @@ Region: iteration
   Std Dev     : 2.2431888016838885e-07 s
 ----------------------------------------
 ```
+
+## Overhead
+
+The profiling overhead per call depends on the region type.
+The benchmark below (`examples/benchmark_overhead.py`) measures each mode
+against a bare function call:
+
+![Profiling overhead by region type](figures/benchmark_overhead.png)
+
+The two modes most relevant to HPC **NCallsOnly** and **TimeOnly** — add
+roughly **50 ns** and **700 ns** per instrumented call respectively.
+
+Profiling can also be fully deactivated at setup time
+(`profiling_activated=False`) to reduce the overhead to a single
+branch in the wrapper, making it safe to leave instrumentation in
+production code and toggle it on only when needed.
+
+The **LineProfiler** mode is intentionally heavier (~40 ms/call) because
+`line_profiler` traces every source line. It is designed for targeted
+debugging of individual functions, not for always-on use in hot loops.
