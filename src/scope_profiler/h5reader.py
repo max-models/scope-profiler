@@ -1,3 +1,5 @@
+"""Reader for merged HDF5 profiling output files."""
+
 import re
 from pathlib import Path
 from typing import List

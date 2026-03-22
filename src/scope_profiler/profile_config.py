@@ -1,3 +1,5 @@
+"""Singleton configuration for the profiling system."""
+
 import os
 import tempfile
 from time import perf_counter_ns

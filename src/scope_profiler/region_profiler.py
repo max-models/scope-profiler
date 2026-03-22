@@ -1,3 +1,5 @@
+"""Profile region classes implementing the strategy pattern for different profiling modes."""
+
 import functools
 from time import perf_counter_ns
 from typing import TYPE_CHECKING
@@ -358,6 +360,8 @@ class FullProfileRegionNoFlush(BaseProfileRegion):
         self.likwid_marker_stop = pylikwid.markerstopregion
 
     def wrap(self, func):
+        """Wrap a function to measure time and collect LIKWID metrics without flushing."""
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             self.num_calls += 1
@@ -404,6 +408,8 @@ class FullProfileRegion(BaseProfileRegion):
         self.likwid_marker_stop = pylikwid.markerstopregion
 
     def wrap(self, func):
+        """Wrap a function to measure time, collect LIKWID metrics, and flush when needed."""
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             self.num_calls += 1
@@ -447,7 +453,7 @@ class LineProfilerRegion(BaseProfileRegion):
     Line-by-line profiling is most useful with the decorator (``wrap``) path,
     which automatically registers the function with the line profiler.  When
     used as a context manager, the profiler is enabled/disabled around the
-    block — any functions previously added via the decorator path will be
+    block - any functions previously added via the decorator path will be
     profiled while the context is active.
     """
 

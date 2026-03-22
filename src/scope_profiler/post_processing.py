@@ -1,3 +1,5 @@
+"""CLI entry point for post-processing HDF5 profiling data."""
+
 import argparse
 import os
 
