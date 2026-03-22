@@ -22,6 +22,17 @@ def _import_pylikwid():
     return pylikwid
 
 
+def _import_line_profiler():
+    """Import and return the LineProfiler class from line_profiler.
+
+    This function exists to defer the import of line_profiler until needed,
+    preventing unnecessary overhead when line profiling is disabled.
+    """
+    from line_profiler import LineProfiler
+
+    return LineProfiler
+
+
 # Base class with common functionality (flush, append, HDF5 handling)
 class BaseProfileRegion:
     """Base class providing shared profiling logic.
@@ -424,3 +435,70 @@ class FullProfileRegion(BaseProfileRegion):
         self.ptr += 1
         if self.ptr >= self.buffer_limit:
             self.flush()
+
+
+# Line profiler region: time + line_profiler
+class LineProfilerRegion(BaseProfileRegion):
+    """Region that records timing and line-by-line profiling via line_profiler.
+
+    Uses line_profiler to collect per-line execution statistics for decorated
+    functions. Also records nanosecond timestamps and flushes to HDF5.
+
+    Line-by-line profiling is most useful with the decorator (``wrap``) path,
+    which automatically registers the function with the line profiler.  When
+    used as a context manager, the profiler is enabled/disabled around the
+    block — any functions previously added via the decorator path will be
+    profiled while the context is active.
+    """
+
+    __slots__ = ("_line_profiler",)
+
+    def __init__(self, region_name: str, config: ProfilingConfig):
+        """Initialize timing buffers and line_profiler instance."""
+        super().__init__(region_name, config)
+        LineProfiler = _import_line_profiler()
+        self._line_profiler = LineProfiler()
+
+    def wrap(self, func):
+        """Wrap a function to measure execution time and collect line-by-line stats."""
+        self._line_profiler.add_function(func)
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            self.num_calls += 1
+            start = np.int64(perf_counter_ns())
+            self._line_profiler.enable_by_count()
+            out = func(*args, **kwargs)
+            self._line_profiler.disable_by_count()
+            end = np.int64(perf_counter_ns())
+            self.start_times[self.ptr] = start
+            self.end_times[self.ptr] = end
+            self.ptr += 1
+            if self.ptr >= self.buffer_limit:
+                self.flush()
+            return out
+
+        return wrapper
+
+    def __enter__(self):
+        """Record start time and enable line profiler."""
+        self.num_calls += 1
+        self.start_times[self.ptr] = np.int64(perf_counter_ns())
+        self._line_profiler.enable_by_count()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Disable line profiler, record end time, and flush if needed."""
+        self._line_profiler.disable_by_count()
+        self.end_times[self.ptr] = np.int64(perf_counter_ns())
+        self.ptr += 1
+        if self.ptr >= self.buffer_limit:
+            self.flush()
+
+    def print_stats(self):
+        """Print line-by-line profiling statistics."""
+        self._line_profiler.print_stats()
+
+    def get_stats(self):
+        """Return the line_profiler stats object."""
+        return self._line_profiler.get_stats()

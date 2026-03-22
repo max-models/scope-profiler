@@ -11,6 +11,7 @@ from scope_profiler.region_profiler import (
     FullProfileRegion,
     FullProfileRegionNoFlush,
     LikwidOnlyProfileRegion,
+    LineProfilerRegion,
     NCallsOnlyProfileRegion,
     TimeOnlyProfileRegion,
     TimeOnlyProfileRegionNoFlush,
@@ -37,6 +38,8 @@ class ProfileManager:
         cfg = cls._config
         if not cfg.profiling_activated:
             cls._region_cls = DisabledProfileRegion
+        elif cfg.use_line_profiler:
+            cls._region_cls = LineProfilerRegion
         elif cfg.time_trace and cfg.use_likwid:
             if cfg.flush_to_disk:
                 cls._region_cls = FullProfileRegion
@@ -194,6 +197,11 @@ class ProfileManager:
         if config.use_likwid:
             config.pylikwid_markerclose()
 
+        if config.use_line_profiler and verbose:
+            for region in cls.get_all_regions().values():
+                if isinstance(region, LineProfilerRegion):
+                    region.print_stats()
+
     @classmethod
     def get_region(cls, region_name) -> BaseProfileRegion:
         """
@@ -226,6 +234,7 @@ class ProfileManager:
         cls,
         profiling_activated: bool = True,
         use_likwid: bool = False,
+        use_line_profiler: bool = False,
         time_trace: bool = True,
         flush_to_disk: bool = True,
         buffer_limit: int = 100_000,
@@ -240,6 +249,8 @@ class ProfileManager:
             Enable or disable profiling (default: True).
         use_likwid : bool, optional
             Enable LIKWID hardware counter collection (default: False).
+        use_line_profiler : bool, optional
+            Enable line-by-line profiling via line_profiler (default: False).
         time_trace : bool, optional
             Enable timing trace collection (default: True).
         flush_to_disk : bool, optional
@@ -253,6 +264,7 @@ class ProfileManager:
         config = ProfilingConfig(
             profiling_activated=profiling_activated,
             use_likwid=use_likwid,
+            use_line_profiler=use_line_profiler,
             time_trace=time_trace,
             flush_to_disk=flush_to_disk,
             buffer_limit=buffer_limit,

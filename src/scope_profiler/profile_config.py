@@ -62,6 +62,7 @@ class ProfilingConfig:
         self,
         profiling_activated: bool = True,
         use_likwid: bool = False,
+        use_line_profiler: bool = False,
         time_trace: bool = True,
         flush_to_disk: bool = True,
         buffer_limit: int = 100_000,
@@ -75,6 +76,8 @@ class ProfilingConfig:
             Whether profiling features are enabled.
         use_likwid : bool
             Enable LIKWID marker API if available.
+        use_line_profiler : bool
+            Enable line-by-line profiling via line_profiler.
         time_trace : bool
             Enable time trace profiling.
         flush_to_disk : bool
@@ -96,6 +99,7 @@ class ProfilingConfig:
             self._comm = None
         self._profiling_activated = profiling_activated
         self._use_likwid = use_likwid
+        self._use_line_profiler = use_line_profiler
         self._time_trace = time_trace
         self._flush_to_disk = flush_to_disk
         self._buffer_limit = buffer_limit
@@ -187,6 +191,11 @@ class ProfilingConfig:
     def use_likwid(self) -> bool:
         """Return whether LIKWID profiling is enabled."""
         return self._use_likwid
+
+    @property
+    def use_line_profiler(self) -> bool:
+        """Return whether line_profiler profiling is enabled."""
+        return self._use_line_profiler
 
     @property
     def flush_to_disk(self) -> bool:
