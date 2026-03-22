@@ -6,7 +6,7 @@ This page walks through the core workflow: **setup**, **instrument**,
 ## 1. Setup
 
 Call `ProfileManager.setup()` once at the start of your program to configure
-the profiling system.  All regions created afterwards --- even in other
+the profiling system. All regions created afterwards --- even in other
 modules --- share this configuration.
 
 ```python
@@ -56,7 +56,7 @@ The two styles can be mixed freely.
 
 ## 3. Finalize
 
-Call `finalize()` when profiling is done.  This flushes all buffered data,
+Call `finalize()` when profiling is done. This flushes all buffered data,
 merges per-rank HDF5 files, and prints a summary:
 
 ```python

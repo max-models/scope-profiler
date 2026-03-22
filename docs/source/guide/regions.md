@@ -42,7 +42,7 @@ def time_step(state, dt):
 
 ### Mixing both
 
-Decorators and context managers can be mixed freely.  They share the
+Decorators and context managers can be mixed freely. They share the
 same region registry, so using the same name in both places accumulates
 into a single region:
 
@@ -58,9 +58,9 @@ def compute_batch(data):
 
 ## Region identity
 
-Regions are identified by **name** (a string).  The first call to
+Regions are identified by **name** (a string). The first call to
 `profile_region("foo")` creates the region; subsequent calls with the
-same name return the existing instance.  This means:
+same name return the existing instance. This means:
 
 - The same region can be entered from multiple call sites.
 - Call counts and timestamps accumulate across all sites.
@@ -77,7 +77,7 @@ with ProfileManager.profile_region("outer"):
         work()
 ```
 
-Each region independently records its own timestamps.  The library does
+Each region independently records its own timestamps. The library does
 **not** compute parent-child relationships --- that can be done in
 post-processing by comparing the recorded intervals.
 

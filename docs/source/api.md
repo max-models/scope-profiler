@@ -2,7 +2,7 @@
 
 ## ProfileManager
 
-The main entry point for all profiling operations.  All methods are
+The main entry point for all profiling operations. All methods are
 class methods on a singleton --- there is no need to instantiate the
 class.
 
@@ -14,7 +14,7 @@ class.
 
 ## ProfilingConfig
 
-Singleton that holds the global profiling configuration.  Normally you
+Singleton that holds the global profiling configuration. Normally you
 interact with it through `ProfileManager.setup()`, but you can also
 construct one directly for advanced use cases.
 

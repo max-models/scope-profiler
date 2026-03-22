@@ -20,7 +20,7 @@ from scope_profiler import ProfileManager
 ProfileManager.setup(use_line_profiler=True)
 ```
 
-This selects `LineProfilerRegion` for all regions.  Each region records
+This selects `LineProfilerRegion` for all regions. Each region records
 nanosecond timestamps **and** enables `line_profiler` tracing for every
 function registered via the `@ProfileManager.profile` decorator.
 
@@ -90,21 +90,21 @@ Line #      Hits         Time  Per Hit   % Time  Line Contents
 
 The line-by-line table shows, for each source line:
 
-| Column | Meaning |
-|--------|---------|
-| **Hits** | Number of times the line was executed |
-| **Time** | Total time spent on that line (in timer units) |
-| **Per Hit** | Average time per execution |
-| **% Time** | Fraction of the function's total time |
+| Column      | Meaning                                        |
+| ----------- | ---------------------------------------------- |
+| **Hits**    | Number of times the line was executed          |
+| **Time**    | Total time spent on that line (in timer units) |
+| **Per Hit** | Average time per execution                     |
+| **% Time**  | Fraction of the function's total time          |
 
 ## Decorator vs. context manager
 
 - **Decorator** (`@ProfileManager.profile`) --- automatically registers
-  the function with `line_profiler`.  This is the primary use case.
+  the function with `line_profiler`. This is the primary use case.
 - **Context manager** (`with ProfileManager.profile_region()`) ---
-  enables/disables the profiler around the block.  Any functions
+  enables/disables the profiler around the block. Any functions
   previously registered via the decorator path will be profiled while
-  the context is active.  The code inside the `with` block itself is
+  the context is active. The code inside the `with` block itself is
   **not** line-profiled (line_profiler needs a function reference).
 
 ## Accessing stats programmatically
@@ -122,6 +122,6 @@ region.print_stats()
 ## Overhead considerations
 
 Line profiling adds ~40 µs per call because `line_profiler` instruments
-every source line in the function.  It is designed for **targeted
-debugging**, not for always-on use in hot loops.  See {doc}`overhead`
+every source line in the function. It is designed for **targeted
+debugging**, not for always-on use in hot loops. See {doc}`overhead`
 for benchmark data.

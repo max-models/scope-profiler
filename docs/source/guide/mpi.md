@@ -1,6 +1,6 @@
 # MPI support
 
-scope-profiler is MPI-aware out of the box.  When `mpi4py` is installed,
+scope-profiler is MPI-aware out of the box. When `mpi4py` is installed,
 the profiler automatically detects `MPI.COMM_WORLD` and handles
 per-rank data collection and merging.
 
@@ -13,7 +13,7 @@ pip install "scope-profiler[mpi]"
 ## How it works
 
 1. **Setup** --- `ProfilingConfig` reads `COMM_WORLD` to determine rank
-   and size.  Rank 0 creates a shared temporary directory and broadcasts
+   and size. Rank 0 creates a shared temporary directory and broadcasts
    the path to all ranks.
 
 2. **Recording** --- each rank writes its own per-rank HDF5 file
@@ -88,4 +88,4 @@ for rank_id, rank_region in region.regions.items():
 ## Without MPI
 
 If `mpi4py` is not installed, scope-profiler silently falls back to
-single-rank mode.  No code changes are needed --- the API is identical.
+single-rank mode. No code changes are needed --- the API is identical.

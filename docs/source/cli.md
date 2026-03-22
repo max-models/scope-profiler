@@ -14,19 +14,19 @@ usage: scope-profiler-pproc [-h] [--show] [-o OUTPUT]
 
 ### Positional arguments
 
-| Argument | Description |
-|----------|-------------|
-| `file` | Path to the `profiling_data.h5` file |
+| Argument | Description                          |
+| -------- | ------------------------------------ |
+| `file`   | Path to the `profiling_data.h5` file |
 
 ### Optional arguments
 
-| Flag | Description |
-|------|-------------|
-| `--show` | Display the plot interactively (default: off) |
-| `-o`, `--output` | Directory to save the generated plots |
-| `-i`, `--include` | Region names to include (regex patterns) |
-| `-e`, `--exclude` | Region names to exclude (regex patterns) |
-| `-r`, `--ranks` | Ranks to include; supports ranges (e.g. `0-3,5`) |
+| Flag              | Description                                      |
+| ----------------- | ------------------------------------------------ |
+| `--show`          | Display the plot interactively (default: off)    |
+| `-o`, `--output`  | Directory to save the generated plots            |
+| `-i`, `--include` | Region names to include (regex patterns)         |
+| `-e`, `--exclude` | Region names to exclude (regex patterns)         |
+| `-r`, `--ranks`   | Ranks to include; supports ranges (e.g. `0-3,5`) |
 
 ### Examples
 
