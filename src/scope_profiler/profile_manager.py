@@ -1,5 +1,6 @@
 """Singleton manager for creating, configuring, and finalizing profiling regions."""
 
+import functools
 import os
 from typing import Callable, Dict
 
@@ -28,6 +29,7 @@ class ProfileManager:
     _regions = {}
     _config = ProfilingConfig()
     _region_cls = DisabledProfileRegion
+    _decorators: Dict[str, list] = {}  # name -> [(func, _bound), ...]
 
     @classmethod
     def _update_region_cls(cls):
@@ -104,12 +106,35 @@ class ProfileManager:
         -------
         Callable
             Decorated function wrapped with profiling instrumentation.
+
+        Notes
+        -----
+        The decorated function is registered so that calling
+        ``ProfileManager.setup()`` after decoration re-binds the wrapper to
+        the new region class at zero per-call cost.  This means
+        ``@ProfileManager.profile`` can be applied at class-definition time
+        even when ``setup()`` is called later.
         """
 
         def decorator(func):
             name = region_name or func.__name__
+            # _bound[1] is the inner callable produced by region.wrap(func).
+            # It is replaced (without touching the outer wrapper) whenever
+            # set_config() is called, so there is no per-call rebind check.
+            _bound = [None, None]  # [region, wrapped_func]
+
             region = cls.profile_region(name)
-            return region.wrap(func)
+            _bound[0] = region
+            _bound[1] = region.wrap(func)
+
+            # Register so set_config() can rebind without a per-call check.
+            cls._decorators.setdefault(name, []).append((func, _bound))
+
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                return _bound[1](*args, **kwargs)
+
+            return wrapper
 
         # Support @ProfileManager.profile without parentheses
         if callable(region_name):
@@ -178,7 +203,13 @@ class ProfileManager:
                             if not os.path.exists(rank_file):
                                 continue
                             with h5py.File(rank_file, "r") as fin:
-                                grp = fin[f"regions/{region_name}"]
+                                region_path = f"regions/{region_name}"
+                                if region_path not in fin:
+                                    # Region was created but never flushed
+                                    # (e.g. finalize() called from inside the
+                                    # profiled function before it returned).
+                                    continue
+                                grp = fin[region_path]
                                 starts = grp["start_times"][:]
                                 ends = grp["end_times"][:]
                                 all_starts.append(starts)
@@ -299,6 +330,13 @@ class ProfileManager:
         cls._regions.clear()  # Clear old regions
         cls._config = config  # Update the config
         cls._update_region_cls()  # Set the proper region class
+        # Rebind all registered decorator wrappers to the new region class.
+        # This is the only place rebinding happens — there is no per-call check.
+        for name, entries in cls._decorators.items():
+            for func, _bound in entries:
+                region = cls.profile_region(name)
+                _bound[0] = region
+                _bound[1] = region.wrap(func)
 
     @classmethod
     def get_config(cls) -> ProfilingConfig:
@@ -332,3 +370,4 @@ class ProfileManager:
         cls._reset_regions()
         cls._reset_config()
         cls._update_region_cls()
+        cls._decorators.clear()

@@ -118,47 +118,45 @@ def main():
         ProfileManager.finalize(verbose=False)
 
     # ---- Print results table ----
-    print(
-        f"\nBaseline per call: {baseline_per_call:.0f} ns "
-        f"({baseline_per_call / 1000:.2f} µs)\n"
-    )
+    print(f"\nBaseline per call: {baseline_per_call / 1e3:.3f} µs\n")
     header = (
-        f"{'Region type':<22} {'Total/call (ns)':>16} "
-        f"{'Overhead/call (ns)':>20} {'Relative':>10}"
+        f"{'Region type':<22} {'Total/call (µs)':>16} "
+        f"{'Overhead/call (µs)':>20} {'Relative':>10}"
     )
     print(header)
     print("-" * len(header))
     for name, total, overhead in zip(names, totals_ns, overheads_ns):
         label = name.replace("\n", " ")
         pct = overhead / baseline_per_call * 100
-        print(f"{label:<22} {total:>16.0f} {overhead:>20.0f} {pct:>+9.1f}%")
+        print(f"{label:<22} {total / 1e3:>16.3f} {overhead / 1e3:>20.3f} {pct:>+9.1f}%")
 
     # ---- Bar chart (log scale so all bars are readable) ----
     fig, ax = plt.subplots(figsize=(9, 5))
     x = np.arange(len(names))
     colors = ["#4c72b0", "#55a868", "#c44e52", "#8172b2", "#ccb974"]
-    # Clamp negatives to 1 ns so log scale doesn't break
-    plot_vals = [max(v, 1) for v in overheads_ns]
+    # Convert to µs; clamp negatives to 0.001 µs so log scale doesn't break
+    overheads_us = [v / 1e3 for v in overheads_ns]
+    plot_vals = [max(v, 0.001) for v in overheads_us]
     bars = ax.bar(x, plot_vals, color=colors[: len(names)])
 
     ax.set_yscale("log")
     ax.set_xticks(x)
     ax.set_xticklabels(names, fontsize=11)
-    ax.set_ylabel("Overhead per call (ns, log scale)", fontsize=12)
+    ax.set_ylabel("Overhead per call (µs, log scale)", fontsize=12)
     ax.set_title(
         f"Profiling overhead by region type\n"
-        f"(workload ≈ {baseline_per_call:.0f} ns/call, "
+        f"(workload ≈ {baseline_per_call / 1e3:.3f} µs/call, "
         f"{NUM_CALLS:,} calls, best of {NUM_REPEATS} repeats)",
         fontsize=12,
     )
     ax.grid(axis="y", linestyle="--", alpha=0.5)
 
     # Annotate each bar with its value
-    for bar, val in zip(bars, overheads_ns):
+    for bar, val in zip(bars, overheads_us):
         ax.text(
             bar.get_x() + bar.get_width() / 2,
             bar.get_height(),
-            f"{val:.0f} ns",
+            f"{val:.3f} µs",
             ha="center",
             va="bottom",
             fontsize=10,
