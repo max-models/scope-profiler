@@ -1,5 +1,6 @@
 """Singleton manager for creating, configuring, and finalizing profiling regions."""
 
+import functools
 import os
 from typing import Callable, Dict
 
@@ -104,12 +105,32 @@ class ProfileManager:
         -------
         Callable
             Decorated function wrapped with profiling instrumentation.
+
+        Notes
+        -----
+        The wrapper is lazily bound: the region lookup and any profiler
+        registration (e.g. ``line_profiler.add_function``) happen on the
+        first call after each ``ProfileManager.setup()`` invocation.  This
+        means ``@ProfileManager.profile`` can be applied at class-definition
+        time even when ``setup()`` is called later.
         """
 
         def decorator(func):
             name = region_name or func.__name__
-            region = cls.profile_region(name)
-            return region.wrap(func)
+            # _bound[0] holds the last-seen region; _bound[1] holds the
+            # wrapped callable produced by that region's wrap().  Using a
+            # unique sentinel ensures the first call always triggers setup.
+            _bound = [object(), None]
+
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                current = cls._regions.get(name)
+                if current is not _bound[0]:
+                    _bound[0] = cls.profile_region(name)
+                    _bound[1] = _bound[0].wrap(func)
+                return _bound[1](*args, **kwargs)
+
+            return wrapper
 
         # Support @ProfileManager.profile without parentheses
         if callable(region_name):
