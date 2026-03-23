@@ -199,7 +199,13 @@ class ProfileManager:
                             if not os.path.exists(rank_file):
                                 continue
                             with h5py.File(rank_file, "r") as fin:
-                                grp = fin[f"regions/{region_name}"]
+                                region_path = f"regions/{region_name}"
+                                if region_path not in fin:
+                                    # Region was created but never flushed
+                                    # (e.g. finalize() called from inside the
+                                    # profiled function before it returned).
+                                    continue
+                                grp = fin[region_path]
                                 starts = grp["start_times"][:]
                                 ends = grp["end_times"][:]
                                 all_starts.append(starts)
