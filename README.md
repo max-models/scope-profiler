@@ -79,14 +79,14 @@ against a bare function call:
 
 ![Profiling overhead by region type](figures/benchmark_overhead.png)
 
-The two modes most relevant to HPC **NCallsOnly** and **TimeOnly** - add
-roughly **50 ns** and **700 ns** per instrumented call respectively.
+The two modes most relevant to HPC — **NCallsOnly** and **TimeOnly** — add
+roughly **0.09 µs** and **0.75 µs** per instrumented call respectively.
 
 Profiling can also be fully deactivated at setup time
-(`profiling_activated=False`) to reduce the overhead to a single
-branch in the wrapper, making it safe to leave instrumentation in
+(`profiling_activated=False`) to reduce the overhead to ~0.03 µs — barely
+above a bare function call — making it safe to leave instrumentation in
 production code and toggle it on only when needed.
 
-The **LineProfiler** mode is intentionally heavier (~40 ms/call) because
+The **LineProfiler** mode is intentionally heavier (~41 µs/call) because
 `line_profiler` traces every source line. It is designed for targeted
 debugging of individual functions, not for always-on use in hot loops.
