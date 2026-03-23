@@ -203,8 +203,14 @@ def test_line_profiler_context_manager():
         flush_to_disk=True,
     )
 
-    with ProfileManager.profile_region("lp_ctx"):
-        sleep(0.001)
+    def work(n=500):
+        s = 0
+        for i in range(n):
+            s += i
+        return s
+
+    with ProfileManager.profile_region("lp_ctx", functions=[work]):
+        work()
 
     region = ProfileManager.get_region("lp_ctx")
     assert isinstance(region, LineProfilerRegion)
@@ -212,8 +218,11 @@ def test_line_profiler_context_manager():
     assert region.ptr == 1
     durations = region.get_durations_numpy()
     assert durations[0] > 0
+
+    # Verify line_profiler captured stats for the registered function
     stats = region.get_stats()
-    print(stats)
+    assert len(stats.timings) > 0
+
     ProfileManager.finalize(verbose=False)
 
 
