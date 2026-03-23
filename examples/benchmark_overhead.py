@@ -128,9 +128,7 @@ def main():
     for name, total, overhead in zip(names, totals_ns, overheads_ns):
         label = name.replace("\n", " ")
         pct = overhead / baseline_per_call * 100
-        print(
-            f"{label:<22} {total / 1e3:>16.3f} {overhead / 1e3:>20.3f} {pct:>+9.1f}%"
-        )
+        print(f"{label:<22} {total / 1e3:>16.3f} {overhead / 1e3:>20.3f} {pct:>+9.1f}%")
 
     # ---- Bar chart (log scale so all bars are readable) ----
     fig, ax = plt.subplots(figsize=(9, 5))
