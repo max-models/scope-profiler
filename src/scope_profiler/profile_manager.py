@@ -29,6 +29,7 @@ class ProfileManager:
     _regions = {}
     _config = ProfilingConfig()
     _region_cls = DisabledProfileRegion
+    _decorators: Dict[str, list] = {}  # name -> [(func, _bound), ...]
 
     @classmethod
     def _update_region_cls(cls):
@@ -108,26 +109,29 @@ class ProfileManager:
 
         Notes
         -----
-        The wrapper is lazily bound: the region lookup and any profiler
-        registration (e.g. ``line_profiler.add_function``) happen on the
-        first call after each ``ProfileManager.setup()`` invocation.  This
-        means ``@ProfileManager.profile`` can be applied at class-definition
-        time even when ``setup()`` is called later.
+        The decorated function is registered so that calling
+        ``ProfileManager.setup()`` after decoration re-binds the wrapper to
+        the new region class at zero per-call cost.  This means
+        ``@ProfileManager.profile`` can be applied at class-definition time
+        even when ``setup()`` is called later.
         """
 
         def decorator(func):
             name = region_name or func.__name__
-            # _bound[0] holds the last-seen region; _bound[1] holds the
-            # wrapped callable produced by that region's wrap().  Using a
-            # unique sentinel ensures the first call always triggers setup.
-            _bound = [object(), None]
+            # _bound[1] is the inner callable produced by region.wrap(func).
+            # It is replaced (without touching the outer wrapper) whenever
+            # set_config() is called, so there is no per-call rebind check.
+            _bound = [None, None]  # [region, wrapped_func]
+
+            region = cls.profile_region(name)
+            _bound[0] = region
+            _bound[1] = region.wrap(func)
+
+            # Register so set_config() can rebind without a per-call check.
+            cls._decorators.setdefault(name, []).append((func, _bound))
 
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
-                current = cls._regions.get(name)
-                if current is not _bound[0]:
-                    _bound[0] = cls.profile_region(name)
-                    _bound[1] = _bound[0].wrap(func)
                 return _bound[1](*args, **kwargs)
 
             return wrapper
@@ -326,6 +330,13 @@ class ProfileManager:
         cls._regions.clear()  # Clear old regions
         cls._config = config  # Update the config
         cls._update_region_cls()  # Set the proper region class
+        # Rebind all registered decorator wrappers to the new region class.
+        # This is the only place rebinding happens — there is no per-call check.
+        for name, entries in cls._decorators.items():
+            for func, _bound in entries:
+                region = cls.profile_region(name)
+                _bound[0] = region
+                _bound[1] = region.wrap(func)
 
     @classmethod
     def get_config(cls) -> ProfilingConfig:
@@ -359,3 +370,4 @@ class ProfileManager:
         cls._reset_regions()
         cls._reset_config()
         cls._update_region_cls()
+        cls._decorators.clear()

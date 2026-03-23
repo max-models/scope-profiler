@@ -165,13 +165,8 @@ class DisabledProfileRegion(BaseProfileRegion):
     """
 
     def wrap(self, func):
-        """Return the original function without profiling."""
-
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            return func(*args, **kwargs)
-
-        return wrapper
+        """Return the original function unchanged — no wrapper, no overhead."""
+        return func
 
     def append(self, start, end):
         """Ignored: no data recorded."""
