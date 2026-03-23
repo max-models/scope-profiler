@@ -58,7 +58,7 @@ class ProfileManager:
             cls._region_cls = NCallsOnlyProfileRegion
 
     @classmethod
-    def profile_region(cls, region_name) -> BaseProfileRegion:
+    def profile_region(cls, region_name, functions=None) -> BaseProfileRegion:
         """
         Get an existing ProfileRegion by name, or create a new one if it doesn't exist.
 
@@ -66,16 +66,28 @@ class ProfileManager:
         ----------
         region_name: str
             The name of the profiling region.
+        functions : list of callable, optional
+            Functions to register for line-by-line profiling. Only has an
+            effect when ``use_line_profiler=True``. Useful when using the
+            context manager form, since the decorator form (``wrap``) registers
+            functions automatically::
+
+                with ProfileManager.profile_region("my_region", functions=[my_func]):
+                    my_func()
 
         Returns
         -------
         ProfileRegion : The ProfileRegion instance.
         """
 
-        return cls._regions.setdefault(
+        region = cls._regions.setdefault(
             region_name,
             cls._region_cls(region_name, config=cls._config),
         )
+        if functions is not None:
+            for func in functions:
+                region.add_function(func)
+        return region
 
     @classmethod
     def profile(cls, region_name: str | None = None) -> Callable:

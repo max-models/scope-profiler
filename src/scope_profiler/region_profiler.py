@@ -152,6 +152,10 @@ class BaseProfileRegion:
         """Return start times offset by config creation time."""
         return self.start_times[: self.ptr] - self.config.config_creation_time
 
+    def add_function(self, func) -> None:
+        """Register a function for profiling. No-op except in LineProfilerRegion."""
+        pass
+
 
 # Disabled region: does nothing
 class DisabledProfileRegion(BaseProfileRegion):
@@ -500,6 +504,10 @@ class LineProfilerRegion(BaseProfileRegion):
         self.ptr += 1
         if self.ptr >= self.buffer_limit:
             self.flush()
+
+    def add_function(self, func) -> None:
+        """Register a function for line-by-line profiling."""
+        self._line_profiler.add_function(func)
 
     def print_stats(self):
         """Print line-by-line profiling statistics."""
