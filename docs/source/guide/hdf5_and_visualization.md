@@ -58,14 +58,17 @@ reader.get_regions(include="solver.*")
 reader.get_regions(exclude="io.*")
 ```
 
-## Gantt chart CLI
+## Gantt chart and comparison CLI
 
-The `scope-profiler-pproc` command generates a Gantt chart from an HDF5
-file:
+The `scope-profiler-pproc` command generates plots from one or more HDF5
+files:
 
 ```bash
 # Save to a directory
 scope-profiler-pproc profiling_data.h5 -o figures/
+
+# Compare two runs
+scope-profiler-pproc run_a.h5 run_b.h5 -o figures/
 
 # Display interactively
 scope-profiler-pproc profiling_data.h5 --show
@@ -99,3 +102,24 @@ plot_gantt(
 
 The chart displays one horizontal lane per (region, rank) combination,
 with bars spanning each recorded start-to-end interval.
+
+## Comparison bar chart from Python
+
+```python
+from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler.plotting_scripts import plot_durations
+
+readers = [
+    ProfilingH5Reader("run_a.h5"),
+    ProfilingH5Reader("run_b.h5"),
+]
+
+plot_durations(
+    readers,
+    filepath="durations.png",
+    show=True,
+)
+```
+
+The bar chart compares the average duration per call for matching regions
+across files. When several files are provided, the bars are grouped by file.
