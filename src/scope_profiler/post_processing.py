@@ -4,7 +4,7 @@ import argparse
 import os
 
 from scope_profiler.h5reader import ProfilingH5Reader
-from scope_profiler.plotting_scripts import plot_durations, plot_gantt
+from scope_profiler.plotting_scripts import plot_durations, plot_gantt, plot_speedup
 
 
 def parse_ranks(spec: str, verbose: bool = False) -> list[int]:
@@ -93,10 +93,13 @@ def main(argv: list[str] | None = None):
 
     gantt_path = None
     durations_path = None
+    speedup_path = None
     if args.output:
         os.makedirs(args.output, exist_ok=True)
         gantt_path = os.path.join(args.output, "gantt_plot.png")
         durations_path = os.path.join(args.output, "durations_plot.png")
+        if len(readers) > 1:
+            speedup_path = os.path.join(args.output, "speedup_plot.png")
 
     plot_gantt(
         profiling_data=readers,
@@ -116,8 +119,18 @@ def main(argv: list[str] | None = None):
         ranks=args.ranks,
     )
 
+    if len(readers) > 1:
+        plot_speedup(
+            profiling_data=readers,
+            ranks=args.ranks,
+            filepath=speedup_path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+        )
+
     if args.output and not args.show:
-        saved = [path for path in (gantt_path, durations_path) if path]
+        saved = [path for path in (gantt_path, durations_path, speedup_path) if path]
         print("Plots saved to:\n  " + "\n  ".join(saved))
 
 

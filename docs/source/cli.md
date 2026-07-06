@@ -30,8 +30,9 @@ usage: scope-profiler-pproc [-h] [--show] [-o OUTPUT]
 
 When a single file is supplied, the CLI generates the usual Gantt chart and
 an average-duration bar chart for that file. When multiple files are passed,
-the Gantt chart is stacked by file and the bar chart compares matching regions
-across files.
+the Gantt chart is stacked by file, the bar chart compares matching regions
+across files, and the speedup plot shows scaling versus MPI rank count with an
+ideal dashed reference line.
 
 ### Examples
 
@@ -44,7 +45,7 @@ scope-profiler-pproc profiling_data.h5 -o figures/
 **Compare multiple files:**
 
 ```bash
-scope-profiler-pproc run_a.h5 run_b.h5 -o figures/
+scope-profiler-pproc run_1.h5 run_2.h5 run_4.h5 -o figures/
 ```
 
 **Display interactively with region filtering:**

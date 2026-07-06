@@ -1,6 +1,7 @@
 """Plotting utilities for visualizing profiling data."""
 
 from collections.abc import Sequence
+from collections import defaultdict
 
 import numpy as np
 
@@ -68,6 +69,27 @@ def _region_average_duration(
     if values.size == 0:
         return float("nan")
     return float(np.mean(values))
+
+
+def _common_region_names(
+    readers: Sequence[ProfilingH5Reader],
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+) -> list[str]:
+    filtered_regions = [
+        reader.get_regions(include=include, exclude=exclude) for reader in readers
+    ]
+    if not filtered_regions or not filtered_regions[0]:
+        return []
+
+    region_name_sets = [
+        {candidate.name for candidate in regions} for regions in filtered_regions[1:]
+    ]
+    return [
+        region.name
+        for region in filtered_regions[0]
+        if all(region.name in names for names in region_name_sets)
+    ]
 
 
 def _prepare_gantt_data(
@@ -239,22 +261,9 @@ def plot_durations(
     if len(labels) != len(readers):
         raise ValueError("labels must match the number of profiling files.")
 
-    filtered_regions = [
-        reader.get_regions(include=include, exclude=exclude) for reader in readers
-    ]
-    if not filtered_regions[0]:
-        raise ValueError("No regions matched the selected filters.")
-
-    region_name_sets = [
-        {candidate.name for candidate in regions} for regions in filtered_regions[1:]
-    ]
-    region_names = [
-        region.name
-        for region in filtered_regions[0]
-        if all(region.name in names for names in region_name_sets)
-    ]
+    region_names = _common_region_names(readers, include=include, exclude=exclude)
     if not region_names:
-        raise ValueError("No common regions matched the selected filters.")
+        raise ValueError("No regions matched the selected filters.")
 
     if verbose:
         print(f"Plotting duration comparison for files: {', '.join(labels)}")
@@ -295,6 +304,117 @@ def plot_durations(
     ax.grid(True, axis="y", linestyle="--", alpha=0.5)
     if num_readers > 1:
         ax.legend(frameon=False)
+    fig.tight_layout()
+
+    if filepath:
+        plt.savefig(filepath, dpi=300)
+    if show:
+        plt.show()
+    plt.close(fig)
+
+
+def plot_speedup(
+    profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
+    ranks: list[int] | int | None = None,
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+    filepath: str | None = None,
+    show: bool = False,
+    verbose: bool = True,
+) -> None:
+    """Plot scope speedup versus MPI rank count across one or more files.
+
+    The speedup is computed from matching scopes' average per-call durations
+    and normalized against the smallest MPI rank count present in the inputs.
+    """
+    plt = _get_pyplot()
+    readers = _as_readers(profiling_data)
+    if len(readers) < 2:
+        raise ValueError("Speedup plot requires at least two profiling files.")
+
+    region_names = _common_region_names(readers, include=include, exclude=exclude)
+    if not region_names:
+        raise ValueError("No regions matched the selected filters.")
+
+    rank_counts = sorted({reader.num_ranks for reader in readers})
+    if verbose:
+        print(
+            "Plotting speedup comparison for files with ranks: "
+            + ", ".join(map(str, rank_counts))
+        )
+
+    duration_samples: dict[str, dict[int, list[float]]] = {
+        region_name: defaultdict(list) for region_name in region_names
+    }
+    for reader in readers:
+        for region_name in region_names:
+            duration = _region_average_duration(
+                reader.get_region(region_name),
+                ranks=ranks,
+            )
+            if np.isfinite(duration) and duration > 0:
+                duration_samples[region_name][reader.num_ranks].append(duration)
+
+    baseline_ranks = rank_counts[0]
+    colors = plt.cm.tab20(np.linspace(0, 1, len(region_names)))
+    fig_width = max(10, 1.2 * len(rank_counts) + 3)
+    fig_height = max(4.5, 2.8 + 0.35 * len(region_names))
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+
+    plotted = 0
+    for idx, region_name in enumerate(region_names):
+        region_counts = duration_samples[region_name]
+        baseline_samples = region_counts.get(baseline_ranks, [])
+        if not baseline_samples:
+            continue
+
+        baseline_duration = float(np.mean(baseline_samples))
+        if not np.isfinite(baseline_duration) or baseline_duration <= 0:
+            continue
+
+        x_values = []
+        speedups = []
+        for rank_count in rank_counts:
+            samples = region_counts.get(rank_count, [])
+            if not samples:
+                continue
+            mean_duration = float(np.mean(samples))
+            if not np.isfinite(mean_duration) or mean_duration <= 0:
+                continue
+            x_values.append(rank_count)
+            speedups.append(baseline_duration / mean_duration)
+
+        if not x_values:
+            continue
+
+        plotted += 1
+        ax.plot(
+            x_values,
+            speedups,
+            marker="o",
+            linewidth=1.8,
+            color=colors[idx],
+            label=region_name,
+        )
+
+    if plotted == 0:
+        raise ValueError("No valid speedup data could be computed.")
+
+    x_line = np.array(rank_counts, dtype=float)
+    ax.plot(
+        x_line,
+        x_line / baseline_ranks,
+        linestyle="--",
+        color="black",
+        linewidth=1.5,
+        label="Optimal speedup",
+    )
+    ax.set_xlabel("MPI ranks")
+    ax.set_ylabel("Speedup")
+    ax.set_title(f"Region speedup scaling (baseline: {baseline_ranks} ranks)")
+    ax.set_xticks(rank_counts)
+    ax.grid(True, axis="both", linestyle="--", alpha=0.5)
+    ax.legend(frameon=False)
     fig.tight_layout()
 
     if filepath:
