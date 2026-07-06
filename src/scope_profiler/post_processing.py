@@ -4,7 +4,7 @@ import argparse
 import os
 
 from scope_profiler.h5reader import ProfilingH5Reader
-from scope_profiler.plotting_scripts import plot_gantt  # , plot_durations
+from scope_profiler.plotting_scripts import plot_durations, plot_gantt
 
 
 def parse_ranks(spec: str, verbose: bool = False) -> list[int]:
@@ -27,22 +27,16 @@ def parse_ranks(spec: str, verbose: bool = False) -> list[int]:
     return ranks
 
 
-def main():
-    """Main function for reading and summarizing profiling HDF5 data."""
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Read and summarize profiling HDF5 data."
     )
     parser.add_argument(
-        "file",
+        "files",
+        nargs="+",
         type=str,
-        help="Path to the profiling_data.h5 file",
+        help="Paths to profiling_data.h5 files",
     )
-
-    # parser.add_argument(
-    #     "--region",
-    #     type=str,
-    #     help="Region name to inspect (optional)",
-    # )
     parser.add_argument(
         "--show",
         action="store_true",
@@ -76,40 +70,57 @@ def main():
         nargs="*",
         type=str,
         default=None,
-        help="List of ranks to include in the plots (optional). Supports comma-separated values and ranges (e.g., 1-3,5).",
+        help=(
+            "List of ranks to include in the plots (optional). "
+            "Supports comma-separated values and ranges (e.g., 1-3,5)."
+        ),
     )
-    args = parser.parse_args()
+    return parser
 
-    # Parse ranks if provided
+
+def main(argv: list[str] | None = None):
+    """Main function for reading and summarizing profiling HDF5 data."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
     if args.ranks:
         ranks = []
         for spec in args.ranks:
             ranks.extend(parse_ranks(spec))
-        args.ranks = sorted(list(set(ranks)))  # unique and sorted
+        args.ranks = sorted(set(ranks))
 
-    reader = ProfilingH5Reader(args.file)
+    readers = [ProfilingH5Reader(file_path) for file_path in args.files]
 
-    # Prepare output filepaths if requested
-    gantt_path = durations_path = None
+    gantt_path = None
+    durations_path = None
     if args.output:
         os.makedirs(args.output, exist_ok=True)
-        gantt_path = os.path.join(args.output, "gantt_plot.png")
         durations_path = os.path.join(args.output, "durations_plot.png")
+        if len(readers) == 1:
+            gantt_path = os.path.join(args.output, "gantt_plot.png")
 
-    # Call the plotting functions with the appropriate arguments
-    plot_gantt(
-        profiling_data=reader,
-        filepath=gantt_path,
+    if len(readers) == 1:
+        plot_gantt(
+            profiling_data=readers[0],
+            filepath=gantt_path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+        )
+
+    plot_durations(
+        profiling_data=readers,
+        filepath=durations_path,
         show=args.show,
         include=args.include,
         exclude=args.exclude,
         ranks=args.ranks,
     )
-    # plot_durations(profiling_data=reader, regions=regions, filepath=durations_path, show=args.show,)
 
-    # If saving only (no show), print confirmation
     if args.output and not args.show:
-        print(f"Plots saved to:\n  {gantt_path}\n  {durations_path}")
+        saved = [path for path in (gantt_path, durations_path) if path]
+        print("Plots saved to:\n  " + "\n  ".join(saved))
 
 
 if __name__ == "__main__":

@@ -2,21 +2,21 @@
 
 ## `scope-profiler-pproc`
 
-Post-process an HDF5 profiling file and generate Gantt charts.
+Post-process one or more HDF5 profiling files and generate plots.
 
 ```text
 usage: scope-profiler-pproc [-h] [--show] [-o OUTPUT]
                             [--include [INCLUDE ...]]
                             [--exclude [EXCLUDE ...]]
                             [--ranks [RANKS ...]]
-                            file
+                            files [files ...]
 ```
 
 ### Positional arguments
 
 | Argument | Description                          |
 | -------- | ------------------------------------ |
-| `file`   | Path to the `profiling_data.h5` file |
+| `files`  | Path(s) to `profiling_data.h5` files |
 
 ### Optional arguments
 
@@ -28,12 +28,22 @@ usage: scope-profiler-pproc [-h] [--show] [-o OUTPUT]
 | `-e`, `--exclude` | Region names to exclude (regex patterns)         |
 | `-r`, `--ranks`   | Ranks to include; supports ranges (e.g. `0-3,5`) |
 
+When a single file is supplied, the CLI generates the usual Gantt chart and
+an average-duration bar chart for that file. When multiple files are passed,
+the bar chart compares matching regions across files.
+
 ### Examples
 
-**Save a Gantt chart:**
+**Save plots for a single file:**
 
 ```bash
 scope-profiler-pproc profiling_data.h5 -o figures/
+```
+
+**Compare multiple files:**
+
+```bash
+scope-profiler-pproc run_a.h5 run_b.h5 -o figures/
 ```
 
 **Display interactively with region filtering:**
