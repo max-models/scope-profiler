@@ -101,7 +101,8 @@ plot_gantt(
 ```
 
 The chart displays one horizontal lane per (region, rank) combination,
-with bars spanning each recorded start-to-end interval.
+with bars spanning each recorded start-to-end interval. When multiple files
+are provided, each file gets its own stacked subplot in the exported chart.
 
 ## Comparison bar chart from Python
 

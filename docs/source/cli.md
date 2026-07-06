@@ -30,7 +30,8 @@ usage: scope-profiler-pproc [-h] [--show] [-o OUTPUT]
 
 When a single file is supplied, the CLI generates the usual Gantt chart and
 an average-duration bar chart for that file. When multiple files are passed,
-the bar chart compares matching regions across files.
+the Gantt chart is stacked by file and the bar chart compares matching regions
+across files.
 
 ### Examples
 

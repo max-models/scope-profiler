@@ -95,19 +95,17 @@ def main(argv: list[str] | None = None):
     durations_path = None
     if args.output:
         os.makedirs(args.output, exist_ok=True)
+        gantt_path = os.path.join(args.output, "gantt_plot.png")
         durations_path = os.path.join(args.output, "durations_plot.png")
-        if len(readers) == 1:
-            gantt_path = os.path.join(args.output, "gantt_plot.png")
 
-    if len(readers) == 1:
-        plot_gantt(
-            profiling_data=readers[0],
-            filepath=gantt_path,
-            show=args.show,
-            include=args.include,
-            exclude=args.exclude,
-            ranks=args.ranks,
-        )
+    plot_gantt(
+        profiling_data=readers,
+        filepath=gantt_path,
+        show=args.show,
+        include=args.include,
+        exclude=args.exclude,
+        ranks=args.ranks,
+    )
 
     plot_durations(
         profiling_data=readers,
