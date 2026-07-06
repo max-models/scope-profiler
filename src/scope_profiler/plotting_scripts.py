@@ -93,9 +93,7 @@ def plot_gantt(
         ranks = list(range(profiling_data.num_ranks))
     else:
         invalid_ranks = [
-            rank
-            for rank in ranks
-            if rank < 0 or rank >= profiling_data.num_ranks
+            rank for rank in ranks if rank < 0 or rank >= profiling_data.num_ranks
         ]
         if invalid_ranks:
             raise ValueError(f"Invalid ranks requested: {invalid_ranks}")
@@ -177,15 +175,13 @@ def plot_durations(
         raise ValueError("labels must match the number of profiling files.")
 
     filtered_regions = [
-        reader.get_regions(include=include, exclude=exclude)
-        for reader in readers
+        reader.get_regions(include=include, exclude=exclude) for reader in readers
     ]
     if not filtered_regions[0]:
         raise ValueError("No regions matched the selected filters.")
 
     region_name_sets = [
-        {candidate.name for candidate in regions}
-        for regions in filtered_regions[1:]
+        {candidate.name for candidate in regions} for regions in filtered_regions[1:]
     ]
     region_names = [
         region.name
