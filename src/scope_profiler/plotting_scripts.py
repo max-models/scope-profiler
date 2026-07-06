@@ -1,7 +1,7 @@
 """Plotting utilities for visualizing profiling data."""
 
-from collections.abc import Sequence
 from collections import defaultdict
+from collections.abc import Sequence
 
 import numpy as np
 
