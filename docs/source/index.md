@@ -23,7 +23,8 @@ all through a single, unified API.
 - **Line profiler integration** --- enable `line_profiler` per-line stats on
   any decorated function with a single flag.
 - **CLI post-processing** --- `scope-profiler-pproc` reads HDF5 output and
-  generates Gantt charts with region/rank filtering.
+  generates Gantt charts, comparison bars, and speedup plots with
+  region/rank filtering.
 
 ## Quick example
 
