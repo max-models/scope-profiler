@@ -79,14 +79,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def expand_file_patterns(file_args: list[str], parser: argparse.ArgumentParser) -> list[str]:
+def expand_file_patterns(
+    file_args: list[str], parser: argparse.ArgumentParser
+) -> list[str]:
     """Expand CLI file arguments that contain shell-style wildcard patterns."""
     expanded_files: list[str] = []
 
     for file_arg in file_args:
         if glob.has_magic(file_arg):
             matches = sorted(
-                match for match in glob.glob(file_arg, recursive=True) if os.path.isfile(match)
+                match
+                for match in glob.glob(file_arg, recursive=True)
+                if os.path.isfile(match)
             )
             if not matches:
                 parser.error(f"No files matched pattern: {file_arg}")
