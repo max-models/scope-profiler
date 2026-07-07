@@ -58,10 +58,10 @@ reader.get_regions(include="solver.*")
 reader.get_regions(exclude="io.*")
 ```
 
-## Gantt chart and comparison CLI
+## Gantt chart and statistics CLI
 
-The `scope-profiler-pproc` command generates plots from one or more HDF5
-files:
+The `scope-profiler-pproc` command generates a Gantt chart and exports region
+statistics JSON from one or more HDF5 files:
 
 ```bash
 # Save to a directory
@@ -103,7 +103,11 @@ plot_gantt(
 The chart displays one horizontal lane per (region, rank) combination,
 with bars spanning each recorded start-to-end interval. When multiple files
 are provided, each file gets its own stacked subplot in the exported chart.
-The CLI also exports a speedup plot for multi-file runs.
+
+When `-o/--output` is used, the CLI also writes `region_statistics.json` with:
+1. per-file, per-region aggregate statistics (`count`, `average`, `min`, `max`, `std`, `total`)
+2. per-rank statistics for each region
+3. common region names across all input files
 
 ## Comparison bar chart from Python
 

@@ -5,7 +5,7 @@ import glob
 import os
 
 from scope_profiler.h5reader import ProfilingH5Reader
-from scope_profiler.plotting_scripts import plot_durations, plot_gantt, plot_speedup
+from scope_profiler.plotting_scripts import plot_gantt, write_region_statistics_json
 
 
 def parse_ranks(spec: str, verbose: bool = False) -> list[int]:
@@ -47,7 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
         "-o",
         "--output",
         type=str,
-        help="Directory or file prefix to save plots instead of displaying them",
+        help="Directory where output files are saved (gantt_plot.png and region_statistics.json)",
     )
     parser.add_argument(
         "--include",
@@ -55,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="*",
         type=str,
         default=None,
-        help="List of region names to include in the plots (optional)",
+        help="List of region names to include in the outputs (optional)",
     )
     parser.add_argument(
         "--exclude",
@@ -63,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="*",
         type=str,
         default=None,
-        help="List of region names to exclude from the plots (optional)",
+        help="List of region names to exclude from the outputs (optional)",
     )
     parser.add_argument(
         "--ranks",
@@ -72,7 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         help=(
-            "List of ranks to include in the plots (optional). "
+            "List of ranks to include in the outputs (optional). "
             "Supports comma-separated values and ranges (e.g., 1-3,5)."
         ),
     )
@@ -120,14 +120,11 @@ def main(argv: list[str] | None = None):
     readers = [ProfilingH5Reader(file_path) for file_path in args.files]
 
     gantt_path = None
-    durations_path = None
-    speedup_path = None
+    statistics_path = None
     if args.output:
         os.makedirs(args.output, exist_ok=True)
         gantt_path = os.path.join(args.output, "gantt_plot.png")
-        durations_path = os.path.join(args.output, "durations_plot.png")
-        if len(readers) > 1:
-            speedup_path = os.path.join(args.output, "speedup_plot.png")
+        statistics_path = os.path.join(args.output, "region_statistics.json")
 
     plot_gantt(
         profiling_data=readers,
@@ -138,28 +135,18 @@ def main(argv: list[str] | None = None):
         ranks=args.ranks,
     )
 
-    plot_durations(
-        profiling_data=readers,
-        filepath=durations_path,
-        show=args.show,
-        include=args.include,
-        exclude=args.exclude,
-        ranks=args.ranks,
-    )
-
-    if len(readers) > 1:
-        plot_speedup(
+    if statistics_path:
+        write_region_statistics_json(
             profiling_data=readers,
+            filepath=statistics_path,
             ranks=args.ranks,
-            filepath=speedup_path,
-            show=args.show,
             include=args.include,
             exclude=args.exclude,
         )
 
     if args.output and not args.show:
-        saved = [path for path in (gantt_path, durations_path, speedup_path) if path]
-        print("Plots saved to:\n  " + "\n  ".join(saved))
+        saved = [path for path in (gantt_path, statistics_path) if path]
+        print("Outputs saved to:\n  " + "\n  ".join(saved))
 
 
 if __name__ == "__main__":
