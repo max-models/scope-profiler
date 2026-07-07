@@ -48,6 +48,13 @@ scope-profiler-pproc profiling_data.h5 -o figures/
 scope-profiler-pproc run_1.h5 run_2.h5 run_4.h5 -o figures/
 ```
 
+**Select files via wildcard patterns:**
+
+```bash
+scope-profiler-pproc files/*.h5 -o figures/
+scope-profiler-pproc "files/file_*.h5" -o figures/
+```
+
 **Display interactively with region filtering:**
 
 ```bash
