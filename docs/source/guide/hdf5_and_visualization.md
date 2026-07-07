@@ -67,8 +67,8 @@ files:
 # Save to a directory
 scope-profiler-pproc profiling_data.h5 -o figures/
 
-# Compare two runs
-scope-profiler-pproc run_a.h5 run_b.h5 -o figures/
+# Compare multiple scaling runs
+scope-profiler-pproc run_1.h5 run_2.h5 run_4.h5 -o figures/
 
 # Display interactively
 scope-profiler-pproc profiling_data.h5 --show
@@ -101,7 +101,9 @@ plot_gantt(
 ```
 
 The chart displays one horizontal lane per (region, rank) combination,
-with bars spanning each recorded start-to-end interval.
+with bars spanning each recorded start-to-end interval. When multiple files
+are provided, each file gets its own stacked subplot in the exported chart.
+The CLI also exports a speedup plot for multi-file runs.
 
 ## Comparison bar chart from Python
 
@@ -123,3 +125,27 @@ plot_durations(
 
 The bar chart compares the average duration per call for matching regions
 across files. When several files are provided, the bars are grouped by file.
+
+## Speedup graph from Python
+
+```python
+from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler.plotting_scripts import plot_speedup
+
+readers = [
+    ProfilingH5Reader("run_1.h5"),
+    ProfilingH5Reader("run_2.h5"),
+    ProfilingH5Reader("run_4.h5"),
+]
+
+plot_speedup(
+    readers,
+    filepath="speedup.png",
+    show=True,
+)
+```
+
+The speedup plot shows one line per scope, with MPI rank count on the x-axis
+and speedup on the y-axis, derived from average per-call durations for each
+matching scope. The dashed reference line shows optimal scaling relative to
+the smallest rank count present in the inputs.
