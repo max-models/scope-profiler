@@ -1,6 +1,7 @@
 """CLI entry point for post-processing HDF5 profiling data."""
 
 import argparse
+import glob
 import os
 
 from scope_profiler.h5reader import ProfilingH5Reader
@@ -35,7 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
         "files",
         nargs="+",
         type=str,
-        help="Paths to profiling_data.h5 files",
+        help="Paths or glob patterns for profiling_data.h5 files",
     )
     parser.add_argument(
         "--show",
@@ -78,10 +79,33 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def expand_file_patterns(file_args: list[str], parser: argparse.ArgumentParser) -> list[str]:
+    """Expand CLI file arguments that contain shell-style wildcard patterns."""
+    expanded_files: list[str] = []
+
+    for file_arg in file_args:
+        if glob.has_magic(file_arg):
+            matches = sorted(
+                match for match in glob.glob(file_arg, recursive=True) if os.path.isfile(match)
+            )
+            if not matches:
+                parser.error(f"No files matched pattern: {file_arg}")
+            expanded_files.extend(matches)
+        else:
+            expanded_files.append(file_arg)
+
+    if not expanded_files:
+        parser.error("No input files provided.")
+
+    # Keep first occurrence order in case overlapping patterns are supplied.
+    return list(dict.fromkeys(expanded_files))
+
+
 def main(argv: list[str] | None = None):
     """Main function for reading and summarizing profiling HDF5 data."""
     parser = build_parser()
     args = parser.parse_args(argv)
+    args.files = expand_file_patterns(args.files, parser)
 
     if args.ranks:
         ranks = []

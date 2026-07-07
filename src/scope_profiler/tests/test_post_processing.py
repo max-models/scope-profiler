@@ -112,3 +112,26 @@ def test_post_processing_cli_supports_multiple_files(tmp_path):
     assert gantt_plot.stat().st_size > 0
     assert speedup_plot.exists()
     assert speedup_plot.stat().st_size > 0
+
+
+def test_post_processing_cli_supports_wildcard_file_patterns(tmp_path):
+    file_one = tmp_path / "file_1.h5"
+    file_two = tmp_path / "file_2.h5"
+    output_dir = tmp_path / "figures"
+
+    _write_sample_h5(file_one, _sample_file_data(1, 100, 200))
+    _write_sample_h5(file_two, _sample_file_data(2, 50, 100))
+
+    wildcard_pattern = str(tmp_path / "file_*.h5")
+    main([wildcard_pattern, "-o", str(output_dir)])
+
+    durations_plot = output_dir / "durations_plot.png"
+    gantt_plot = output_dir / "gantt_plot.png"
+    speedup_plot = output_dir / "speedup_plot.png"
+
+    assert durations_plot.exists()
+    assert durations_plot.stat().st_size > 0
+    assert gantt_plot.exists()
+    assert gantt_plot.stat().st_size > 0
+    assert speedup_plot.exists()
+    assert speedup_plot.stat().st_size > 0
