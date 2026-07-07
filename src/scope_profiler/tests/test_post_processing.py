@@ -105,10 +105,16 @@ def test_post_processing_cli_supports_multiple_files(tmp_path):
     main([str(file_one), str(file_two), str(file_four), "-o", str(output_dir)])
 
     gantt_plot = output_dir / "gantt_plot.png"
+    durations_plot = output_dir / "durations_plot.png"
+    speedup_plot = output_dir / "speedup_plot.png"
     stats_json = output_dir / "region_statistics.json"
 
     assert gantt_plot.exists()
     assert gantt_plot.stat().st_size > 0
+    assert durations_plot.exists()
+    assert durations_plot.stat().st_size > 0
+    assert speedup_plot.exists()
+    assert speedup_plot.stat().st_size > 0
     assert stats_json.exists()
     assert stats_json.stat().st_size > 0
     payload = json.loads(stats_json.read_text(encoding="utf-8"))
@@ -132,10 +138,16 @@ def test_post_processing_cli_supports_wildcard_file_patterns(tmp_path):
     main([wildcard_pattern, "-o", str(output_dir)])
 
     gantt_plot = output_dir / "gantt_plot.png"
+    durations_plot = output_dir / "durations_plot.png"
+    speedup_plot = output_dir / "speedup_plot.png"
     stats_json = output_dir / "region_statistics.json"
 
     assert gantt_plot.exists()
     assert gantt_plot.stat().st_size > 0
+    assert durations_plot.exists()
+    assert durations_plot.stat().st_size > 0
+    assert speedup_plot.exists()
+    assert speedup_plot.stat().st_size > 0
     assert stats_json.exists()
     payload = json.loads(stats_json.read_text(encoding="utf-8"))
     assert len(payload["files"]) == 2

@@ -2,7 +2,7 @@
 
 ## `scope-profiler-pproc`
 
-Post-process one or more HDF5 profiling files, generate a Gantt chart, and export
+Post-process one or more HDF5 profiling files, generate plots, and export
 aggregate region statistics to JSON.
 
 ```text
@@ -31,7 +31,9 @@ usage: scope-profiler-pproc [-h] [--show] [-o OUTPUT]
 
 When `-o/--output` is supplied, the CLI saves:
 1. `gantt_plot.png`
-2. `region_statistics.json`
+2. `durations_plot.png`
+3. `speedup_plot.png` (only when multiple files are passed)
+4. `region_statistics.json`
 
 For multiple files, the JSON includes per-file region statistics and the set of
 common regions across all inputs.

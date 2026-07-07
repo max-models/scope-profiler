@@ -5,7 +5,12 @@ import glob
 import os
 
 from scope_profiler.h5reader import ProfilingH5Reader
-from scope_profiler.plotting_scripts import plot_gantt, write_region_statistics_json
+from scope_profiler.plotting_scripts import (
+    plot_durations,
+    plot_gantt,
+    plot_speedup,
+    write_region_statistics_json,
+)
 
 
 def parse_ranks(spec: str, verbose: bool = False) -> list[int]:
@@ -47,7 +52,11 @@ def build_parser() -> argparse.ArgumentParser:
         "-o",
         "--output",
         type=str,
-        help="Directory where output files are saved (gantt_plot.png and region_statistics.json)",
+        help=(
+            "Directory where outputs are saved "
+            "(gantt_plot.png, durations_plot.png, optional speedup_plot.png, "
+            "and region_statistics.json)"
+        ),
     )
     parser.add_argument(
         "--include",
@@ -120,10 +129,15 @@ def main(argv: list[str] | None = None):
     readers = [ProfilingH5Reader(file_path) for file_path in args.files]
 
     gantt_path = None
+    durations_path = None
+    speedup_path = None
     statistics_path = None
     if args.output:
         os.makedirs(args.output, exist_ok=True)
         gantt_path = os.path.join(args.output, "gantt_plot.png")
+        durations_path = os.path.join(args.output, "durations_plot.png")
+        if len(readers) > 1:
+            speedup_path = os.path.join(args.output, "speedup_plot.png")
         statistics_path = os.path.join(args.output, "region_statistics.json")
 
     plot_gantt(
@@ -135,6 +149,25 @@ def main(argv: list[str] | None = None):
         ranks=args.ranks,
     )
 
+    plot_durations(
+        profiling_data=readers,
+        filepath=durations_path,
+        show=args.show,
+        include=args.include,
+        exclude=args.exclude,
+        ranks=args.ranks,
+    )
+
+    if len(readers) > 1:
+        plot_speedup(
+            profiling_data=readers,
+            ranks=args.ranks,
+            filepath=speedup_path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+        )
+
     if statistics_path:
         write_region_statistics_json(
             profiling_data=readers,
@@ -145,7 +178,11 @@ def main(argv: list[str] | None = None):
         )
 
     if args.output and not args.show:
-        saved = [path for path in (gantt_path, statistics_path) if path]
+        saved = [
+            path
+            for path in (gantt_path, durations_path, speedup_path, statistics_path)
+            if path
+        ]
         print("Outputs saved to:\n  " + "\n  ".join(saved))
 
 
