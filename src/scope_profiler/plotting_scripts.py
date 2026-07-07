@@ -1,7 +1,9 @@
 """Plotting utilities for visualizing profiling data."""
 
+import json
 from collections import defaultdict
 from collections.abc import Sequence
+from pathlib import Path
 
 import numpy as np
 
@@ -71,6 +73,46 @@ def _region_average_duration(
     return float(np.mean(values))
 
 
+def _region_duration_values(
+    region,
+    ranks: list[int] | None = None,
+) -> np.ndarray:
+    if ranks is None:
+        selected_ranks = list(region.regions.keys())
+    else:
+        selected_ranks = [rank for rank in ranks if rank in region.regions]
+
+    durations = [
+        region.regions[rank].durations
+        for rank in selected_ranks
+        if region.regions[rank].durations.size
+    ]
+    if not durations:
+        return np.array([], dtype=float)
+    return np.concatenate(durations)
+
+
+def _stats_from_values(values: np.ndarray) -> dict[str, float | int | None]:
+    if values.size == 0:
+        return {
+            "count": 0,
+            "average_duration_seconds": None,
+            "min_duration_seconds": None,
+            "max_duration_seconds": None,
+            "std_duration_seconds": None,
+            "total_duration_seconds": None,
+        }
+
+    return {
+        "count": int(values.size),
+        "average_duration_seconds": float(np.mean(values)),
+        "min_duration_seconds": float(np.min(values)),
+        "max_duration_seconds": float(np.max(values)),
+        "std_duration_seconds": float(np.std(values)),
+        "total_duration_seconds": float(np.sum(values)),
+    }
+
+
 def _common_region_names(
     readers: Sequence[ProfilingH5Reader],
     include: list[str] | str | None = None,
@@ -90,6 +132,89 @@ def _common_region_names(
         for region in filtered_regions[0]
         if all(region.name in names for names in region_name_sets)
     ]
+
+
+def collect_region_statistics(
+    profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
+    ranks: list[int] | int | None = None,
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+    labels: Sequence[str] | None = None,
+) -> dict:
+    """Collect aggregate region-duration statistics for one or more profiling files."""
+    readers = _as_readers(profiling_data)
+    selected_ranks = _normalize_ranks(ranks)
+
+    if labels is None:
+        labels = _unique_labels([reader.file_path.stem for reader in readers])
+    else:
+        labels = list(labels)
+
+    if len(labels) != len(readers):
+        raise ValueError("labels must match the number of profiling files.")
+
+    files_payload = []
+    for label, reader in zip(labels, readers):
+        regions = reader.get_regions(include=include, exclude=exclude)
+        region_payload = {}
+        for region in regions:
+            values = _region_duration_values(region, selected_ranks)
+            per_rank_stats = {}
+            for rank in sorted(region.regions.keys()):
+                if selected_ranks is not None and rank not in selected_ranks:
+                    continue
+                rank_values = region.regions[rank].durations
+                per_rank_stats[str(rank)] = _stats_from_values(rank_values)
+            region_payload[region.name] = {
+                **_stats_from_values(values),
+                "per_rank": per_rank_stats,
+            }
+
+        files_payload.append(
+            {
+                "label": label,
+                "file_path": str(Path(reader.file_path).resolve()),
+                "num_ranks": reader.num_ranks,
+                "region_statistics": region_payload,
+            }
+        )
+
+    return {
+        "units": {"durations": "seconds"},
+        "filters": {
+            "include": include,
+            "exclude": exclude,
+            "ranks": selected_ranks,
+        },
+        "common_regions": (
+            _common_region_names(readers, include=include, exclude=exclude)
+            if len(readers) > 1
+            else list(files_payload[0]["region_statistics"].keys())
+        ),
+        "files": files_payload,
+    }
+
+
+def write_region_statistics_json(
+    profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
+    filepath: str | Path,
+    ranks: list[int] | int | None = None,
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+    labels: Sequence[str] | None = None,
+) -> dict:
+    """Write aggregate region-duration statistics to a JSON file."""
+    payload = collect_region_statistics(
+        profiling_data=profiling_data,
+        ranks=ranks,
+        include=include,
+        exclude=exclude,
+        labels=labels,
+    )
+    output_path = Path(filepath)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return payload
 
 
 def _prepare_gantt_data(

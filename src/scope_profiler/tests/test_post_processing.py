@@ -1,3 +1,5 @@
+import json
+
 import h5py
 import matplotlib
 import numpy as np
@@ -102,16 +104,26 @@ def test_post_processing_cli_supports_multiple_files(tmp_path):
 
     main([str(file_one), str(file_two), str(file_four), "-o", str(output_dir)])
 
-    durations_plot = output_dir / "durations_plot.png"
     gantt_plot = output_dir / "gantt_plot.png"
+    durations_plot = output_dir / "durations_plot.png"
     speedup_plot = output_dir / "speedup_plot.png"
+    stats_json = output_dir / "region_statistics.json"
 
-    assert durations_plot.exists()
-    assert durations_plot.stat().st_size > 0
     assert gantt_plot.exists()
     assert gantt_plot.stat().st_size > 0
+    assert durations_plot.exists()
+    assert durations_plot.stat().st_size > 0
     assert speedup_plot.exists()
     assert speedup_plot.stat().st_size > 0
+    assert stats_json.exists()
+    assert stats_json.stat().st_size > 0
+    payload = json.loads(stats_json.read_text(encoding="utf-8"))
+    assert payload["units"]["durations"] == "seconds"
+    assert payload["common_regions"] == ["setup", "solve"]
+    assert len(payload["files"]) == 3
+    assert payload["files"][0]["region_statistics"]["setup"]["count"] == 1
+    assert payload["files"][1]["region_statistics"]["setup"]["count"] == 2
+    assert payload["files"][2]["region_statistics"]["setup"]["count"] == 4
 
 
 def test_post_processing_cli_supports_wildcard_file_patterns(tmp_path):
@@ -125,13 +137,18 @@ def test_post_processing_cli_supports_wildcard_file_patterns(tmp_path):
     wildcard_pattern = str(tmp_path / "file_*.h5")
     main([wildcard_pattern, "-o", str(output_dir)])
 
-    durations_plot = output_dir / "durations_plot.png"
     gantt_plot = output_dir / "gantt_plot.png"
+    durations_plot = output_dir / "durations_plot.png"
     speedup_plot = output_dir / "speedup_plot.png"
+    stats_json = output_dir / "region_statistics.json"
 
-    assert durations_plot.exists()
-    assert durations_plot.stat().st_size > 0
     assert gantt_plot.exists()
     assert gantt_plot.stat().st_size > 0
+    assert durations_plot.exists()
+    assert durations_plot.stat().st_size > 0
     assert speedup_plot.exists()
     assert speedup_plot.stat().st_size > 0
+    assert stats_json.exists()
+    payload = json.loads(stats_json.read_text(encoding="utf-8"))
+    assert len(payload["files"]) == 2
+    assert payload["common_regions"] == ["setup", "solve"]
