@@ -1,8 +1,8 @@
 """Plotting utilities for visualizing profiling data."""
 
+import json
 from collections import defaultdict
 from collections.abc import Sequence
-import json
 from pathlib import Path
 
 import numpy as np
@@ -186,9 +186,11 @@ def collect_region_statistics(
             "exclude": exclude,
             "ranks": selected_ranks,
         },
-        "common_regions": _common_region_names(readers, include=include, exclude=exclude)
-        if len(readers) > 1
-        else list(files_payload[0]["region_statistics"].keys()),
+        "common_regions": (
+            _common_region_names(readers, include=include, exclude=exclude)
+            if len(readers) > 1
+            else list(files_payload[0]["region_statistics"].keys())
+        ),
         "files": files_payload,
     }
 
