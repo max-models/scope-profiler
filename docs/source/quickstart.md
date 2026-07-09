@@ -15,6 +15,7 @@ from scope_profiler import ProfileManager
 ProfileManager.setup(
     time_trace=True,       # record start/end timestamps
     flush_to_disk=True,    # write HDF5 time-trace data
+    recursive_profile=False,  # profile nested Python calls from decorators
 )
 ```
 
@@ -37,6 +38,16 @@ name by default:
 @ProfileManager.profile
 def matrix_multiply(a, b):
     return a @ b
+```
+
+To include nested Python calls made by a decorated function:
+
+```python
+ProfileManager.setup(recursive_profile=True)
+
+@ProfileManager.profile("solver_step")
+def solver_step():
+    return advance_state()  # nested calls are recorded automatically
 ```
 
 ### Context manager

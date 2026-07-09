@@ -27,6 +27,18 @@ def solve(A, b):
 # region name: "solve"
 ```
 
+You can recursively profile nested Python function calls from a decorated
+entrypoint:
+
+```python
+@ProfileManager.profile("solve", recursive=True)
+def solve(A, b):
+    return run_pipeline(A, b)
+```
+
+Nested calls are stored as additional regions using fully-qualified names
+such as `my_module.run_pipeline`.
+
 ### Context manager --- `ProfileManager.profile_region()`
 
 Ideal for profiling a section of code inside a function:

@@ -29,6 +29,7 @@ from scope_profiler import ProfileManager
 # Setup global profiling configuration
 ProfileManager.setup(
     use_likwid=False,
+    recursive_profile=False,
     time_trace=True,
     flush_to_disk=True,
 )
@@ -90,3 +91,34 @@ production code and toggle it on only when needed.
 The **LineProfiler** mode is intentionally heavier (~41 µs/call) because
 `line_profiler` traces every source line. It is designed for targeted
 debugging of individual functions, not for always-on use in hot loops.
+
+## Recursive profiling of nested calls
+
+You can profile nested Python calls from one decorated entrypoint:
+
+```python
+from scope_profiler import ProfileManager
+
+ProfileManager.setup(recursive_profile=True)
+
+
+def leaf(x):
+    return x + 1
+
+
+def inner(x):
+    return leaf(x) * 2
+
+
+@ProfileManager.profile("entry")
+def entry():
+    return sum(inner(i) for i in range(3))
+
+
+entry()
+ProfileManager.finalize()
+```
+
+When enabled, the profiler records regions for nested calls using fully
+qualified names (for example, `my_module.inner`), in addition to the main
+decorated region.

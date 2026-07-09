@@ -2,6 +2,9 @@
 
 import functools
 import os
+import sys
+import threading
+from types import FrameType
 from typing import Callable, Dict
 
 import h5py
@@ -30,6 +33,53 @@ class ProfileManager:
     _config = ProfilingConfig()
     _region_cls = DisabledProfileRegion
     _decorators: Dict[str, list] = {}  # name -> [(func, _bound), ...]
+    _decorated_codes = set()
+    _recursive_state = threading.local()
+    _internal_modules = {
+        "scope_profiler.profile_manager",
+        "scope_profiler.region_profiler",
+        "scope_profiler.profile_config",
+    }
+
+    @classmethod
+    def _is_internal_frame(cls, frame: FrameType) -> bool:
+        module_name = frame.f_globals.get("__name__", "")
+        return module_name in cls._internal_modules
+
+    @classmethod
+    def _frame_region_name(cls, frame: FrameType) -> str:
+        module_name = frame.f_globals.get("__name__", "<unknown>")
+        qualname = frame.f_code.co_qualname
+        return f"{module_name}.{qualname}"
+
+    @classmethod
+    def _get_recursive_tracer(cls, root_frame: FrameType, prev_profiler):
+        active_calls = {}
+
+        def tracer(frame: FrameType, event: str, arg):
+            if event == "call":
+                if frame is root_frame:
+                    pass
+                elif cls._is_internal_frame(frame):
+                    pass
+                elif frame.f_code in cls._decorated_codes:
+                    # Skip functions that already have explicit decorators to
+                    # avoid counting the same call in two regions.
+                    pass
+                else:
+                    region = cls.profile_region(cls._frame_region_name(frame))
+                    region.__enter__()
+                    active_calls[frame] = region
+            elif event in ("return", "exception"):
+                region = active_calls.pop(frame, None)
+                if region is not None:
+                    region.__exit__(None, None, None)
+
+            if prev_profiler is not None:
+                prev_profiler(frame, event, arg)
+            return tracer
+
+        return tracer
 
     @classmethod
     def _update_region_cls(cls):
@@ -92,7 +142,11 @@ class ProfileManager:
         return region
 
     @classmethod
-    def profile(cls, region_name: str | None = None) -> Callable:
+    def profile(
+        cls,
+        region_name: str | None = None,
+        recursive: bool | None = None,
+    ) -> Callable:
         """
         Decorator factory for profiling a function.
 
@@ -101,6 +155,10 @@ class ProfileManager:
         region_name : str, optional
             Name for the profiling region. If not provided, uses the decorated
             function's name. Supports being used with or without parentheses.
+        recursive : bool, optional
+            If True, also profiles Python function calls made by the decorated
+            function (excluding scope-profiler internals). If None, falls back
+            to ``ProfileManager.setup(recursive_profile=...)``.
 
         Returns
         -------
@@ -122,17 +180,44 @@ class ProfileManager:
             # It is replaced (without touching the outer wrapper) whenever
             # set_config() is called, so there is no per-call rebind check.
             _bound = [None, None]  # [region, wrapped_func]
+            recursive_override = recursive
 
             region = cls.profile_region(name)
             _bound[0] = region
             _bound[1] = region.wrap(func)
+            cls._decorated_codes.add(func.__code__)
 
             # Register so set_config() can rebind without a per-call check.
             cls._decorators.setdefault(name, []).append((func, _bound))
 
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
-                return _bound[1](*args, **kwargs)
+                recursive_enabled = cls._config.recursive_profile
+                if recursive_override is not None:
+                    recursive_enabled = recursive_override
+
+                if not recursive_enabled:
+                    return _bound[1](*args, **kwargs)
+
+                state = cls._recursive_state
+                depth = getattr(state, "depth", 0)
+                state.depth = depth + 1
+                if depth > 0:
+                    try:
+                        return _bound[1](*args, **kwargs)
+                    finally:
+                        state.depth -= 1
+
+                prev_profiler = sys.getprofile()
+                tracer = cls._get_recursive_tracer(
+                    root_frame=sys._getframe(), prev_profiler=prev_profiler
+                )
+                sys.setprofile(tracer)
+                try:
+                    return _bound[1](*args, **kwargs)
+                finally:
+                    sys.setprofile(prev_profiler)
+                    state.depth -= 1
 
             return wrapper
 
@@ -280,6 +365,7 @@ class ProfileManager:
         profiling_activated: bool = True,
         use_likwid: bool = False,
         use_line_profiler: bool = False,
+        recursive_profile: bool = False,
         time_trace: bool = True,
         flush_to_disk: bool = True,
         buffer_limit: int = 100_000,
@@ -296,6 +382,10 @@ class ProfileManager:
             Enable LIKWID hardware counter collection (default: False).
         use_line_profiler : bool, optional
             Enable line-by-line profiling via line_profiler (default: False).
+        recursive_profile : bool, optional
+            Enable recursive profiling for all decorated functions by default
+            (default: False). This can be overridden per decorator with
+            ``@ProfileManager.profile(..., recursive=...)``.
         time_trace : bool, optional
             Enable timing trace collection (default: True).
         flush_to_disk : bool, optional
@@ -310,6 +400,7 @@ class ProfileManager:
             profiling_activated=profiling_activated,
             use_likwid=use_likwid,
             use_line_profiler=use_line_profiler,
+            recursive_profile=recursive_profile,
             time_trace=time_trace,
             flush_to_disk=flush_to_disk,
             buffer_limit=buffer_limit,
