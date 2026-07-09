@@ -249,9 +249,7 @@ def test_recursive_decorator_profiles_nested_calls():
     assert entry() == 12
 
     regions = ProfileManager.get_all_regions()
-    leaf_name = (
-        f"{__name__}.test_recursive_decorator_profiles_nested_calls.<locals>.helper_leaf"
-    )
+    leaf_name = f"{__name__}.test_recursive_decorator_profiles_nested_calls.<locals>.helper_leaf"
     mid_name = (
         f"{__name__}.test_recursive_decorator_profiles_nested_calls.<locals>.helper_mid"
     )

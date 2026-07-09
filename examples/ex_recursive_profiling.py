@@ -12,7 +12,6 @@ Run::
 
 from scope_profiler import ProfileManager
 
-
 ProfileManager.setup(
     use_likwid=False,
     time_trace=True,
