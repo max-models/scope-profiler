@@ -226,6 +226,86 @@ def test_line_profiler_context_manager():
     ProfileManager.finalize(verbose=False)
 
 
+def test_recursive_decorator_profiles_nested_calls():
+    ProfileManager.setup(
+        use_likwid=False,
+        time_trace=False,
+        flush_to_disk=False,
+    )
+
+    def helper_leaf(x):
+        return x + 1
+
+    def helper_mid(x):
+        return helper_leaf(x) * 2
+
+    @ProfileManager.profile("entry_recursive", recursive=True)
+    def entry():
+        total = 0
+        for i in range(3):
+            total += helper_mid(i)
+        return total
+
+    assert entry() == 12
+
+    regions = ProfileManager.get_all_regions()
+    leaf_name = (
+        f"{__name__}.test_recursive_decorator_profiles_nested_calls.<locals>.helper_leaf"
+    )
+    mid_name = (
+        f"{__name__}.test_recursive_decorator_profiles_nested_calls.<locals>.helper_mid"
+    )
+
+    assert regions["entry_recursive"].num_calls == 1
+    assert regions[mid_name].num_calls == 3
+    assert regions[leaf_name].num_calls == 3
+
+    ProfileManager.finalize(verbose=False)
+
+
+def test_recursive_profile_setup_default_and_override():
+    ProfileManager.setup(
+        use_likwid=False,
+        time_trace=False,
+        flush_to_disk=False,
+        recursive_profile=True,
+    )
+
+    def recurse(n):
+        if n <= 1:
+            return 1
+        return recurse(n - 1) + 1
+
+    def helper():
+        return 42
+
+    @ProfileManager.profile("root_default_recursive")
+    def root():
+        return recurse(4)
+
+    @ProfileManager.profile("root_non_recursive", recursive=False)
+    def root_non_recursive():
+        return helper()
+
+    assert root() == 4
+    assert root_non_recursive() == 42
+
+    recurse_name = (
+        f"{__name__}.test_recursive_profile_setup_default_and_override.<locals>.recurse"
+    )
+    helper_name = (
+        f"{__name__}.test_recursive_profile_setup_default_and_override.<locals>.helper"
+    )
+    regions = ProfileManager.get_all_regions()
+
+    assert regions["root_default_recursive"].num_calls == 1
+    assert regions[recurse_name].num_calls == 4
+    assert regions["root_non_recursive"].num_calls == 1
+    assert helper_name not in regions
+
+    ProfileManager.finalize(verbose=False)
+
+
 if __name__ == "__main__":
     # test_readme()
     # test_all_region_types()

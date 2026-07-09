@@ -65,6 +65,7 @@ class ProfilingConfig:
         profiling_activated: bool = True,
         use_likwid: bool = False,
         use_line_profiler: bool = False,
+        recursive_profile: bool = False,
         time_trace: bool = True,
         flush_to_disk: bool = True,
         buffer_limit: int = 100_000,
@@ -80,6 +81,8 @@ class ProfilingConfig:
             Enable LIKWID marker API if available.
         use_line_profiler : bool
             Enable line-by-line profiling via line_profiler.
+        recursive_profile : bool
+            Enable recursive profiling by default for decorated functions.
         time_trace : bool
             Enable time trace profiling.
         flush_to_disk : bool
@@ -102,6 +105,7 @@ class ProfilingConfig:
         self._profiling_activated = profiling_activated
         self._use_likwid = use_likwid
         self._use_line_profiler = use_line_profiler
+        self._recursive_profile = recursive_profile
         self._time_trace = time_trace
         self._flush_to_disk = flush_to_disk
         self._buffer_limit = buffer_limit
@@ -208,6 +212,11 @@ class ProfilingConfig:
     def time_trace(self) -> bool:
         """Return whether time trace profiling is enabled."""
         return self._time_trace
+
+    @property
+    def recursive_profile(self) -> bool:
+        """Return whether recursive decorator profiling is enabled by default."""
+        return self._recursive_profile
 
     @property
     def config_creation_time(self) -> int:

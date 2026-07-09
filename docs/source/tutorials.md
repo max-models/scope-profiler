@@ -9,6 +9,8 @@ scripts:
 
 - **`ex_line_profiling.py`** --- demonstrates line-by-line profiling
   with `use_line_profiler=True`.
+- **`ex_recursive_profiling.py`** --- profiles nested function calls from
+  one decorated entrypoint using `recursive_profile=True`.
 - **`benchmark_overhead.py`** --- measures per-call overhead of every
   profiling mode and produces a bar chart.
 

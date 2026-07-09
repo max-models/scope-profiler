@@ -12,6 +12,7 @@ configuration is global: every call to `profile()` or `profile_region()`
 | `profiling_activated` | `bool` | `True`                | Master switch. When `False`, all regions become no-ops with near-zero cost.                     |
 | `use_likwid`          | `bool` | `False`               | Wrap regions with LIKWID marker API calls for hardware counter collection. Requires `pylikwid`. |
 | `use_line_profiler`   | `bool` | `False`               | Enable line-by-line profiling via `line_profiler`. See {doc}`line_profiler`.                    |
+| `recursive_profile`   | `bool` | `False`               | Enable recursive nested-call profiling for all decorated functions by default.                    |
 | `time_trace`          | `bool` | `True`                | Record nanosecond start/end timestamps for every call.                                          |
 | `flush_to_disk`       | `bool` | `True`                | Periodically flush timing buffers to per-rank HDF5 files.                                       |
 | `buffer_limit`        | `int`  | `100_000`             | Number of events buffered in memory before an automatic flush.                                  |
@@ -49,6 +50,23 @@ ProfileManager.setup(
     profiling_activated=os.environ.get("ENABLE_PROFILING", "0") == "1",
 )
 ```
+
+## Recursive profiling of decorated entrypoints
+
+Set `recursive_profile=True` to record Python function calls made inside
+decorated functions:
+
+```python
+ProfileManager.setup(recursive_profile=True)
+
+@ProfileManager.profile("entry")
+def entry():
+    compute_step()
+```
+
+You can override this per function with
+`@ProfileManager.profile(..., recursive=False)` or
+`@ProfileManager.profile(..., recursive=True)`.
 
 When `profiling_activated=False`, every region is a `DisabledProfileRegion`
 whose `__enter__` / `__exit__` / `wrap` are trivial no-ops, adding only
