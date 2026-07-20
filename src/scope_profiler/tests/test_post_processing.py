@@ -48,10 +48,13 @@ def test_plot_durations_comparison(tmp_path):
 
     readers = [ProfilingH5Reader(file_one), ProfilingH5Reader(file_two)]
 
-    plot_durations(readers, filepath=out_file, show=False, verbose=False)
+    saved_paths = plot_durations(readers, filepath=out_file, show=False, verbose=False)
 
-    assert out_file.exists()
-    assert out_file.stat().st_size > 0
+    assert len(saved_paths) == 4
+    for metric in ("avg", "min", "max", "total"):
+        metric_file = tmp_path / f"durations_plot_{metric}.png"
+        assert metric_file.exists()
+        assert metric_file.stat().st_size > 0
 
 
 def test_plot_gantt_combined(tmp_path):
@@ -105,14 +108,15 @@ def test_post_processing_cli_supports_multiple_files(tmp_path):
     main([str(file_one), str(file_two), str(file_four), "-o", str(output_dir)])
 
     gantt_plot = output_dir / "gantt_plot.png"
-    durations_plot = output_dir / "durations_plot.png"
     speedup_plot = output_dir / "speedup_plot.png"
     stats_json = output_dir / "region_statistics.json"
 
     assert gantt_plot.exists()
     assert gantt_plot.stat().st_size > 0
-    assert durations_plot.exists()
-    assert durations_plot.stat().st_size > 0
+    for metric in ("avg", "min", "max", "total"):
+        metric_file = output_dir / f"durations_plot_{metric}.png"
+        assert metric_file.exists()
+        assert metric_file.stat().st_size > 0
     assert speedup_plot.exists()
     assert speedup_plot.stat().st_size > 0
     assert stats_json.exists()
@@ -138,14 +142,15 @@ def test_post_processing_cli_supports_wildcard_file_patterns(tmp_path):
     main([wildcard_pattern, "-o", str(output_dir)])
 
     gantt_plot = output_dir / "gantt_plot.png"
-    durations_plot = output_dir / "durations_plot.png"
     speedup_plot = output_dir / "speedup_plot.png"
     stats_json = output_dir / "region_statistics.json"
 
     assert gantt_plot.exists()
     assert gantt_plot.stat().st_size > 0
-    assert durations_plot.exists()
-    assert durations_plot.stat().st_size > 0
+    for metric in ("avg", "min", "max", "total"):
+        metric_file = output_dir / f"durations_plot_{metric}.png"
+        assert metric_file.exists()
+        assert metric_file.stat().st_size > 0
     assert speedup_plot.exists()
     assert speedup_plot.stat().st_size > 0
     assert stats_json.exists()

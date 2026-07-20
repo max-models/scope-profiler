@@ -85,6 +85,18 @@ def build_parser() -> argparse.ArgumentParser:
             "Supports comma-separated values and ranges (e.g., 1-3,5)."
         ),
     )
+    parser.add_argument(
+        "--metrics",
+        "-m",
+        nargs="*",
+        type=str,
+        choices=["avg", "min", "max", "total"],
+        default=None,
+        help=(
+            "Which duration statistics to include in the durations bar plot "
+            "(default: all of avg, min, max, total)."
+        ),
+    )
     return parser
 
 
@@ -149,13 +161,14 @@ def main(argv: list[str] | None = None):
         ranks=args.ranks,
     )
 
-    plot_durations(
+    durations_paths = plot_durations(
         profiling_data=readers,
         filepath=durations_path,
         show=args.show,
         include=args.include,
         exclude=args.exclude,
         ranks=args.ranks,
+        metrics=args.metrics,
     )
 
     if len(readers) > 1:
@@ -180,7 +193,7 @@ def main(argv: list[str] | None = None):
     if args.output and not args.show:
         saved = [
             path
-            for path in (gantt_path, durations_path, speedup_path, statistics_path)
+            for path in (gantt_path, *durations_paths, speedup_path, statistics_path)
             if path
         ]
         print("Outputs saved to:\n  " + "\n  ".join(saved))
