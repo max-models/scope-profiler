@@ -1,6 +1,7 @@
 """Plotting utilities for visualizing profiling data."""
 
 import json
+import os
 from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
@@ -363,20 +364,74 @@ def plot_gantt(
     plt.close(fig)
 
 
+_DURATION_METRICS: dict[str, tuple[str, str]] = {
+    "avg": ("average_duration_seconds", "Average duration per call (seconds)"),
+    "min": ("min_duration_seconds", "Minimum duration per call (seconds)"),
+    "max": ("max_duration_seconds", "Maximum duration per call (seconds)"),
+    "total": ("total_duration_seconds", "Total duration (seconds)"),
+}
+
+
+def _region_metric_value(
+    region,
+    metric_key: str,
+    ranks: list[int] | None = None,
+) -> float:
+    values = _region_duration_values(region, ranks=ranks)
+    stats = _stats_from_values(values)
+    stat_value = stats[metric_key]
+    return float("nan") if stat_value is None else stat_value
+
+
+def _metric_filepath(filepath: str, metric_key: str, single_metric: bool) -> str:
+    if single_metric:
+        return filepath
+    base, ext = os.path.splitext(filepath)
+    return f"{base}_{metric_key}{ext}"
+
+
 def plot_durations(
     profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
     ranks: list[int] | int | None = None,
     include: list[str] | str | None = None,
     exclude: list[str] | str | None = None,
     labels: Sequence[str] | None = None,
+    metrics: list[str] | str | None = None,
     filepath: str | None = None,
     show: bool = False,
     verbose: bool = True,
-) -> None:
-    """Plot average-duration bar charts for one or more profiling files."""
+) -> list[str]:
+    """Plot duration bar charts for one or more profiling files.
+
+    Each requested metric is rendered as its own separate figure.
+
+    Args:
+        metrics: Which statistics to plot, any of "avg", "min", "max", "total".
+            Defaults to all four.
+        filepath: Base output path. When multiple metrics are plotted, each
+            figure is saved with the metric name inserted before the
+            extension (e.g. "durations_plot.png" -> "durations_plot_avg.png").
+
+    Returns:
+        List of filepaths that were written (empty if filepath is None).
+    """
     plt = _get_pyplot()
     readers = _as_readers(profiling_data)
     ranks = _normalize_ranks(ranks)
+
+    if metrics is None:
+        metric_keys = list(_DURATION_METRICS)
+    elif isinstance(metrics, str):
+        metric_keys = [metrics]
+    else:
+        metric_keys = list(metrics)
+
+    unknown_metrics = [key for key in metric_keys if key not in _DURATION_METRICS]
+    if unknown_metrics:
+        raise ValueError(
+            f"Unknown metric(s) {unknown_metrics}. "
+            f"Valid options are: {list(_DURATION_METRICS)}"
+        )
 
     if labels is None:
         labels = _unique_labels([reader.file_path.stem for reader in readers])
@@ -391,15 +446,10 @@ def plot_durations(
         raise ValueError("No regions matched the selected filters.")
 
     if verbose:
-        print(f"Plotting duration comparison for files: {', '.join(labels)}")
-
-    values = [
-        [
-            _region_average_duration(reader.get_region(region_name), ranks=ranks)
-            for region_name in region_names
-        ]
-        for reader in readers
-    ]
+        print(
+            f"Plotting duration comparison ({', '.join(metric_keys)}) "
+            f"for files: {', '.join(labels)}"
+        )
 
     x = np.arange(len(region_names))
     num_readers = len(readers)
@@ -407,35 +457,61 @@ def plot_durations(
     colors = plt.cm.tab20(np.linspace(0, 1, max(num_readers, 1)))
     fig_width = max(10, 0.85 * len(region_names) + 2)
     fig_height = max(4.5, 2.5 + 0.35 * num_readers)
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-
     offset_start = -0.5 * width * (num_readers - 1)
-    for idx, (label, file_values) in enumerate(zip(labels, values)):
-        offsets = x + offset_start + idx * width
-        ax.bar(
-            offsets,
-            file_values,
-            width=width,
-            label=label if num_readers > 1 else None,
-            color=colors[idx],
-            edgecolor="black",
-            alpha=0.8,
-        )
 
-    ax.set_xticks(x)
-    ax.set_xticklabels(region_names, rotation=45, ha="right")
-    ax.set_ylabel("Average duration per call (seconds)")
-    ax.set_title("Region duration comparison")
-    ax.grid(True, axis="y", linestyle="--", alpha=0.5)
-    if num_readers > 1:
-        ax.legend(frameon=False)
-    fig.tight_layout()
+    saved_paths: list[str] = []
+    figs = []
 
-    if filepath:
-        plt.savefig(filepath, dpi=300)
+    for metric_key in metric_keys:
+        stat_key, ylabel = _DURATION_METRICS[metric_key]
+
+        values = [
+            [
+                _region_metric_value(
+                    reader.get_region(region_name), stat_key, ranks=ranks
+                )
+                for region_name in region_names
+            ]
+            for reader in readers
+        ]
+
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+        for idx, (label, file_values) in enumerate(zip(labels, values)):
+            offsets = x + offset_start + idx * width
+            ax.bar(
+                offsets,
+                file_values,
+                width=width,
+                label=label if num_readers > 1 else None,
+                color=colors[idx],
+                edgecolor="black",
+                alpha=0.8,
+            )
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(region_names, rotation=45, ha="right")
+        ax.set_ylabel(ylabel)
+        ax.set_title(f"Region duration comparison ({metric_key})")
+        ax.grid(True, axis="y", linestyle="--", alpha=0.5)
+        if num_readers > 1:
+            ax.legend(frameon=False)
+        fig.tight_layout()
+
+        if filepath:
+            metric_filepath = _metric_filepath(
+                filepath, metric_key, single_metric=len(metric_keys) == 1
+            )
+            fig.savefig(metric_filepath, dpi=300)
+            saved_paths.append(metric_filepath)
+
+        figs.append(fig)
+
     if show:
         plt.show()
-    plt.close(fig)
+    for fig in figs:
+        plt.close(fig)
+
+    return saved_paths
 
 
 def plot_speedup(
