@@ -261,6 +261,56 @@ def test_recursive_decorator_profiles_nested_calls():
     ProfileManager.finalize(verbose=False)
 
 
+def test_self_recursive_region_decorator():
+    """A single region re-entered by recursion must not corrupt its buffer."""
+    ProfileManager.setup(
+        use_likwid=False,
+        time_trace=True,
+        flush_to_disk=False,
+    )
+
+    @ProfileManager.profile("fib_decorator")
+    def fib(n):
+        if n < 2:
+            return n
+        return fib(n - 1) + fib(n - 2)
+
+    assert fib(8) == 21
+
+    region = ProfileManager.get_region("fib_decorator")
+    assert region.num_calls == region.ptr
+    starts = region.start_times[: region.ptr]
+    ends = region.end_times[: region.ptr]
+    assert (ends >= starts).all()
+
+    ProfileManager.finalize(verbose=False)
+
+
+def test_self_recursive_region_context_manager():
+    """A single region re-entered by recursion must not corrupt its buffer."""
+    ProfileManager.setup(
+        use_likwid=False,
+        time_trace=True,
+        flush_to_disk=False,
+    )
+
+    def fib(n):
+        with ProfileManager.profile_region("fib_context"):
+            if n < 2:
+                return n
+            return fib(n - 1) + fib(n - 2)
+
+    assert fib(8) == 21
+
+    region = ProfileManager.get_region("fib_context")
+    assert region.num_calls == region.ptr
+    starts = region.start_times[: region.ptr]
+    ends = region.end_times[: region.ptr]
+    assert (ends >= starts).all()
+
+    ProfileManager.finalize(verbose=False)
+
+
 def test_recursive_profile_setup_default_and_override():
     ProfileManager.setup(
         use_likwid=False,

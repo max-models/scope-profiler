@@ -7,6 +7,7 @@ import os
 from scope_profiler.h5reader import ProfilingH5Reader
 from scope_profiler.plotting_scripts import (
     plot_durations,
+    plot_flame,
     plot_gantt,
     plot_speedup,
     write_region_statistics_json,
@@ -54,8 +55,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         help=(
             "Directory where outputs are saved "
-            "(gantt_plot.png, durations_plot.png, optional speedup_plot.png, "
-            "and region_statistics.json)"
+            "(gantt_plot.png, flame_plot.png, durations_plot.png, "
+            "optional speedup_plot.png, and region_statistics.json)"
         ),
     )
     parser.add_argument(
@@ -141,12 +142,14 @@ def main(argv: list[str] | None = None):
     readers = [ProfilingH5Reader(file_path) for file_path in args.files]
 
     gantt_path = None
+    flame_path = None
     durations_path = None
     speedup_path = None
     statistics_path = None
     if args.output:
         os.makedirs(args.output, exist_ok=True)
         gantt_path = os.path.join(args.output, "gantt_plot.png")
+        flame_path = os.path.join(args.output, "flame_plot.png")
         durations_path = os.path.join(args.output, "durations_plot.png")
         if len(readers) > 1:
             speedup_path = os.path.join(args.output, "speedup_plot.png")
@@ -155,6 +158,15 @@ def main(argv: list[str] | None = None):
     plot_gantt(
         profiling_data=readers,
         filepath=gantt_path,
+        show=args.show,
+        include=args.include,
+        exclude=args.exclude,
+        ranks=args.ranks,
+    )
+
+    plot_flame(
+        profiling_data=readers,
+        filepath=flame_path,
         show=args.show,
         include=args.include,
         exclude=args.exclude,
@@ -193,7 +205,13 @@ def main(argv: list[str] | None = None):
     if args.output and not args.show:
         saved = [
             path
-            for path in (gantt_path, *durations_paths, speedup_path, statistics_path)
+            for path in (
+                gantt_path,
+                flame_path,
+                *durations_paths,
+                speedup_path,
+                statistics_path,
+            )
             if path
         ]
         print("Outputs saved to:\n  " + "\n  ".join(saved))

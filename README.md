@@ -122,3 +122,66 @@ ProfileManager.finalize()
 When enabled, the profiler records regions for nested calls using fully
 qualified names (for example, `my_module.inner`), in addition to the main
 decorated region.
+
+## Profiling self-recursive functions
+
+A single region can also be safely re-entered by a recursive function -
+each call gets its own slot in the region's buffer, so nested calls don't
+overwrite each other's timing data. This works with both the decorator and
+context-manager forms:
+
+```python
+from scope_profiler import ProfileManager
+
+ProfileManager.setup()
+
+
+@ProfileManager.profile("fibonacci")
+def fibonacci(n):
+    if n < 2:
+        return n
+    return fibonacci(n - 1) + fibonacci(n - 2)
+
+
+def fibonacci_context_manager(n):
+    with ProfileManager.profile_region("fibonacci_ctx"):
+        if n < 2:
+            return n
+        return fibonacci_context_manager(n - 1) + fibonacci_context_manager(n - 2)
+
+
+fibonacci(10)
+fibonacci_context_manager(10)
+ProfileManager.finalize()
+```
+
+Both `fibonacci` and `fibonacci_ctx` will report one call per recursive
+invocation, each with correct, non-overlapping timing data.
+
+## Flame graphs
+
+Because each call - including recursive re-entries of the same region -
+now has its own correctly nested (start, end) interval, the call stack can
+be reconstructed straight from the timing data and rendered as a flame
+graph, with recursion showing up as a narrowing tower of frames.
+
+`scope-profiler-pproc` generates `flame_plot.png` alongside the Gantt chart
+for every run:
+
+```bash
+scope-profiler-pproc profiling_data.h5 --show -o figures
+```
+
+Or programmatically:
+
+```python
+from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler.plotting_scripts import plot_flame
+
+reader = ProfilingH5Reader("profiling_data.h5")
+plot_flame(reader, filepath="flame_plot.png")
+```
+
+By default the flame graph covers rank 0, since it represents a single
+execution's call stack; pass `ranks=[...]` to render one flame graph per
+requested rank.
