@@ -1,21 +1,3 @@
-"""
-Profiling a self-recursive function with scope-profiler
-=========================================================
-
-This example profiles a single function that recurses into itself, using
-one profiling region for every call. Each recursive re-entry gets its own
-correctly nested (start, end) interval instead of clobbering the one above
-it on the call stack, so ``num_calls`` and the timing data stay accurate no
-matter how deep the recursion goes.
-
-The resulting call stack is rendered as a flame graph, where the recursion
-shows up as a narrowing tower of ``fibonacci`` frames.
-
-Run::
-
-    python examples/ex_self_recursive_region.py
-"""
-
 import os
 import time
 
@@ -39,7 +21,7 @@ def fibonacci(n):
     return fibonacci(n - 1) + fibonacci(n - 2)
 
 
-fibonacci(5)
+fibonacci(6)
 ProfileManager.finalize()
 
 output_dir = "figures"
