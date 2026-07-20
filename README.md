@@ -122,3 +122,38 @@ ProfileManager.finalize()
 When enabled, the profiler records regions for nested calls using fully
 qualified names (for example, `my_module.inner`), in addition to the main
 decorated region.
+
+## Profiling self-recursive functions
+
+A single region can also be safely re-entered by a recursive function -
+each call gets its own slot in the region's buffer, so nested calls don't
+overwrite each other's timing data. This works with both the decorator and
+context-manager forms:
+
+```python
+from scope_profiler import ProfileManager
+
+ProfileManager.setup()
+
+
+@ProfileManager.profile("fibonacci")
+def fibonacci(n):
+    if n < 2:
+        return n
+    return fibonacci(n - 1) + fibonacci(n - 2)
+
+
+def fibonacci_context_manager(n):
+    with ProfileManager.profile_region("fibonacci_ctx"):
+        if n < 2:
+            return n
+        return fibonacci_context_manager(n - 1) + fibonacci_context_manager(n - 2)
+
+
+fibonacci(10)
+fibonacci_context_manager(10)
+ProfileManager.finalize()
+```
+
+Both `fibonacci` and `fibonacci_ctx` will report one call per recursive
+invocation, each with correct, non-overlapping timing data.

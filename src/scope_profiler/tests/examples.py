@@ -11,6 +11,22 @@ def loop(
             s += 1
 
 
+@ProfileManager.profile("fibonacci")
+def fibonacci(n):
+    if n < 2:
+        return n
+    return fibonacci(n - 1) + fibonacci(n - 2)
+
+
+def fibonacci_context_manager(n, region_name="fibonacci_ctx"):
+    with ProfileManager.profile_region(region_name):
+        if n < 2:
+            return n
+        return fibonacci_context_manager(n - 1, region_name) + fibonacci_context_manager(
+            n - 2, region_name
+        )
+
+
 if __name__ == "__main__":
     ProfileManager.setup(
         use_likwid=False,
