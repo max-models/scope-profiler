@@ -182,6 +182,20 @@ reader = ProfilingH5Reader("profiling_data.h5")
 plot_flame(reader, filepath="flame_plot.png")
 ```
 
+## Plotting backend
+
+All figures (`plot_gantt`, `plot_flame`, `plot_durations`, `plot_speedup`) are
+rendered with [maxplotlib](https://github.com/max-models/maxplotlib) using its
+Plotly backend, available via the `pproc` extra:
+
+```
+pip install scope-profiler[pproc]
+```
+
+Exporting to `.png`/`.pdf`/`.svg` requires `kaleido` (included in the `pproc`
+extra); exporting to `.html` (e.g. `filepath="gantt_plot.html"`) works with no
+extra dependency and produces an interactive, zoomable figure.
+
 By default the flame graph covers rank 0, since it represents a single
 execution's call stack; pass `ranks=[...]` to render one flame graph per
 requested rank.

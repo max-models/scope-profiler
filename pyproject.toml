@@ -36,7 +36,8 @@ optional-dependencies.mpi = [
 optional-dependencies.pproc = [
   "ipykernel",
   "jupyterlab",
-  "matplotlib",
+  "kaleido",
+  "maxplotlib @ git+https://github.com/max-models/maxplotlib",
 ]
 
 optional-dependencies.dev = [
