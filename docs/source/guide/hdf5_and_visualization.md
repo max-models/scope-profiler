@@ -109,7 +109,7 @@ When `-o/--output` is used, the CLI also writes `region_statistics.json` with:
 2. per-rank statistics for each region
 3. common region names across all input files
 
-## Comparison bar chart from Python
+## Comparison bar charts from Python
 
 ```python
 from scope_profiler.h5reader import ProfilingH5Reader
@@ -120,15 +120,31 @@ readers = [
     ProfilingH5Reader("run_b.h5"),
 ]
 
-plot_durations(
+saved_paths = plot_durations(
     readers,
     filepath="durations.png",
     show=True,
 )
 ```
 
-The bar chart compares the average duration per call for matching regions
-across files. When several files are provided, the bars are grouped by file.
+Each bar chart compares matching regions across files, with bars grouped by
+file when several files are provided. `plot_durations` renders a separate
+figure per requested statistic — by default `avg`, `min`, `max`, and `total`
+duration per call. Use the `metrics` argument to select a subset:
+
+```python
+plot_durations(
+    readers,
+    metrics=["avg", "total"],
+    filepath="durations.png",
+    show=True,
+)
+```
+
+When `filepath` is given and more than one metric is plotted, the metric name
+is inserted before the file extension, e.g. `durations_avg.png`,
+`durations_total.png`. `plot_durations` returns the list of filepaths it
+wrote (empty if `filepath` is `None`).
 
 ## Speedup graph from Python
 
