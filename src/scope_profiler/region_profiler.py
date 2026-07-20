@@ -261,11 +261,12 @@ class TimeOnlyProfileRegionNoFlush(BaseProfileRegion):
             scope_ptr = self.ptr
             self.ptr += 1
             start = np.int64(perf_counter_ns())
-            out = func(*args, **kwargs)
-            end = np.int64(perf_counter_ns())
-            self.start_times[scope_ptr] = start
-            self.end_times[scope_ptr] = end
-            return out
+            try:
+                return func(*args, **kwargs)
+            finally:
+                end = np.int64(perf_counter_ns())
+                self.start_times[scope_ptr] = start
+                self.end_times[scope_ptr] = end
 
         return wrapper
 
@@ -300,17 +301,18 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
             self.ptr += 1
             self._depth += 1
             start = np.int64(perf_counter_ns())
-            out = func(*args, **kwargs)
-            end = np.int64(perf_counter_ns())
-            self.start_times[scope_ptr] = start
-            self.end_times[scope_ptr] = end
-            self._depth -= 1
-            # Only flush once every recursive call has finished writing its
-            # own slot; flushing mid-recursion could write out reserved but
-            # not-yet-filled slots belonging to still-open outer calls.
-            if self._depth == 0 and self.ptr >= self.buffer_limit:
-                self.flush()
-            return out
+            try:
+                return func(*args, **kwargs)
+            finally:
+                end = np.int64(perf_counter_ns())
+                self.start_times[scope_ptr] = start
+                self.end_times[scope_ptr] = end
+                self._depth -= 1
+                # Only flush once every recursive call has finished writing its
+                # own slot; flushing mid-recursion could write out reserved but
+                # not-yet-filled slots belonging to still-open outer calls.
+                if self._depth == 0 and self.ptr >= self.buffer_limit:
+                    self.flush()
 
         return wrapper
 
@@ -358,9 +360,10 @@ class LikwidOnlyProfileRegion(BaseProfileRegion):
         def wrapper(*args, **kwargs):
             self.num_calls += 1
             self.likwid_marker_start(self.region_name)
-            out = func(*args, **kwargs)
-            self.likwid_marker_stop(self.region_name)
-            return out
+            try:
+                return func(*args, **kwargs)
+            finally:
+                self.likwid_marker_stop(self.region_name)
 
         return wrapper
 
@@ -405,12 +408,13 @@ class FullProfileRegionNoFlush(BaseProfileRegion):
             self.ptr += 1
             start = np.int64(perf_counter_ns())
             self.likwid_marker_start(self.region_name)
-            out = func(*args, **kwargs)
-            self.likwid_marker_stop(self.region_name)
-            end = np.int64(perf_counter_ns())
-            self.start_times[scope_ptr] = start
-            self.end_times[scope_ptr] = end
-            return out
+            try:
+                return func(*args, **kwargs)
+            finally:
+                self.likwid_marker_stop(self.region_name)
+                end = np.int64(perf_counter_ns())
+                self.start_times[scope_ptr] = start
+                self.end_times[scope_ptr] = end
 
         return wrapper
 
@@ -461,18 +465,19 @@ class FullProfileRegion(BaseProfileRegion):
             self._depth += 1
             start = np.int64(perf_counter_ns())
             self.likwid_marker_start(self.region_name)
-            out = func(*args, **kwargs)
-            self.likwid_marker_stop(self.region_name)
-            end = np.int64(perf_counter_ns())
-            self.start_times[scope_ptr] = start
-            self.end_times[scope_ptr] = end
-            self._depth -= 1
-            # Only flush once every recursive call has finished writing its
-            # own slot; flushing mid-recursion could write out reserved but
-            # not-yet-filled slots belonging to still-open outer calls.
-            if self._depth == 0 and self.ptr >= self.buffer_limit:
-                self.flush()
-            return out
+            try:
+                return func(*args, **kwargs)
+            finally:
+                self.likwid_marker_stop(self.region_name)
+                end = np.int64(perf_counter_ns())
+                self.start_times[scope_ptr] = start
+                self.end_times[scope_ptr] = end
+                self._depth -= 1
+                # Only flush once every recursive call has finished writing its
+                # own slot; flushing mid-recursion could write out reserved but
+                # not-yet-filled slots belonging to still-open outer calls.
+                if self._depth == 0 and self.ptr >= self.buffer_limit:
+                    self.flush()
 
         return wrapper
 
@@ -534,18 +539,19 @@ class LineProfilerRegion(BaseProfileRegion):
             self._depth += 1
             start = np.int64(perf_counter_ns())
             self._line_profiler.enable_by_count()
-            out = func(*args, **kwargs)
-            self._line_profiler.disable_by_count()
-            end = np.int64(perf_counter_ns())
-            self.start_times[scope_ptr] = start
-            self.end_times[scope_ptr] = end
-            self._depth -= 1
-            # Only flush once every recursive call has finished writing its
-            # own slot; flushing mid-recursion could write out reserved but
-            # not-yet-filled slots belonging to still-open outer calls.
-            if self._depth == 0 and self.ptr >= self.buffer_limit:
-                self.flush()
-            return out
+            try:
+                return func(*args, **kwargs)
+            finally:
+                self._line_profiler.disable_by_count()
+                end = np.int64(perf_counter_ns())
+                self.start_times[scope_ptr] = start
+                self.end_times[scope_ptr] = end
+                self._depth -= 1
+                # Only flush once every recursive call has finished writing its
+                # own slot; flushing mid-recursion could write out reserved but
+                # not-yet-filled slots belonging to still-open outer calls.
+                if self._depth == 0 and self.ptr >= self.buffer_limit:
+                    self.flush()
 
         return wrapper
 

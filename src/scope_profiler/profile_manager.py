@@ -70,7 +70,7 @@ class ProfileManager:
                     region = cls.profile_region(cls._frame_region_name(frame))
                     region.__enter__()
                     active_calls[frame] = region
-            elif event in ("return", "exception"):
+            elif event == "return":
                 region = active_calls.pop(frame, None)
                 if region is not None:
                     region.__exit__(None, None, None)
