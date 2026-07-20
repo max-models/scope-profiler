@@ -7,7 +7,13 @@ import numpy as np
 matplotlib.use("Agg")
 
 from scope_profiler.h5reader import ProfilingH5Reader
-from scope_profiler.plotting_scripts import plot_durations, plot_gantt, plot_speedup
+from scope_profiler.plotting_scripts import (
+    _build_call_stack_intervals,
+    plot_durations,
+    plot_flame,
+    plot_gantt,
+    plot_speedup,
+)
 from scope_profiler.post_processing import main
 
 
@@ -73,6 +79,56 @@ def test_plot_gantt_combined(tmp_path):
     assert out_file.stat().st_size > 0
 
 
+def test_build_call_stack_intervals_reconstructs_nesting(tmp_path):
+    # "outer" [0, 100) encloses two sequential "inner" calls, [10, 40) and
+    # [50, 90), which in turn each enclose a "leaf" call.
+    rank_regions = {
+        0: {
+            "outer": ([0], [100]),
+            "inner": ([10, 50], [40, 90]),
+            "leaf": ([15, 55], [20, 60]),
+        }
+    }
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(file_path, rank_regions)
+    reader = ProfilingH5Reader(file_path)
+    calls = _build_call_stack_intervals(reader.get_regions(), rank=0)
+
+    # Region.start_times converts stored nanoseconds to seconds.
+    depths = {(call["name"], call["start"]): call["depth"] for call in calls}
+    assert depths[("outer", 0.0)] == 0
+    assert depths[("inner", 10e-9)] == 1
+    assert depths[("inner", 50e-9)] == 1
+    assert depths[("leaf", 15e-9)] == 2
+    assert depths[("leaf", 55e-9)] == 2
+
+
+def test_plot_flame_reconstructs_recursive_calls(tmp_path):
+    out_file = tmp_path / "flame_plot.png"
+    file_path = tmp_path / "run.h5"
+
+    # Three nested "fib" calls emulating a self-recursive region: the
+    # buffer-slot fix means each recursive call gets its own (start, end)
+    # pair rather than overwriting the outer call's.
+    rank_regions = {
+        0: {
+            "fib": ([0, 10, 60], [100, 90, 80]),
+        }
+    }
+    _write_sample_h5(file_path, rank_regions)
+    reader = ProfilingH5Reader(file_path)
+
+    plot_flame(reader, filepath=out_file, show=False, verbose=False)
+
+    assert out_file.exists()
+    assert out_file.stat().st_size > 0
+
+    calls = _build_call_stack_intervals(reader.get_regions(), rank=0)
+    assert len(calls) == 3
+    depths = sorted(call["depth"] for call in calls)
+    assert depths == [0, 1, 2]
+
+
 def test_plot_speedup(tmp_path):
     file_one = tmp_path / "run_1.h5"
     file_two = tmp_path / "run_2.h5"
@@ -108,11 +164,14 @@ def test_post_processing_cli_supports_multiple_files(tmp_path):
     main([str(file_one), str(file_two), str(file_four), "-o", str(output_dir)])
 
     gantt_plot = output_dir / "gantt_plot.png"
+    flame_plot = output_dir / "flame_plot.png"
     speedup_plot = output_dir / "speedup_plot.png"
     stats_json = output_dir / "region_statistics.json"
 
     assert gantt_plot.exists()
     assert gantt_plot.stat().st_size > 0
+    assert flame_plot.exists()
+    assert flame_plot.stat().st_size > 0
     for metric in ("avg", "min", "max", "total"):
         metric_file = output_dir / f"durations_plot_{metric}.png"
         assert metric_file.exists()
@@ -142,11 +201,14 @@ def test_post_processing_cli_supports_wildcard_file_patterns(tmp_path):
     main([wildcard_pattern, "-o", str(output_dir)])
 
     gantt_plot = output_dir / "gantt_plot.png"
+    flame_plot = output_dir / "flame_plot.png"
     speedup_plot = output_dir / "speedup_plot.png"
     stats_json = output_dir / "region_statistics.json"
 
     assert gantt_plot.exists()
     assert gantt_plot.stat().st_size > 0
+    assert flame_plot.exists()
+    assert flame_plot.stat().st_size > 0
     for metric in ("avg", "min", "max", "total"):
         metric_file = output_dir / f"durations_plot_{metric}.png"
         assert metric_file.exists()

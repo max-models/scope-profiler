@@ -364,6 +364,165 @@ def plot_gantt(
     plt.close(fig)
 
 
+def _build_call_stack_intervals(regions: list, rank: int) -> list[dict]:
+    """Reconstruct per-call nesting depth for one rank from region intervals.
+
+    Regions only store flat (start, end) pairs per call, with no explicit
+    parent/child link. Since profiling scopes are always properly nested or
+    sequential in a single rank's execution (recursive self-nesting included,
+    see the recursion fix in region_profiler.py), the call tree can be
+    rebuilt by treating each interval's parent as the innermost still-open
+    interval that encloses it - the same rule used to match parentheses.
+    """
+    calls = []
+    for region in regions:
+        if rank not in region.regions:
+            continue
+        region_data = region.regions[rank]
+        for start, end in zip(region_data.start_times, region_data.end_times):
+            calls.append(
+                {"name": region.name, "start": float(start), "end": float(end)}
+            )
+
+    # Longer-running calls that start at the same instant must be sorted
+    # first so they end up enclosing (not enclosed by) shorter siblings.
+    calls.sort(key=lambda call: (call["start"], -call["end"]))
+
+    open_stack: list[dict] = []
+    for call in calls:
+        while open_stack and open_stack[-1]["end"] <= call["start"]:
+            open_stack.pop()
+        call["depth"] = len(open_stack)
+        open_stack.append(call)
+
+    return calls
+
+
+def _draw_flame_axis(plt, ax, calls: list[dict]) -> None:
+    first_start = min(call["start"] for call in calls)
+    total_span = max(call["end"] for call in calls) - first_start
+    max_depth = max(call["depth"] for call in calls)
+
+    region_names = sorted({call["name"] for call in calls})
+    colors = plt.cm.tab20(np.linspace(0, 1, len(region_names)))
+    color_map = dict(zip(region_names, colors))
+
+    for call in calls:
+        start = call["start"] - first_start
+        width = call["end"] - call["start"]
+        ax.barh(
+            y=call["depth"],
+            width=width,
+            left=start,
+            height=1.0,
+            color=color_map[call["name"]],
+            edgecolor="black",
+            linewidth=0.5,
+            alpha=0.85,
+        )
+        if total_span > 0 and width / total_span > 0.02:
+            ax.text(
+                start + width / 2,
+                call["depth"],
+                call["name"],
+                ha="center",
+                va="center",
+                fontsize=7,
+                clip_on=True,
+            )
+
+    ax.set_xlabel("Time (seconds)")
+    ax.set_ylabel("Call depth")
+    ax.set_yticks(range(max_depth + 1))
+    ax.set_ylim(-0.5, max_depth + 0.5)
+    ax.grid(True, axis="x", linestyle="--", alpha=0.5)
+
+
+def plot_flame(
+    profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
+    ranks: list[int] | int | None = None,
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+    filepath: str | None = None,
+    show: bool = False,
+    verbose: bool = True,
+) -> None:
+    """
+    Plot a flame graph reconstructing the call stack from region timings.
+
+    Unlike ``plot_gantt``, which lays out one row per region name, this
+    reconstructs call nesting from each call's (start, end) interval, so
+    recursive calls into the same region are shown at their correct depth,
+    producing a classic flame-graph shape.
+
+    Parameters
+    ----------
+    ranks : list[int] | int | None
+        Ranks to plot, one flame graph per rank. Defaults to rank 0 only,
+        since a flame graph represents a single execution's call stack.
+    filepath : str | None
+        Path to save the figure. If None, figure is not saved.
+    show : bool
+        Whether to display the plot. Default is False.
+    """
+    plt = _get_pyplot()
+    readers = _as_readers(profiling_data)
+    if not readers:
+        raise ValueError("No profiling data provided.")
+
+    normalized_ranks = _normalize_ranks(ranks) if ranks is not None else [0]
+
+    prepared = []
+    for reader in readers:
+        regions = reader.get_regions(include=include, exclude=exclude)
+        if not regions:
+            raise ValueError("No regions matched the selected filters.")
+        for rank in normalized_ranks:
+            if rank < 0 or rank >= reader.num_ranks:
+                raise ValueError(f"Invalid rank requested: {rank}")
+            calls = _build_call_stack_intervals(regions, rank)
+            if calls:
+                prepared.append((reader, rank, calls))
+
+    if not prepared:
+        raise ValueError("No calls recorded for the requested ranks.")
+
+    if verbose:
+        print(
+            "Plotting flame graph for: "
+            + ", ".join(
+                f"{reader.file_path.stem} (rank {rank})" for reader, rank, _ in prepared
+            )
+        )
+
+    subplot_heights = [
+        max(2.0, 0.6 * (max(call["depth"] for call in calls) + 1))
+        for _, _, calls in prepared
+    ]
+    fig, axes = plt.subplots(
+        nrows=len(prepared),
+        ncols=1,
+        figsize=(12, max(3.0, sum(subplot_heights))),
+    )
+    axes = np.atleast_1d(axes).ravel()
+
+    for ax, (reader, rank, calls) in zip(axes, prepared):
+        _draw_flame_axis(plt, ax, calls)
+        ax.set_title(f"{reader.file_path.stem} (rank {rank})")
+
+    if len(prepared) == 1:
+        fig.tight_layout()
+    else:
+        fig.suptitle("Flame Graphs")
+        fig.tight_layout(rect=(0, 0, 1, 0.98))
+
+    if filepath:
+        plt.savefig(filepath, dpi=300)
+    if show:
+        plt.show()
+    plt.close(fig)
+
+
 _DURATION_METRICS: dict[str, tuple[str, str]] = {
     "avg": ("average_duration_seconds", "Average duration per call (seconds)"),
     "min": ("min_duration_seconds", "Minimum duration per call (seconds)"),
