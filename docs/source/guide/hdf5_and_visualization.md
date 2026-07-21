@@ -60,21 +60,21 @@ reader.get_regions(exclude="io.*")
 
 ## Gantt chart and statistics CLI
 
-The `scope-profiler-pproc` command generates a Gantt chart and exports region
+The `scope-profiler pproc` command generates a Gantt chart and exports region
 statistics JSON from one or more HDF5 files:
 
 ```bash
 # Save to a directory
-scope-profiler-pproc profiling_data.h5 -o figures/
+scope-profiler pproc profiling_data.h5 -o figures/
 
 # Compare multiple scaling runs
-scope-profiler-pproc run_1.h5 run_2.h5 run_4.h5 -o figures/
+scope-profiler pproc run_1.h5 run_2.h5 run_4.h5 -o figures/
 
 # Display interactively
-scope-profiler-pproc profiling_data.h5 --show
+scope-profiler pproc profiling_data.h5 --show
 
 # Filter regions and ranks
-scope-profiler-pproc profiling_data.h5 --show \
+scope-profiler pproc profiling_data.h5 --show \
     --include solver rhs \
     --exclude io \
     --ranks 0-3

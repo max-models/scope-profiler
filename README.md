@@ -129,8 +129,8 @@ You can profile a whole script without touching its source, similar to
 `python -m cProfile`:
 
 ```bash
-scope-profiler my_script.py [script args...]
-# equivalently: python -m scope_profiler my_script.py [script args...]
+scope-profiler run my_script.py [script args...]
+# equivalently: python -m scope_profiler run my_script.py [script args...]
 ```
 
 Every Python function call the script makes is recorded as its own region
@@ -146,7 +146,7 @@ See `examples/ex_cli_profiling.py` for a script with no scope-profiler
 imports at all, run with:
 
 ```bash
-scope-profiler examples/ex_cli_profiling.py
+scope-profiler run examples/ex_cli_profiling.py
 ```
 
 ## Profiling self-recursive functions
@@ -191,11 +191,11 @@ now has its own correctly nested (start, end) interval, the call stack can
 be reconstructed straight from the timing data and rendered as a flame
 graph, with recursion showing up as a narrowing tower of frames.
 
-`scope-profiler-pproc` generates `flame_plot.png` alongside the Gantt chart
+`scope-profiler pproc` generates `flame_plot.png` alongside the Gantt chart
 for every run:
 
 ```bash
-scope-profiler-pproc profiling_data.h5 --show -o figures
+scope-profiler pproc profiling_data.h5 --show -o figures
 ```
 
 Or programmatically:
@@ -214,7 +214,7 @@ different [matplotlib colormap](https://matplotlib.org/stable/users/explain/colo
 than the default `tab20`:
 
 ```bash
-scope-profiler-pproc profiling_data.h5 --cmap viridis -o figures
+scope-profiler pproc profiling_data.h5 --cmap viridis -o figures
 ```
 
 By default the flame graph covers rank 0, since it represents a single
