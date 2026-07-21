@@ -21,6 +21,19 @@ def _get_pyplot():
     return plt
 
 
+def _region_color_map(plt, region_names) -> dict:
+    """Assign each region name a stable color from a canonical sorted order.
+
+    Sorting by name (rather than data/insertion order) means gantt and flame
+    charts built from the same region names get identical colors, even
+    though they derive their region lists independently and gantt charts
+    order regions by first-appearance while flame charts don't.
+    """
+    names = sorted(set(region_names))
+    colors = plt.cm.tab20(np.linspace(0, 1, len(names)))
+    return dict(zip(names, colors))
+
+
 def _as_readers(
     profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
 ) -> list[ProfilingH5Reader]:
@@ -251,7 +264,6 @@ def _draw_gantt_axes(
     first_start_time: float,
 ) -> None:
     num_ranks = len(ranks)
-    colors = plt.cm.tab20(np.linspace(0, 1, len(regions)))
 
     for i, region in enumerate(regions):
         for irank, rank in enumerate(ranks):
@@ -264,7 +276,7 @@ def _draw_gantt_axes(
                     width=end - start,
                     left=start,
                     height=1.0,
-                    color=colors[i],
+                    color=region.color,
                     edgecolor="black",
                     alpha=0.7,
                 )
@@ -321,6 +333,13 @@ def plot_gantt(
             exclude,
         )
         prepared.append((reader, regions, selected_ranks, first_start_time))
+
+    color_map = _region_color_map(
+        plt, (region.name for _, regions, _, _ in prepared for region in regions)
+    )
+    for _, regions, _, _ in prepared:
+        for region in regions:
+            region.color = color_map[region.name]
 
     labels = _unique_labels([reader.file_path.stem for reader, _, _, _ in prepared])
     if verbose:
@@ -381,7 +400,12 @@ def _build_call_stack_intervals(regions: list, rank: int) -> list[dict]:
         region_data = region.regions[rank]
         for start, end in zip(region_data.start_times, region_data.end_times):
             calls.append(
-                {"name": region.name, "start": float(start), "end": float(end)}
+                {
+                    "name": region.name,
+                    "start": float(start),
+                    "end": float(end),
+                    "color": region.color,
+                }
             )
 
     # Longer-running calls that start at the same instant must be sorted
@@ -403,10 +427,6 @@ def _draw_flame_axis(plt, ax, calls: list[dict]) -> None:
     total_span = max(call["end"] for call in calls) - first_start
     max_depth = max(call["depth"] for call in calls)
 
-    region_names = sorted({call["name"] for call in calls})
-    colors = plt.cm.tab20(np.linspace(0, 1, len(region_names)))
-    color_map = dict(zip(region_names, colors))
-
     for call in calls:
         start = call["start"] - first_start
         width = call["end"] - call["start"]
@@ -415,7 +435,7 @@ def _draw_flame_axis(plt, ax, calls: list[dict]) -> None:
             width=width,
             left=start,
             height=1.0,
-            color=color_map[call["name"]],
+            color=call["color"],
             edgecolor="black",
             linewidth=0.5,
             alpha=0.85,
@@ -472,11 +492,22 @@ def plot_flame(
 
     normalized_ranks = _normalize_ranks(ranks) if ranks is not None else [0]
 
-    prepared = []
+    reader_regions = []
+    all_region_names: set[str] = set()
     for reader in readers:
         regions = reader.get_regions(include=include, exclude=exclude)
         if not regions:
             raise ValueError("No regions matched the selected filters.")
+        all_region_names.update(region.name for region in regions)
+        reader_regions.append((reader, regions))
+
+    color_map = _region_color_map(plt, all_region_names)
+    for _, regions in reader_regions:
+        for region in regions:
+            region.color = color_map[region.name]
+
+    prepared = []
+    for reader, regions in reader_regions:
         for rank in normalized_ranks:
             if rank < 0 or rank >= reader.num_ranks:
                 raise ValueError(f"Invalid rank requested: {rank}")
