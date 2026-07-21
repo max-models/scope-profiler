@@ -11,10 +11,11 @@ readme = "README.md"
 keywords = [ "python" ]
 license = { file = "LICENSE.txt" }
 authors = [ { name = "Max" } ]
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
