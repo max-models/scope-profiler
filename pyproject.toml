@@ -62,6 +62,7 @@ optional-dependencies.test = [
 ]
 urls."Source" = "https://github.com/max-models/scope-profiler"
 
+scripts.scope-profiler = "scope_profiler.__main__:main"
 scripts.scope-profiler-pproc = "scope_profiler.post_processing:main"
 
 [tool.setuptools.packages.find]

@@ -123,6 +123,32 @@ When enabled, the profiler records regions for nested calls using fully
 qualified names (for example, `my_module.inner`), in addition to the main
 decorated region.
 
+## Zero-instrumentation CLI profiling
+
+You can profile a whole script without touching its source, similar to
+`python -m cProfile`:
+
+```bash
+scope-profiler my_script.py [script args...]
+# equivalently: python -m scope_profiler my_script.py [script args...]
+```
+
+Every Python function call the script makes is recorded as its own region
+under a name derived from its module and qualified name, using the same
+recursive tracer as `recursive_profile=True` above. By default only the
+script's own code is instrumented (the standard library and installed
+packages are skipped) to keep overhead low; pass `--all` to trace
+everything. Results are written to `profiling_data.h5` by default
+(`-o`/`--outfile` to change it), and a per-region summary is printed unless
+`-q`/`--quiet` is given.
+
+See `examples/ex_cli_profiling.py` for a script with no scope-profiler
+imports at all, run with:
+
+```bash
+scope-profiler examples/ex_cli_profiling.py
+```
+
 ## Profiling self-recursive functions
 
 A single region can also be safely re-entered by a recursive function -

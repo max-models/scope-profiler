@@ -2,7 +2,10 @@
 
 import functools
 import os
+import runpy
+import site
 import sys
+import sysconfig
 import threading
 from types import FrameType
 from typing import Callable, Dict
@@ -35,6 +38,8 @@ class ProfileManager:
     _decorators: Dict[str, list] = {}  # name -> [(func, _bound), ...]
     _decorated_codes = set()
     _recursive_state = threading.local()
+    _user_code_cache: Dict[object, bool] = {}
+    _system_prefixes = None
     _internal_modules = {
         "scope_profiler.profile_manager",
         "scope_profiler.region_profiler",
@@ -53,7 +58,65 @@ class ProfileManager:
         return f"{module_name}.{qualname}"
 
     @classmethod
-    def _get_recursive_tracer(cls, root_frame: FrameType, prev_profiler):
+    def _system_path_prefixes(cls):
+        """Realpaths of the stdlib and installed-package directories.
+
+        Computed once and cached; used by ``_is_user_code`` to skip
+        instrumenting non-user code when tracing a whole script.
+        """
+        if cls._system_prefixes is None:
+            prefixes = set()
+            try:
+                paths = sysconfig.get_paths()
+                for key in ("stdlib", "platstdlib", "purelib", "platlib"):
+                    path = paths.get(key)
+                    if path:
+                        prefixes.add(os.path.realpath(path))
+            except Exception:
+                pass
+            try:
+                for path in site.getsitepackages():
+                    prefixes.add(os.path.realpath(path))
+            except Exception:
+                pass
+            try:
+                path = site.getusersitepackages()
+                if path:
+                    prefixes.add(os.path.realpath(path))
+            except Exception:
+                pass
+            cls._system_prefixes = tuple(sorted(prefixes))
+        return cls._system_prefixes
+
+    @classmethod
+    def _is_user_code(cls, code) -> bool:
+        """Whether a code object belongs to user code (not stdlib/site-packages).
+
+        Results are memoized per code object, so the (relatively) expensive
+        path check only ever runs once per distinct function traced.
+        """
+        cached = cls._user_code_cache.get(code)
+        if cached is not None:
+            return cached
+
+        filename = code.co_filename
+        if not filename or filename[0] == "<":
+            # e.g. "<frozen importlib._bootstrap>", "<string>": not real user files.
+            result = False
+        else:
+            real_path = os.path.realpath(filename)
+            result = not real_path.startswith(cls._system_path_prefixes())
+
+        cls._user_code_cache[code] = result
+        return result
+
+    @classmethod
+    def _get_recursive_tracer(
+        cls,
+        root_frame: FrameType,
+        prev_profiler,
+        only_user_code: bool = False,
+    ):
         active_calls = {}
 
         def tracer(frame: FrameType, event: str, arg):
@@ -65,6 +128,8 @@ class ProfileManager:
                 elif frame.f_code in cls._decorated_codes:
                     # Skip functions that already have explicit decorators to
                     # avoid counting the same call in two regions.
+                    pass
+                elif only_user_code and not cls._is_user_code(frame.f_code):
                     pass
                 else:
                     region = cls.profile_region(cls._frame_region_name(frame))
@@ -228,6 +293,61 @@ class ProfileManager:
             return decorator(func)
 
         return decorator
+
+    @classmethod
+    def run_script(
+        cls,
+        script_path: str,
+        script_args: list | None = None,
+        region_name: str | None = None,
+        only_user_code: bool = True,
+    ) -> None:
+        """
+        Run a script under recursive profiling, similar to ``python -m cProfile``.
+
+        Instruments every Python function call made while the script runs
+        and records each as its own region, without requiring any
+        decorators or context managers in the script itself. Intended to be
+        called after ``ProfileManager.setup()`` and followed by
+        ``ProfileManager.finalize()``; see ``python -m scope_profiler`` for
+        the CLI wrapper around this.
+
+        Parameters
+        ----------
+        script_path : str
+            Path to the script to execute.
+        script_args : list of str, optional
+            Arguments exposed to the script as ``sys.argv[1:]``.
+        region_name : str, optional
+            Name for the region wrapping the whole script's execution
+            (default: the script's basename).
+        only_user_code : bool, optional
+            If True (default), skip instrumenting standard-library and
+            installed-package frames, tracing only the script's own code.
+            This keeps overhead low and the output focused. Set to False to
+            trace everything, including third-party and stdlib calls.
+        """
+        script_path = os.path.abspath(script_path)
+        region_name = region_name or os.path.basename(script_path)
+
+        sys.argv = [script_path, *(script_args or [])]
+        script_dir = os.path.dirname(script_path)
+        if script_dir not in sys.path:
+            sys.path.insert(0, script_dir)
+
+        region = cls.profile_region(region_name)
+        prev_profiler = sys.getprofile()
+        tracer = cls._get_recursive_tracer(
+            root_frame=sys._getframe(),
+            prev_profiler=prev_profiler,
+            only_user_code=only_user_code,
+        )
+        sys.setprofile(tracer)
+        try:
+            with region:
+                runpy.run_path(script_path, run_name="__main__")
+        finally:
+            sys.setprofile(prev_profiler)
 
     @classmethod
     def finalize(
