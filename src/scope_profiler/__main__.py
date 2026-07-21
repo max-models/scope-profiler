@@ -1,4 +1,6 @@
-"""Command-line entry point: ``python -m scope_profiler script.py [args...]``.
+"""Command-line entry point: ``scope-profiler script.py [args...]``.
+
+Also runnable as ``python -m scope_profiler script.py [args...]``.
 
 Profiles a script's function calls without requiring any decorators or
 context managers in the script itself, similar to ``python -m cProfile``.
@@ -16,7 +18,7 @@ from scope_profiler.profile_manager import ProfileManager
 
 def _parse_args(argv):
     parser = argparse.ArgumentParser(
-        prog="python -m scope_profiler",
+        prog="scope-profiler",
         description="Profile a script's function calls without modifying it.",
     )
     parser.add_argument(
@@ -58,7 +60,7 @@ def main(argv=None):
 
     if not os.path.isfile(args.script):
         print(
-            f"python -m scope_profiler: can't open file {args.script!r}",
+            f"scope-profiler: can't open file {args.script!r}",
             file=sys.stderr,
         )
         raise SystemExit(1)

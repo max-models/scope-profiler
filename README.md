@@ -129,7 +129,8 @@ You can profile a whole script without touching its source, similar to
 `python -m cProfile`:
 
 ```bash
-python -m scope_profiler my_script.py [script args...]
+scope-profiler my_script.py [script args...]
+# equivalently: python -m scope_profiler my_script.py [script args...]
 ```
 
 Every Python function call the script makes is recorded as its own region
@@ -145,7 +146,7 @@ See `examples/ex_cli_profiling.py` for a script with no scope-profiler
 imports at all, run with:
 
 ```bash
-python -m scope_profiler examples/ex_cli_profiling.py
+scope-profiler examples/ex_cli_profiling.py
 ```
 
 ## Profiling self-recursive functions
