@@ -6,6 +6,7 @@ import os
 
 from scope_profiler.h5reader import ProfilingH5Reader
 from scope_profiler.plotting_scripts import (
+    DEFAULT_CMAP,
     plot_durations,
     plot_flame,
     plot_gantt,
@@ -98,6 +99,16 @@ def build_parser() -> argparse.ArgumentParser:
             "(default: all of avg, min, max, total)."
         ),
     )
+    parser.add_argument(
+        "--cmap",
+        type=str,
+        default=DEFAULT_CMAP,
+        help=(
+            "Name of the matplotlib colormap used to color regions/files in "
+            f"all plots (default: {DEFAULT_CMAP!r}). See "
+            "https://matplotlib.org/stable/users/explain/colors/colormaps.html"
+        ),
+    )
     return parser
 
 
@@ -162,6 +173,7 @@ def main(argv: list[str] | None = None):
         include=args.include,
         exclude=args.exclude,
         ranks=args.ranks,
+        cmap=args.cmap,
     )
 
     plot_flame(
@@ -171,6 +183,7 @@ def main(argv: list[str] | None = None):
         include=args.include,
         exclude=args.exclude,
         ranks=args.ranks,
+        cmap=args.cmap,
     )
 
     durations_paths = plot_durations(
@@ -181,6 +194,7 @@ def main(argv: list[str] | None = None):
         exclude=args.exclude,
         ranks=args.ranks,
         metrics=args.metrics,
+        cmap=args.cmap,
     )
 
     if len(readers) > 1:
@@ -191,6 +205,7 @@ def main(argv: list[str] | None = None):
             show=args.show,
             include=args.include,
             exclude=args.exclude,
+            cmap=args.cmap,
         )
 
     if statistics_path:
