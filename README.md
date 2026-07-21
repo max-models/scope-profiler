@@ -78,7 +78,7 @@ The profiling overhead per call depends on the region type.
 The benchmark below (`examples/benchmark_overhead.py`) measures each mode
 against a bare function call:
 
-![Profiling overhead by region type](figures/benchmark_overhead.png)
+![Profiling overhead by region type](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/benchmark_overhead.png)
 
 The two modes most relevant to HPC — **NCallsOnly** and **TimeOnly** — add
 roughly **0.09 µs** and **0.75 µs** per instrumented call respectively.
