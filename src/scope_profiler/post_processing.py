@@ -6,7 +6,9 @@ import os
 
 from scope_profiler.h5reader import ProfilingH5Reader
 from scope_profiler.plotting_scripts import (
+    DEFAULT_CMAP,
     plot_durations,
+    plot_flame,
     plot_gantt,
     plot_speedup,
     write_region_statistics_json,
@@ -35,7 +37,8 @@ def parse_ranks(spec: str, verbose: bool = False) -> list[int]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Read and summarize profiling HDF5 data."
+        prog="scope-profiler pproc",
+        description="Read and summarize profiling HDF5 data.",
     )
     parser.add_argument(
         "files",
@@ -54,8 +57,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         help=(
             "Directory where outputs are saved "
-            "(gantt_plot.png, durations_plot.png, optional speedup_plot.png, "
-            "and region_statistics.json)"
+            "(gantt_plot.png, flame_plot.png, durations_plot.png, "
+            "optional speedup_plot.png, and region_statistics.json)"
         ),
     )
     parser.add_argument(
@@ -83,6 +86,28 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "List of ranks to include in the outputs (optional). "
             "Supports comma-separated values and ranges (e.g., 1-3,5)."
+        ),
+    )
+    parser.add_argument(
+        "--metrics",
+        "-m",
+        nargs="*",
+        type=str,
+        choices=["avg", "min", "max", "total"],
+        default=None,
+        help=(
+            "Which duration statistics to include in the durations bar plot "
+            "(default: all of avg, min, max, total)."
+        ),
+    )
+    parser.add_argument(
+        "--cmap",
+        type=str,
+        default=DEFAULT_CMAP,
+        help=(
+            "Name of the matplotlib colormap used to color regions/files in "
+            f"all plots (default: {DEFAULT_CMAP!r}). See "
+            "https://matplotlib.org/stable/users/explain/colors/colormaps.html"
         ),
     )
     return parser
@@ -129,12 +154,14 @@ def main(argv: list[str] | None = None):
     readers = [ProfilingH5Reader(file_path) for file_path in args.files]
 
     gantt_path = None
+    flame_path = None
     durations_path = None
     speedup_path = None
     statistics_path = None
     if args.output:
         os.makedirs(args.output, exist_ok=True)
         gantt_path = os.path.join(args.output, "gantt_plot.png")
+        flame_path = os.path.join(args.output, "flame_plot.png")
         durations_path = os.path.join(args.output, "durations_plot.png")
         if len(readers) > 1:
             speedup_path = os.path.join(args.output, "speedup_plot.png")
@@ -147,15 +174,28 @@ def main(argv: list[str] | None = None):
         include=args.include,
         exclude=args.exclude,
         ranks=args.ranks,
+        cmap=args.cmap,
     )
 
-    plot_durations(
+    plot_flame(
+        profiling_data=readers,
+        filepath=flame_path,
+        show=args.show,
+        include=args.include,
+        exclude=args.exclude,
+        ranks=args.ranks,
+        cmap=args.cmap,
+    )
+
+    durations_paths = plot_durations(
         profiling_data=readers,
         filepath=durations_path,
         show=args.show,
         include=args.include,
         exclude=args.exclude,
         ranks=args.ranks,
+        metrics=args.metrics,
+        cmap=args.cmap,
     )
 
     if len(readers) > 1:
@@ -166,6 +206,7 @@ def main(argv: list[str] | None = None):
             show=args.show,
             include=args.include,
             exclude=args.exclude,
+            cmap=args.cmap,
         )
 
     if statistics_path:
@@ -180,7 +221,13 @@ def main(argv: list[str] | None = None):
     if args.output and not args.show:
         saved = [
             path
-            for path in (gantt_path, durations_path, speedup_path, statistics_path)
+            for path in (
+                gantt_path,
+                flame_path,
+                *durations_paths,
+                speedup_path,
+                statistics_path,
+            )
             if path
         ]
         print("Outputs saved to:\n  " + "\n  ".join(saved))

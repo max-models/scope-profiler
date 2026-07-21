@@ -63,13 +63,13 @@ The Gantt chart CLI and Python API support rank selection:
 
 ```bash
 # Show all ranks
-scope-profiler-pproc profiling_data.h5 --show
+scope-profiler pproc profiling_data.h5 --show
 
 # Show only ranks 0 and 2
-scope-profiler-pproc profiling_data.h5 --show --ranks 0 2
+scope-profiler pproc profiling_data.h5 --show --ranks 0 2
 
 # Range syntax
-scope-profiler-pproc profiling_data.h5 --show --ranks 0-3
+scope-profiler pproc profiling_data.h5 --show --ranks 0-3
 ```
 
 From Python:

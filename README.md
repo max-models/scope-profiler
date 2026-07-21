@@ -72,13 +72,31 @@ Region: iteration
 ----------------------------------------
 ```
 
+## Example plots
+
+`scope-profiler pproc` turns an HDF5 profiling file into Gantt, flame,
+duration, and speedup charts (see [Flame graphs](#flame-graphs) below for
+details). The plots here come from `examples/generate_readme_figures.py`, a
+small mock timestep loop with nested and self-recursive regions, and are
+saved to `figures/`:
+
+```bash
+python examples/generate_readme_figures.py
+```
+
+![Gantt chart of a mock timestep loop](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/gantt_plot.png)
+
+![Average duration per region](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/durations_plot.png)
+
+The flame graph for the same run is shown in [Flame graphs](#flame-graphs) below.
+
 ## Overhead
 
 The profiling overhead per call depends on the region type.
 The benchmark below (`examples/benchmark_overhead.py`) measures each mode
 against a bare function call:
 
-![Profiling overhead by region type](figures/benchmark_overhead.png)
+![Profiling overhead by region type](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/benchmark_overhead.png)
 
 The two modes most relevant to HPC — **NCallsOnly** and **TimeOnly** — add
 roughly **0.09 µs** and **0.75 µs** per instrumented call respectively.
@@ -122,3 +140,104 @@ ProfileManager.finalize()
 When enabled, the profiler records regions for nested calls using fully
 qualified names (for example, `my_module.inner`), in addition to the main
 decorated region.
+
+## Zero-instrumentation CLI profiling
+
+You can profile a whole script without touching its source, similar to
+`python -m cProfile`:
+
+```bash
+scope-profiler run my_script.py [script args...]
+# equivalently: python -m scope_profiler run my_script.py [script args...]
+```
+
+Every Python function call the script makes is recorded as its own region
+under a name derived from its module and qualified name, using the same
+recursive tracer as `recursive_profile=True` above. By default only the
+script's own code is instrumented (the standard library and installed
+packages are skipped) to keep overhead low; pass `--all` to trace
+everything. Results are written to `profiling_data.h5` by default
+(`-o`/`--outfile` to change it), and a per-region summary is printed unless
+`-q`/`--quiet` is given.
+
+See `examples/ex_cli_profiling.py` for a script with no scope-profiler
+imports at all, run with:
+
+```bash
+scope-profiler run examples/ex_cli_profiling.py
+```
+
+## Profiling self-recursive functions
+
+A single region can also be safely re-entered by a recursive function -
+each call gets its own slot in the region's buffer, so nested calls don't
+overwrite each other's timing data. This works with both the decorator and
+context-manager forms:
+
+```python
+from scope_profiler import ProfileManager
+
+ProfileManager.setup()
+
+
+@ProfileManager.profile("fibonacci")
+def fibonacci(n):
+    if n < 2:
+        return n
+    return fibonacci(n - 1) + fibonacci(n - 2)
+
+
+def fibonacci_context_manager(n):
+    with ProfileManager.profile_region("fibonacci_ctx"):
+        if n < 2:
+            return n
+        return fibonacci_context_manager(n - 1) + fibonacci_context_manager(n - 2)
+
+
+fibonacci(10)
+fibonacci_context_manager(10)
+ProfileManager.finalize()
+```
+
+Both `fibonacci` and `fibonacci_ctx` will report one call per recursive
+invocation, each with correct, non-overlapping timing data.
+
+## Flame graphs
+
+Because each call - including recursive re-entries of the same region -
+now has its own correctly nested (start, end) interval, the call stack can
+be reconstructed straight from the timing data and rendered as a flame
+graph, with recursion showing up as a narrowing tower of frames - as with
+`refine_mesh` below, from the same run shown in [Example plots](#example-plots):
+
+![Flame graph of a mock timestep loop](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/flame_plot.png)
+
+`scope-profiler pproc` generates `flame_plot.png` alongside the Gantt chart
+for every run:
+
+```bash
+scope-profiler pproc profiling_data.h5 --show -o figures
+```
+
+Or programmatically:
+
+```python
+from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler.plotting_scripts import plot_flame
+
+reader = ProfilingH5Reader("profiling_data.h5")
+plot_flame(reader, filepath="flame_plot.png")
+```
+
+Gantt and flame charts (and `plot_speedup`) always color the same region the
+same way. Pass `--cmap` (or `cmap=` on the `plot_*` functions) to use a
+different [matplotlib colormap](https://matplotlib.org/stable/users/explain/colors/colormaps.html)
+than the default `tab20`:
+
+```bash
+scope-profiler pproc profiling_data.h5 --cmap viridis -o figures
+```
+
+By default the flame graph covers rank 0, since it represents a single
+execution's call stack; pass `ranks=[...]` to render one flame graph per
+requested rank.

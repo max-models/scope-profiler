@@ -1,6 +1,7 @@
 """Plotting utilities for visualizing profiling data."""
 
 import json
+import os
 from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
@@ -18,6 +19,34 @@ def _get_pyplot():
             "matplotlib is required for plotting. Install scope-profiler[dev] or matplotlib."
         ) from exc
     return plt
+
+
+DEFAULT_CMAP = "tab20"
+
+
+def _get_cmap(plt, cmap: str):
+    """Resolve a colormap name to a callable, with a friendly error on typos."""
+    try:
+        return plt.get_cmap(cmap)
+    except ValueError as exc:
+        raise ValueError(
+            f"Unknown colormap {cmap!r}. See "
+            "https://matplotlib.org/stable/users/explain/colors/colormaps.html "
+            "for valid names."
+        ) from exc
+
+
+def _region_color_map(plt, region_names, cmap: str = DEFAULT_CMAP) -> dict:
+    """Assign each region name a stable color from a canonical sorted order.
+
+    Sorting by name (rather than data/insertion order) means gantt and flame
+    charts built from the same region names get identical colors, even
+    though they derive their region lists independently and gantt charts
+    order regions by first-appearance while flame charts don't.
+    """
+    names = sorted(set(region_names))
+    colors = _get_cmap(plt, cmap)(np.linspace(0, 1, len(names)))
+    return dict(zip(names, colors))
 
 
 def _as_readers(
@@ -250,7 +279,6 @@ def _draw_gantt_axes(
     first_start_time: float,
 ) -> None:
     num_ranks = len(ranks)
-    colors = plt.cm.tab20(np.linspace(0, 1, len(regions)))
 
     for i, region in enumerate(regions):
         for irank, rank in enumerate(ranks):
@@ -263,7 +291,7 @@ def _draw_gantt_axes(
                     width=end - start,
                     left=start,
                     height=1.0,
-                    color=colors[i],
+                    color=region.color,
                     edgecolor="black",
                     alpha=0.7,
                 )
@@ -290,6 +318,7 @@ def plot_gantt(
     filepath: str | None = None,
     show: bool = False,
     verbose: bool = True,
+    cmap: str = DEFAULT_CMAP,
 ) -> None:
     """
     Plot a Gantt chart of all (or selected) regions with per-rank lanes.
@@ -305,6 +334,8 @@ def plot_gantt(
         Path to save the figure. If None, figure is not saved.
     show : bool
         Whether to display the plot. Default is False.
+    cmap : str
+        Name of the matplotlib colormap used to color regions (default: "tab20").
     """
     plt = _get_pyplot()
     readers = _as_readers(profiling_data)
@@ -320,6 +351,15 @@ def plot_gantt(
             exclude,
         )
         prepared.append((reader, regions, selected_ranks, first_start_time))
+
+    color_map = _region_color_map(
+        plt,
+        (region.name for _, regions, _, _ in prepared for region in regions),
+        cmap=cmap,
+    )
+    for _, regions, _, _ in prepared:
+        for region in regions:
+            region.color = color_map[region.name]
 
     labels = _unique_labels([reader.file_path.stem for reader, _, _, _ in prepared])
     if verbose:
@@ -363,20 +403,254 @@ def plot_gantt(
     plt.close(fig)
 
 
+def _build_call_stack_intervals(regions: list, rank: int) -> list[dict]:
+    """Reconstruct per-call nesting depth for one rank from region intervals.
+
+    Regions only store flat (start, end) pairs per call, with no explicit
+    parent/child link. Since profiling scopes are always properly nested or
+    sequential in a single rank's execution (recursive self-nesting included,
+    see the recursion fix in region_profiler.py), the call tree can be
+    rebuilt by treating each interval's parent as the innermost still-open
+    interval that encloses it - the same rule used to match parentheses.
+    """
+    calls = []
+    for region in regions:
+        if rank not in region.regions:
+            continue
+        region_data = region.regions[rank]
+        for start, end in zip(region_data.start_times, region_data.end_times):
+            calls.append(
+                {
+                    "name": region.name,
+                    "start": float(start),
+                    "end": float(end),
+                    "color": region.color,
+                }
+            )
+
+    # Longer-running calls that start at the same instant must be sorted
+    # first so they end up enclosing (not enclosed by) shorter siblings.
+    calls.sort(key=lambda call: (call["start"], -call["end"]))
+
+    open_stack: list[dict] = []
+    for call in calls:
+        while open_stack and open_stack[-1]["end"] <= call["start"]:
+            open_stack.pop()
+        call["depth"] = len(open_stack)
+        open_stack.append(call)
+
+    return calls
+
+
+def _draw_flame_axis(plt, ax, calls: list[dict]) -> None:
+    first_start = min(call["start"] for call in calls)
+    total_span = max(call["end"] for call in calls) - first_start
+    max_depth = max(call["depth"] for call in calls)
+
+    for call in calls:
+        start = call["start"] - first_start
+        width = call["end"] - call["start"]
+        ax.barh(
+            y=call["depth"],
+            width=width,
+            left=start,
+            height=1.0,
+            color=call["color"],
+            edgecolor="black",
+            linewidth=0.5,
+            alpha=0.85,
+        )
+        if total_span > 0 and width / total_span > 0.02:
+            ax.text(
+                start + width / 2,
+                call["depth"],
+                call["name"],
+                ha="center",
+                va="center",
+                fontsize=7,
+                clip_on=True,
+            )
+
+    ax.set_xlabel("Time (seconds)")
+    ax.set_ylabel("Call depth")
+    ax.set_yticks(range(max_depth + 1))
+    ax.set_ylim(-0.5, max_depth + 0.5)
+    ax.grid(True, axis="x", linestyle="--", alpha=0.5)
+
+
+def plot_flame(
+    profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
+    ranks: list[int] | int | None = None,
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+    filepath: str | None = None,
+    show: bool = False,
+    verbose: bool = True,
+    cmap: str = DEFAULT_CMAP,
+) -> None:
+    """
+    Plot a flame graph reconstructing the call stack from region timings.
+
+    Unlike ``plot_gantt``, which lays out one row per region name, this
+    reconstructs call nesting from each call's (start, end) interval, so
+    recursive calls into the same region are shown at their correct depth,
+    producing a classic flame-graph shape.
+
+    Parameters
+    ----------
+    ranks : list[int] | int | None
+        Ranks to plot, one flame graph per rank. Defaults to rank 0 only,
+        since a flame graph represents a single execution's call stack.
+    filepath : str | None
+        Path to save the figure. If None, figure is not saved.
+    show : bool
+        Whether to display the plot. Default is False.
+    cmap : str
+        Name of the matplotlib colormap used to color regions (default: "tab20").
+        Pass the same value used for ``plot_gantt`` to keep colors matching.
+    """
+    plt = _get_pyplot()
+    readers = _as_readers(profiling_data)
+    if not readers:
+        raise ValueError("No profiling data provided.")
+
+    normalized_ranks = _normalize_ranks(ranks) if ranks is not None else [0]
+
+    reader_regions = []
+    all_region_names: set[str] = set()
+    for reader in readers:
+        regions = reader.get_regions(include=include, exclude=exclude)
+        if not regions:
+            raise ValueError("No regions matched the selected filters.")
+        all_region_names.update(region.name for region in regions)
+        reader_regions.append((reader, regions))
+
+    color_map = _region_color_map(plt, all_region_names, cmap=cmap)
+    for _, regions in reader_regions:
+        for region in regions:
+            region.color = color_map[region.name]
+
+    prepared = []
+    for reader, regions in reader_regions:
+        for rank in normalized_ranks:
+            if rank < 0 or rank >= reader.num_ranks:
+                raise ValueError(f"Invalid rank requested: {rank}")
+            calls = _build_call_stack_intervals(regions, rank)
+            if calls:
+                prepared.append((reader, rank, calls))
+
+    if not prepared:
+        raise ValueError("No calls recorded for the requested ranks.")
+
+    if verbose:
+        print(
+            "Plotting flame graph for: "
+            + ", ".join(
+                f"{reader.file_path.stem} (rank {rank})" for reader, rank, _ in prepared
+            )
+        )
+
+    subplot_heights = [
+        max(2.0, 0.6 * (max(call["depth"] for call in calls) + 1))
+        for _, _, calls in prepared
+    ]
+    fig, axes = plt.subplots(
+        nrows=len(prepared),
+        ncols=1,
+        figsize=(12, max(3.0, sum(subplot_heights))),
+    )
+    axes = np.atleast_1d(axes).ravel()
+
+    for ax, (reader, rank, calls) in zip(axes, prepared):
+        _draw_flame_axis(plt, ax, calls)
+        ax.set_title(f"{reader.file_path.stem} (rank {rank})")
+
+    if len(prepared) == 1:
+        fig.tight_layout()
+    else:
+        fig.suptitle("Flame Graphs")
+        fig.tight_layout(rect=(0, 0, 1, 0.98))
+
+    if filepath:
+        plt.savefig(filepath, dpi=300)
+    if show:
+        plt.show()
+    plt.close(fig)
+
+
+_DURATION_METRICS: dict[str, tuple[str, str]] = {
+    "avg": ("average_duration_seconds", "Average duration per call (seconds)"),
+    "min": ("min_duration_seconds", "Minimum duration per call (seconds)"),
+    "max": ("max_duration_seconds", "Maximum duration per call (seconds)"),
+    "total": ("total_duration_seconds", "Total duration (seconds)"),
+}
+
+
+def _region_metric_value(
+    region,
+    metric_key: str,
+    ranks: list[int] | None = None,
+) -> float:
+    values = _region_duration_values(region, ranks=ranks)
+    stats = _stats_from_values(values)
+    stat_value = stats[metric_key]
+    return float("nan") if stat_value is None else stat_value
+
+
+def _metric_filepath(filepath: str, metric_key: str, single_metric: bool) -> str:
+    if single_metric:
+        return filepath
+    base, ext = os.path.splitext(filepath)
+    return f"{base}_{metric_key}{ext}"
+
+
 def plot_durations(
     profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
     ranks: list[int] | int | None = None,
     include: list[str] | str | None = None,
     exclude: list[str] | str | None = None,
     labels: Sequence[str] | None = None,
+    metrics: list[str] | str | None = None,
     filepath: str | None = None,
     show: bool = False,
     verbose: bool = True,
-) -> None:
-    """Plot average-duration bar charts for one or more profiling files."""
+    cmap: str = DEFAULT_CMAP,
+) -> list[str]:
+    """Plot duration bar charts for one or more profiling files.
+
+    Each requested metric is rendered as its own separate figure.
+
+    Args:
+        metrics: Which statistics to plot, any of "avg", "min", "max", "total".
+            Defaults to all four.
+        filepath: Base output path. When multiple metrics are plotted, each
+            figure is saved with the metric name inserted before the
+            extension (e.g. "durations_plot.png" -> "durations_plot_avg.png").
+        cmap: Name of the matplotlib colormap used to color files (default:
+            "tab20"). Bars here are colored per-file, not per-region, so this
+            is independent of the region colors used by ``plot_gantt``/
+            ``plot_flame``.
+
+    Returns:
+        List of filepaths that were written (empty if filepath is None).
+    """
     plt = _get_pyplot()
     readers = _as_readers(profiling_data)
     ranks = _normalize_ranks(ranks)
+
+    if metrics is None:
+        metric_keys = list(_DURATION_METRICS)
+    elif isinstance(metrics, str):
+        metric_keys = [metrics]
+    else:
+        metric_keys = list(metrics)
+
+    unknown_metrics = [key for key in metric_keys if key not in _DURATION_METRICS]
+    if unknown_metrics:
+        raise ValueError(
+            f"Unknown metric(s) {unknown_metrics}. "
+            f"Valid options are: {list(_DURATION_METRICS)}"
+        )
 
     if labels is None:
         labels = _unique_labels([reader.file_path.stem for reader in readers])
@@ -391,51 +665,72 @@ def plot_durations(
         raise ValueError("No regions matched the selected filters.")
 
     if verbose:
-        print(f"Plotting duration comparison for files: {', '.join(labels)}")
-
-    values = [
-        [
-            _region_average_duration(reader.get_region(region_name), ranks=ranks)
-            for region_name in region_names
-        ]
-        for reader in readers
-    ]
+        print(
+            f"Plotting duration comparison ({', '.join(metric_keys)}) "
+            f"for files: {', '.join(labels)}"
+        )
 
     x = np.arange(len(region_names))
     num_readers = len(readers)
     width = min(0.8 / max(num_readers, 1), 0.35)
-    colors = plt.cm.tab20(np.linspace(0, 1, max(num_readers, 1)))
+    colors = _get_cmap(plt, cmap)(np.linspace(0, 1, max(num_readers, 1)))
     fig_width = max(10, 0.85 * len(region_names) + 2)
     fig_height = max(4.5, 2.5 + 0.35 * num_readers)
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-
     offset_start = -0.5 * width * (num_readers - 1)
-    for idx, (label, file_values) in enumerate(zip(labels, values)):
-        offsets = x + offset_start + idx * width
-        ax.bar(
-            offsets,
-            file_values,
-            width=width,
-            label=label if num_readers > 1 else None,
-            color=colors[idx],
-            edgecolor="black",
-            alpha=0.8,
-        )
 
-    ax.set_xticks(x)
-    ax.set_xticklabels(region_names, rotation=45, ha="right")
-    ax.set_ylabel("Average duration per call (seconds)")
-    ax.set_title("Region duration comparison")
-    ax.grid(True, axis="y", linestyle="--", alpha=0.5)
-    if num_readers > 1:
-        ax.legend(frameon=False)
-    fig.tight_layout()
+    saved_paths: list[str] = []
+    figs = []
 
-    if filepath:
-        plt.savefig(filepath, dpi=300)
+    for metric_key in metric_keys:
+        stat_key, ylabel = _DURATION_METRICS[metric_key]
+
+        values = [
+            [
+                _region_metric_value(
+                    reader.get_region(region_name), stat_key, ranks=ranks
+                )
+                for region_name in region_names
+            ]
+            for reader in readers
+        ]
+
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+        for idx, (label, file_values) in enumerate(zip(labels, values)):
+            offsets = x + offset_start + idx * width
+            ax.bar(
+                offsets,
+                file_values,
+                width=width,
+                label=label if num_readers > 1 else None,
+                color=colors[idx],
+                edgecolor="black",
+                alpha=0.8,
+            )
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(region_names, rotation=45, ha="right")
+        ax.set_ylabel(ylabel)
+        ax.set_title(f"Region duration comparison ({metric_key})")
+        ax.grid(True, axis="y", linestyle="--", alpha=0.5)
+        if num_readers > 1:
+            ax.legend(frameon=False)
+        fig.tight_layout()
+
+        if filepath:
+            metric_filepath = _metric_filepath(
+                filepath, metric_key, single_metric=len(metric_keys) == 1
+            )
+            fig.savefig(metric_filepath, dpi=300)
+            saved_paths.append(metric_filepath)
+
+        figs.append(fig)
+
     if show:
         plt.show()
-    plt.close(fig)
+    for fig in figs:
+        plt.close(fig)
+
+    return saved_paths
 
 
 def plot_speedup(
@@ -446,11 +741,17 @@ def plot_speedup(
     filepath: str | None = None,
     show: bool = False,
     verbose: bool = True,
+    cmap: str = DEFAULT_CMAP,
 ) -> None:
     """Plot scope speedup versus MPI rank count across one or more files.
 
     The speedup is computed from matching scopes' average per-call durations
     and normalized against the smallest MPI rank count present in the inputs.
+
+    Parameters
+    ----------
+    cmap : str
+        Name of the matplotlib colormap used to color regions (default: "tab20").
     """
     plt = _get_pyplot()
     readers = _as_readers(profiling_data)
@@ -481,7 +782,7 @@ def plot_speedup(
                 duration_samples[region_name][reader.num_ranks].append(duration)
 
     baseline_ranks = rank_counts[0]
-    colors = plt.cm.tab20(np.linspace(0, 1, len(region_names)))
+    colors = _get_cmap(plt, cmap)(np.linspace(0, 1, len(region_names)))
     fig_width = max(10, 1.2 * len(rank_counts) + 3)
     fig_height = max(4.5, 2.8 + 0.35 * len(region_names))
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))

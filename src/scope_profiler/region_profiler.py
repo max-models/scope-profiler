@@ -54,6 +54,8 @@ class BaseProfileRegion:
         "group_path",
         "local_file_path",
         "hdf5_initialized",
+        "_scope_ptr_stack",
+        "_depth",
     )
 
     def __init__(self, region_name: str, config: ProfilingConfig):
@@ -76,6 +78,17 @@ class BaseProfileRegion:
         self.buffer_limit = config.buffer_limit
         self.start_times = np.empty(self.buffer_limit, dtype=np.int64)
         self.end_times = np.empty(self.buffer_limit, dtype=np.int64)
+
+        # Recursion support: entering a scope reserves its slot (via `ptr`)
+        # immediately and remembers it here, so a recursive re-entry before
+        # the outer call exits reserves its own slot instead of clobbering
+        # the outer one. `_scope_ptr_stack` backs the context-manager form
+        # (enter/exit are on the same `self`, so the slot must be pushed and
+        # popped); `_depth` backs the decorator form (the slot already lives
+        # in the wrapper's local scope, only the flush-safety check needs
+        # nesting depth).
+        self._scope_ptr_stack = []
+        self._depth = 0
 
         # Setu p paths
         self.group_path = f"regions/{self.region_name}"
@@ -242,26 +255,34 @@ class TimeOnlyProfileRegionNoFlush(BaseProfileRegion):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             self.num_calls += 1
-            start = np.int64(perf_counter_ns())
-            out = func(*args, **kwargs)
-            end = np.int64(perf_counter_ns())
-            self.start_times[self.ptr] = start
-            self.end_times[self.ptr] = end
+            # Reserve this call's slot before invoking `func`, so a
+            # recursive call re-entering this region gets its own slot
+            # instead of overwriting this one.
+            scope_ptr = self.ptr
             self.ptr += 1
-            return out
+            start = np.int64(perf_counter_ns())
+            try:
+                return func(*args, **kwargs)
+            finally:
+                end = np.int64(perf_counter_ns())
+                self.start_times[scope_ptr] = start
+                self.end_times[scope_ptr] = end
 
         return wrapper
 
     def __enter__(self):
-        """Record the start time on context entry."""
+        """Reserve this scope's slot and record the start time."""
         self.num_calls += 1
-        self.start_times[self.ptr] = np.int64(perf_counter_ns())
+        scope_ptr = self.ptr
+        self.ptr += 1
+        self._scope_ptr_stack.append(scope_ptr)
+        self.start_times[scope_ptr] = np.int64(perf_counter_ns())
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        """Record the end time on context exit."""
-        self.end_times[self.ptr] = np.int64(perf_counter_ns())
-        self.ptr += 1
+        """Record the end time at this scope's reserved slot."""
+        scope_ptr = self._scope_ptr_stack.pop()
+        self.end_times[scope_ptr] = np.int64(perf_counter_ns())
 
 
 class TimeOnlyProfileRegion(BaseProfileRegion):
@@ -273,29 +294,44 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             self.num_calls += 1
-            start = np.int64(perf_counter_ns())
-            out = func(*args, **kwargs)
-            end = np.int64(perf_counter_ns())
-            self.start_times[self.ptr] = start
-            self.end_times[self.ptr] = end
+            # Reserve this call's slot before invoking `func`, so a
+            # recursive call re-entering this region gets its own slot
+            # instead of overwriting this one.
+            scope_ptr = self.ptr
             self.ptr += 1
-            if self.ptr >= self.buffer_limit:
-                self.flush()
-            return out
+            self._depth += 1
+            start = np.int64(perf_counter_ns())
+            try:
+                return func(*args, **kwargs)
+            finally:
+                end = np.int64(perf_counter_ns())
+                self.start_times[scope_ptr] = start
+                self.end_times[scope_ptr] = end
+                self._depth -= 1
+                # Only flush once every recursive call has finished writing its
+                # own slot; flushing mid-recursion could write out reserved but
+                # not-yet-filled slots belonging to still-open outer calls.
+                if self._depth == 0 and self.ptr >= self.buffer_limit:
+                    self.flush()
 
         return wrapper
 
     def __enter__(self):
-        """Record start time and increment call count."""
-        self.start_times[self.ptr] = np.int64(perf_counter_ns())
+        """Reserve this scope's slot, record start time, and increment call count."""
+        scope_ptr = self.ptr
+        self.ptr += 1
+        self._scope_ptr_stack.append(scope_ptr)
+        self.start_times[scope_ptr] = np.int64(perf_counter_ns())
         self.num_calls += 1
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        """Record end time and flush if needed."""
-        self.end_times[self.ptr] = np.int64(perf_counter_ns())
-        self.ptr += 1
-        if self.ptr >= self.buffer_limit:
+        """Record end time at this scope's slot and flush if needed."""
+        scope_ptr = self._scope_ptr_stack.pop()
+        self.end_times[scope_ptr] = np.int64(perf_counter_ns())
+        # Only flush once no scope of this region is still open (i.e. this
+        # was the outermost/non-recursive exit).
+        if not self._scope_ptr_stack and self.ptr >= self.buffer_limit:
             self.flush()
 
 
@@ -324,9 +360,10 @@ class LikwidOnlyProfileRegion(BaseProfileRegion):
         def wrapper(*args, **kwargs):
             self.num_calls += 1
             self.likwid_marker_start(self.region_name)
-            out = func(*args, **kwargs)
-            self.likwid_marker_stop(self.region_name)
-            return out
+            try:
+                return func(*args, **kwargs)
+            finally:
+                self.likwid_marker_stop(self.region_name)
 
         return wrapper
 
@@ -364,30 +401,38 @@ class FullProfileRegionNoFlush(BaseProfileRegion):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             self.num_calls += 1
+            # Reserve this call's slot before invoking `func`, so a
+            # recursive call re-entering this region gets its own slot
+            # instead of overwriting this one.
+            scope_ptr = self.ptr
+            self.ptr += 1
             start = np.int64(perf_counter_ns())
             self.likwid_marker_start(self.region_name)
-            out = func(*args, **kwargs)
-            self.likwid_marker_stop(self.region_name)
-            end = np.int64(perf_counter_ns())
-            self.start_times[self.ptr] = start
-            self.end_times[self.ptr] = end
-            self.ptr += 1
-            return out
+            try:
+                return func(*args, **kwargs)
+            finally:
+                self.likwid_marker_stop(self.region_name)
+                end = np.int64(perf_counter_ns())
+                self.start_times[scope_ptr] = start
+                self.end_times[scope_ptr] = end
 
         return wrapper
 
     def __enter__(self):
-        """Start LIKWID region and record start time and increase num_calls by 1."""
+        """Reserve this scope's slot, start LIKWID region, and increase num_calls by 1."""
         self.likwid_marker_start(self.region_name)
-        self.start_times[self.ptr] = np.int64(perf_counter_ns())
+        scope_ptr = self.ptr
+        self.ptr += 1
+        self._scope_ptr_stack.append(scope_ptr)
+        self.start_times[scope_ptr] = np.int64(perf_counter_ns())
         self.num_calls += 1
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        """Record end time and stop LIKWID region."""
+        """Record end time at this scope's slot and stop LIKWID region."""
         self.likwid_marker_stop(self.region_name)
-        self.end_times[self.ptr] = np.int64(perf_counter_ns())
-        self.ptr += 1
+        scope_ptr = self._scope_ptr_stack.pop()
+        self.end_times[scope_ptr] = np.int64(perf_counter_ns())
 
 
 class FullProfileRegion(BaseProfileRegion):
@@ -412,33 +457,48 @@ class FullProfileRegion(BaseProfileRegion):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             self.num_calls += 1
+            # Reserve this call's slot before invoking `func`, so a
+            # recursive call re-entering this region gets its own slot
+            # instead of overwriting this one.
+            scope_ptr = self.ptr
+            self.ptr += 1
+            self._depth += 1
             start = np.int64(perf_counter_ns())
             self.likwid_marker_start(self.region_name)
-            out = func(*args, **kwargs)
-            self.likwid_marker_stop(self.region_name)
-            end = np.int64(perf_counter_ns())
-            self.start_times[self.ptr] = start
-            self.end_times[self.ptr] = end
-            self.ptr += 1
-            if self.ptr >= self.buffer_limit:
-                self.flush()
-            return out
+            try:
+                return func(*args, **kwargs)
+            finally:
+                self.likwid_marker_stop(self.region_name)
+                end = np.int64(perf_counter_ns())
+                self.start_times[scope_ptr] = start
+                self.end_times[scope_ptr] = end
+                self._depth -= 1
+                # Only flush once every recursive call has finished writing its
+                # own slot; flushing mid-recursion could write out reserved but
+                # not-yet-filled slots belonging to still-open outer calls.
+                if self._depth == 0 and self.ptr >= self.buffer_limit:
+                    self.flush()
 
         return wrapper
 
     def __enter__(self):
-        """Start LIKWID region and record start time."""
+        """Reserve this scope's slot, record start time, and start LIKWID region."""
         self.num_calls += 1
-        self.start_times[self.ptr] = np.int64(perf_counter_ns())
+        scope_ptr = self.ptr
+        self.ptr += 1
+        self._scope_ptr_stack.append(scope_ptr)
+        self.start_times[scope_ptr] = np.int64(perf_counter_ns())
         self.likwid_marker_start(self.region_name)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        """Record end time, stop LIKWID region, and flush if needed."""
+        """Record end time at this scope's slot, stop LIKWID region, and flush if needed."""
         self.likwid_marker_stop(self.region_name)
-        self.end_times[self.ptr] = np.int64(perf_counter_ns())
-        self.ptr += 1
-        if self.ptr >= self.buffer_limit:
+        scope_ptr = self._scope_ptr_stack.pop()
+        self.end_times[scope_ptr] = np.int64(perf_counter_ns())
+        # Only flush once no scope of this region is still open (i.e. this
+        # was the outermost/non-recursive exit).
+        if not self._scope_ptr_stack and self.ptr >= self.buffer_limit:
             self.flush()
 
 
@@ -471,33 +531,48 @@ class LineProfilerRegion(BaseProfileRegion):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             self.num_calls += 1
+            # Reserve this call's slot before invoking `func`, so a
+            # recursive call re-entering this region gets its own slot
+            # instead of overwriting this one.
+            scope_ptr = self.ptr
+            self.ptr += 1
+            self._depth += 1
             start = np.int64(perf_counter_ns())
             self._line_profiler.enable_by_count()
-            out = func(*args, **kwargs)
-            self._line_profiler.disable_by_count()
-            end = np.int64(perf_counter_ns())
-            self.start_times[self.ptr] = start
-            self.end_times[self.ptr] = end
-            self.ptr += 1
-            if self.ptr >= self.buffer_limit:
-                self.flush()
-            return out
+            try:
+                return func(*args, **kwargs)
+            finally:
+                self._line_profiler.disable_by_count()
+                end = np.int64(perf_counter_ns())
+                self.start_times[scope_ptr] = start
+                self.end_times[scope_ptr] = end
+                self._depth -= 1
+                # Only flush once every recursive call has finished writing its
+                # own slot; flushing mid-recursion could write out reserved but
+                # not-yet-filled slots belonging to still-open outer calls.
+                if self._depth == 0 and self.ptr >= self.buffer_limit:
+                    self.flush()
 
         return wrapper
 
     def __enter__(self):
-        """Record start time and enable line profiler."""
+        """Reserve this scope's slot, record start time, and enable line profiler."""
         self.num_calls += 1
-        self.start_times[self.ptr] = np.int64(perf_counter_ns())
+        scope_ptr = self.ptr
+        self.ptr += 1
+        self._scope_ptr_stack.append(scope_ptr)
+        self.start_times[scope_ptr] = np.int64(perf_counter_ns())
         self._line_profiler.enable_by_count()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        """Disable line profiler, record end time, and flush if needed."""
+        """Disable line profiler, record end time at this scope's slot, and flush if needed."""
         self._line_profiler.disable_by_count()
-        self.end_times[self.ptr] = np.int64(perf_counter_ns())
-        self.ptr += 1
-        if self.ptr >= self.buffer_limit:
+        scope_ptr = self._scope_ptr_stack.pop()
+        self.end_times[scope_ptr] = np.int64(perf_counter_ns())
+        # Only flush once no scope of this region is still open (i.e. this
+        # was the outermost/non-recursive exit).
+        if not self._scope_ptr_stack and self.ptr >= self.buffer_limit:
             self.flush()
 
     def add_function(self, func) -> None:
