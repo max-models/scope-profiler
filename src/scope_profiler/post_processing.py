@@ -37,7 +37,8 @@ def parse_ranks(spec: str, verbose: bool = False) -> list[int]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Read and summarize profiling HDF5 data."
+        prog="scope-profiler pproc",
+        description="Read and summarize profiling HDF5 data.",
     )
     parser.add_argument(
         "files",
