@@ -72,6 +72,24 @@ Region: iteration
 ----------------------------------------
 ```
 
+## Example plots
+
+`scope-profiler pproc` turns an HDF5 profiling file into Gantt, flame,
+duration, and speedup charts (see [Flame graphs](#flame-graphs) below for
+details). The plots here come from `examples/generate_readme_figures.py`, a
+small mock timestep loop with nested and self-recursive regions, and are
+saved to `figures/`:
+
+```bash
+python examples/generate_readme_figures.py
+```
+
+![Gantt chart of a mock timestep loop](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/gantt_plot.png)
+
+![Average duration per region](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/durations_plot.png)
+
+The flame graph for the same run is shown in [Flame graphs](#flame-graphs) below.
+
 ## Overhead
 
 The profiling overhead per call depends on the region type.
@@ -189,7 +207,10 @@ invocation, each with correct, non-overlapping timing data.
 Because each call - including recursive re-entries of the same region -
 now has its own correctly nested (start, end) interval, the call stack can
 be reconstructed straight from the timing data and rendered as a flame
-graph, with recursion showing up as a narrowing tower of frames.
+graph, with recursion showing up as a narrowing tower of frames - as with
+`refine_mesh` below, from the same run shown in [Example plots](#example-plots):
+
+![Flame graph of a mock timestep loop](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/flame_plot.png)
 
 `scope-profiler pproc` generates `flame_plot.png` alongside the Gantt chart
 for every run:
