@@ -208,6 +208,15 @@ reader = ProfilingH5Reader("profiling_data.h5")
 plot_flame(reader, filepath="flame_plot.png")
 ```
 
+Gantt and flame charts (and `plot_speedup`) always color the same region the
+same way. Pass `--cmap` (or `cmap=` on the `plot_*` functions) to use a
+different [matplotlib colormap](https://matplotlib.org/stable/users/explain/colors/colormaps.html)
+than the default `tab20`:
+
+```bash
+scope-profiler-pproc profiling_data.h5 --cmap viridis -o figures
+```
+
 By default the flame graph covers rank 0, since it represents a single
 execution's call stack; pass `ranks=[...]` to render one flame graph per
 requested rank.

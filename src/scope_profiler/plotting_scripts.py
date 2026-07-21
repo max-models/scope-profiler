@@ -21,7 +21,22 @@ def _get_pyplot():
     return plt
 
 
-def _region_color_map(plt, region_names) -> dict:
+DEFAULT_CMAP = "tab20"
+
+
+def _get_cmap(plt, cmap: str):
+    """Resolve a colormap name to a callable, with a friendly error on typos."""
+    try:
+        return plt.get_cmap(cmap)
+    except ValueError as exc:
+        raise ValueError(
+            f"Unknown colormap {cmap!r}. See "
+            "https://matplotlib.org/stable/users/explain/colors/colormaps.html "
+            "for valid names."
+        ) from exc
+
+
+def _region_color_map(plt, region_names, cmap: str = DEFAULT_CMAP) -> dict:
     """Assign each region name a stable color from a canonical sorted order.
 
     Sorting by name (rather than data/insertion order) means gantt and flame
@@ -30,7 +45,7 @@ def _region_color_map(plt, region_names) -> dict:
     order regions by first-appearance while flame charts don't.
     """
     names = sorted(set(region_names))
-    colors = plt.cm.tab20(np.linspace(0, 1, len(names)))
+    colors = _get_cmap(plt, cmap)(np.linspace(0, 1, len(names)))
     return dict(zip(names, colors))
 
 
@@ -303,6 +318,7 @@ def plot_gantt(
     filepath: str | None = None,
     show: bool = False,
     verbose: bool = True,
+    cmap: str = DEFAULT_CMAP,
 ) -> None:
     """
     Plot a Gantt chart of all (or selected) regions with per-rank lanes.
@@ -318,6 +334,8 @@ def plot_gantt(
         Path to save the figure. If None, figure is not saved.
     show : bool
         Whether to display the plot. Default is False.
+    cmap : str
+        Name of the matplotlib colormap used to color regions (default: "tab20").
     """
     plt = _get_pyplot()
     readers = _as_readers(profiling_data)
@@ -335,7 +353,9 @@ def plot_gantt(
         prepared.append((reader, regions, selected_ranks, first_start_time))
 
     color_map = _region_color_map(
-        plt, (region.name for _, regions, _, _ in prepared for region in regions)
+        plt,
+        (region.name for _, regions, _, _ in prepared for region in regions),
+        cmap=cmap,
     )
     for _, regions, _, _ in prepared:
         for region in regions:
@@ -466,6 +486,7 @@ def plot_flame(
     filepath: str | None = None,
     show: bool = False,
     verbose: bool = True,
+    cmap: str = DEFAULT_CMAP,
 ) -> None:
     """
     Plot a flame graph reconstructing the call stack from region timings.
@@ -484,6 +505,9 @@ def plot_flame(
         Path to save the figure. If None, figure is not saved.
     show : bool
         Whether to display the plot. Default is False.
+    cmap : str
+        Name of the matplotlib colormap used to color regions (default: "tab20").
+        Pass the same value used for ``plot_gantt`` to keep colors matching.
     """
     plt = _get_pyplot()
     readers = _as_readers(profiling_data)
@@ -501,7 +525,7 @@ def plot_flame(
         all_region_names.update(region.name for region in regions)
         reader_regions.append((reader, regions))
 
-    color_map = _region_color_map(plt, all_region_names)
+    color_map = _region_color_map(plt, all_region_names, cmap=cmap)
     for _, regions in reader_regions:
         for region in regions:
             region.color = color_map[region.name]
@@ -590,6 +614,7 @@ def plot_durations(
     filepath: str | None = None,
     show: bool = False,
     verbose: bool = True,
+    cmap: str = DEFAULT_CMAP,
 ) -> list[str]:
     """Plot duration bar charts for one or more profiling files.
 
@@ -601,6 +626,10 @@ def plot_durations(
         filepath: Base output path. When multiple metrics are plotted, each
             figure is saved with the metric name inserted before the
             extension (e.g. "durations_plot.png" -> "durations_plot_avg.png").
+        cmap: Name of the matplotlib colormap used to color files (default:
+            "tab20"). Bars here are colored per-file, not per-region, so this
+            is independent of the region colors used by ``plot_gantt``/
+            ``plot_flame``.
 
     Returns:
         List of filepaths that were written (empty if filepath is None).
@@ -644,7 +673,7 @@ def plot_durations(
     x = np.arange(len(region_names))
     num_readers = len(readers)
     width = min(0.8 / max(num_readers, 1), 0.35)
-    colors = plt.cm.tab20(np.linspace(0, 1, max(num_readers, 1)))
+    colors = _get_cmap(plt, cmap)(np.linspace(0, 1, max(num_readers, 1)))
     fig_width = max(10, 0.85 * len(region_names) + 2)
     fig_height = max(4.5, 2.5 + 0.35 * num_readers)
     offset_start = -0.5 * width * (num_readers - 1)
@@ -712,11 +741,17 @@ def plot_speedup(
     filepath: str | None = None,
     show: bool = False,
     verbose: bool = True,
+    cmap: str = DEFAULT_CMAP,
 ) -> None:
     """Plot scope speedup versus MPI rank count across one or more files.
 
     The speedup is computed from matching scopes' average per-call durations
     and normalized against the smallest MPI rank count present in the inputs.
+
+    Parameters
+    ----------
+    cmap : str
+        Name of the matplotlib colormap used to color regions (default: "tab20").
     """
     plt = _get_pyplot()
     readers = _as_readers(profiling_data)
@@ -747,7 +782,7 @@ def plot_speedup(
                 duration_samples[region_name][reader.num_ranks].append(duration)
 
     baseline_ranks = rank_counts[0]
-    colors = plt.cm.tab20(np.linspace(0, 1, len(region_names)))
+    colors = _get_cmap(plt, cmap)(np.linspace(0, 1, len(region_names)))
     fig_width = max(10, 1.2 * len(rank_counts) + 3)
     fig_height = max(4.5, 2.8 + 0.35 * len(region_names))
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
