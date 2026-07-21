@@ -180,4 +180,4 @@ junit/
 node_modules/
 package-lock.json
 package.json
-
+docs/source/_static/figures/
