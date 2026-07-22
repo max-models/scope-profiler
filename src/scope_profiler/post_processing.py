@@ -110,6 +110,38 @@ def build_parser() -> argparse.ArgumentParser:
             "https://matplotlib.org/stable/users/explain/colors/colormaps.html"
         ),
     )
+    parser.add_argument(
+        "--export-data",
+        action="store_true",
+        help=(
+            "Also write the exact data behind each plot as a data file "
+            "(gantt_data, flame_data, durations_data, optional speedup_data; "
+            "see --export-data-format for the file extension/content), so "
+            "charts can be reconstructed later without the original HDF5 "
+            "files. Requires -o/--output."
+        ),
+    )
+    parser.add_argument(
+        "--export-data-format",
+        choices=["csv", "json"],
+        default="csv",
+        help=(
+            "File format used by --export-data (default: csv). 'json' also "
+            "includes a 'colors' map matching the colors used in each plot, "
+            "so the chart can be re-rendered (e.g. with Plotly) with "
+            "consistent colors."
+        ),
+    )
+    parser.add_argument(
+        "--skip-plot-images",
+        action="store_true",
+        help=(
+            "Do not render/save the PNG plot images, only the outputs from "
+            "--export-data. Useful when charts are rendered entirely client-"
+            "side (e.g. with Plotly) from the exported data. Requires "
+            "--export-data."
+        ),
+    )
     return parser
 
 
@@ -145,6 +177,12 @@ def main(argv: list[str] | None = None):
     args = parser.parse_args(argv)
     args.files = expand_file_patterns(args.files, parser)
 
+    if args.export_data and not args.output:
+        parser.error("--export-data requires -o/--output.")
+
+    if args.skip_plot_images and not args.export_data:
+        parser.error("--skip-plot-images requires --export-data.")
+
     if args.ranks:
         ranks = []
         for spec in args.ranks:
@@ -158,14 +196,30 @@ def main(argv: list[str] | None = None):
     durations_path = None
     speedup_path = None
     statistics_path = None
+    gantt_data_path = None
+    flame_data_path = None
+    durations_data_path = None
+    speedup_data_path = None
     if args.output:
         os.makedirs(args.output, exist_ok=True)
-        gantt_path = os.path.join(args.output, "gantt_plot.png")
-        flame_path = os.path.join(args.output, "flame_plot.png")
-        durations_path = os.path.join(args.output, "durations_plot.png")
-        if len(readers) > 1:
-            speedup_path = os.path.join(args.output, "speedup_plot.png")
+        if not args.skip_plot_images:
+            gantt_path = os.path.join(args.output, "gantt_plot.png")
+            flame_path = os.path.join(args.output, "flame_plot.png")
+            durations_path = os.path.join(args.output, "durations_plot.png")
+            if len(readers) > 1:
+                speedup_path = os.path.join(args.output, "speedup_plot.png")
         statistics_path = os.path.join(args.output, "region_statistics.json")
+        if args.export_data:
+            data_ext = args.export_data_format
+            gantt_data_path = os.path.join(args.output, f"gantt_data.{data_ext}")
+            flame_data_path = os.path.join(args.output, f"flame_data.{data_ext}")
+            durations_data_path = os.path.join(
+                args.output, f"durations_data.{data_ext}"
+            )
+            if len(readers) > 1:
+                speedup_data_path = os.path.join(
+                    args.output, f"speedup_data.{data_ext}"
+                )
 
     plot_gantt(
         profiling_data=readers,
@@ -175,6 +229,8 @@ def main(argv: list[str] | None = None):
         exclude=args.exclude,
         ranks=args.ranks,
         cmap=args.cmap,
+        data_filepath=gantt_data_path,
+        data_format=args.export_data_format,
     )
 
     plot_flame(
@@ -185,6 +241,8 @@ def main(argv: list[str] | None = None):
         exclude=args.exclude,
         ranks=args.ranks,
         cmap=args.cmap,
+        data_filepath=flame_data_path,
+        data_format=args.export_data_format,
     )
 
     durations_paths = plot_durations(
@@ -196,6 +254,8 @@ def main(argv: list[str] | None = None):
         ranks=args.ranks,
         metrics=args.metrics,
         cmap=args.cmap,
+        data_filepath=durations_data_path,
+        data_format=args.export_data_format,
     )
 
     if len(readers) > 1:
@@ -207,6 +267,8 @@ def main(argv: list[str] | None = None):
             include=args.include,
             exclude=args.exclude,
             cmap=args.cmap,
+            data_filepath=speedup_data_path,
+            data_format=args.export_data_format,
         )
 
     if statistics_path:
@@ -227,6 +289,10 @@ def main(argv: list[str] | None = None):
                 *durations_paths,
                 speedup_path,
                 statistics_path,
+                gantt_data_path,
+                flame_data_path,
+                durations_data_path,
+                speedup_data_path,
             )
             if path
         ]

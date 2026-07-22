@@ -241,3 +241,44 @@ scope-profiler pproc profiling_data.h5 --cmap viridis -o figures
 By default the flame graph covers rank 0, since it represents a single
 execution's call stack; pass `ranks=[...]` to render one flame graph per
 requested rank.
+
+## Exporting plot data
+
+Every `plot_*` function accepts a `data_filepath` argument that writes the
+exact data behind the chart to a file, so it can be re-parsed and re-plotted
+later without the original HDF5 file. `data_format` selects `"csv"` (default)
+or `"json"`:
+
+```python
+plot_gantt(reader, filepath="gantt_plot.png", data_filepath="gantt_data.csv")
+plot_gantt(
+    reader,
+    filepath="gantt_plot.png",
+    data_filepath="gantt_data.json",
+    data_format="json",
+)
+```
+
+The JSON payload additionally includes a `colors` map (region or file label
+to `#rrggbb`) matching the colors used in the matplotlib plot, so a
+JavaScript charting library like Plotly can reproduce the same look.
+
+`scope-profiler pproc --export-data` does the same for every plot in one
+run, writing `gantt_data`, `flame_data`, `durations_data`, and (for multiple
+input files) `speedup_data` alongside the PNGs. Pass `--export-data-format
+json` to get `.json` files instead of the default `.csv`:
+
+```bash
+scope-profiler pproc profiling_data.h5 -o figures --export-data
+scope-profiler pproc profiling_data.h5 -o figures --export-data --export-data-format json
+```
+
+Pass `--skip-plot-images` (requires `--export-data`) to skip rendering the
+PNGs entirely and only write the exported data plus `region_statistics.json`
+— useful when a website renders charts client-side (e.g. with Plotly)
+straight from the JSON:
+
+```bash
+scope-profiler pproc profiling_data.h5 -o figures \
+  --export-data --export-data-format json --skip-plot-images
+```

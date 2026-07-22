@@ -3,6 +3,7 @@ import json
 import h5py
 import matplotlib
 import numpy as np
+import pytest
 
 matplotlib.use("Agg")
 
@@ -219,3 +220,169 @@ def test_post_processing_cli_supports_wildcard_file_patterns(tmp_path):
     payload = json.loads(stats_json.read_text(encoding="utf-8"))
     assert len(payload["files"]) == 2
     assert payload["common_regions"] == ["setup", "solve"]
+
+
+def test_plot_gantt_export_data_json(tmp_path):
+    file_path = tmp_path / "run.h5"
+    data_file = tmp_path / "gantt_data.json"
+
+    _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
+    reader = ProfilingH5Reader(file_path)
+
+    plot_gantt(
+        reader,
+        show=False,
+        verbose=False,
+        data_filepath=data_file,
+        data_format="json",
+    )
+
+    payload = json.loads(data_file.read_text(encoding="utf-8"))
+    assert {"setup", "solve"} <= set(payload["colors"])
+    assert all(color.startswith("#") for color in payload["colors"].values())
+    regions = {interval["region"] for interval in payload["intervals"]}
+    assert regions == {"setup", "solve"}
+
+
+def test_plot_flame_export_data_json(tmp_path):
+    file_path = tmp_path / "run.h5"
+    data_file = tmp_path / "flame_data.json"
+
+    rank_regions = {0: {"fib": ([0, 10, 60], [100, 90, 80])}}
+    _write_sample_h5(file_path, rank_regions)
+    reader = ProfilingH5Reader(file_path)
+
+    plot_flame(
+        reader,
+        show=False,
+        verbose=False,
+        data_filepath=data_file,
+        data_format="json",
+    )
+
+    payload = json.loads(data_file.read_text(encoding="utf-8"))
+    assert payload["colors"]["fib"].startswith("#")
+    depths = sorted(call["depth"] for call in payload["calls"])
+    assert depths == [0, 1, 2]
+
+
+def test_plot_durations_export_data_json(tmp_path):
+    file_one = tmp_path / "run_one.h5"
+    file_two = tmp_path / "run_two.h5"
+    data_file = tmp_path / "durations_data.json"
+
+    _write_sample_h5(file_one, _sample_file_data(2, 10, 20))
+    _write_sample_h5(file_two, _sample_file_data(2, 20, 40))
+    readers = [ProfilingH5Reader(file_one), ProfilingH5Reader(file_two)]
+
+    plot_durations(
+        readers,
+        filepath=tmp_path / "durations_plot.png",
+        show=False,
+        verbose=False,
+        data_filepath=data_file,
+        data_format="json",
+    )
+
+    payload = json.loads(data_file.read_text(encoding="utf-8"))
+    assert set(payload["metrics"]) == {"avg", "min", "max", "total"}
+    assert set(payload["colors"]) == {"run_one", "run_two"}
+    assert all(color.startswith("#") for color in payload["colors"].values())
+    assert {bar["metric"] for bar in payload["bars"]} == {"avg", "min", "max", "total"}
+
+
+def test_plot_speedup_export_data_json(tmp_path):
+    file_one = tmp_path / "run_1.h5"
+    file_two = tmp_path / "run_2.h5"
+    data_file = tmp_path / "speedup_data.json"
+
+    _write_sample_h5(file_one, _sample_file_data(1, 100, 200))
+    _write_sample_h5(file_two, _sample_file_data(2, 50, 100))
+    readers = [ProfilingH5Reader(file_one), ProfilingH5Reader(file_two)]
+
+    plot_speedup(
+        readers,
+        show=False,
+        verbose=False,
+        data_filepath=data_file,
+        data_format="json",
+    )
+
+    payload = json.loads(data_file.read_text(encoding="utf-8"))
+    assert {"setup", "solve"} <= set(payload["colors"])
+    assert all(color.startswith("#") for color in payload["colors"].values())
+    assert {point["region"] for point in payload["points"]} == {"setup", "solve"}
+
+
+def test_post_processing_cli_export_data_format_json(tmp_path):
+    file_one = tmp_path / "run_1.h5"
+    file_two = tmp_path / "run_2.h5"
+    output_dir = tmp_path / "figures"
+
+    _write_sample_h5(file_one, _sample_file_data(1, 100, 200))
+    _write_sample_h5(file_two, _sample_file_data(2, 50, 100))
+
+    main(
+        [
+            str(file_one),
+            str(file_two),
+            "-o",
+            str(output_dir),
+            "--export-data",
+            "--export-data-format",
+            "json",
+        ]
+    )
+
+    for name in (
+        "gantt_data.json",
+        "flame_data.json",
+        "durations_data.json",
+        "speedup_data.json",
+    ):
+        data_file = output_dir / name
+        assert data_file.exists()
+        json.loads(data_file.read_text(encoding="utf-8"))
+        assert not (output_dir / name.replace(".json", ".csv")).exists()
+
+
+def test_post_processing_cli_skip_plot_images(tmp_path):
+    file_one = tmp_path / "run_1.h5"
+    file_two = tmp_path / "run_2.h5"
+    output_dir = tmp_path / "figures"
+
+    _write_sample_h5(file_one, _sample_file_data(1, 100, 200))
+    _write_sample_h5(file_two, _sample_file_data(2, 50, 100))
+
+    main(
+        [
+            str(file_one),
+            str(file_two),
+            "-o",
+            str(output_dir),
+            "--export-data",
+            "--export-data-format",
+            "json",
+            "--skip-plot-images",
+        ]
+    )
+
+    for name in (
+        "gantt_data.json",
+        "flame_data.json",
+        "durations_data.json",
+        "speedup_data.json",
+        "region_statistics.json",
+    ):
+        assert (output_dir / name).exists()
+
+    assert list(output_dir.glob("*.png")) == []
+
+
+def test_post_processing_cli_skip_plot_images_requires_export_data(tmp_path):
+    file_one = tmp_path / "run_1.h5"
+    output_dir = tmp_path / "figures"
+    _write_sample_h5(file_one, _sample_file_data(1, 100, 200))
+
+    with pytest.raises(SystemExit):
+        main([str(file_one), "-o", str(output_dir), "--skip-plot-images"])
