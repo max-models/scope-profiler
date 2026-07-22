@@ -29,6 +29,27 @@ def _write_csv(
         writer.writerows(rows)
 
 
+def _write_json(filepath: str | Path, payload: dict) -> None:
+    """Write the exact data behind a plot to a JSON file.
+
+    Used by the ``data_filepath``/``data_format="json"`` arguments of the
+    ``plot_*`` functions so charts can be reconstructed (e.g. with Plotly)
+    later without needing the original HDF5 file or matplotlib.
+    """
+    output_path = Path(filepath)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+        f.write("\n")
+
+
+def _to_hex(color) -> str:
+    """Convert a matplotlib color (e.g. an RGBA tuple) to a ``#rrggbb`` string."""
+    from matplotlib.colors import to_hex
+
+    return to_hex(color)
+
+
 def _get_pyplot():
     try:
         import matplotlib.pyplot as plt
@@ -338,6 +359,7 @@ def plot_gantt(
     verbose: bool = True,
     cmap: str = DEFAULT_CMAP,
     data_filepath: str | Path | None = None,
+    data_format: str = "csv",
 ) -> None:
     """
     Plot a Gantt chart of all (or selected) regions with per-rank lanes.
@@ -357,8 +379,12 @@ def plot_gantt(
         Name of the matplotlib colormap used to color regions (default: "tab20").
     data_filepath : str | Path | None
         If given, write the underlying (file, rank, region, start, end)
-        intervals plotted here to this CSV path, so the chart can be
+        intervals plotted here to this path, so the chart can be
         reconstructed later without the original HDF5 file.
+    data_format : str
+        Format for ``data_filepath``: "csv" (default) or "json". The JSON
+        payload additionally includes a "colors" map of region name to
+        ``#rrggbb`` string, matching the colors used in this plot.
     """
     plt = _get_pyplot()
     readers = _as_readers(profiling_data)
@@ -387,30 +413,54 @@ def plot_gantt(
     labels = _unique_labels([reader.file_path.stem for reader, _, _, _ in prepared])
 
     if data_filepath:
-        rows = []
-        for label, (_, regions, selected_ranks, first_start_time) in zip(
-            labels, prepared
-        ):
-            for region in regions:
-                for rank in selected_ranks:
-                    region_data = region[rank]
-                    for start, end in zip(
-                        region_data.start_times, region_data.end_times
-                    ):
-                        rows.append(
-                            [
-                                label,
-                                rank,
-                                region.name,
-                                start - first_start_time,
-                                end - first_start_time,
-                            ]
-                        )
-        _write_csv(
-            data_filepath,
-            ["file", "rank", "region", "start_seconds", "end_seconds"],
-            rows,
-        )
+        if data_format == "json":
+            intervals = []
+            colors = {}
+            for label, (_, regions, selected_ranks, first_start_time) in zip(
+                labels, prepared
+            ):
+                for region in regions:
+                    colors[region.name] = _to_hex(region.color)
+                    for rank in selected_ranks:
+                        region_data = region[rank]
+                        for start, end in zip(
+                            region_data.start_times, region_data.end_times
+                        ):
+                            intervals.append(
+                                {
+                                    "file": label,
+                                    "rank": rank,
+                                    "region": region.name,
+                                    "start_seconds": start - first_start_time,
+                                    "end_seconds": end - first_start_time,
+                                }
+                            )
+            _write_json(data_filepath, {"intervals": intervals, "colors": colors})
+        else:
+            rows = []
+            for label, (_, regions, selected_ranks, first_start_time) in zip(
+                labels, prepared
+            ):
+                for region in regions:
+                    for rank in selected_ranks:
+                        region_data = region[rank]
+                        for start, end in zip(
+                            region_data.start_times, region_data.end_times
+                        ):
+                            rows.append(
+                                [
+                                    label,
+                                    rank,
+                                    region.name,
+                                    start - first_start_time,
+                                    end - first_start_time,
+                                ]
+                            )
+            _write_csv(
+                data_filepath,
+                ["file", "rank", "region", "start_seconds", "end_seconds"],
+                rows,
+            )
 
     if verbose:
         if len(prepared) == 1:
@@ -538,6 +588,7 @@ def plot_flame(
     verbose: bool = True,
     cmap: str = DEFAULT_CMAP,
     data_filepath: str | Path | None = None,
+    data_format: str = "csv",
 ) -> None:
     """
     Plot a flame graph reconstructing the call stack from region timings.
@@ -561,8 +612,12 @@ def plot_flame(
         Pass the same value used for ``plot_gantt`` to keep colors matching.
     data_filepath : str | Path | None
         If given, write the reconstructed (file, rank, region, depth, start,
-        end) call intervals to this CSV path, so the flame graph can be
+        end) call intervals to this path, so the flame graph can be
         reconstructed later without the original HDF5 file.
+    data_format : str
+        Format for ``data_filepath``: "csv" (default) or "json". The JSON
+        payload additionally includes a "colors" map of region name to
+        ``#rrggbb`` string, matching the colors used in this plot.
     """
     plt = _get_pyplot()
     readers = _as_readers(profiling_data)
@@ -599,24 +654,42 @@ def plot_flame(
 
     if data_filepath:
         labels = _unique_labels([reader.file_path.stem for reader, _, _ in prepared])
-        rows = []
-        for label, (_, rank, calls) in zip(labels, prepared):
-            for call in calls:
-                rows.append(
-                    [
-                        label,
-                        rank,
-                        call["name"],
-                        call["depth"],
-                        call["start"],
-                        call["end"],
-                    ]
-                )
-        _write_csv(
-            data_filepath,
-            ["file", "rank", "region", "depth", "start_seconds", "end_seconds"],
-            rows,
-        )
+        if data_format == "json":
+            call_records = []
+            colors = {}
+            for label, (_, rank, calls) in zip(labels, prepared):
+                for call in calls:
+                    colors[call["name"]] = _to_hex(call["color"])
+                    call_records.append(
+                        {
+                            "file": label,
+                            "rank": rank,
+                            "region": call["name"],
+                            "depth": call["depth"],
+                            "start_seconds": call["start"],
+                            "end_seconds": call["end"],
+                        }
+                    )
+            _write_json(data_filepath, {"calls": call_records, "colors": colors})
+        else:
+            rows = []
+            for label, (_, rank, calls) in zip(labels, prepared):
+                for call in calls:
+                    rows.append(
+                        [
+                            label,
+                            rank,
+                            call["name"],
+                            call["depth"],
+                            call["start"],
+                            call["end"],
+                        ]
+                    )
+            _write_csv(
+                data_filepath,
+                ["file", "rank", "region", "depth", "start_seconds", "end_seconds"],
+                rows,
+            )
 
     if verbose:
         print(
@@ -692,6 +765,7 @@ def plot_durations(
     verbose: bool = True,
     cmap: str = DEFAULT_CMAP,
     data_filepath: str | Path | None = None,
+    data_format: str = "csv",
 ) -> list[str]:
     """Plot duration bar charts for one or more profiling files.
 
@@ -708,7 +782,11 @@ def plot_durations(
             is independent of the region colors used by ``plot_gantt``/
             ``plot_flame``.
         data_filepath: If given, write the (file, region, metric, value) bars
-            plotted across all requested metrics to this single CSV path.
+            plotted across all requested metrics to this single path.
+        data_format: Format for ``data_filepath``: "csv" (default) or "json".
+            The JSON payload additionally includes a "colors" map of file
+            label to ``#rrggbb`` string, matching the colors used in this
+            plot, and the list of "metrics" plotted.
 
     Returns:
         List of filepaths that were written (empty if filepath is None).
@@ -811,9 +889,20 @@ def plot_durations(
         figs.append(fig)
 
     if data_filepath:
-        _write_csv(
-            data_filepath, ["file", "region", "metric", "value_seconds"], data_rows
-        )
+        if data_format == "json":
+            bars = [
+                {"file": file, "region": region, "metric": metric, "value_seconds": value}
+                for file, region, metric, value in data_rows
+            ]
+            colors_map = {label: _to_hex(color) for label, color in zip(labels, colors)}
+            _write_json(
+                data_filepath,
+                {"bars": bars, "colors": colors_map, "metrics": metric_keys},
+            )
+        else:
+            _write_csv(
+                data_filepath, ["file", "region", "metric", "value_seconds"], data_rows
+            )
 
     if show:
         plt.show()
@@ -833,6 +922,7 @@ def plot_speedup(
     verbose: bool = True,
     cmap: str = DEFAULT_CMAP,
     data_filepath: str | Path | None = None,
+    data_format: str = "csv",
 ) -> None:
     """Plot scope speedup versus MPI rank count across one or more files.
 
@@ -845,7 +935,11 @@ def plot_speedup(
         Name of the matplotlib colormap used to color regions (default: "tab20").
     data_filepath : str | Path | None
         If given, write the (region, rank_count, speedup) points plotted
-        here to this CSV path.
+        here to this path.
+    data_format : str
+        Format for ``data_filepath``: "csv" (default) or "json". The JSON
+        payload additionally includes a "colors" map of region name to
+        ``#rrggbb`` string, matching the colors used in this plot.
     """
     plt = _get_pyplot()
     readers = _as_readers(profiling_data)
@@ -925,7 +1019,17 @@ def plot_speedup(
         raise ValueError("No valid speedup data could be computed.")
 
     if data_filepath:
-        _write_csv(data_filepath, ["region", "rank_count", "speedup"], data_rows)
+        if data_format == "json":
+            points = [
+                {"region": region, "rank_count": rank_count, "speedup": speedup}
+                for region, rank_count, speedup in data_rows
+            ]
+            colors_map = {
+                name: _to_hex(color) for name, color in zip(region_names, colors)
+            }
+            _write_json(data_filepath, {"points": points, "colors": colors_map})
+        else:
+            _write_csv(data_filepath, ["region", "rank_count", "speedup"], data_rows)
 
     x_line = np.array(rank_counts, dtype=float)
     ax.plot(
