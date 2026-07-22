@@ -35,6 +35,7 @@ class ProfilingH5Reader:
         """
         self._file_path = Path(file_path)
         self._num_ranks = 0
+        self._metadata: dict = {}
         if not self.file_path.exists():
             raise FileNotFoundError(f"HDF5 file not found: {self.file_path}")
 
@@ -42,8 +43,13 @@ class ProfilingH5Reader:
         _region_dict = {}
         region_names = []
         with h5py.File(self.file_path, "r") as f:
+            if "metadata" in f:
+                self._metadata = dict(f["metadata"].attrs)
+
             # Iterate over all rank groups
             for rank_group_name, rank_group in f.items():
+                if rank_group_name == "metadata":
+                    continue
                 self._num_ranks += 1
                 if verbose:
                     print(f"{rank_group_name = }")
@@ -103,6 +109,19 @@ class ProfilingH5Reader:
             The file path as a pathlib.Path object.
         """
         return self._file_path
+
+    @property
+    def metadata(self) -> dict:
+        """
+        Get environment metadata for the run (gathered from rank 0).
+
+        Returns
+        -------
+        dict
+            Metadata dict (hostname, OpenMP thread count, platform, versions,
+            etc.), or an empty dict if the file predates metadata collection.
+        """
+        return self._metadata
 
     @property
     def num_ranks(self) -> int:
