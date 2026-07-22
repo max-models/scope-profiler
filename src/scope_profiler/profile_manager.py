@@ -388,6 +388,11 @@ class ProfileManager:
         if rank == 0:
             merged_file_path = config.file_path
             with h5py.File(merged_file_path, "w") as fout:
+                # Global environment metadata, gathered from rank 0 only.
+                meta_grp = fout.create_group("metadata")
+                for key, value in config.metadata.items():
+                    meta_grp.attrs[key] = value
+
                 for r in range(size):
                     rank_file = config.get_local_filepath(r)
                     if not os.path.exists(rank_file):

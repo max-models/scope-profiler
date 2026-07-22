@@ -1,5 +1,6 @@
 """Plotting utilities for visualizing profiling data."""
 
+import csv
 import json
 import os
 from collections import defaultdict
@@ -9,6 +10,44 @@ from pathlib import Path
 import numpy as np
 
 from scope_profiler.h5reader import ProfilingH5Reader
+
+
+def _write_csv(
+    filepath: str | Path, header: Sequence[str], rows: Sequence[Sequence]
+) -> None:
+    """Write rows of plotting data to a plain-text CSV file.
+
+    Used by the ``data_filepath`` argument of the ``plot_*`` functions so the
+    exact data behind a chart can be re-parsed and re-plotted later without
+    needing the original HDF5 file.
+    """
+    output_path = Path(filepath)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(header)
+        writer.writerows(rows)
+
+
+def _write_json(filepath: str | Path, payload: dict) -> None:
+    """Write the exact data behind a plot to a JSON file.
+
+    Used by the ``data_filepath``/``data_format="json"`` arguments of the
+    ``plot_*`` functions so charts can be reconstructed (e.g. with Plotly)
+    later without needing the original HDF5 file or matplotlib.
+    """
+    output_path = Path(filepath)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+        f.write("\n")
+
+
+def _to_hex(color) -> str:
+    """Convert a matplotlib color (e.g. an RGBA tuple) to a ``#rrggbb`` string."""
+    from matplotlib.colors import to_hex
+
+    return to_hex(color)
 
 
 def _get_pyplot():
@@ -161,6 +200,45 @@ def _common_region_names(
         for region in filtered_regions[0]
         if all(region.name in names for names in region_name_sets)
     ]
+
+
+# x-axis fields for plot_speedup() that represent a parallelism count:
+# sortable, plotted numerically, and compared against an ideal-scaling line.
+_SCALING_X_FIELDS = {"num_ranks", "omp_num_threads", "total_cores"}
+
+
+def _speedup_x_value(reader: ProfilingH5Reader, x_field: str):
+    """Resolve the x-axis value for a single reader given ``x_field``.
+
+    ``"num_ranks"``, ``"omp_num_threads"``, and ``"total_cores"`` (MPI ranks
+    times OpenMP threads) are computed/looked up directly; any other value is
+    treated as a key into ``reader.metadata``.
+    """
+    if x_field == "num_ranks":
+        return reader.num_ranks
+
+    if x_field == "omp_num_threads":
+        value = reader.metadata.get("omp_num_threads")
+        if value is None:
+            raise ValueError(
+                f"'omp_num_threads' not found in metadata for {reader.file_path}"
+            )
+        return int(value)
+
+    if x_field == "total_cores":
+        value = reader.metadata.get("omp_num_threads")
+        if value is None:
+            raise ValueError(
+                f"'omp_num_threads' not found in metadata for {reader.file_path}"
+            )
+        return reader.num_ranks * int(value)
+
+    if x_field not in reader.metadata:
+        raise ValueError(
+            f"Metadata field {x_field!r} not found for {reader.file_path}. "
+            f"Available fields: {sorted(reader.metadata)}"
+        )
+    return reader.metadata[x_field]
 
 
 def collect_region_statistics(
@@ -319,6 +397,8 @@ def plot_gantt(
     show: bool = False,
     verbose: bool = True,
     cmap: str = DEFAULT_CMAP,
+    data_filepath: str | Path | None = None,
+    data_format: str = "csv",
 ) -> None:
     """
     Plot a Gantt chart of all (or selected) regions with per-rank lanes.
@@ -336,6 +416,14 @@ def plot_gantt(
         Whether to display the plot. Default is False.
     cmap : str
         Name of the matplotlib colormap used to color regions (default: "tab20").
+    data_filepath : str | Path | None
+        If given, write the underlying (file, rank, region, start, end)
+        intervals plotted here to this path, so the chart can be
+        reconstructed later without the original HDF5 file.
+    data_format : str
+        Format for ``data_filepath``: "csv" (default) or "json". The JSON
+        payload additionally includes a "colors" map of region name to
+        ``#rrggbb`` string, matching the colors used in this plot.
     """
     plt = _get_pyplot()
     readers = _as_readers(profiling_data)
@@ -362,6 +450,57 @@ def plot_gantt(
             region.color = color_map[region.name]
 
     labels = _unique_labels([reader.file_path.stem for reader, _, _, _ in prepared])
+
+    if data_filepath:
+        if data_format == "json":
+            intervals = []
+            colors = {}
+            for label, (_, regions, selected_ranks, first_start_time) in zip(
+                labels, prepared
+            ):
+                for region in regions:
+                    colors[region.name] = _to_hex(region.color)
+                    for rank in selected_ranks:
+                        region_data = region[rank]
+                        for start, end in zip(
+                            region_data.start_times, region_data.end_times
+                        ):
+                            intervals.append(
+                                {
+                                    "file": label,
+                                    "rank": rank,
+                                    "region": region.name,
+                                    "start_seconds": start - first_start_time,
+                                    "end_seconds": end - first_start_time,
+                                }
+                            )
+            _write_json(data_filepath, {"intervals": intervals, "colors": colors})
+        else:
+            rows = []
+            for label, (_, regions, selected_ranks, first_start_time) in zip(
+                labels, prepared
+            ):
+                for region in regions:
+                    for rank in selected_ranks:
+                        region_data = region[rank]
+                        for start, end in zip(
+                            region_data.start_times, region_data.end_times
+                        ):
+                            rows.append(
+                                [
+                                    label,
+                                    rank,
+                                    region.name,
+                                    start - first_start_time,
+                                    end - first_start_time,
+                                ]
+                            )
+            _write_csv(
+                data_filepath,
+                ["file", "rank", "region", "start_seconds", "end_seconds"],
+                rows,
+            )
+
     if verbose:
         if len(prepared) == 1:
             print(f"Plotting Gantt chart for ranks: {prepared[0][2]}")
@@ -487,6 +626,8 @@ def plot_flame(
     show: bool = False,
     verbose: bool = True,
     cmap: str = DEFAULT_CMAP,
+    data_filepath: str | Path | None = None,
+    data_format: str = "csv",
 ) -> None:
     """
     Plot a flame graph reconstructing the call stack from region timings.
@@ -508,6 +649,14 @@ def plot_flame(
     cmap : str
         Name of the matplotlib colormap used to color regions (default: "tab20").
         Pass the same value used for ``plot_gantt`` to keep colors matching.
+    data_filepath : str | Path | None
+        If given, write the reconstructed (file, rank, region, depth, start,
+        end) call intervals to this path, so the flame graph can be
+        reconstructed later without the original HDF5 file.
+    data_format : str
+        Format for ``data_filepath``: "csv" (default) or "json". The JSON
+        payload additionally includes a "colors" map of region name to
+        ``#rrggbb`` string, matching the colors used in this plot.
     """
     plt = _get_pyplot()
     readers = _as_readers(profiling_data)
@@ -541,6 +690,45 @@ def plot_flame(
 
     if not prepared:
         raise ValueError("No calls recorded for the requested ranks.")
+
+    if data_filepath:
+        labels = _unique_labels([reader.file_path.stem for reader, _, _ in prepared])
+        if data_format == "json":
+            call_records = []
+            colors = {}
+            for label, (_, rank, calls) in zip(labels, prepared):
+                for call in calls:
+                    colors[call["name"]] = _to_hex(call["color"])
+                    call_records.append(
+                        {
+                            "file": label,
+                            "rank": rank,
+                            "region": call["name"],
+                            "depth": call["depth"],
+                            "start_seconds": call["start"],
+                            "end_seconds": call["end"],
+                        }
+                    )
+            _write_json(data_filepath, {"calls": call_records, "colors": colors})
+        else:
+            rows = []
+            for label, (_, rank, calls) in zip(labels, prepared):
+                for call in calls:
+                    rows.append(
+                        [
+                            label,
+                            rank,
+                            call["name"],
+                            call["depth"],
+                            call["start"],
+                            call["end"],
+                        ]
+                    )
+            _write_csv(
+                data_filepath,
+                ["file", "rank", "region", "depth", "start_seconds", "end_seconds"],
+                rows,
+            )
 
     if verbose:
         print(
@@ -615,6 +803,8 @@ def plot_durations(
     show: bool = False,
     verbose: bool = True,
     cmap: str = DEFAULT_CMAP,
+    data_filepath: str | Path | None = None,
+    data_format: str = "csv",
 ) -> list[str]:
     """Plot duration bar charts for one or more profiling files.
 
@@ -630,6 +820,12 @@ def plot_durations(
             "tab20"). Bars here are colored per-file, not per-region, so this
             is independent of the region colors used by ``plot_gantt``/
             ``plot_flame``.
+        data_filepath: If given, write the (file, region, metric, value) bars
+            plotted across all requested metrics to this single path.
+        data_format: Format for ``data_filepath``: "csv" (default) or "json".
+            The JSON payload additionally includes a "colors" map of file
+            label to ``#rrggbb`` string, matching the colors used in this
+            plot, and the list of "metrics" plotted.
 
     Returns:
         List of filepaths that were written (empty if filepath is None).
@@ -680,6 +876,7 @@ def plot_durations(
 
     saved_paths: list[str] = []
     figs = []
+    data_rows = []
 
     for metric_key in metric_keys:
         stat_key, ylabel = _DURATION_METRICS[metric_key]
@@ -693,6 +890,11 @@ def plot_durations(
             ]
             for reader in readers
         ]
+
+        if data_filepath:
+            for label, file_values in zip(labels, values):
+                for region_name, value in zip(region_names, file_values):
+                    data_rows.append([label, region_name, metric_key, value])
 
         fig, ax = plt.subplots(figsize=(fig_width, fig_height))
         for idx, (label, file_values) in enumerate(zip(labels, values)):
@@ -725,6 +927,27 @@ def plot_durations(
 
         figs.append(fig)
 
+    if data_filepath:
+        if data_format == "json":
+            bars = [
+                {
+                    "file": file,
+                    "region": region,
+                    "metric": metric,
+                    "value_seconds": value,
+                }
+                for file, region, metric, value in data_rows
+            ]
+            colors_map = {label: _to_hex(color) for label, color in zip(labels, colors)}
+            _write_json(
+                data_filepath,
+                {"bars": bars, "colors": colors_map, "metrics": metric_keys},
+            )
+        else:
+            _write_csv(
+                data_filepath, ["file", "region", "metric", "value_seconds"], data_rows
+            )
+
     if show:
         plt.show()
     for fig in figs:
@@ -735,6 +958,7 @@ def plot_durations(
 
 def plot_speedup(
     profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
+    x_field: str = "num_ranks",
     ranks: list[int] | int | None = None,
     include: list[str] | str | None = None,
     exclude: list[str] | str | None = None,
@@ -742,16 +966,39 @@ def plot_speedup(
     show: bool = False,
     verbose: bool = True,
     cmap: str = DEFAULT_CMAP,
+    data_filepath: str | Path | None = None,
+    data_format: str = "csv",
 ) -> None:
-    """Plot scope speedup versus MPI rank count across one or more files.
+    """Plot scope speedup versus a chosen parallelism/metadata field across files.
 
-    The speedup is computed from matching scopes' average per-call durations
-    and normalized against the smallest MPI rank count present in the inputs.
+    The speedup is computed from matching scopes' average per-call durations,
+    normalized against a baseline value of ``x_field``.
 
     Parameters
     ----------
+    x_field : str
+        What to plot on the x-axis (default: ``"num_ranks"``). One of:
+
+        - ``"num_ranks"``: number of MPI ranks in each file.
+        - ``"omp_num_threads"``: OpenMP thread count, read from metadata.
+        - ``"total_cores"``: ``num_ranks * omp_num_threads``.
+        - any other value is looked up as a key in each file's metadata
+          (see :attr:`ProfilingH5Reader.metadata`).
+
+        The first three are treated as parallelism counts: files are ordered
+        numerically by value and an ideal-scaling reference line is drawn.
+        Any other metadata field is treated as categorical: files are kept in
+        the order given in ``profiling_data``, and no ideal-scaling line is
+        drawn (there is no well-defined "ideal" for an arbitrary field).
     cmap : str
         Name of the matplotlib colormap used to color regions (default: "tab20").
+    data_filepath : str | Path | None
+        If given, write the (region, x_field, speedup) points plotted here
+        to this path.
+    data_format : str
+        Format for ``data_filepath``: "csv" (default) or "json". The JSON
+        payload additionally includes a "colors" map of region name to
+        ``#rrggbb`` string, matching the colors used in this plot.
     """
     plt = _get_pyplot()
     readers = _as_readers(profiling_data)
@@ -762,35 +1009,49 @@ def plot_speedup(
     if not region_names:
         raise ValueError("No regions matched the selected filters.")
 
-    rank_counts = sorted({reader.num_ranks for reader in readers})
+    is_scaling = x_field in _SCALING_X_FIELDS
+    x_per_reader = [_speedup_x_value(reader, x_field) for reader in readers]
+
+    if is_scaling:
+        # Numeric parallelism count: order ascending regardless of CLI order.
+        x_keys = sorted({int(value) for value in x_per_reader})
+    else:
+        # Arbitrary/categorical field: keep the order files were given in.
+        x_keys = list(dict.fromkeys(x_per_reader))
+
     if verbose:
         print(
-            "Plotting speedup comparison for files with ranks: "
-            + ", ".join(map(str, rank_counts))
+            f"Plotting speedup comparison using x_field={x_field!r}, values: "
+            + ", ".join(map(str, x_keys))
         )
 
-    duration_samples: dict[str, dict[int, list[float]]] = {
+    duration_samples: dict[str, dict] = {
         region_name: defaultdict(list) for region_name in region_names
     }
-    for reader in readers:
+    for reader, x_value in zip(readers, x_per_reader):
         for region_name in region_names:
             duration = _region_average_duration(
                 reader.get_region(region_name),
                 ranks=ranks,
             )
             if np.isfinite(duration) and duration > 0:
-                duration_samples[region_name][reader.num_ranks].append(duration)
+                duration_samples[region_name][x_value].append(duration)
 
-    baseline_ranks = rank_counts[0]
+    baseline_key = x_keys[0]
     colors = _get_cmap(plt, cmap)(np.linspace(0, 1, len(region_names)))
-    fig_width = max(10, 1.2 * len(rank_counts) + 3)
+    fig_width = max(10, 1.2 * len(x_keys) + 3)
     fig_height = max(4.5, 2.8 + 0.35 * len(region_names))
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
 
+    # Positions on the x-axis: the value itself for a numeric scaling field,
+    # or the index into x_keys (in CLI order) for a categorical one.
+    x_position = {key: (key if is_scaling else i) for i, key in enumerate(x_keys)}
+
     plotted = 0
+    data_rows = []
     for idx, region_name in enumerate(region_names):
-        region_counts = duration_samples[region_name]
-        baseline_samples = region_counts.get(baseline_ranks, [])
+        region_values = duration_samples[region_name]
+        baseline_samples = region_values.get(baseline_key, [])
         if not baseline_samples:
             continue
 
@@ -798,47 +1059,77 @@ def plot_speedup(
         if not np.isfinite(baseline_duration) or baseline_duration <= 0:
             continue
 
-        x_values = []
+        plot_x = []
+        plot_keys = []
         speedups = []
-        for rank_count in rank_counts:
-            samples = region_counts.get(rank_count, [])
+        for key in x_keys:
+            samples = region_values.get(key, [])
             if not samples:
                 continue
             mean_duration = float(np.mean(samples))
             if not np.isfinite(mean_duration) or mean_duration <= 0:
                 continue
-            x_values.append(rank_count)
+            plot_x.append(x_position[key])
+            plot_keys.append(key)
             speedups.append(baseline_duration / mean_duration)
 
-        if not x_values:
+        if not plot_x:
             continue
 
         plotted += 1
         ax.plot(
-            x_values,
+            plot_x,
             speedups,
             marker="o",
             linewidth=1.8,
             color=colors[idx],
             label=region_name,
         )
+        if data_filepath:
+            for key, speedup in zip(plot_keys, speedups):
+                data_rows.append([region_name, key, speedup])
 
     if plotted == 0:
         raise ValueError("No valid speedup data could be computed.")
 
-    x_line = np.array(rank_counts, dtype=float)
-    ax.plot(
-        x_line,
-        x_line / baseline_ranks,
-        linestyle="--",
-        color="black",
-        linewidth=1.5,
-        label="Optimal speedup",
-    )
-    ax.set_xlabel("MPI ranks")
+    if data_filepath:
+        if data_format == "json":
+            points = [
+                {"region": region, x_field: key, "speedup": speedup}
+                for region, key, speedup in data_rows
+            ]
+            colors_map = {
+                name: _to_hex(color) for name, color in zip(region_names, colors)
+            }
+            _write_json(data_filepath, {"points": points, "colors": colors_map})
+        else:
+            _write_csv(data_filepath, ["region", x_field, "speedup"], data_rows)
+
+    x_label_map = {
+        "num_ranks": "MPI ranks",
+        "omp_num_threads": "OpenMP threads",
+        "total_cores": "MPI ranks × OpenMP threads",
+    }
+    x_label = x_label_map.get(x_field, x_field)
+
+    if is_scaling:
+        x_line = np.array(x_keys, dtype=float)
+        ax.plot(
+            x_line,
+            x_line / baseline_key,
+            linestyle="--",
+            color="black",
+            linewidth=1.5,
+            label="Ideal scaling",
+        )
+        ax.set_xticks(x_line)
+    else:
+        ax.set_xticks(range(len(x_keys)))
+        ax.set_xticklabels([str(key) for key in x_keys], rotation=30, ha="right")
+
+    ax.set_xlabel(x_label)
     ax.set_ylabel("Speedup")
-    ax.set_title(f"Region speedup scaling (baseline: {baseline_ranks} ranks)")
-    ax.set_xticks(rank_counts)
+    ax.set_title(f"Region speedup scaling (baseline: {x_label} = {baseline_key})")
     ax.grid(True, axis="both", linestyle="--", alpha=0.5)
     ax.legend(frameon=False)
     fig.tight_layout()
