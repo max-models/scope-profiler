@@ -1,9 +1,12 @@
+import socket
 from time import sleep
 
+import h5py
 import pytest
 
 import scope_profiler.tests.examples as examples
 from scope_profiler import ProfileManager
+from scope_profiler.h5reader import ProfilingH5Reader
 from scope_profiler.region_profiler import (
     DisabledProfileRegion,
     FullProfileRegion,
@@ -352,6 +355,42 @@ def test_recursive_profile_setup_default_and_override():
     assert helper_name not in regions
 
     ProfileManager.finalize(verbose=False)
+
+
+def test_finalize_writes_global_metadata(tmp_path):
+    file_path = tmp_path / "profiling_metadata.h5"
+    ProfileManager.setup(file_path=str(file_path))
+
+    with ProfileManager.profile_region("region"):
+        pass
+
+    ProfileManager.finalize(verbose=False)
+
+    expected_keys = {
+        "timestamp",
+        "hostname",
+        "platform",
+        "python_version",
+        "scope_profiler_version",
+        "working_directory",
+        "omp_num_threads",
+        "user",
+    }
+
+    with h5py.File(file_path, "r") as f:
+        assert "metadata" in f
+        assert "rank0" in f
+        # Metadata is global (gathered from rank 0 only), not duplicated
+        # per rank.
+        assert "metadata" not in f["rank0"]
+
+        attrs = dict(f["metadata"].attrs)
+        assert expected_keys <= attrs.keys()
+        assert attrs["hostname"] == socket.gethostname()
+        assert attrs["omp_num_threads"] >= 1
+
+    reader = ProfilingH5Reader(file_path)
+    assert reader.metadata == attrs
 
 
 if __name__ == "__main__":
