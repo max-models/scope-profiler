@@ -18,8 +18,12 @@ from scope_profiler.plotting_scripts import (
 from scope_profiler.post_processing import main
 
 
-def _write_sample_h5(path, rank_regions):
+def _write_sample_h5(path, rank_regions, metadata=None):
     with h5py.File(path, "w") as h5file:
+        if metadata:
+            meta_grp = h5file.create_group("metadata")
+            for key, value in metadata.items():
+                meta_grp.attrs[key] = value
         for rank, regions in rank_regions.items():
             rank_group = h5file.create_group(f"rank{rank}")
             regions_group = rank_group.create_group("regions")
@@ -150,6 +154,125 @@ def test_plot_speedup(tmp_path):
 
     assert out_file.exists()
     assert out_file.stat().st_size > 0
+
+
+def test_plot_speedup_x_field_omp_num_threads(tmp_path):
+    file_4 = tmp_path / "threads_4.h5"
+    file_1 = tmp_path / "threads_1.h5"
+    file_2 = tmp_path / "threads_2.h5"
+
+    # Written out of numeric order to confirm the x-axis is sorted
+    # numerically rather than following file/CLI order.
+    _write_sample_h5(
+        file_4, _sample_file_data(1, 25, 50), metadata={"omp_num_threads": 4}
+    )
+    _write_sample_h5(
+        file_1, _sample_file_data(1, 100, 200), metadata={"omp_num_threads": 1}
+    )
+    _write_sample_h5(
+        file_2, _sample_file_data(1, 50, 100), metadata={"omp_num_threads": 2}
+    )
+    readers = [
+        ProfilingH5Reader(file_4),
+        ProfilingH5Reader(file_1),
+        ProfilingH5Reader(file_2),
+    ]
+
+    data_file = tmp_path / "speedup_data.csv"
+    plot_speedup(
+        readers,
+        x_field="omp_num_threads",
+        show=False,
+        verbose=False,
+        data_filepath=data_file,
+    )
+
+    rows = [row.split(",") for row in data_file.read_text().strip().splitlines()[1:]]
+    thread_values = sorted({int(row[1]) for row in rows})
+    assert thread_values == [1, 2, 4]
+
+    # Baseline (1 thread) should have speedup 1.0 for both regions.
+    baseline_speedups = {float(row[2]) for row in rows if row[1] == "1"}
+    assert baseline_speedups == {1.0}
+
+
+def test_plot_speedup_x_field_total_cores(tmp_path):
+    file_small = tmp_path / "small.h5"
+    file_big = tmp_path / "big.h5"
+
+    _write_sample_h5(
+        file_small,
+        _sample_file_data(1, 100, 200),
+        metadata={"omp_num_threads": 1},
+    )
+    _write_sample_h5(
+        file_big,
+        _sample_file_data(2, 25, 50),
+        metadata={"omp_num_threads": 2},
+    )
+    readers = [ProfilingH5Reader(file_small), ProfilingH5Reader(file_big)]
+
+    data_file = tmp_path / "speedup_data.csv"
+    plot_speedup(
+        readers,
+        x_field="total_cores",
+        show=False,
+        verbose=False,
+        data_filepath=data_file,
+    )
+
+    rows = [row.split(",") for row in data_file.read_text().strip().splitlines()[1:]]
+    core_values = sorted({int(row[1]) for row in rows})
+    # file_small: 1 rank * 1 thread = 1; file_big: 2 ranks * 2 threads = 4.
+    assert core_values == [1, 4]
+
+
+def test_plot_speedup_categorical_field_preserves_cli_order_and_skips_ideal_line(
+    tmp_path, monkeypatch
+):
+    import matplotlib.pyplot as plt
+
+    file_b = tmp_path / "b.h5"
+    file_a = tmp_path / "a.h5"
+
+    # Intentionally not alphabetically ordered on disk, so a value-based sort
+    # would reorder them; the CLI order below (b, then a) must be preserved.
+    _write_sample_h5(
+        file_b, _sample_file_data(1, 50, 100), metadata={"build_variant": "b_variant"}
+    )
+    _write_sample_h5(
+        file_a,
+        _sample_file_data(1, 100, 200),
+        metadata={"build_variant": "a_variant"},
+    )
+    readers = [ProfilingH5Reader(file_b), ProfilingH5Reader(file_a)]
+
+    captured = {}
+    original_close = plt.close
+
+    def fake_close(fig=None):
+        ax = fig.get_axes()[0]
+        captured["labels"] = [line.get_label() for line in ax.get_lines()]
+        captured["xticklabels"] = [t.get_text() for t in ax.get_xticklabels()]
+        original_close(fig)
+
+    monkeypatch.setattr(plt, "close", fake_close)
+
+    plot_speedup(readers, x_field="build_variant", show=False, verbose=False)
+
+    assert captured["xticklabels"] == ["b_variant", "a_variant"]
+    assert "Ideal scaling" not in captured["labels"]
+
+
+def test_plot_speedup_unknown_metadata_field_raises(tmp_path):
+    file_a = tmp_path / "a.h5"
+    file_b = tmp_path / "b.h5"
+    _write_sample_h5(file_a, _sample_file_data(1, 10, 20))
+    _write_sample_h5(file_b, _sample_file_data(2, 5, 10))
+    readers = [ProfilingH5Reader(file_a), ProfilingH5Reader(file_b)]
+
+    with pytest.raises(ValueError, match="not found"):
+        plot_speedup(readers, x_field="nonexistent_field", show=False, verbose=False)
 
 
 def test_post_processing_cli_supports_multiple_files(tmp_path):

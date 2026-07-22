@@ -101,6 +101,19 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--x-field",
+        type=str,
+        default="num_ranks",
+        help=(
+            "What to plot on the x-axis of the speedup plot (default: "
+            "'num_ranks'). One of 'num_ranks', 'omp_num_threads', "
+            "'total_cores' (num_ranks * omp_num_threads) — these are ordered "
+            "numerically with an ideal-scaling line — or any other metadata "
+            "field name, in which case files are kept in the order given on "
+            "the command line and no ideal-scaling line is drawn."
+        ),
+    )
+    parser.add_argument(
         "--cmap",
         type=str,
         default=DEFAULT_CMAP,
@@ -261,6 +274,7 @@ def main(argv: list[str] | None = None):
     if len(readers) > 1:
         plot_speedup(
             profiling_data=readers,
+            x_field=args.x_field,
             ranks=args.ranks,
             filepath=speedup_path,
             show=args.show,

@@ -374,6 +374,8 @@ def test_finalize_writes_global_metadata(tmp_path):
         "scope_profiler_version",
         "working_directory",
         "omp_num_threads",
+        "mpi_size",
+        "total_cores",
         "user",
     }
 
@@ -388,6 +390,8 @@ def test_finalize_writes_global_metadata(tmp_path):
         assert expected_keys <= attrs.keys()
         assert attrs["hostname"] == socket.gethostname()
         assert attrs["omp_num_threads"] >= 1
+        assert attrs["mpi_size"] == 1
+        assert attrs["total_cores"] == attrs["mpi_size"] * attrs["omp_num_threads"]
 
     reader = ProfilingH5Reader(file_path)
     assert reader.metadata == attrs

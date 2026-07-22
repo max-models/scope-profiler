@@ -202,6 +202,45 @@ def _common_region_names(
     ]
 
 
+# x-axis fields for plot_speedup() that represent a parallelism count:
+# sortable, plotted numerically, and compared against an ideal-scaling line.
+_SCALING_X_FIELDS = {"num_ranks", "omp_num_threads", "total_cores"}
+
+
+def _speedup_x_value(reader: ProfilingH5Reader, x_field: str):
+    """Resolve the x-axis value for a single reader given ``x_field``.
+
+    ``"num_ranks"``, ``"omp_num_threads"``, and ``"total_cores"`` (MPI ranks
+    times OpenMP threads) are computed/looked up directly; any other value is
+    treated as a key into ``reader.metadata``.
+    """
+    if x_field == "num_ranks":
+        return reader.num_ranks
+
+    if x_field == "omp_num_threads":
+        value = reader.metadata.get("omp_num_threads")
+        if value is None:
+            raise ValueError(
+                f"'omp_num_threads' not found in metadata for {reader.file_path}"
+            )
+        return int(value)
+
+    if x_field == "total_cores":
+        value = reader.metadata.get("omp_num_threads")
+        if value is None:
+            raise ValueError(
+                f"'omp_num_threads' not found in metadata for {reader.file_path}"
+            )
+        return reader.num_ranks * int(value)
+
+    if x_field not in reader.metadata:
+        raise ValueError(
+            f"Metadata field {x_field!r} not found for {reader.file_path}. "
+            f"Available fields: {sorted(reader.metadata)}"
+        )
+    return reader.metadata[x_field]
+
+
 def collect_region_statistics(
     profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
     ranks: list[int] | int | None = None,
@@ -919,6 +958,7 @@ def plot_durations(
 
 def plot_speedup(
     profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
+    x_field: str = "num_ranks",
     ranks: list[int] | int | None = None,
     include: list[str] | str | None = None,
     exclude: list[str] | str | None = None,
@@ -929,18 +969,32 @@ def plot_speedup(
     data_filepath: str | Path | None = None,
     data_format: str = "csv",
 ) -> None:
-    """Plot scope speedup versus MPI rank count across one or more files.
+    """Plot scope speedup versus a chosen parallelism/metadata field across files.
 
-    The speedup is computed from matching scopes' average per-call durations
-    and normalized against the smallest MPI rank count present in the inputs.
+    The speedup is computed from matching scopes' average per-call durations,
+    normalized against a baseline value of ``x_field``.
 
     Parameters
     ----------
+    x_field : str
+        What to plot on the x-axis (default: ``"num_ranks"``). One of:
+
+        - ``"num_ranks"``: number of MPI ranks in each file.
+        - ``"omp_num_threads"``: OpenMP thread count, read from metadata.
+        - ``"total_cores"``: ``num_ranks * omp_num_threads``.
+        - any other value is looked up as a key in each file's metadata
+          (see :attr:`ProfilingH5Reader.metadata`).
+
+        The first three are treated as parallelism counts: files are ordered
+        numerically by value and an ideal-scaling reference line is drawn.
+        Any other metadata field is treated as categorical: files are kept in
+        the order given in ``profiling_data``, and no ideal-scaling line is
+        drawn (there is no well-defined "ideal" for an arbitrary field).
     cmap : str
         Name of the matplotlib colormap used to color regions (default: "tab20").
     data_filepath : str | Path | None
-        If given, write the (region, rank_count, speedup) points plotted
-        here to this path.
+        If given, write the (region, x_field, speedup) points plotted here
+        to this path.
     data_format : str
         Format for ``data_filepath``: "csv" (default) or "json". The JSON
         payload additionally includes a "colors" map of region name to
@@ -955,36 +1009,49 @@ def plot_speedup(
     if not region_names:
         raise ValueError("No regions matched the selected filters.")
 
-    rank_counts = sorted({reader.num_ranks for reader in readers})
+    is_scaling = x_field in _SCALING_X_FIELDS
+    x_per_reader = [_speedup_x_value(reader, x_field) for reader in readers]
+
+    if is_scaling:
+        # Numeric parallelism count: order ascending regardless of CLI order.
+        x_keys = sorted({int(value) for value in x_per_reader})
+    else:
+        # Arbitrary/categorical field: keep the order files were given in.
+        x_keys = list(dict.fromkeys(x_per_reader))
+
     if verbose:
         print(
-            "Plotting speedup comparison for files with ranks: "
-            + ", ".join(map(str, rank_counts))
+            f"Plotting speedup comparison using x_field={x_field!r}, values: "
+            + ", ".join(map(str, x_keys))
         )
 
-    duration_samples: dict[str, dict[int, list[float]]] = {
+    duration_samples: dict[str, dict] = {
         region_name: defaultdict(list) for region_name in region_names
     }
-    for reader in readers:
+    for reader, x_value in zip(readers, x_per_reader):
         for region_name in region_names:
             duration = _region_average_duration(
                 reader.get_region(region_name),
                 ranks=ranks,
             )
             if np.isfinite(duration) and duration > 0:
-                duration_samples[region_name][reader.num_ranks].append(duration)
+                duration_samples[region_name][x_value].append(duration)
 
-    baseline_ranks = rank_counts[0]
+    baseline_key = x_keys[0]
     colors = _get_cmap(plt, cmap)(np.linspace(0, 1, len(region_names)))
-    fig_width = max(10, 1.2 * len(rank_counts) + 3)
+    fig_width = max(10, 1.2 * len(x_keys) + 3)
     fig_height = max(4.5, 2.8 + 0.35 * len(region_names))
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+
+    # Positions on the x-axis: the value itself for a numeric scaling field,
+    # or the index into x_keys (in CLI order) for a categorical one.
+    x_position = {key: (key if is_scaling else i) for i, key in enumerate(x_keys)}
 
     plotted = 0
     data_rows = []
     for idx, region_name in enumerate(region_names):
-        region_counts = duration_samples[region_name]
-        baseline_samples = region_counts.get(baseline_ranks, [])
+        region_values = duration_samples[region_name]
+        baseline_samples = region_values.get(baseline_key, [])
         if not baseline_samples:
             continue
 
@@ -992,24 +1059,26 @@ def plot_speedup(
         if not np.isfinite(baseline_duration) or baseline_duration <= 0:
             continue
 
-        x_values = []
+        plot_x = []
+        plot_keys = []
         speedups = []
-        for rank_count in rank_counts:
-            samples = region_counts.get(rank_count, [])
+        for key in x_keys:
+            samples = region_values.get(key, [])
             if not samples:
                 continue
             mean_duration = float(np.mean(samples))
             if not np.isfinite(mean_duration) or mean_duration <= 0:
                 continue
-            x_values.append(rank_count)
+            plot_x.append(x_position[key])
+            plot_keys.append(key)
             speedups.append(baseline_duration / mean_duration)
 
-        if not x_values:
+        if not plot_x:
             continue
 
         plotted += 1
         ax.plot(
-            x_values,
+            plot_x,
             speedups,
             marker="o",
             linewidth=1.8,
@@ -1017,8 +1086,8 @@ def plot_speedup(
             label=region_name,
         )
         if data_filepath:
-            for rank_count, speedup in zip(x_values, speedups):
-                data_rows.append([region_name, rank_count, speedup])
+            for key, speedup in zip(plot_keys, speedups):
+                data_rows.append([region_name, key, speedup])
 
     if plotted == 0:
         raise ValueError("No valid speedup data could be computed.")
@@ -1026,29 +1095,41 @@ def plot_speedup(
     if data_filepath:
         if data_format == "json":
             points = [
-                {"region": region, "rank_count": rank_count, "speedup": speedup}
-                for region, rank_count, speedup in data_rows
+                {"region": region, x_field: key, "speedup": speedup}
+                for region, key, speedup in data_rows
             ]
             colors_map = {
                 name: _to_hex(color) for name, color in zip(region_names, colors)
             }
             _write_json(data_filepath, {"points": points, "colors": colors_map})
         else:
-            _write_csv(data_filepath, ["region", "rank_count", "speedup"], data_rows)
+            _write_csv(data_filepath, ["region", x_field, "speedup"], data_rows)
 
-    x_line = np.array(rank_counts, dtype=float)
-    ax.plot(
-        x_line,
-        x_line / baseline_ranks,
-        linestyle="--",
-        color="black",
-        linewidth=1.5,
-        label="Optimal speedup",
-    )
-    ax.set_xlabel("MPI ranks")
+    x_label_map = {
+        "num_ranks": "MPI ranks",
+        "omp_num_threads": "OpenMP threads",
+        "total_cores": "MPI ranks × OpenMP threads",
+    }
+    x_label = x_label_map.get(x_field, x_field)
+
+    if is_scaling:
+        x_line = np.array(x_keys, dtype=float)
+        ax.plot(
+            x_line,
+            x_line / baseline_key,
+            linestyle="--",
+            color="black",
+            linewidth=1.5,
+            label="Ideal scaling",
+        )
+        ax.set_xticks(x_line)
+    else:
+        ax.set_xticks(range(len(x_keys)))
+        ax.set_xticklabels([str(key) for key in x_keys], rotation=30, ha="right")
+
+    ax.set_xlabel(x_label)
     ax.set_ylabel("Speedup")
-    ax.set_title(f"Region speedup scaling (baseline: {baseline_ranks} ranks)")
-    ax.set_xticks(rank_counts)
+    ax.set_title(f"Region speedup scaling (baseline: {x_label} = {baseline_key})")
     ax.grid(True, axis="both", linestyle="--", alpha=0.5)
     ax.legend(frameon=False)
     fig.tight_layout()
