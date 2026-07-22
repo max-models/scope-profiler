@@ -891,7 +891,12 @@ def plot_durations(
     if data_filepath:
         if data_format == "json":
             bars = [
-                {"file": file, "region": region, "metric": metric, "value_seconds": value}
+                {
+                    "file": file,
+                    "region": region,
+                    "metric": metric,
+                    "value_seconds": value,
+                }
                 for file, region, metric, value in data_rows
             ]
             colors_map = {label: _to_hex(color) for label, color in zip(labels, colors)}
