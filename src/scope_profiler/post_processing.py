@@ -110,6 +110,16 @@ def build_parser() -> argparse.ArgumentParser:
             "https://matplotlib.org/stable/users/explain/colors/colormaps.html"
         ),
     )
+    parser.add_argument(
+        "--export-data",
+        action="store_true",
+        help=(
+            "Also write the exact data behind each plot as a CSV file "
+            "(gantt_data.csv, flame_data.csv, durations_data.csv, optional "
+            "speedup_data.csv), so charts can be reconstructed later without "
+            "the original HDF5 files. Requires -o/--output."
+        ),
+    )
     return parser
 
 
@@ -145,6 +155,9 @@ def main(argv: list[str] | None = None):
     args = parser.parse_args(argv)
     args.files = expand_file_patterns(args.files, parser)
 
+    if args.export_data and not args.output:
+        parser.error("--export-data requires -o/--output.")
+
     if args.ranks:
         ranks = []
         for spec in args.ranks:
@@ -158,6 +171,10 @@ def main(argv: list[str] | None = None):
     durations_path = None
     speedup_path = None
     statistics_path = None
+    gantt_data_path = None
+    flame_data_path = None
+    durations_data_path = None
+    speedup_data_path = None
     if args.output:
         os.makedirs(args.output, exist_ok=True)
         gantt_path = os.path.join(args.output, "gantt_plot.png")
@@ -166,6 +183,12 @@ def main(argv: list[str] | None = None):
         if len(readers) > 1:
             speedup_path = os.path.join(args.output, "speedup_plot.png")
         statistics_path = os.path.join(args.output, "region_statistics.json")
+        if args.export_data:
+            gantt_data_path = os.path.join(args.output, "gantt_data.csv")
+            flame_data_path = os.path.join(args.output, "flame_data.csv")
+            durations_data_path = os.path.join(args.output, "durations_data.csv")
+            if len(readers) > 1:
+                speedup_data_path = os.path.join(args.output, "speedup_data.csv")
 
     plot_gantt(
         profiling_data=readers,
@@ -175,6 +198,7 @@ def main(argv: list[str] | None = None):
         exclude=args.exclude,
         ranks=args.ranks,
         cmap=args.cmap,
+        data_filepath=gantt_data_path,
     )
 
     plot_flame(
@@ -185,6 +209,7 @@ def main(argv: list[str] | None = None):
         exclude=args.exclude,
         ranks=args.ranks,
         cmap=args.cmap,
+        data_filepath=flame_data_path,
     )
 
     durations_paths = plot_durations(
@@ -196,6 +221,7 @@ def main(argv: list[str] | None = None):
         ranks=args.ranks,
         metrics=args.metrics,
         cmap=args.cmap,
+        data_filepath=durations_data_path,
     )
 
     if len(readers) > 1:
@@ -207,6 +233,7 @@ def main(argv: list[str] | None = None):
             include=args.include,
             exclude=args.exclude,
             cmap=args.cmap,
+            data_filepath=speedup_data_path,
         )
 
     if statistics_path:
@@ -227,6 +254,10 @@ def main(argv: list[str] | None = None):
                 *durations_paths,
                 speedup_path,
                 statistics_path,
+                gantt_data_path,
+                flame_data_path,
+                durations_data_path,
+                speedup_data_path,
             )
             if path
         ]

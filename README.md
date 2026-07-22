@@ -241,3 +241,21 @@ scope-profiler pproc profiling_data.h5 --cmap viridis -o figures
 By default the flame graph covers rank 0, since it represents a single
 execution's call stack; pass `ranks=[...]` to render one flame graph per
 requested rank.
+
+## Exporting plot data
+
+Every `plot_*` function accepts a `data_filepath` argument that writes the
+exact data behind the chart to a CSV file, so it can be re-parsed and
+re-plotted later without the original HDF5 file:
+
+```python
+plot_gantt(reader, filepath="gantt_plot.png", data_filepath="gantt_data.csv")
+```
+
+`scope-profiler pproc --export-data` does the same for every plot in one
+run, writing `gantt_data.csv`, `flame_data.csv`, `durations_data.csv`, and
+(for multiple input files) `speedup_data.csv` alongside the PNGs:
+
+```bash
+scope-profiler pproc profiling_data.h5 -o figures --export-data
+```

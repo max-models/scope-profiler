@@ -1,5 +1,6 @@
 """Plotting utilities for visualizing profiling data."""
 
+import csv
 import json
 import os
 from collections import defaultdict
@@ -9,6 +10,23 @@ from pathlib import Path
 import numpy as np
 
 from scope_profiler.h5reader import ProfilingH5Reader
+
+
+def _write_csv(
+    filepath: str | Path, header: Sequence[str], rows: Sequence[Sequence]
+) -> None:
+    """Write rows of plotting data to a plain-text CSV file.
+
+    Used by the ``data_filepath`` argument of the ``plot_*`` functions so the
+    exact data behind a chart can be re-parsed and re-plotted later without
+    needing the original HDF5 file.
+    """
+    output_path = Path(filepath)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(header)
+        writer.writerows(rows)
 
 
 def _get_pyplot():
@@ -319,6 +337,7 @@ def plot_gantt(
     show: bool = False,
     verbose: bool = True,
     cmap: str = DEFAULT_CMAP,
+    data_filepath: str | Path | None = None,
 ) -> None:
     """
     Plot a Gantt chart of all (or selected) regions with per-rank lanes.
@@ -336,6 +355,10 @@ def plot_gantt(
         Whether to display the plot. Default is False.
     cmap : str
         Name of the matplotlib colormap used to color regions (default: "tab20").
+    data_filepath : str | Path | None
+        If given, write the underlying (file, rank, region, start, end)
+        intervals plotted here to this CSV path, so the chart can be
+        reconstructed later without the original HDF5 file.
     """
     plt = _get_pyplot()
     readers = _as_readers(profiling_data)
@@ -362,6 +385,33 @@ def plot_gantt(
             region.color = color_map[region.name]
 
     labels = _unique_labels([reader.file_path.stem for reader, _, _, _ in prepared])
+
+    if data_filepath:
+        rows = []
+        for label, (_, regions, selected_ranks, first_start_time) in zip(
+            labels, prepared
+        ):
+            for region in regions:
+                for rank in selected_ranks:
+                    region_data = region[rank]
+                    for start, end in zip(
+                        region_data.start_times, region_data.end_times
+                    ):
+                        rows.append(
+                            [
+                                label,
+                                rank,
+                                region.name,
+                                start - first_start_time,
+                                end - first_start_time,
+                            ]
+                        )
+        _write_csv(
+            data_filepath,
+            ["file", "rank", "region", "start_seconds", "end_seconds"],
+            rows,
+        )
+
     if verbose:
         if len(prepared) == 1:
             print(f"Plotting Gantt chart for ranks: {prepared[0][2]}")
@@ -487,6 +537,7 @@ def plot_flame(
     show: bool = False,
     verbose: bool = True,
     cmap: str = DEFAULT_CMAP,
+    data_filepath: str | Path | None = None,
 ) -> None:
     """
     Plot a flame graph reconstructing the call stack from region timings.
@@ -508,6 +559,10 @@ def plot_flame(
     cmap : str
         Name of the matplotlib colormap used to color regions (default: "tab20").
         Pass the same value used for ``plot_gantt`` to keep colors matching.
+    data_filepath : str | Path | None
+        If given, write the reconstructed (file, rank, region, depth, start,
+        end) call intervals to this CSV path, so the flame graph can be
+        reconstructed later without the original HDF5 file.
     """
     plt = _get_pyplot()
     readers = _as_readers(profiling_data)
@@ -541,6 +596,27 @@ def plot_flame(
 
     if not prepared:
         raise ValueError("No calls recorded for the requested ranks.")
+
+    if data_filepath:
+        labels = _unique_labels([reader.file_path.stem for reader, _, _ in prepared])
+        rows = []
+        for label, (_, rank, calls) in zip(labels, prepared):
+            for call in calls:
+                rows.append(
+                    [
+                        label,
+                        rank,
+                        call["name"],
+                        call["depth"],
+                        call["start"],
+                        call["end"],
+                    ]
+                )
+        _write_csv(
+            data_filepath,
+            ["file", "rank", "region", "depth", "start_seconds", "end_seconds"],
+            rows,
+        )
 
     if verbose:
         print(
@@ -615,6 +691,7 @@ def plot_durations(
     show: bool = False,
     verbose: bool = True,
     cmap: str = DEFAULT_CMAP,
+    data_filepath: str | Path | None = None,
 ) -> list[str]:
     """Plot duration bar charts for one or more profiling files.
 
@@ -630,6 +707,8 @@ def plot_durations(
             "tab20"). Bars here are colored per-file, not per-region, so this
             is independent of the region colors used by ``plot_gantt``/
             ``plot_flame``.
+        data_filepath: If given, write the (file, region, metric, value) bars
+            plotted across all requested metrics to this single CSV path.
 
     Returns:
         List of filepaths that were written (empty if filepath is None).
@@ -680,6 +759,7 @@ def plot_durations(
 
     saved_paths: list[str] = []
     figs = []
+    data_rows = []
 
     for metric_key in metric_keys:
         stat_key, ylabel = _DURATION_METRICS[metric_key]
@@ -693,6 +773,11 @@ def plot_durations(
             ]
             for reader in readers
         ]
+
+        if data_filepath:
+            for label, file_values in zip(labels, values):
+                for region_name, value in zip(region_names, file_values):
+                    data_rows.append([label, region_name, metric_key, value])
 
         fig, ax = plt.subplots(figsize=(fig_width, fig_height))
         for idx, (label, file_values) in enumerate(zip(labels, values)):
@@ -725,6 +810,11 @@ def plot_durations(
 
         figs.append(fig)
 
+    if data_filepath:
+        _write_csv(
+            data_filepath, ["file", "region", "metric", "value_seconds"], data_rows
+        )
+
     if show:
         plt.show()
     for fig in figs:
@@ -742,6 +832,7 @@ def plot_speedup(
     show: bool = False,
     verbose: bool = True,
     cmap: str = DEFAULT_CMAP,
+    data_filepath: str | Path | None = None,
 ) -> None:
     """Plot scope speedup versus MPI rank count across one or more files.
 
@@ -752,6 +843,9 @@ def plot_speedup(
     ----------
     cmap : str
         Name of the matplotlib colormap used to color regions (default: "tab20").
+    data_filepath : str | Path | None
+        If given, write the (region, rank_count, speedup) points plotted
+        here to this CSV path.
     """
     plt = _get_pyplot()
     readers = _as_readers(profiling_data)
@@ -788,6 +882,7 @@ def plot_speedup(
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
 
     plotted = 0
+    data_rows = []
     for idx, region_name in enumerate(region_names):
         region_counts = duration_samples[region_name]
         baseline_samples = region_counts.get(baseline_ranks, [])
@@ -822,9 +917,15 @@ def plot_speedup(
             color=colors[idx],
             label=region_name,
         )
+        if data_filepath:
+            for rank_count, speedup in zip(x_values, speedups):
+                data_rows.append([region_name, rank_count, speedup])
 
     if plotted == 0:
         raise ValueError("No valid speedup data could be computed.")
+
+    if data_filepath:
+        _write_csv(data_filepath, ["region", "rank_count", "speedup"], data_rows)
 
     x_line = np.array(rank_counts, dtype=float)
     ax.plot(

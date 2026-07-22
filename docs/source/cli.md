@@ -39,6 +39,7 @@ usage: scope-profiler pproc [-h] [--show] [-o OUTPUT]
                             [--ranks [RANKS ...]]
                             [--metrics [{avg,min,max,total} ...]]
                             [--cmap CMAP]
+                            [--export-data]
                             files [files ...]
 ```
 
@@ -59,6 +60,7 @@ usage: scope-profiler pproc [-h] [--show] [-o OUTPUT]
 | `-r`, `--ranks`   | Ranks to include; supports ranges (e.g. `0-3,5`) |
 | `-m`, `--metrics` | Duration statistics to plot: any of `avg`, `min`, `max`, `total` (default: all four) |
 | `--cmap`          | Matplotlib colormap used to color regions/files in all plots (default: `tab20`) |
+| `--export-data`   | Also write the exact data behind each plot as CSV (requires `-o/--output`) |
 
 When `-o/--output` is supplied, the CLI saves:
 1. `gantt_plot.png`
@@ -67,6 +69,13 @@ When `-o/--output` is supplied, the CLI saves:
    `durations_plot_total.png`)
 3. `speedup_plot.png` (only when multiple files are passed)
 4. `region_statistics.json`
+
+Adding `--export-data` also writes the raw data behind each chart as CSV,
+so plots can be reconstructed later without the original HDF5 files:
+`gantt_data.csv` (file, rank, region, start/end seconds), `flame_data.csv`
+(file, rank, region, depth, start/end seconds), `durations_data.csv` (file,
+region, metric, value), and `speedup_data.csv` (region, rank count, speedup;
+only when multiple files are passed).
 
 For multiple files, the JSON includes per-file region statistics and the set of
 common regions across all inputs.
