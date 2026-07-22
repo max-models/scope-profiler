@@ -47,8 +47,15 @@ def _detect_omp_num_threads() -> int:
     return 1
 
 
-def collect_metadata() -> Dict[str, MetadataValue]:
+def collect_metadata(mpi_size: int = 1) -> Dict[str, MetadataValue]:
     """Gather metadata describing the current run's environment.
+
+    Parameters
+    ----------
+    mpi_size : int, optional
+        Number of MPI ranks the run was launched with (default: 1). Used to
+        derive ``total_cores`` (``mpi_size * omp_num_threads``), a single
+        combined parallelism value useful as a scaling-plot x-axis.
 
     Returns
     -------
@@ -63,6 +70,8 @@ def collect_metadata() -> Dict[str, MetadataValue]:
     except PackageNotFoundError:
         scope_profiler_version = "unknown"
 
+    omp_num_threads = _detect_omp_num_threads()
+
     return {
         "timestamp": datetime.datetime.now().isoformat(),
         "hostname": socket.gethostname(),
@@ -70,6 +79,8 @@ def collect_metadata() -> Dict[str, MetadataValue]:
         "python_version": platform.python_version(),
         "scope_profiler_version": scope_profiler_version,
         "working_directory": os.getcwd(),
-        "omp_num_threads": _detect_omp_num_threads(),
+        "omp_num_threads": omp_num_threads,
+        "mpi_size": mpi_size,
+        "total_cores": mpi_size * omp_num_threads,
         "user": getpass.getuser(),
     }
