@@ -19,7 +19,7 @@ from pathlib import Path
 
 from scope_profiler import ProfileManager
 from scope_profiler.h5reader import ProfilingH5Reader
-from scope_profiler.plotting_scripts_maxplotlib import (
+from scope_profiler.plotting_scripts import (
     plot_durations,
     plot_flame,
     plot_gantt,

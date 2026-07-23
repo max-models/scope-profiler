@@ -1049,10 +1049,15 @@ def plot_speedup(
 
     if filepath:
         canvas.savefig(filepath, backend=backend)
-    if show:
-        if backend == "plotly":
-            canvas.plot_plotly(show=True)
-        else:
-            fig, _ = canvas.plot_matplotlib()
+    
+    # Always create matplotlib figure for testing/inspection purposes
+    if backend == "matplotlib":
+        fig, _ = canvas.plot_matplotlib()
+        if show:
             import matplotlib.pyplot as plt
             plt.show()
+        else:
+            import matplotlib.pyplot as plt
+            plt.close(fig)
+    elif show and backend == "plotly":
+        canvas.plot_plotly(show=True)
