@@ -22,7 +22,7 @@ all through a single, unified API.
   alongside timing, with no extra boilerplate.
 - **Line profiler integration** --- enable `line_profiler` per-line stats on
   any decorated function with a single flag.
-- **CLI post-processing** --- `scope-profiler-pproc` reads HDF5 output and
+- **CLI post-processing** --- `scope-profiler pproc` reads HDF5 output and
   generates Gantt charts and exports region statistics JSON with
   region/rank filtering.
 

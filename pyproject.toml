@@ -5,18 +5,16 @@ requires = [ "setuptools", "wheel" ]
 
 [project]
 name = "scope-profiler"
-version = "0.1.11"
+version = "0.2.1"
 description = "Profile code regions in python, optionally with LIKWID markers."
 readme = "README.md"
 keywords = [ "python" ]
 license = { file = "LICENSE.txt" }
 authors = [ { name = "Max" } ]
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.8",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -36,8 +34,7 @@ optional-dependencies.mpi = [
 optional-dependencies.pproc = [
   "ipykernel",
   "jupyterlab",
-  "kaleido",
-  "maxplotlib @ git+https://github.com/max-models/maxplotlib",
+  "matplotlib",
 ]
 
 optional-dependencies.dev = [
@@ -63,7 +60,7 @@ optional-dependencies.test = [
 ]
 urls."Source" = "https://github.com/max-models/scope-profiler"
 
-scripts.scope-profiler-pproc = "scope_profiler.post_processing:main"
+scripts.scope-profiler = "scope_profiler.__main__:main"
 
 [tool.setuptools.packages.find]
 where = [ "src" ]

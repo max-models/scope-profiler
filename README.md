@@ -72,13 +72,31 @@ Region: iteration
 ----------------------------------------
 ```
 
+## Example plots
+
+`scope-profiler pproc` turns an HDF5 profiling file into Gantt, flame,
+duration, and speedup charts (see [Flame graphs](#flame-graphs) below for
+details). The plots here come from `examples/generate_readme_figures.py`, a
+small mock timestep loop with nested and self-recursive regions, and are
+saved to `figures/`:
+
+```bash
+python examples/generate_readme_figures.py
+```
+
+![Gantt chart of a mock timestep loop](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/gantt_plot.png)
+
+![Average duration per region](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/durations_plot.png)
+
+The flame graph for the same run is shown in [Flame graphs](#flame-graphs) below.
+
 ## Overhead
 
 The profiling overhead per call depends on the region type.
 The benchmark below (`examples/benchmark_overhead.py`) measures each mode
 against a bare function call:
 
-![Profiling overhead by region type](figures/benchmark_overhead.png)
+![Profiling overhead by region type](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/benchmark_overhead.png)
 
 The two modes most relevant to HPC — **NCallsOnly** and **TimeOnly** — add
 roughly **0.09 µs** and **0.75 µs** per instrumented call respectively.
@@ -123,6 +141,32 @@ When enabled, the profiler records regions for nested calls using fully
 qualified names (for example, `my_module.inner`), in addition to the main
 decorated region.
 
+## Zero-instrumentation CLI profiling
+
+You can profile a whole script without touching its source, similar to
+`python -m cProfile`:
+
+```bash
+scope-profiler run my_script.py [script args...]
+# equivalently: python -m scope_profiler run my_script.py [script args...]
+```
+
+Every Python function call the script makes is recorded as its own region
+under a name derived from its module and qualified name, using the same
+recursive tracer as `recursive_profile=True` above. By default only the
+script's own code is instrumented (the standard library and installed
+packages are skipped) to keep overhead low; pass `--all` to trace
+everything. Results are written to `profiling_data.h5` by default
+(`-o`/`--outfile` to change it), and a per-region summary is printed unless
+`-q`/`--quiet` is given.
+
+See `examples/ex_cli_profiling.py` for a script with no scope-profiler
+imports at all, run with:
+
+```bash
+scope-profiler run examples/ex_cli_profiling.py
+```
+
 ## Profiling self-recursive functions
 
 A single region can also be safely re-entered by a recursive function -
@@ -163,13 +207,16 @@ invocation, each with correct, non-overlapping timing data.
 Because each call - including recursive re-entries of the same region -
 now has its own correctly nested (start, end) interval, the call stack can
 be reconstructed straight from the timing data and rendered as a flame
-graph, with recursion showing up as a narrowing tower of frames.
+graph, with recursion showing up as a narrowing tower of frames - as with
+`refine_mesh` below, from the same run shown in [Example plots](#example-plots):
 
-`scope-profiler-pproc` generates `flame_plot.png` alongside the Gantt chart
+![Flame graph of a mock timestep loop](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/flame_plot.png)
+
+`scope-profiler pproc` generates `flame_plot.png` alongside the Gantt chart
 for every run:
 
 ```bash
-scope-profiler-pproc profiling_data.h5 --show -o figures
+scope-profiler pproc profiling_data.h5 --show -o figures
 ```
 
 Or programmatically:
@@ -182,20 +229,56 @@ reader = ProfilingH5Reader("profiling_data.h5")
 plot_flame(reader, filepath="flame_plot.png")
 ```
 
-## Plotting backend
+Gantt and flame charts (and `plot_speedup`) always color the same region the
+same way. Pass `--cmap` (or `cmap=` on the `plot_*` functions) to use a
+different [matplotlib colormap](https://matplotlib.org/stable/users/explain/colors/colormaps.html)
+than the default `tab20`:
 
-All figures (`plot_gantt`, `plot_flame`, `plot_durations`, `plot_speedup`) are
-rendered with [maxplotlib](https://github.com/max-models/maxplotlib) using its
-Plotly backend, available via the `pproc` extra:
-
+```bash
+scope-profiler pproc profiling_data.h5 --cmap viridis -o figures
 ```
-pip install scope-profiler[pproc]
-```
-
-Exporting to `.png`/`.pdf`/`.svg` requires `kaleido` (included in the `pproc`
-extra); exporting to `.html` (e.g. `filepath="gantt_plot.html"`) works with no
-extra dependency and produces an interactive, zoomable figure.
 
 By default the flame graph covers rank 0, since it represents a single
 execution's call stack; pass `ranks=[...]` to render one flame graph per
 requested rank.
+
+## Exporting plot data
+
+Every `plot_*` function accepts a `data_filepath` argument that writes the
+exact data behind the chart to a file, so it can be re-parsed and re-plotted
+later without the original HDF5 file. `data_format` selects `"csv"` (default)
+or `"json"`:
+
+```python
+plot_gantt(reader, filepath="gantt_plot.png", data_filepath="gantt_data.csv")
+plot_gantt(
+    reader,
+    filepath="gantt_plot.png",
+    data_filepath="gantt_data.json",
+    data_format="json",
+)
+```
+
+The JSON payload additionally includes a `colors` map (region or file label
+to `#rrggbb`) matching the colors used in the matplotlib plot, so a
+JavaScript charting library like Plotly can reproduce the same look.
+
+`scope-profiler pproc --export-data` does the same for every plot in one
+run, writing `gantt_data`, `flame_data`, `durations_data`, and (for multiple
+input files) `speedup_data` alongside the PNGs. Pass `--export-data-format
+json` to get `.json` files instead of the default `.csv`:
+
+```bash
+scope-profiler pproc profiling_data.h5 -o figures --export-data
+scope-profiler pproc profiling_data.h5 -o figures --export-data --export-data-format json
+```
+
+Pass `--skip-plot-images` (requires `--export-data`) to skip rendering the
+PNGs entirely and only write the exported data plus `region_statistics.json`
+— useful when a website renders charts client-side (e.g. with Plotly)
+straight from the JSON:
+
+```bash
+scope-profiler pproc profiling_data.h5 -o figures \
+  --export-data --export-data-format json --skip-plot-images
+```

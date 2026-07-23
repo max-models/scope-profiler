@@ -96,7 +96,7 @@ After finalization the timing data is saved to `profiling_data.h5` (default).
 Use the built-in CLI to generate a Gantt chart:
 
 ```bash
-scope-profiler-pproc profiling_data.h5 --show
+scope-profiler pproc profiling_data.h5 --show
 ```
 
 Or load the data programmatically:
