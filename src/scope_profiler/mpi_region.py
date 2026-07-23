@@ -17,6 +17,9 @@ class MPIRegion:
         """
         self._name = name
         self._regions = regions
+        # Set externally by plotting code so different charts drawn from the
+        # same regions (e.g. gantt and flame) agree on a color per name.
+        self.color = None
 
     @property
     def name(self) -> str:

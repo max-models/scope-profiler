@@ -5,6 +5,8 @@ import tempfile
 from time import perf_counter_ns
 from typing import TYPE_CHECKING
 
+from scope_profiler.metadata import collect_metadata
+
 if TYPE_CHECKING:
     from mpi4py.MPI import Intercomm
 
@@ -132,6 +134,11 @@ class ProfilingConfig:
         # Temporary file with rank-specific timings
         self._local_file_path = self.get_local_filepath(self._rank)
 
+        # Environment metadata (hostname, OpenMP threads, versions, ...).
+        # Collected on every rank, but only rank 0's copy ends up persisted
+        # (see ProfileManager.finalize), so it is treated as global for the run.
+        self._metadata = collect_metadata(mpi_size=self._size)
+
         self._pylikwid = None
         if self.use_likwid:
             # pylikwid.markerinit()
@@ -222,3 +229,8 @@ class ProfilingConfig:
     def config_creation_time(self) -> int:
         """Timestamp (ns) when the configuration was created."""
         return self._config_creation_time
+
+    @property
+    def metadata(self) -> dict:
+        """Environment metadata collected on this rank (hostname, OpenMP threads, ...)."""
+        return self._metadata
