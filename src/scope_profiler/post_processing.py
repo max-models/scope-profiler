@@ -124,6 +124,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--backend",
+        choices=["matplotlib", "plotly"],
+        default="matplotlib",
+        help=(
+            "Renderer used for the plots (default: matplotlib). 'matplotlib' "
+            "writes static .png files; 'plotly' writes interactive .html "
+            "files instead, and makes --show open them in a browser."
+        ),
+    )
+    parser.add_argument(
         "--export-data",
         action="store_true",
         help=(
@@ -216,11 +226,14 @@ def main(argv: list[str] | None = None):
     if args.output:
         os.makedirs(args.output, exist_ok=True)
         if not args.skip_plot_images:
-            gantt_path = os.path.join(args.output, "gantt_plot.png")
-            flame_path = os.path.join(args.output, "flame_plot.png")
-            durations_path = os.path.join(args.output, "durations_plot.png")
+            # Plotly's native output is a self-contained interactive page;
+            # writing .png from it would additionally require kaleido.
+            ext = "html" if args.backend == "plotly" else "png"
+            gantt_path = os.path.join(args.output, f"gantt_plot.{ext}")
+            flame_path = os.path.join(args.output, f"flame_plot.{ext}")
+            durations_path = os.path.join(args.output, f"durations_plot.{ext}")
             if len(readers) > 1:
-                speedup_path = os.path.join(args.output, "speedup_plot.png")
+                speedup_path = os.path.join(args.output, f"speedup_plot.{ext}")
         statistics_path = os.path.join(args.output, "region_statistics.json")
         if args.export_data:
             data_ext = args.export_data_format
@@ -244,6 +257,7 @@ def main(argv: list[str] | None = None):
         cmap=args.cmap,
         data_filepath=gantt_data_path,
         data_format=args.export_data_format,
+        backend=args.backend,
     )
 
     plot_flame(
@@ -256,6 +270,7 @@ def main(argv: list[str] | None = None):
         cmap=args.cmap,
         data_filepath=flame_data_path,
         data_format=args.export_data_format,
+        backend=args.backend,
     )
 
     durations_paths = plot_durations(
@@ -269,6 +284,7 @@ def main(argv: list[str] | None = None):
         cmap=args.cmap,
         data_filepath=durations_data_path,
         data_format=args.export_data_format,
+        backend=args.backend,
     )
 
     if len(readers) > 1:
@@ -283,6 +299,7 @@ def main(argv: list[str] | None = None):
             cmap=args.cmap,
             data_filepath=speedup_data_path,
             data_format=args.export_data_format,
+            backend=args.backend,
         )
 
     if statistics_path:

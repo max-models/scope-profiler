@@ -1,11 +1,8 @@
 import json
 
 import h5py
-import matplotlib
 import numpy as np
 import pytest
-
-matplotlib.use("Agg")
 
 from scope_profiler.h5reader import ProfilingH5Reader
 from scope_profiler.plotting_scripts import (
@@ -258,7 +255,15 @@ def test_plot_speedup_categorical_field_preserves_cli_order_and_skips_ideal_line
 
     monkeypatch.setattr(plt, "close", fake_close)
 
-    plot_speedup(readers, x_field="build_variant", show=False, verbose=False)
+    # A figure is only built when the plot is actually saved or shown, so
+    # write one out to inspect the axes maxplotlib produced.
+    plot_speedup(
+        readers,
+        x_field="build_variant",
+        filepath=str(tmp_path / "speedup.png"),
+        show=False,
+        verbose=False,
+    )
 
     assert captured["xticklabels"] == ["b_variant", "a_variant"]
     assert "Ideal scaling" not in captured["labels"]
