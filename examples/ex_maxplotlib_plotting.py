@@ -154,15 +154,11 @@ def main():
     # Example 7: Export data to JSON for custom visualization
     print("\n8. Exporting plot data to JSON...")
     gantt_data = "gantt_data.json"
-    plot_gantt(
-        reader, data_filepath=gantt_data, data_format="json", verbose=False
-    )
+    plot_gantt(reader, data_filepath=gantt_data, data_format="json", verbose=False)
     print(f"   ✓ Gantt data: {gantt_data}")
 
     flame_data = "flame_data.json"
-    plot_flame(
-        reader, data_filepath=flame_data, data_format="json", verbose=False
-    )
+    plot_flame(reader, data_filepath=flame_data, data_format="json", verbose=False)
     print(f"   ✓ Flame data: {flame_data}")
 
     # Cleanup

@@ -43,6 +43,7 @@ def _to_hex(color) -> str:
         return str(color)  # Ensure it's a Python string, not numpy.str_
     try:
         from matplotlib.colors import to_hex
+
         return str(to_hex(color))  # Ensure result is Python string
     except (ImportError, TypeError):
         return "#1f77b4"  # Default blue
@@ -62,19 +63,154 @@ def _get_canvas():
 DEFAULT_CMAP = "tab20"
 
 
-def _get_cmap_colors(cmap: str, n_colors: int):
-    """Get colors from a colormap."""
+_FALLBACK_COLORS = (
+    "#1f77b4",
+    "#ff7f0e",
+    "#2ca02c",
+    "#d62728",
+    "#9467bd",
+    "#8c564b",
+    "#e377c2",
+    "#7f7f7f",
+    "#bcbd22",
+    "#17becf",
+)
+
+
+def _get_cmap_colors(cmap: str, n_colors: int) -> list[str]:
+    """Sample ``n_colors`` ``#rrggbb`` strings from a matplotlib colormap.
+
+    Hex strings (rather than RGBA tuples) are returned so the colors can be
+    handed to any maxplotlib backend unchanged.
+    """
     try:
         import matplotlib.pyplot as plt
-        colors = plt.get_cmap(cmap)(np.linspace(0, 1, n_colors))
-        return colors
+        from matplotlib.colors import to_hex
+
+        samples = plt.get_cmap(cmap)(np.linspace(0, 1, max(n_colors, 1)))
+        return [to_hex(color) for color in samples]
     except (ImportError, ValueError):
-        # Fallback to basic colors if matplotlib not available or invalid cmap
-        basic_colors = [
-            "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
-            "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
-        ]
-        return [basic_colors[i % len(basic_colors)] for i in range(n_colors)]
+        # Fall back to a fixed palette if matplotlib is unavailable or the
+        # colormap name is unknown.
+        return [_FALLBACK_COLORS[i % len(_FALLBACK_COLORS)] for i in range(n_colors)]
+
+
+def _add_bar(
+    canvas,
+    hovertexts: list[str],
+    row: int | None,
+    x0: float,
+    x1: float,
+    y_bottom: float,
+    y_top: float,
+    color: str,
+    alpha: float,
+    hovertext: str,
+) -> None:
+    """Draw one filled rectangle on a canvas subplot.
+
+    maxplotlib's ``Canvas.gantt``/``Canvas.flame_chart`` cannot render this
+    data: they place one lane per bar rather than per region, and the flame
+    chart recomputes depth from frame *names* (so repeated or recursive
+    region names land at the wrong depth) while ignoring per-region colors.
+    Rectangles are therefore drawn directly, which also works on every
+    backend. ``_style_bars`` restores the outline and hover text afterwards
+    for Plotly, which ``fill_between`` does not forward.
+    """
+    col = None if row is None else 0
+    canvas.fill_between(
+        [x0, x1],
+        y_top,
+        y_bottom,
+        row=row,
+        col=col,
+        color=color,
+        alpha=alpha,
+        edgecolor="black",
+        linewidth=0.5,
+    )
+    hovertexts.append(hovertext)
+
+
+def _style_bars(fig, hovertexts: Sequence[str]) -> None:
+    """Attach outlines and hover text to the Plotly traces made by ``_add_bar``."""
+    bar_traces = [
+        trace for trace in fig.data if getattr(trace, "fill", None) == "toself"
+    ]
+    for trace, hovertext in zip(bar_traces, hovertexts):
+        # Plotly defaults short scatter traces to "lines+markers", which would
+        # dot every bar corner.
+        trace.mode = "lines"
+        trace.line.color = "black"
+        trace.line.width = 0.5
+        trace.hoveron = "fills"
+        trace.hoverinfo = "text"
+        trace.hovertext = hovertext
+
+
+def _render(
+    canvas,
+    filepath: str | None,
+    show: bool,
+    backend: str,
+    hovertexts: Sequence[str] = (),
+) -> None:
+    """Save and/or display a canvas, keeping Plotly hover text intact."""
+    if backend == "plotly":
+        fig = canvas.plot_plotly(show=False)
+        _style_bars(fig, hovertexts)
+        if filepath:
+            if Path(filepath).suffix.lower() in {".html", ".htm"}:
+                fig.write_html(filepath)
+            else:
+                try:
+                    fig.write_image(filepath)
+                except Exception as exc:
+                    raise RuntimeError(
+                        "Plotly image export failed. For PNG/PDF/SVG export, "
+                        "install kaleido (e.g. `pip install -U kaleido`), or "
+                        "export to an .html filepath instead."
+                    ) from exc
+        if show:
+            fig.show()
+        return
+
+    if filepath:
+        canvas.savefig(filepath, backend=backend)
+    if show:
+        canvas.show(backend=backend)
+    elif backend == "matplotlib":
+        _close_matplotlib_figure(canvas)
+
+
+def _panel_gridspec(
+    fig_width: float, fig_height: float, label_chars: int, multi_panel: bool
+) -> dict:
+    """Reserve figure margins for tick labels, axis labels and titles.
+
+    maxplotlib renders without ``tight_layout``, so long y-tick labels (region
+    names) and the x-axis label would otherwise be cut off at the figure edge.
+    """
+    label_inches = 0.5 + 0.075 * label_chars
+    gridspec = {
+        "left": min(0.35, label_inches / fig_width),
+        "right": 0.98,
+        "bottom": min(0.25, 0.7 / fig_height),
+        "top": 1 - min(0.25, (1.1 if multi_panel else 0.55) / fig_height),
+    }
+    if multi_panel:
+        gridspec["hspace"] = 0.5
+    return gridspec
+
+
+def _close_matplotlib_figure(canvas) -> None:
+    """Release the figure maxplotlib keeps open after rendering."""
+    fig = getattr(canvas, "_matplotlib_fig", None)
+    if fig is None:
+        return
+    import matplotlib.pyplot as plt
+
+    plt.close(fig)
 
 
 def _region_color_map(region_names, cmap: str = DEFAULT_CMAP) -> dict:
@@ -440,72 +576,81 @@ def plot_gantt(
         else:
             print(f"Plotting combined Gantt chart for files: {', '.join(labels)}")
 
-    # Create canvas with subplots for multiple files
-    if len(prepared) == 1:
-        canvas = Canvas(figsize=(12, max(3.0, 1 * len(prepared[0][1]) * len(prepared[0][2]))))
-        _, regions, selected_ranks, first_start_time = prepared[0]
-        
-        # Prepare data for gantt chart
-        tasks = []
-        start_times_list = []
-        durations_list = []
-        colors_list = []
-        
+    single_panel = len(prepared) == 1
+    panel_heights = [
+        max(2.5, 0.4 * len(regions) * len(selected_ranks))
+        for _, regions, selected_ranks, _ in prepared
+    ]
+    fig_width, fig_height = 12.0, 1.0 + sum(panel_heights)
+    lane_label_chars = max(
+        len(f"{region.name} (rank {rank})")
+        for _, regions, selected_ranks, _ in prepared
+        for region in regions
+        for rank in selected_ranks
+    )
+    canvas = Canvas(
+        nrows=len(prepared),
+        ncols=1,
+        figsize=(fig_width, fig_height),
+        gridspec_kw=_panel_gridspec(
+            fig_width, fig_height, lane_label_chars, not single_panel
+        ),
+    )
+
+    hovertexts: list[str] = []
+    for idx, (label, (_, regions, selected_ranks, first_start_time)) in enumerate(
+        zip(labels, prepared)
+    ):
+        row = None if single_panel else idx
+        col = None if single_panel else 0
+
+        # One lane per (region, rank); every call of that region is a bar in it.
+        yticks = []
+        yticklabels = []
+        max_end = 0.0
         for i, region in enumerate(regions):
             for irank, rank in enumerate(selected_ranks):
                 starts = region[rank].start_times - first_start_time
                 ends = region[rank].end_times - first_start_time
+                y = i * len(selected_ranks) + irank
                 for start, end in zip(starts, ends):
-                    tasks.append(f"{region.name} (rank {rank})")
-                    start_times_list.append(start)
-                    durations_list.append(end - start)
-                    colors_list.append(_to_hex(region.color))
-        
-        canvas.gantt(tasks, start_times_list, durations_list, color=[str(c) for c in colors_list], edgecolor='black', alpha=0.7)
-        canvas.set_xlabel("Time (seconds)")
-        canvas.set_title("Profiling Gantt Chart")
-        canvas.set_grid(True)
-    else:
-        subplot_heights = [
-            max(2.5, 1 * len(regions) * len(selected_ranks))
-            for _, regions, selected_ranks, _ in prepared
-        ]
-        total_height = max(4.0, sum(subplot_heights))
-        canvas = Canvas(nrows=len(prepared), ncols=1, figsize=(12, total_height))
-        
-        for idx, (label, (_, regions, selected_ranks, first_start_time)) in enumerate(zip(labels, prepared)):
-            tasks = []
-            start_times_list = []
-            durations_list = []
-            colors_list = []
-            
-            for i, region in enumerate(regions):
-                for irank, rank in enumerate(selected_ranks):
-                    starts = region[rank].start_times - first_start_time
-                    ends = region[rank].end_times - first_start_time
-                    for start, end in zip(starts, ends):
-                        tasks.append(f"{region.name} (rank {rank})")
-                        start_times_list.append(start)
-                        durations_list.append(end - start)
-                        colors_list.append(_to_hex(region.color))
-            
-            canvas.gantt(tasks, start_times_list, durations_list, row=idx, col=0, 
-                        color=[str(c) for c in colors_list], edgecolor='black', alpha=0.7)
-            canvas.set_xlabel("Time (seconds)", row=idx, col=0)
-            canvas.set_title(label, row=idx, col=0)
-            canvas.set_grid(True, row=idx, col=0)
-        
+                    _add_bar(
+                        canvas,
+                        hovertexts,
+                        row,
+                        x0=start,
+                        x1=end,
+                        y_bottom=y - 0.4,
+                        y_top=y + 0.4,
+                        color=_to_hex(region.color),
+                        alpha=0.7,
+                        hovertext=(
+                            f"{region.name}<br>"
+                            f"rank: {rank}<br>"
+                            f"start: {start:.6f} s<br>"
+                            f"end: {end:.6f} s<br>"
+                            f"duration: {end - start:.6f} s"
+                        ),
+                    )
+                    max_end = max(max_end, float(end))
+                yticks.append(y)
+                yticklabels.append(f"{region.name} (rank {rank})")
+
+        canvas.set_yticks(yticks, labels=yticklabels, row=row, col=col)
+        # Rectangles don't drive Plotly's autorange, so frame the panel from
+        # the data.
+        canvas.set_xlim(0, max_end, row=row, col=col)
+        canvas.set_ylim(-0.6, len(yticks) - 0.4, row=row, col=col)
+        canvas.set_xlabel("Time (seconds)", row=row, col=col)
+        canvas.set_title(
+            "Profiling Gantt Chart" if single_panel else label, row=row, col=col
+        )
+        canvas.set_grid(True, row=row, col=col)
+
+    if not single_panel:
         canvas.suptitle("Combined Profiling Gantt Chart")
 
-    if filepath:
-        canvas.savefig(filepath, backend=backend)
-    if show:
-        if backend == "plotly":
-            canvas.plot_plotly(show=True)
-        else:
-            fig, _ = canvas.plot_matplotlib()
-            import matplotlib.pyplot as plt
-            plt.show()
+    _render(canvas, filepath, show, backend, hovertexts)
 
 
 def _build_call_stack_intervals(regions: list, rank: int) -> list[dict]:
@@ -638,82 +783,76 @@ def plot_flame(
             )
         )
 
-    subplot_heights = [
+    single_panel = len(prepared) == 1
+    panel_heights = [
         max(2.0, 0.6 * (max(call["depth"] for call in calls) + 1))
         for _, _, calls in prepared
     ]
-    total_height = max(3.0, sum(subplot_heights))
-    
-    if len(prepared) == 1:
-        canvas = Canvas(figsize=(12, total_height))
-        reader, rank, calls = prepared[0]
-        
-        # Prepare data for flame chart
+    fig_width, fig_height = 12.0, 1.0 + sum(panel_heights)
+    canvas = Canvas(
+        nrows=len(prepared),
+        ncols=1,
+        figsize=(fig_width, fig_height),
+        # Depth numbers plus the "Call depth" axis label.
+        gridspec_kw=_panel_gridspec(fig_width, fig_height, 8, not single_panel),
+    )
+
+    hovertexts: list[str] = []
+    for idx, (reader, rank, calls) in enumerate(prepared):
+        row = None if single_panel else idx
+        col = None if single_panel else 0
+
         first_start = min(call["start"] for call in calls)
-        labels = []
-        parents = []
-        values = []
-        start_times = []
-        colors_list = []
-        
-        # Build parent-child relationships based on depth
-        depth_stacks = {}
+        total_span = max(call["end"] for call in calls) - first_start
+        max_depth = max(call["depth"] for call in calls)
+
         for call in calls:
-            depth = call["depth"]
-            parent = depth_stacks.get(depth - 1) if depth > 0 else None
-            labels.append(call["name"])
-            parents.append(parent)
-            values.append(call["end"] - call["start"])
-            start_times.append(call["start"] - first_start)
-            colors_list.append(_to_hex(call["color"]))
-            depth_stacks[depth] = call["name"]
-        
-        canvas.flame_chart(labels, parents, values, start_times=start_times, color=colors_list, 
-                          edgecolor='black', alpha=0.85)
-        canvas.set_xlabel("Time (seconds)")
-        canvas.set_ylabel("Call depth")
-        canvas.set_title(f"{reader.file_path.stem} (rank {rank})")
-        canvas.set_grid(True)
-    else:
-        canvas = Canvas(nrows=len(prepared), ncols=1, figsize=(12, total_height))
-        
-        for idx, (reader, rank, calls) in enumerate(prepared):
-            first_start = min(call["start"] for call in calls)
-            labels = []
-            parents = []
-            values = []
-            start_times = []
-            colors_list = []
-            
-            depth_stacks = {}
-            for call in calls:
-                depth = call["depth"]
-                parent = depth_stacks.get(depth - 1) if depth > 0 else None
-                labels.append(call["name"])
-                parents.append(parent)
-                values.append(call["end"] - call["start"])
-                start_times.append(call["start"] - first_start)
-                colors_list.append(_to_hex(call["color"]))
-                depth_stacks[depth] = call["name"]
-            
-            canvas.flame_chart(labels, parents, values, start_times=start_times, row=idx, col=0,
-                             color=colors_list, edgecolor='black', alpha=0.85)
-            canvas.set_xlabel("Time (seconds)", row=idx, col=0)
-            canvas.set_ylabel("Call depth", row=idx, col=0)
-            canvas.set_title(f"{reader.file_path.stem} (rank {rank})", row=idx, col=0)
-            canvas.set_grid(True, row=idx, col=0)
-        
+            start = call["start"] - first_start
+            width = call["end"] - call["start"]
+            _add_bar(
+                canvas,
+                hovertexts,
+                row,
+                x0=start,
+                x1=start + width,
+                y_bottom=call["depth"] - 0.45,
+                y_top=call["depth"] + 0.45,
+                color=_to_hex(call["color"]),
+                alpha=0.85,
+                hovertext=(
+                    f"{call['name']}<br>"
+                    f"depth: {call['depth']}<br>"
+                    f"start: {start:.6f} s<br>"
+                    f"end: {start + width:.6f} s<br>"
+                    f"duration: {width:.6f} s"
+                ),
+            )
+            if total_span > 0 and width / total_span > 0.02:
+                canvas.text(
+                    start + width / 2,
+                    call["depth"],
+                    call["name"],
+                    row=row,
+                    col=col,
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                )
+
+        canvas.set_yticks(list(range(max_depth + 1)), row=row, col=col)
+        # Rectangles don't drive Plotly's autorange, so frame the panel from
+        # the data.
+        canvas.set_xlim(0, total_span, row=row, col=col)
+        canvas.set_ylim(-0.6, max_depth + 0.6, row=row, col=col)
+        canvas.set_xlabel("Time (seconds)", row=row, col=col)
+        canvas.set_ylabel("Call depth", row=row, col=col)
+        canvas.set_title(f"{reader.file_path.stem} (rank {rank})", row=row, col=col)
+        canvas.set_grid(True, row=row, col=col)
+
+    if not single_panel:
         canvas.suptitle("Flame Graphs")
 
-    if filepath:
-        canvas.savefig(filepath, backend=backend)
-    if show:
-        if backend == "plotly":
-            canvas.plot_plotly(show=True)
-        else:
-            fig, _ = canvas.plot_matplotlib()
-            import matplotlib.pyplot as plt
-            plt.show()
+    _render(canvas, filepath, show, backend, hovertexts)
 
 
 _DURATION_METRICS: dict[str, tuple[str, str]] = {
@@ -833,11 +972,11 @@ def plot_durations(
                     data_rows.append([label, region_name, metric_key, value])
 
         canvas = Canvas(figsize=(fig_width, fig_height))
-        
+
         # Create grouped bar chart
         x_positions = np.arange(len(region_names))
         offset_start = -0.5 * width * (num_readers - 1)
-        
+
         for idx, (label, file_values) in enumerate(zip(labels, values)):
             offsets = x_positions + offset_start + idx * width
             canvas.bar(
@@ -846,8 +985,8 @@ def plot_durations(
                 width=width,
                 label=label if num_readers > 1 else None,
                 color=_to_hex(colors[idx]),
-                edgecolor='black',
-                alpha=0.8
+                edgecolor="black",
+                alpha=0.8,
             )
 
         canvas.set_xticks(x_positions, labels=region_names)
@@ -857,20 +996,14 @@ def plot_durations(
         if num_readers > 1:
             canvas.set_legend()
 
+        metric_filepath = None
         if filepath:
             metric_filepath = _metric_filepath(
                 filepath, metric_key, single_metric=len(metric_keys) == 1
             )
-            canvas.savefig(metric_filepath, backend=backend)
             saved_paths.append(metric_filepath)
 
-        if show:
-            if backend == "plotly":
-                canvas.plot_plotly(show=True)
-            else:
-                fig, _ = canvas.plot_matplotlib()
-                import matplotlib.pyplot as plt
-                plt.show()
+        _render(canvas, metric_filepath, show, backend)
 
     if data_filepath:
         if data_format == "json":
@@ -883,8 +1016,7 @@ def plot_durations(
                 }
                 for file, region, metric, value in data_rows
             ]
-            colors_map = {label: _to_hex(color) 
-                         for label, color in zip(labels, colors)}
+            colors_map = {label: _to_hex(color) for label, color in zip(labels, colors)}
             _write_json(
                 data_filepath,
                 {"bars": bars, "colors": colors_map, "metrics": metric_keys},
@@ -963,7 +1095,7 @@ def plot_speedup(
     canvas = Canvas(figsize=(fig_width, fig_height))
     plotted = 0
     data_rows = []
-    
+
     for idx, region_name in enumerate(region_names):
         region_values = duration_samples[region_name]
         baseline_samples = region_values.get(baseline_key, [])
@@ -1013,8 +1145,7 @@ def plot_speedup(
                 for region, key, speedup in data_rows
             ]
             colors_map = {
-                name: _to_hex(color)
-                for name, color in zip(region_names, colors)
+                name: _to_hex(color) for name, color in zip(region_names, colors)
             }
             _write_json(data_filepath, {"points": points, "colors": colors_map})
         else:
@@ -1032,10 +1163,10 @@ def plot_speedup(
         canvas.add_line(
             x_line,
             x_line / baseline_key,
-            linestyle='--',
-            color='black',
+            linestyle="--",
+            color="black",
             linewidth=1.5,
-            label='Ideal scaling',
+            label="Ideal scaling",
         )
         canvas.set_xticks(x_line)
     else:
@@ -1047,17 +1178,4 @@ def plot_speedup(
     canvas.set_grid(True)
     canvas.set_legend()
 
-    if filepath:
-        canvas.savefig(filepath, backend=backend)
-    
-    # Always create matplotlib figure for testing/inspection purposes
-    if backend == "matplotlib":
-        fig, _ = canvas.plot_matplotlib()
-        if show:
-            import matplotlib.pyplot as plt
-            plt.show()
-        else:
-            import matplotlib.pyplot as plt
-            plt.close(fig)
-    elif show and backend == "plotly":
-        canvas.plot_plotly(show=True)
+    _render(canvas, filepath, show, backend)
