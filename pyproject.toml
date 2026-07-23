@@ -35,6 +35,7 @@ optional-dependencies.pproc = [
   "ipykernel",
   "jupyterlab",
   "matplotlib",
+  "maxplotlibx >= 0.1.5",
 ]
 
 optional-dependencies.dev = [
