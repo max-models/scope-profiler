@@ -1,10 +1,7 @@
 import json
 
 import h5py
-import matplotlib
 import numpy as np
-
-matplotlib.use("Agg")
 
 from scope_profiler.h5reader import ProfilingH5Reader
 from scope_profiler.plotting_scripts import (

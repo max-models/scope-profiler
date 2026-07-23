@@ -26,17 +26,72 @@ def _get_canvas_cls():
     return Canvas
 
 
-def _get_patches_module():
-    import matplotlib.patches as patches
+# Qualitative 20-colour palette (matplotlib's "tab20" values), inlined so
+# plotting only depends on maxplotlib.
+_PALETTE = (
+    "#1f77b4",
+    "#aec7e8",
+    "#ff7f0e",
+    "#ffbb78",
+    "#2ca02c",
+    "#98df8a",
+    "#d62728",
+    "#ff9896",
+    "#9467bd",
+    "#c5b0d5",
+    "#8c564b",
+    "#c49c94",
+    "#e377c2",
+    "#f7b6d2",
+    "#7f7f7f",
+    "#c7c7c7",
+    "#bcbd22",
+    "#dbdb8d",
+    "#17becf",
+    "#9edae5",
+)
 
-    return patches
+
+def _palette_colors(n: int) -> list[str]:
+    return [_PALETTE[i % len(_PALETTE)] for i in range(max(n, 1))]
 
 
-def _tab_colors(n: int):
-    import matplotlib as mpl
+def _add_bar(
+    subplot,
+    hovertexts: list[str],
+    x0: float,
+    x1: float,
+    y_bottom: float,
+    y_top: float,
+    color: str,
+    alpha: float,
+    hovertext: str,
+) -> None:
+    """Draw one filled rectangle as a maxplotlib ``fill_between`` region.
 
-    cmap = mpl.colormaps["tab20"]
-    return cmap(np.linspace(0, 1, max(n, 1)))
+    maxplotlib renders each of these as a single ``fill='toself'`` Plotly
+    trace, in insertion order; ``_style_bars`` walks the finished figure in
+    that same order to attach the outline and hover text, which
+    ``fill_between`` itself does not forward to the backend.
+    """
+    subplot.fill_between([x0, x1], y_top, y_bottom, color=color, alpha=alpha)
+    hovertexts.append(hovertext)
+
+
+def _style_bars(fig, hovertexts: Sequence[str]) -> None:
+    """Attach bar outlines and hover text to the traces made by ``_add_bar``."""
+    bar_traces = [
+        trace for trace in fig.data if getattr(trace, "fill", None) == "toself"
+    ]
+    for trace, hovertext in zip(bar_traces, hovertexts):
+        # Plotly defaults short scatter traces to "lines+markers", which would
+        # dot every bar corner.
+        trace.mode = "lines"
+        trace.line.color = "black"
+        trace.line.width = 0.5
+        trace.hoveron = "fills"
+        trace.hoverinfo = "text"
+        trace.hovertext = hovertext
 
 
 def _export_plotly_figure(fig, filepath: str | None, show: bool) -> None:
@@ -280,14 +335,14 @@ def _prepare_gantt_data(
 
 
 def _draw_gantt_subplot(
-    patches,
     subplot,
     regions: list,
     ranks: list[int],
     first_start_time: float,
+    hovertexts: list[str],
 ) -> None:
     num_ranks = len(ranks)
-    colors = _tab_colors(len(regions))
+    colors = _palette_colors(len(regions))
 
     yticks = []
     yticklabels = []
@@ -298,28 +353,30 @@ def _draw_gantt_subplot(
             ends = region[rank].end_times - first_start_time
             y = i * num_ranks + irank
             for start, end in zip(starts, ends):
-                rect = patches.Rectangle(
-                    (start, y - 0.5),
-                    end - start,
-                    1.0,
-                    facecolor=colors[i],
-                    edgecolor="black",
+                _add_bar(
+                    subplot,
+                    hovertexts,
+                    x0=start,
+                    x1=end,
+                    y_bottom=y - 0.5,
+                    y_top=y + 0.5,
+                    color=colors[i],
+                    alpha=0.7,
+                    hovertext=(
+                        f"{region.name}<br>"
+                        f"rank: {rank}<br>"
+                        f"start: {start:.6f} s<br>"
+                        f"end: {end:.6f} s<br>"
+                        f"duration: {end - start:.6f} s"
+                    ),
                 )
-                hovertext = (
-                    f"{region.name}<br>"
-                    f"rank: {rank}<br>"
-                    f"start: {start:.6f} s<br>"
-                    f"end: {end:.6f} s<br>"
-                    f"duration: {end - start:.6f} s"
-                )
-                subplot.add_patch(rect, alpha=0.7, hovertext=hovertext)
                 max_end = max(max_end, float(end))
             yticks.append(y)
             yticklabels.append(f"{region.name} (rank {rank})")
 
     subplot.set_yticks(yticks, yticklabels)
-    # Layout shapes (unlike traces) don't participate in Plotly's
-    # autorange, so the axis limits must be set explicitly from the data.
+    # Pin the axes to the data so the bars fill the panel instead of being
+    # framed by Plotly's default autorange padding.
     subplot.set_xlim(0, max_end)
     subplot.set_ylim(-0.5, len(yticks) - 0.5)
 
@@ -353,7 +410,6 @@ def plot_gantt(
         Whether to display the plot. Default is False.
     """
     Canvas = _get_canvas_cls()
-    patches = _get_patches_module()
     readers = _as_readers(profiling_data)
     if not readers:
         raise ValueError("No profiling data provided.")
@@ -380,6 +436,7 @@ def plot_gantt(
         len(regions) * len(selected_ranks) for _, regions, selected_ranks, _ in prepared
     ]
 
+    hovertexts: list[str] = []
     for row, (label, (_, regions, selected_ranks, first_start_time)) in enumerate(
         zip(labels, prepared)
     ):
@@ -391,12 +448,15 @@ def plot_gantt(
             xlabel="Time (seconds)",
             grid=True,
         )
-        _draw_gantt_subplot(patches, subplot, regions, selected_ranks, first_start_time)
+        _draw_gantt_subplot(
+            subplot, regions, selected_ranks, first_start_time, hovertexts
+        )
 
     if len(prepared) > 1:
         canvas.suptitle("Combined Profiling Gantt Chart")
 
     fig = canvas.plot(backend="plotly")
+    _style_bars(fig, hovertexts)
     fig.update_layout(
         width=1100,
         height=sum(_gantt_panel_height(n) for n in panel_row_counts),
@@ -439,33 +499,35 @@ def _build_call_stack_intervals(regions: list, rank: int) -> list[dict]:
     return calls
 
 
-def _draw_flame_subplot(patches, subplot, calls: list[dict]) -> None:
+def _draw_flame_subplot(subplot, calls: list[dict], hovertexts: list[str]) -> None:
     first_start = min(call["start"] for call in calls)
     total_span = max(call["end"] for call in calls) - first_start
     max_depth = max(call["depth"] for call in calls)
 
     region_names = sorted({call["name"] for call in calls})
-    colors = _tab_colors(len(region_names))
+    colors = _palette_colors(len(region_names))
     color_map = dict(zip(region_names, colors))
 
     for call in calls:
         start = call["start"] - first_start
         width = call["end"] - call["start"]
-        rect = patches.Rectangle(
-            (start, call["depth"] - 0.5),
-            width,
-            1.0,
-            facecolor=color_map[call["name"]],
-            edgecolor="black",
+        _add_bar(
+            subplot,
+            hovertexts,
+            x0=start,
+            x1=start + width,
+            y_bottom=call["depth"] - 0.5,
+            y_top=call["depth"] + 0.5,
+            color=color_map[call["name"]],
+            alpha=0.85,
+            hovertext=(
+                f"{call['name']}<br>"
+                f"depth: {call['depth']}<br>"
+                f"start: {start:.6f} s<br>"
+                f"end: {start + width:.6f} s<br>"
+                f"duration: {width:.6f} s"
+            ),
         )
-        hovertext = (
-            f"{call['name']}<br>"
-            f"depth: {call['depth']}<br>"
-            f"start: {start:.6f} s<br>"
-            f"end: {start + width:.6f} s<br>"
-            f"duration: {width:.6f} s"
-        )
-        subplot.add_patch(rect, alpha=0.85, hovertext=hovertext)
         if total_span > 0 and width / total_span > 0.02:
             subplot.text(
                 start + width / 2,
@@ -477,8 +539,8 @@ def _draw_flame_subplot(patches, subplot, calls: list[dict]) -> None:
             )
 
     subplot.set_yticks(list(range(max_depth + 1)))
-    # Layout shapes (unlike traces) don't participate in Plotly's
-    # autorange, so the axis limits must be set explicitly from the data.
+    # Pin the axes to the data so the bars fill the panel instead of being
+    # framed by Plotly's default autorange padding.
     subplot.set_xlim(0, total_span)
     subplot.set_ylim(-0.5, max_depth + 0.5)
 
@@ -515,7 +577,6 @@ def plot_flame(
         Whether to display the plot. Default is False.
     """
     Canvas = _get_canvas_cls()
-    patches = _get_patches_module()
     readers = _as_readers(profiling_data)
     if not readers:
         raise ValueError("No profiling data provided.")
@@ -550,6 +611,7 @@ def plot_flame(
         max(call["depth"] for call in calls) for _, _, calls in prepared
     ]
 
+    hovertexts: list[str] = []
     for row, (reader, rank, calls) in enumerate(prepared):
         subplot = canvas.add_subplot(
             row=row,
@@ -559,12 +621,13 @@ def plot_flame(
             ylabel="Call depth",
             grid=True,
         )
-        _draw_flame_subplot(patches, subplot, calls)
+        _draw_flame_subplot(subplot, calls, hovertexts)
 
     if len(prepared) > 1:
         canvas.suptitle("Flame Graphs")
 
     fig = canvas.plot(backend="plotly")
+    _style_bars(fig, hovertexts)
     fig.update_layout(
         width=1100,
         height=sum(_flame_panel_height(depth) for depth in panel_max_depths),
@@ -665,7 +728,7 @@ def plot_durations(
     x = np.arange(len(region_names))
     num_readers = len(readers)
     width = min(0.8 / max(num_readers, 1), 0.35)
-    colors = _tab_colors(num_readers)
+    colors = _palette_colors(num_readers)
     offset_start = -0.5 * width * (num_readers - 1)
     fig_width = max(700, 70 * len(region_names) + 300)
     fig_height = max(450, 300 + 40 * num_readers)
@@ -763,7 +826,7 @@ def plot_speedup(
                 duration_samples[region_name][reader.num_ranks].append(duration)
 
     baseline_ranks = rank_counts[0]
-    colors = _tab_colors(len(region_names))
+    colors = _palette_colors(len(region_names))
 
     canvas = Canvas(nrows=1, ncols=1)
     subplot = canvas.add_subplot(
