@@ -400,6 +400,11 @@ class ProfileManager:
                 for key, value in config.metadata.items():
                     meta_grp.attrs[key] = value
 
+                # Per-region data for the verbose summary, accumulated during
+                # the merge pass below so each rank file is opened exactly
+                # once, rather than once per (region, rank) pair.
+                stats = {}
+
                 for r in range(size):
                     rank_file = config.get_local_filepath(r)
                     if not os.path.exists(rank_file):
@@ -409,63 +414,65 @@ class ProfileManager:
                         # Copy all groups from the rank file under /rank<r>
                         fout.copy(fin, f"rank{r}")
 
-                if verbose:
-                    # 4. Gather statistics for printing
-                    for region_name, region in cls.get_all_regions().items():
-                        all_starts = []
-                        all_ends = []
-                        counted_calls = 0
-                        # Collect from each rank's file
-                        for r in range(size):
-                            rank_file = config.get_local_filepath(r)
-                            if not os.path.exists(rank_file):
+                        if not verbose:
+                            continue
+                        for region_name in cls.get_all_regions():
+                            region_path = f"regions/{region_name}"
+                            if region_path not in fin:
+                                # Region was created but never flushed
+                                # (e.g. finalize() called from inside the
+                                # profiled function before it returned).
                                 continue
-                            with h5py.File(rank_file, "r") as fin:
-                                region_path = f"regions/{region_name}"
-                                if region_path not in fin:
-                                    # Region was created but never flushed
-                                    # (e.g. finalize() called from inside the
-                                    # profiled function before it returned).
-                                    continue
-                                grp = fin[region_path]
-                                counted_calls += int(grp.attrs.get("num_calls", 0))
-                                if "start_times" not in grp:
-                                    # Count-only region: no timestamps recorded.
-                                    continue
-                                starts = grp["start_times"][:]
-                                ends = grp["end_times"][:]
-                                all_starts.append(starts)
-                                all_ends.append(ends)
+                            grp = fin[region_path]
+                            entry = stats.get(region_name)
+                            if entry is None:
+                                entry = {"starts": [], "ends": [], "num_calls": 0}
+                                stats[region_name] = entry
+                            entry["num_calls"] += int(grp.attrs.get("num_calls", 0))
+                            if "start_times" not in grp:
+                                # Count-only region: no timestamps recorded.
+                                continue
+                            entry["starts"].append(grp["start_times"][:])
+                            entry["ends"].append(grp["end_times"][:])
 
-                        if not all_starts and counted_calls:
-                            print(f"Region: {region_name}")
-                            print(f"  Total Calls : {round(counted_calls / size)}")
-                            print("-" * 40)
+                if verbose:
+                    # 4. Print the statistics gathered during the merge pass,
+                    # in region registration order.
+                    for region_name in cls.get_all_regions():
+                        entry = stats.get(region_name)
+                        if entry is None:
+                            continue
+                        all_starts = entry["starts"]
 
-                        if all_starts:
-                            starts = np.concatenate(all_starts)
-                            ends = np.concatenate(all_ends)
-                            durations = ends - starts
-                            total_calls = round(len(durations) / size)
-                            if total_calls > 0:
-                                total_time = durations.sum() / 1e9
-                                avg_time = durations.mean() / 1e9
-                                min_time = durations.min() / 1e9
-                                max_time = durations.max() / 1e9
-                                std_time = durations.std() / 1e9
-                            else:
-                                total_time = avg_time = min_time = max_time = (
-                                    std_time
-                                ) = 0.0
+                        if not all_starts:
+                            if entry["num_calls"]:
+                                print(f"Region: {region_name}")
+                                calls = round(entry["num_calls"] / size)
+                                print(f"  Total Calls : {calls}")
+                                print("-" * 40)
+                            continue
 
-                            print(f"Region: {region_name}")
-                            print(f"  Total Calls : {total_calls}")
-                            print(f"  Total Time  : {total_time} s")
-                            print(f"  Avg Time    : {avg_time} s")
-                            print(f"  Min Time    : {min_time} s")
-                            print(f"  Max Time    : {max_time} s")
-                            print(f"  Std Dev     : {std_time} s")
-                            print("-" * 40)
+                        starts = np.concatenate(all_starts)
+                        ends = np.concatenate(entry["ends"])
+                        durations = ends - starts
+                        total_calls = round(len(durations) / size)
+                        if total_calls > 0:
+                            total_time = durations.sum() / 1e9
+                            avg_time = durations.mean() / 1e9
+                            min_time = durations.min() / 1e9
+                            max_time = durations.max() / 1e9
+                            std_time = durations.std() / 1e9
+                        else:
+                            total_time = avg_time = min_time = max_time = std_time = 0.0
+
+                        print(f"Region: {region_name}")
+                        print(f"  Total Calls : {total_calls}")
+                        print(f"  Total Time  : {total_time} s")
+                        print(f"  Avg Time    : {avg_time} s")
+                        print(f"  Min Time    : {min_time} s")
+                        print(f"  Max Time    : {max_time} s")
+                        print(f"  Std Dev     : {std_time} s")
+                        print("-" * 40)
         if config.use_likwid:
             config.pylikwid_markerclose()
 
