@@ -10,6 +10,7 @@ class Region:
         self,
         start_times: np.ndarray,
         end_times: np.ndarray,
+        num_calls: int | None = None,
     ) -> None:
         """
         Initialize a Region with timing information for multiple calls.
@@ -20,10 +21,15 @@ class Region:
             Start times of all calls in nanoseconds.
         end_times : np.ndarray
             End times of all calls in nanoseconds.
+        num_calls : int, optional
+            Explicit call count. Defaults to the number of recorded timestamps.
+            Regions profiled with ``time_trace=False`` record a count but no
+            timestamps, so the two differ there.
         """
         self._start_times = start_times
         self._end_times = end_times
         self._durations = end_times - start_times
+        self._num_calls = len(self._durations) if num_calls is None else int(num_calls)
 
     def get_summary(self) -> Dict[str, Any]:
         """
@@ -52,7 +58,7 @@ class Region:
     @property
     def first_start_time(self) -> float:
         """First start time in seconds."""
-        return float(np.min(self._start_times)) / 1e9 if self.num_calls else 0.0
+        return float(np.min(self._start_times)) / 1e9 if len(self._durations) else 0.0
 
     @property
     def end_times(self) -> np.ndarray:
@@ -66,33 +72,37 @@ class Region:
 
     @property
     def num_calls(self) -> int:
-        """Number of recorded calls."""
-        return len(self._durations)
+        """Number of recorded calls.
+
+        Equals the number of recorded timestamps unless the region was profiled
+        with ``time_trace=False``, where only the count is recorded.
+        """
+        return self._num_calls
 
     @property
     def total_duration(self) -> float:
         """Total time spent in this region (sum of all durations)."""
-        return float(np.sum(self._durations)) if self.num_calls else 0.0
+        return float(np.sum(self._durations)) if len(self._durations) else 0.0
 
     @property
     def average_duration(self) -> float:
         """Average duration per call."""
-        return float(np.mean(self._durations)) if self.num_calls else 0.0
+        return float(np.mean(self._durations)) if len(self._durations) else 0.0
 
     @property
     def min_duration(self) -> float:
         """Minimum duration among all calls."""
-        return float(np.min(self._durations)) if self.num_calls else 0.0
+        return float(np.min(self._durations)) if len(self._durations) else 0.0
 
     @property
     def max_duration(self) -> float:
         """Maximum duration among all calls."""
-        return float(np.max(self._durations)) if self.num_calls else 0.0
+        return float(np.max(self._durations)) if len(self._durations) else 0.0
 
     @property
     def std_duration(self) -> float:
         """Standard deviation of durations."""
-        return float(np.std(self._durations)) if self.num_calls else 0.0
+        return float(np.std(self._durations)) if len(self._durations) else 0.0
 
     def __repr__(self) -> str:
         """

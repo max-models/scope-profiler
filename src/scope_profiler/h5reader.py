@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List
 
 import h5py
+import numpy as np
 
 from scope_profiler.mpi_region import MPIRegion
 from scope_profiler.region import Region
@@ -61,14 +62,22 @@ class ProfilingH5Reader:
 
                 for region_name, region_grp in regions_group.items():
                     region_names.append(region_name)
-                    starts = region_grp["start_times"][()]
-                    ends = region_grp["end_times"][()]
-                    # print(f"{region_name = }")
+                    if "start_times" in region_grp:
+                        starts = region_grp["start_times"][()]
+                        ends = region_grp["end_times"][()]
+                    else:
+                        # Count-only region (time_trace=False): the call count
+                        # is stored as an attribute, with no timestamps.
+                        starts = np.empty(0, dtype=np.int64)
+                        ends = np.empty(0, dtype=np.int64)
+                    region = Region(
+                        starts, ends, num_calls=region_grp.attrs.get("num_calls")
+                    )
                     # Merge if region already exists (from another rank)
                     if region_name in _region_dict:
-                        _region_dict[region_name][rank] = Region(starts, ends)
+                        _region_dict[region_name][rank] = region
                     else:
-                        _region_dict[region_name] = {rank: Region(starts, ends)}
+                        _region_dict[region_name] = {rank: region}
 
         self._region_dict = {}
 

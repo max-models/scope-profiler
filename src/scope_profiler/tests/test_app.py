@@ -397,6 +397,59 @@ def test_finalize_writes_global_metadata(tmp_path):
     assert reader.metadata == attrs
 
 
+@pytest.mark.parametrize("flush_to_disk", [True, False])
+def test_ncalls_only_persists_call_counts(tmp_path, flush_to_disk):
+    """time_trace=False must persist call counts, not just hold them in memory."""
+    file_path = tmp_path / f"profiling_ncalls_{flush_to_disk}.h5"
+    ProfileManager.setup(
+        time_trace=False, flush_to_disk=flush_to_disk, file_path=str(file_path)
+    )
+
+    for _ in range(5):
+        with ProfileManager.profile_region("ctx_region"):
+            pass
+
+    @ProfileManager.profile("decorated_region")
+    def decorated():
+        pass
+
+    for _ in range(3):
+        decorated()
+
+    ProfileManager.finalize(verbose=False)
+
+    with h5py.File(file_path, "r") as f:
+        regions = f["rank0"]["regions"]
+        assert regions["ctx_region"].attrs["num_calls"] == 5
+        assert regions["decorated_region"].attrs["num_calls"] == 3
+        # No timing was requested, so no timestamps are stored.
+        assert "start_times" not in regions["ctx_region"]
+
+    reader = ProfilingH5Reader(file_path)
+    assert reader.get_region("ctx_region")[0].num_calls == 5
+    assert reader.get_region("decorated_region")[0].num_calls == 3
+    # Duration-derived stats stay well-defined despite the absence of timings.
+    assert reader.get_region("ctx_region")[0].total_duration == 0.0
+    assert len(reader.get_region("ctx_region")[0].durations) == 0
+
+
+def test_time_trace_region_reports_timestamp_count(tmp_path):
+    """Regions that do record timing keep deriving num_calls from timestamps."""
+    file_path = tmp_path / "profiling_timed.h5"
+    ProfileManager.setup(file_path=str(file_path))
+
+    for _ in range(4):
+        with ProfileManager.profile_region("timed_region"):
+            sleep(0.001)
+
+    ProfileManager.finalize(verbose=False)
+
+    region = ProfilingH5Reader(file_path).get_region("timed_region")[0]
+    assert region.num_calls == 4
+    assert len(region.durations) == 4
+    assert region.min_duration > 0
+
+
 if __name__ == "__main__":
     # test_readme()
     # test_all_region_types()

@@ -168,6 +168,16 @@ class BaseProfileRegion:
 
         self.ptr = 0
 
+    def _write_num_calls(self) -> None:
+        """Persist the call count as an attribute on this region's HDF5 group.
+
+        Used by regions that record no timestamps, so their call counts survive
+        into the merged output file instead of being lost with the process.
+        """
+        with h5py.File(self.config._local_file_path, "a") as f:
+            grp = f.require_group(self.group_path)
+            grp.attrs["num_calls"] = self.num_calls
+
     def get_durations_numpy(self) -> np.ndarray:
         """Return durations (end - start) for buffered entries as a NumPy array."""
         return self.end_times[: self.ptr] - self.start_times[: self.ptr]
@@ -240,8 +250,9 @@ class NCallsOnlyProfileRegion(BaseProfileRegion):
         pass
 
     def flush(self):
-        """Ignored: no data to flush."""
-        pass
+        """Persist the call count — the only thing this region records."""
+        if self.num_calls:
+            self._write_num_calls()
 
     def get_durations_numpy(self):
         """Return an empty array because no timing data is collected."""
@@ -367,6 +378,11 @@ class LikwidOnlyProfileRegion(BaseProfileRegion):
         pylikwid = _import_pylikwid()
         self.likwid_marker_start = pylikwid.markerstartregion
         self.likwid_marker_stop = pylikwid.markerstopregion
+
+    def flush(self):
+        """Persist the call count; LIKWID counters go to LIKWID's own output."""
+        if self.num_calls:
+            self._write_num_calls()
 
     def wrap(self, func):
         """Wrap a function to enclose it in a LIKWID marker region."""
