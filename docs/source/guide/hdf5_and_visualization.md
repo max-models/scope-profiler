@@ -43,8 +43,11 @@ print(reader.num_ranks)
 for region in reader.get_regions():
     r0 = region[0]  # Region data for rank 0
     print(f"{region.name}: {r0.num_calls} calls, "
-          f"avg {r0.average_duration/1e9:.6f} s")
+          f"avg {r0.average_duration:.6f} s")
 ```
+
+Durations and timestamps on `Region` and `MPIRegion` are reported in
+**seconds**, converted from the nanoseconds stored in the file.
 
 ### Filtering regions
 
