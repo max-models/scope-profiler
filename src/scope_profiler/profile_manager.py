@@ -197,10 +197,14 @@ class ProfileManager:
         ProfileRegion : The ProfileRegion instance.
         """
 
-        region = cls._regions.setdefault(
-            region_name,
-            cls._region_cls(region_name, config=cls._config),
-        )
+        # Deliberately not `setdefault`: it evaluates its default eagerly, so
+        # every lookup of an existing region would construct (and discard) a
+        # full region object, including its preallocated timing buffers. This
+        # runs per call event under recursive profiling.
+        region = cls._regions.get(region_name)
+        if region is None:
+            region = cls._region_cls(region_name, config=cls._config)
+            cls._regions[region_name] = region
         if functions is not None:
             for func in functions:
                 region.add_function(func)
