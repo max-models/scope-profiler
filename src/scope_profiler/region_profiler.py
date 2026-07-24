@@ -35,6 +35,13 @@ def _import_line_profiler():
     return LineProfiler
 
 
+# Shared read-only stand-in for the timing buffers of regions that never record
+# timestamps. Handing out one module-level array keeps `start_times`/`end_times`
+# valid attributes (and the derived properties empty) at zero per-region cost.
+_EMPTY_TIMES = np.empty(0, dtype=np.int64)
+_EMPTY_TIMES.flags.writeable = False
+
+
 # Base class with common functionality (flush, append, HDF5 handling)
 class BaseProfileRegion:
     """Base class providing shared profiling logic.
@@ -58,6 +65,10 @@ class BaseProfileRegion:
         "_depth",
     )
 
+    # Subclasses that never write timestamps set this to False so no per-region
+    # buffers are allocated.
+    _records_time = True
+
     def __init__(self, region_name: str, config: ProfilingConfig):
         """Initialize a profiling region.
 
@@ -73,11 +84,15 @@ class BaseProfileRegion:
         self.config = config
         self.num_calls = 0
 
-        # Preallocate buffers
+        # Preallocate buffers (skipped entirely when no timing is recorded)
         self.ptr = 0
         self.buffer_limit = config.buffer_limit
-        self.start_times = np.empty(self.buffer_limit, dtype=np.int64)
-        self.end_times = np.empty(self.buffer_limit, dtype=np.int64)
+        if self._records_time:
+            self.start_times = np.empty(self.buffer_limit, dtype=np.int64)
+            self.end_times = np.empty(self.buffer_limit, dtype=np.int64)
+        else:
+            self.start_times = _EMPTY_TIMES
+            self.end_times = _EMPTY_TIMES
 
         # Recursion support: entering a scope reserves its slot (via `ptr`)
         # immediately and remembers it here, so a recursive re-entry before
@@ -177,6 +192,8 @@ class DisabledProfileRegion(BaseProfileRegion):
     Used when profiling is disabled but code paths must remain valid.
     """
 
+    _records_time = False
+
     def wrap(self, func):
         """Return the original function unchanged — no wrapper, no overhead."""
         return func
@@ -205,9 +222,7 @@ class DisabledProfileRegion(BaseProfileRegion):
 class NCallsOnlyProfileRegion(BaseProfileRegion):
     """Region that records only the number of calls, not timing."""
 
-    def __init__(self, region_name: str, config: ProfilingConfig):
-        """Initialize the region without allocating timing buffers."""
-        super().__init__(region_name, config)
+    _records_time = False
 
     def wrap(self, func):
         """Wrap a function and increment the call counter for each invocation."""
