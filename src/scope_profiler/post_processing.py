@@ -214,6 +214,26 @@ def main(argv: list[str] | None = None):
 
     readers = [ProfilingH5Reader(file_path) for file_path in args.files]
 
+    # Files profiled with time_trace=False hold call counts but no timestamps,
+    # so every chart here would be empty. Report the counts and stop, rather
+    # than failing deep inside the plotting code.
+    if not any(
+        len(region[rank].durations)
+        for reader in readers
+        for region in reader.get_regions()
+        for rank in region.regions
+    ):
+        print(
+            "No timing data found — these files were profiled with "
+            "time_trace=False, which records call counts only.\n"
+        )
+        for reader in readers:
+            print(f"{reader.file_path}:")
+            for region in reader.get_regions():
+                total = sum(r.num_calls for r in region.regions.values())
+                print(f"  {region.name}: {total} calls")
+        return
+
     gantt_path = None
     flame_path = None
     durations_path = None

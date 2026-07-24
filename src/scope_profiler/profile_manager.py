@@ -375,9 +375,12 @@ class ProfileManager:
         rank = config._rank
         size = config._size
 
-        # 1. Flush all buffered regions to per-rank files
-        if config.flush_to_disk:
-            for region in cls.get_all_regions().values():
+        # 1. Flush all buffered regions to per-rank files.
+        # Regions that record no timestamps buffer nothing — their flush() only
+        # writes the call count — so they flush even when flush_to_disk is off,
+        # which governs timing buffers. Otherwise their counts would be lost.
+        for region in cls.get_all_regions().values():
+            if config.flush_to_disk or not region._records_time:
                 region.flush()
 
         # 2. Barrier to ensure all ranks finished flushing
@@ -407,6 +410,7 @@ class ProfileManager:
                     for region_name, region in cls.get_all_regions().items():
                         all_starts = []
                         all_ends = []
+                        counted_calls = 0
                         # Collect from each rank's file
                         for r in range(size):
                             rank_file = config.get_local_filepath(r)
@@ -420,10 +424,19 @@ class ProfileManager:
                                     # profiled function before it returned).
                                     continue
                                 grp = fin[region_path]
+                                counted_calls += int(grp.attrs.get("num_calls", 0))
+                                if "start_times" not in grp:
+                                    # Count-only region: no timestamps recorded.
+                                    continue
                                 starts = grp["start_times"][:]
                                 ends = grp["end_times"][:]
                                 all_starts.append(starts)
                                 all_ends.append(ends)
+
+                        if not all_starts and counted_calls:
+                            print(f"Region: {region_name}")
+                            print(f"  Total Calls : {round(counted_calls / size)}")
+                            print("-" * 40)
 
                         if all_starts:
                             starts = np.concatenate(all_starts)
