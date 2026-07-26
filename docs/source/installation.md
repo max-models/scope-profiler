@@ -19,7 +19,14 @@ with the bracket syntax:
 | --------------- | --------------------------------------------- | ------------------------------------------------------------------------------------ |
 | `line-profiler` | `pip install "scope-profiler[line-profiler]"` | Line-by-line profiling via [line_profiler](https://github.com/pyutils/line_profiler) |
 | `mpi`           | `pip install "scope-profiler[mpi]"`           | MPI support via [mpi4py](https://mpi4py.readthedocs.io/)                             |
+| `pproc`         | `pip install "scope-profiler[pproc]"`         | Plotting and post-processing (`scope-profiler pproc`, `to_dataframe()`)               |
 | `dev`           | `pip install "scope-profiler[dev]"`           | All of the above plus linting, formatting, and docs tools                            |
+
+The base install pulls in only `h5py` and `numpy`. Recording timings, writing
+HDF5 and `scope-profiler inspect` all work with that alone; the extras are
+needed only for the features they name. `use_line_profiler=True` raises a
+clear `ImportError` if the `line-profiler` extra is not installed, as
+`use_likwid=True` does for `pylikwid`.
 
 ## Development install
 
