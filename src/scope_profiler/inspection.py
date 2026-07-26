@@ -51,8 +51,9 @@ _SORT_KEYS = ("total", "calls", "avg", "max", "name")
 def _region_durations(region, ranks=None) -> np.ndarray:
     """Pool every recorded call duration of a region, in seconds.
 
-    Durations come from ``Region.durations`` (seconds) rather than the
-    aggregate properties, which report nanoseconds.
+    Pooling the raw per-call durations rather than reusing
+    ``MPIRegion``'s aggregates keeps the ``--ranks`` filter working, since
+    those aggregate over every rank in the file.
     """
     selected = (
         region.regions
