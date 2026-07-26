@@ -54,7 +54,11 @@ class ProfileManager:
     @classmethod
     def _frame_region_name(cls, frame: FrameType) -> str:
         module_name = frame.f_globals.get("__name__", "<unknown>")
-        qualname = frame.f_code.co_qualname
+        # co_qualname is Python 3.11+; on 3.10 fall back to the plain function
+        # name, which loses the enclosing class but keeps recursive profiling
+        # working. Without this, recursive_profile=True and `scope-profiler
+        # run` raise AttributeError on 3.10.
+        qualname = getattr(frame.f_code, "co_qualname", None) or frame.f_code.co_name
         return f"{module_name}.{qualname}"
 
     @classmethod

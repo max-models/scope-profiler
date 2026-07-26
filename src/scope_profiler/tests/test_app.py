@@ -229,6 +229,24 @@ def test_line_profiler_context_manager():
     ProfileManager.finalize(verbose=False)
 
 
+def test_frame_region_name_without_co_qualname():
+    """Python 3.10 code objects have no co_qualname; naming must still work.
+
+    The unit-test matrix runs 3.11+, where the attribute always exists, so the
+    3.10 path is exercised with a stand-in frame.
+    """
+
+    class CodeWithoutQualname:
+        co_name = "my_function"
+
+    class FrameWithoutQualname:
+        f_globals = {"__name__": "my_module"}
+        f_code = CodeWithoutQualname()
+
+    name = ProfileManager._frame_region_name(FrameWithoutQualname())
+    assert name == "my_module.my_function"
+
+
 def test_recursive_decorator_profiles_nested_calls():
     ProfileManager.setup(
         use_likwid=False,
