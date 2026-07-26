@@ -72,6 +72,6 @@ compute()
 with ProfileManager.profile_region("allocate", functions=[allocate]):
     allocate()
 
-# finalize() flushes timing data to profiling_data.h5 and prints
+# finalize() writes timing data to profiling_data.h5 and prints
 # both the region summaries and the line_profiler tables.
 ProfileManager.finalize()

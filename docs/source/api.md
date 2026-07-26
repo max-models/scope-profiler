@@ -58,14 +58,6 @@ construct one directly for advanced use cases.
    :undoc-members:
 ```
 
-### TimeOnlyProfileRegionNoFlush
-
-```{eval-rst}
-.. autoclass:: scope_profiler.region_profiler.TimeOnlyProfileRegionNoFlush
-   :members:
-   :undoc-members:
-```
-
 ### LikwidOnlyProfileRegion
 
 ```{eval-rst}
@@ -78,14 +70,6 @@ construct one directly for advanced use cases.
 
 ```{eval-rst}
 .. autoclass:: scope_profiler.region_profiler.FullProfileRegion
-   :members:
-   :undoc-members:
-```
-
-### FullProfileRegionNoFlush
-
-```{eval-rst}
-.. autoclass:: scope_profiler.region_profiler.FullProfileRegionNoFlush
    :members:
    :undoc-members:
 ```

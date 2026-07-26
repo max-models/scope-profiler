@@ -70,7 +70,7 @@ class ProfilingConfig:
         recursive_profile: bool = False,
         time_trace: bool = True,
         flush_to_disk: bool = True,
-        buffer_limit: int = 100_000,
+        buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
     ):
         """Initialize the profiling configuration.
@@ -90,7 +90,8 @@ class ProfilingConfig:
         flush_to_disk : bool
             If True, flush profiling buffers to disk periodically.
         buffer_limit : int
-            Maximum number of in-memory records before flushing.
+            Initial number of in-memory records to preallocate per region.
+            The buffers grow on demand, so this is a starting size, not a cap.
         file_path : str
             Global output file path for combined profiling data.
         """
@@ -192,7 +193,7 @@ class ProfilingConfig:
 
     @property
     def buffer_limit(self) -> int:
-        """Maximum number of buffered profiling records."""
+        """Initial per-region buffer capacity; buffers grow beyond it as needed."""
         return self._buffer_limit
 
     @property

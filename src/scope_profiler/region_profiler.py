@@ -42,12 +42,13 @@ _EMPTY_TIMES = np.empty(0, dtype=np.int64)
 _EMPTY_TIMES.flags.writeable = False
 
 
-# Base class with common functionality (flush, append, HDF5 handling)
+# Base class with common functionality (buffer growth, HDF5 handling)
 class BaseProfileRegion:
     """Base class providing shared profiling logic.
 
-    Handles start/end time buffering, call counting, lazy HDF5 dataset
-    initialization, and flushing data to disk when buffers fill.
+    Handles start/end time buffering, call counting, and writing the recorded
+    timestamps to HDF5. The buffers grow on demand and are written out once,
+    at the end of the run.
     """
 
     __slots__ = (
@@ -58,11 +59,10 @@ class BaseProfileRegion:
         "num_calls",
         "ptr",
         "buffer_limit",
+        "capacity",
         "group_path",
         "local_file_path",
-        "hdf5_initialized",
         "_scope_ptr_stack",
-        "_depth",
     )
 
     # Subclasses that never write timestamps set this to False so no per-region
@@ -77,38 +77,57 @@ class BaseProfileRegion:
         region_name : str
         Name of the profiled region.
         config : ProfilingConfig
-        Profiling configuration containing buffer limits,
+        Profiling configuration containing the initial buffer capacity,
         file paths, and timing reference.
         """
         self.region_name = region_name
         self.config = config
         self.num_calls = 0
 
-        # Preallocate buffers (skipped entirely when no timing is recorded)
+        # Preallocate buffers (skipped entirely when no timing is recorded).
+        # `buffer_limit` is the *initial* capacity: `_grow` doubles it as
+        # needed, so the number of calls a region can record is bounded only
+        # by memory.
         self.ptr = 0
         self.buffer_limit = config.buffer_limit
         if self._records_time:
-            self.start_times = np.empty(self.buffer_limit, dtype=np.int64)
-            self.end_times = np.empty(self.buffer_limit, dtype=np.int64)
+            self.capacity = self.buffer_limit
+            self.start_times = np.empty(self.capacity, dtype=np.int64)
+            self.end_times = np.empty(self.capacity, dtype=np.int64)
         else:
+            self.capacity = 0
             self.start_times = _EMPTY_TIMES
             self.end_times = _EMPTY_TIMES
 
         # Recursion support: entering a scope reserves its slot (via `ptr`)
         # immediately and remembers it here, so a recursive re-entry before
         # the outer call exits reserves its own slot instead of clobbering
-        # the outer one. `_scope_ptr_stack` backs the context-manager form
-        # (enter/exit are on the same `self`, so the slot must be pushed and
-        # popped); `_depth` backs the decorator form (the slot already lives
-        # in the wrapper's local scope, only the flush-safety check needs
-        # nesting depth).
+        # the outer one. Only the context-manager form needs the stack; the
+        # decorator form keeps its slot in the wrapper's local scope.
         self._scope_ptr_stack = []
-        self._depth = 0
 
         # Setu p paths
         self.group_path = f"regions/{self.region_name}"
         self.local_file_path = self.config._local_file_path
-        self.hdf5_initialized = False
+
+    def _grow(self) -> None:
+        """Double the timestamp buffers, preserving already-recorded slots.
+
+        Slot indices are handed out before the profiled call runs and written
+        after it returns, so growth must keep every index valid: the contents
+        are copied to the same positions in the larger buffers, and the
+        deferred writes then land in the new arrays.
+        """
+        capacity = max(1, self.capacity * 2)
+        start_times = np.empty(capacity, dtype=np.int64)
+        end_times = np.empty(capacity, dtype=np.int64)
+        start_times[: self.capacity] = self.start_times
+        end_times[: self.capacity] = self.end_times
+        self.start_times = start_times
+        self.end_times = end_times
+        # Cached so the hot path compares two ints rather than reaching into
+        # the array for its size on every call.
+        self.capacity = capacity
 
     def wrap(self, func):
         """Wrap a function for profiling.
@@ -124,49 +143,28 @@ class BaseProfileRegion:
         return wrapper
 
     def append(self, start: float, end: float) -> None:
-        """Append a start/end time pair to the buffer.
+        """Append a start/end time pair to the buffer, growing it if needed."""
 
-        Automatically triggers a flush if the buffer becomes full.
-        """
-
+        if self.ptr >= self.capacity:
+            self._grow()
         self.start_times[self.ptr] = start
         self.end_times[self.ptr] = end
         self.ptr += 1
-        if self.ptr >= self.buffer_limit:
-            self.flush()
 
-    def flush(self):
-        """Flush buffered start/end times to the HDF5 file.
+    def write_to_disk(self):
+        """Write the recorded start/end times to the per-rank HDF5 file.
 
-        Lazily initializes datasets on the first flush.
-        Subsequent flushes append to the existing datasets.
+        Called once, at the end of the run. Because the final length is known
+        by then, the datasets are created contiguous and exactly sized rather
+        than chunked and resizable, which keeps sparse regions small on disk.
         """
         if self.ptr == 0:
             return
 
-        if not self.hdf5_initialized:
-            with h5py.File(self.config._local_file_path, "a") as f:
-                grp = f.require_group(f"regions/{self.region_name}")
-                for name in ("start_times", "end_times"):
-                    if name not in grp:
-                        grp.create_dataset(
-                            name, shape=(0,), maxshape=(None,), dtype="i8", chunks=True
-                        )
-            self.hdf5_initialized = True
-
         with h5py.File(self.config._local_file_path, "a") as f:
-            grp = f[f"regions/{self.region_name}"]
-            for name, data in [
-                ("start_times", self.start_times[: self.ptr]),
-                ("end_times", self.end_times[: self.ptr]),
-            ]:
-                ds = grp[name]
-                old_size = ds.shape[0]
-                new_size = old_size + self.ptr
-                ds.resize((new_size,))
-                ds[old_size:new_size] = data
-
-        self.ptr = 0
+            grp = f.require_group(self.group_path)
+            grp.create_dataset("start_times", data=self.start_times[: self.ptr])
+            grp.create_dataset("end_times", data=self.end_times[: self.ptr])
 
     def _write_num_calls(self) -> None:
         """Persist the call count as an attribute on this region's HDF5 group.
@@ -212,7 +210,7 @@ class DisabledProfileRegion(BaseProfileRegion):
         """Ignored: no data recorded."""
         pass
 
-    def flush(self):
+    def write_to_disk(self):
         """Ignored: no data recorded."""
         pass
 
@@ -249,7 +247,7 @@ class NCallsOnlyProfileRegion(BaseProfileRegion):
         """Ignored: timing information is not stored."""
         pass
 
-    def flush(self):
+    def write_to_disk(self):
         """Persist the call count — the only thing this region records."""
         if self.num_calls:
             self._write_num_calls()
@@ -269,14 +267,11 @@ class NCallsOnlyProfileRegion(BaseProfileRegion):
 
 
 # Time-only region
-class TimeOnlyProfileRegionNoFlush(BaseProfileRegion):
-    """Region that records timing but never flushes to disk.
-
-    Used for lightweight profiling where in-memory results are sufficient.
-    """
+class TimeOnlyProfileRegion(BaseProfileRegion):
+    """Region that records timing, written to disk once at the end of the run."""
 
     def wrap(self, func):
-        """Wrap a function to measure start and end time without flushing."""
+        """Wrap a function to measure its execution time."""
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -284,6 +279,8 @@ class TimeOnlyProfileRegionNoFlush(BaseProfileRegion):
             # Reserve this call's slot before invoking `func`, so a
             # recursive call re-entering this region gets its own slot
             # instead of overwriting this one.
+            if self.ptr >= self.capacity:
+                self._grow()
             scope_ptr = self.ptr
             self.ptr += 1
             start = np.int64(perf_counter_ns())
@@ -297,68 +294,20 @@ class TimeOnlyProfileRegionNoFlush(BaseProfileRegion):
         return wrapper
 
     def __enter__(self):
-        """Reserve this scope's slot and record the start time."""
-        self.num_calls += 1
+        """Reserve this scope's slot, record start time, and increment call count."""
+        if self.ptr >= self.capacity:
+            self._grow()
         scope_ptr = self.ptr
         self.ptr += 1
         self._scope_ptr_stack.append(scope_ptr)
         self.start_times[scope_ptr] = np.int64(perf_counter_ns())
+        self.num_calls += 1
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         """Record the end time at this scope's reserved slot."""
         scope_ptr = self._scope_ptr_stack.pop()
         self.end_times[scope_ptr] = np.int64(perf_counter_ns())
-
-
-class TimeOnlyProfileRegion(BaseProfileRegion):
-    """Region that records timing and flushes to disk when buffers fill."""
-
-    def wrap(self, func):
-        """Wrap a function to measure execution time and flush when needed."""
-
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            self.num_calls += 1
-            # Reserve this call's slot before invoking `func`, so a
-            # recursive call re-entering this region gets its own slot
-            # instead of overwriting this one.
-            scope_ptr = self.ptr
-            self.ptr += 1
-            self._depth += 1
-            start = np.int64(perf_counter_ns())
-            try:
-                return func(*args, **kwargs)
-            finally:
-                end = np.int64(perf_counter_ns())
-                self.start_times[scope_ptr] = start
-                self.end_times[scope_ptr] = end
-                self._depth -= 1
-                # Only flush once every recursive call has finished writing its
-                # own slot; flushing mid-recursion could write out reserved but
-                # not-yet-filled slots belonging to still-open outer calls.
-                if self._depth == 0 and self.ptr >= self.buffer_limit:
-                    self.flush()
-
-        return wrapper
-
-    def __enter__(self):
-        """Reserve this scope's slot, record start time, and increment call count."""
-        scope_ptr = self.ptr
-        self.ptr += 1
-        self._scope_ptr_stack.append(scope_ptr)
-        self.start_times[scope_ptr] = np.int64(perf_counter_ns())
-        self.num_calls += 1
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        """Record end time at this scope's slot and flush if needed."""
-        scope_ptr = self._scope_ptr_stack.pop()
-        self.end_times[scope_ptr] = np.int64(perf_counter_ns())
-        # Only flush once no scope of this region is still open (i.e. this
-        # was the outermost/non-recursive exit).
-        if not self._scope_ptr_stack and self.ptr >= self.buffer_limit:
-            self.flush()
 
 
 # LIKWID-only region
@@ -379,7 +328,7 @@ class LikwidOnlyProfileRegion(BaseProfileRegion):
         self.likwid_marker_start = pylikwid.markerstartregion
         self.likwid_marker_stop = pylikwid.markerstopregion
 
-    def flush(self):
+    def write_to_disk(self):
         """Persist the call count; LIKWID counters go to LIKWID's own output."""
         if self.num_calls:
             self._write_num_calls()
@@ -410,64 +359,8 @@ class LikwidOnlyProfileRegion(BaseProfileRegion):
 
 
 # Full region: time + LIKWID
-class FullProfileRegionNoFlush(BaseProfileRegion):
-    """Region that records both timing and LIKWID metrics, without flushing.
-
-    Useful for high-frequency profiling where the user retrieves metrics only
-    from in-memory buffers. No HDF5 writes occur.
-    """
-
-    __slots__ = ("likwid_marker_start", "likwid_marker_stop")
-
-    def __init__(self, region_name: str, config: ProfilingConfig):
-        """Initialize timing buffers and LIKWID marker callbacks."""
-        super().__init__(region_name, config)
-        pylikwid = _import_pylikwid()
-        self.likwid_marker_start = pylikwid.markerstartregion
-        self.likwid_marker_stop = pylikwid.markerstopregion
-
-    def wrap(self, func):
-        """Wrap a function to measure time and collect LIKWID metrics without flushing."""
-
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            self.num_calls += 1
-            # Reserve this call's slot before invoking `func`, so a
-            # recursive call re-entering this region gets its own slot
-            # instead of overwriting this one.
-            scope_ptr = self.ptr
-            self.ptr += 1
-            start = np.int64(perf_counter_ns())
-            self.likwid_marker_start(self.region_name)
-            try:
-                return func(*args, **kwargs)
-            finally:
-                self.likwid_marker_stop(self.region_name)
-                end = np.int64(perf_counter_ns())
-                self.start_times[scope_ptr] = start
-                self.end_times[scope_ptr] = end
-
-        return wrapper
-
-    def __enter__(self):
-        """Reserve this scope's slot, start LIKWID region, and increase num_calls by 1."""
-        self.likwid_marker_start(self.region_name)
-        scope_ptr = self.ptr
-        self.ptr += 1
-        self._scope_ptr_stack.append(scope_ptr)
-        self.start_times[scope_ptr] = np.int64(perf_counter_ns())
-        self.num_calls += 1
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        """Record end time at this scope's slot and stop LIKWID region."""
-        self.likwid_marker_stop(self.region_name)
-        scope_ptr = self._scope_ptr_stack.pop()
-        self.end_times[scope_ptr] = np.int64(perf_counter_ns())
-
-
 class FullProfileRegion(BaseProfileRegion):
-    """Region that records both timing and LIKWID metrics, and flushes to HDF5.
+    """Region that records both timing and LIKWID metrics, and writes to HDF5.
 
     This is the most complete profiling mode: users obtain LIKWID markers,
     nanosecond-resolution timing, and persistent on-disk storage.
@@ -483,7 +376,7 @@ class FullProfileRegion(BaseProfileRegion):
         self.likwid_marker_stop = pylikwid.markerstopregion
 
     def wrap(self, func):
-        """Wrap a function to measure time, collect LIKWID metrics, and flush when needed."""
+        """Wrap a function to measure time and collect LIKWID metrics."""
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -491,9 +384,10 @@ class FullProfileRegion(BaseProfileRegion):
             # Reserve this call's slot before invoking `func`, so a
             # recursive call re-entering this region gets its own slot
             # instead of overwriting this one.
+            if self.ptr >= self.capacity:
+                self._grow()
             scope_ptr = self.ptr
             self.ptr += 1
-            self._depth += 1
             start = np.int64(perf_counter_ns())
             self.likwid_marker_start(self.region_name)
             try:
@@ -503,18 +397,14 @@ class FullProfileRegion(BaseProfileRegion):
                 end = np.int64(perf_counter_ns())
                 self.start_times[scope_ptr] = start
                 self.end_times[scope_ptr] = end
-                self._depth -= 1
-                # Only flush once every recursive call has finished writing its
-                # own slot; flushing mid-recursion could write out reserved but
-                # not-yet-filled slots belonging to still-open outer calls.
-                if self._depth == 0 and self.ptr >= self.buffer_limit:
-                    self.flush()
 
         return wrapper
 
     def __enter__(self):
         """Reserve this scope's slot, record start time, and start LIKWID region."""
         self.num_calls += 1
+        if self.ptr >= self.capacity:
+            self._grow()
         scope_ptr = self.ptr
         self.ptr += 1
         self._scope_ptr_stack.append(scope_ptr)
@@ -523,14 +413,10 @@ class FullProfileRegion(BaseProfileRegion):
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        """Record end time at this scope's slot, stop LIKWID region, and flush if needed."""
+        """Record the end time at this scope's slot and stop the LIKWID region."""
         self.likwid_marker_stop(self.region_name)
         scope_ptr = self._scope_ptr_stack.pop()
         self.end_times[scope_ptr] = np.int64(perf_counter_ns())
-        # Only flush once no scope of this region is still open (i.e. this
-        # was the outermost/non-recursive exit).
-        if not self._scope_ptr_stack and self.ptr >= self.buffer_limit:
-            self.flush()
 
 
 # Line profiler region: time + line_profiler
@@ -565,9 +451,10 @@ class LineProfilerRegion(BaseProfileRegion):
             # Reserve this call's slot before invoking `func`, so a
             # recursive call re-entering this region gets its own slot
             # instead of overwriting this one.
+            if self.ptr >= self.capacity:
+                self._grow()
             scope_ptr = self.ptr
             self.ptr += 1
-            self._depth += 1
             start = np.int64(perf_counter_ns())
             self._line_profiler.enable_by_count()
             try:
@@ -577,18 +464,14 @@ class LineProfilerRegion(BaseProfileRegion):
                 end = np.int64(perf_counter_ns())
                 self.start_times[scope_ptr] = start
                 self.end_times[scope_ptr] = end
-                self._depth -= 1
-                # Only flush once every recursive call has finished writing its
-                # own slot; flushing mid-recursion could write out reserved but
-                # not-yet-filled slots belonging to still-open outer calls.
-                if self._depth == 0 and self.ptr >= self.buffer_limit:
-                    self.flush()
 
         return wrapper
 
     def __enter__(self):
         """Reserve this scope's slot, record start time, and enable line profiler."""
         self.num_calls += 1
+        if self.ptr >= self.capacity:
+            self._grow()
         scope_ptr = self.ptr
         self.ptr += 1
         self._scope_ptr_stack.append(scope_ptr)
@@ -597,14 +480,10 @@ class LineProfilerRegion(BaseProfileRegion):
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        """Disable line profiler, record end time at this scope's slot, and flush if needed."""
+        """Disable the line profiler and record the end time at this scope's slot."""
         self._line_profiler.disable_by_count()
         scope_ptr = self._scope_ptr_stack.pop()
         self.end_times[scope_ptr] = np.int64(perf_counter_ns())
-        # Only flush once no scope of this region is still open (i.e. this
-        # was the outermost/non-recursive exit).
-        if not self._scope_ptr_stack and self.ptr >= self.buffer_limit:
-            self.flush()
 
     def add_function(self, func) -> None:
         """Register a function for line-by-line profiling."""

@@ -67,7 +67,7 @@ The two styles can be mixed freely.
 
 ## 3. Finalize
 
-Call `finalize()` when profiling is done. This flushes all buffered data,
+Call `finalize()` when profiling is done. This writes all buffered data,
 merges per-rank HDF5 files, and prints a summary:
 
 ```python

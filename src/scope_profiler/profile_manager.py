@@ -18,12 +18,10 @@ from scope_profiler.region_profiler import (
     BaseProfileRegion,
     DisabledProfileRegion,
     FullProfileRegion,
-    FullProfileRegionNoFlush,
     LikwidOnlyProfileRegion,
     LineProfilerRegion,
     NCallsOnlyProfileRegion,
     TimeOnlyProfileRegion,
-    TimeOnlyProfileRegionNoFlush,
 )
 
 
@@ -155,8 +153,10 @@ class ProfileManager:
         """
         Update the active region class based on current configuration settings.
 
-        Selects the appropriate ProfileRegion subclass based on profiling options
-        including time tracing, LIKWID hardware counters, and disk flushing.
+        Selects the appropriate ProfileRegion subclass based on profiling
+        options: time tracing, LIKWID hardware counters and line profiling.
+        ``flush_to_disk`` does not affect the choice -- recording is identical
+        either way, it only decides whether finalize() writes the data out.
         """
         cfg = cls._config
         if not cfg.profiling_activated:
@@ -164,15 +164,9 @@ class ProfileManager:
         elif cfg.use_line_profiler:
             cls._region_cls = LineProfilerRegion
         elif cfg.time_trace and cfg.use_likwid:
-            if cfg.flush_to_disk:
-                cls._region_cls = FullProfileRegion
-            else:
-                cls._region_cls = FullProfileRegionNoFlush
+            cls._region_cls = FullProfileRegion
         elif cfg.time_trace:
-            if cfg.flush_to_disk:
-                cls._region_cls = TimeOnlyProfileRegion
-            else:
-                cls._region_cls = TimeOnlyProfileRegionNoFlush
+            cls._region_cls = TimeOnlyProfileRegion
         elif cfg.use_likwid:
             cls._region_cls = LikwidOnlyProfileRegion
         else:
@@ -383,15 +377,15 @@ class ProfileManager:
         rank = config._rank
         size = config._size
 
-        # 1. Flush all buffered regions to per-rank files.
-        # Regions that record no timestamps buffer nothing — their flush() only
-        # writes the call count — so they flush even when flush_to_disk is off,
-        # which governs timing buffers. Otherwise their counts would be lost.
+        # 1. Write every region's buffered timestamps to its per-rank file.
+        # Regions that record no timestamps write only their call count, which
+        # is cheap and has nothing to do with timing buffers, so they write
+        # even when flush_to_disk is off. Otherwise their counts would be lost.
         for region in cls.get_all_regions().values():
             if config.flush_to_disk or not region._records_time:
-                region.flush()
+                region.write_to_disk()
 
-        # 2. Barrier to ensure all ranks finished flushing
+        # 2. Barrier to ensure all ranks finished writing
         if comm is not None:
             comm.Barrier()
 
@@ -535,7 +529,7 @@ class ProfileManager:
         recursive_profile: bool = False,
         time_trace: bool = True,
         flush_to_disk: bool = True,
-        buffer_limit: int = 100_000,
+        buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
     ):
         """
@@ -556,9 +550,13 @@ class ProfileManager:
         time_trace : bool, optional
             Enable timing trace collection (default: True).
         flush_to_disk : bool, optional
-            Enable flushing profiling data to disk (default: True).
+            Write the recorded data to disk at finalize() (default: True).
+            When False, results stay in memory for the process to read.
         buffer_limit : int, optional
-            Maximum number of profiling events per buffer before flushing (default: 100_000).
+            Initial number of profiling events preallocated per region
+            (default: 1024). Buffers grow on demand, so this is a starting
+            size rather than a limit; raise it for very hot regions to avoid
+            repeated reallocation.
         file_path : str, optional
             Path to the output profiling data file (default: "profiling_data.h5").
         """
