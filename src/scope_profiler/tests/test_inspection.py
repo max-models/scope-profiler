@@ -1,0 +1,231 @@
+"""Tests for ``scope-profiler inspect``."""
+
+import h5py
+import numpy as np
+import pytest
+
+from scope_profiler.__main__ import main as cli_main
+from scope_profiler.inspection import inspect_file
+from scope_profiler.inspection import main as inspect_main
+
+NS = 1_000_000_000
+
+
+def _write_sample_h5(path, rank_regions, metadata=None):
+    with h5py.File(path, "w") as h5file:
+        if metadata:
+            meta_grp = h5file.create_group("metadata")
+            for key, value in metadata.items():
+                if isinstance(value, (list, tuple)):
+                    meta_grp.attrs.create(key, list(value), dtype=h5py.string_dtype())
+                else:
+                    meta_grp.attrs[key] = value
+        for rank, regions in rank_regions.items():
+            regions_group = h5file.create_group(f"rank{rank}").create_group("regions")
+            for region_name, payload in regions.items():
+                region_group = regions_group.create_group(region_name)
+                if payload is None:
+                    region_group.attrs["num_calls"] = 3
+                    continue
+                starts, ends = payload
+                region_group.create_dataset(
+                    "start_times", data=np.asarray(starts, dtype=np.int64)
+                )
+                region_group.create_dataset(
+                    "end_times", data=np.asarray(ends, dtype=np.int64)
+                )
+
+
+@pytest.fixture
+def sample_file(tmp_path):
+    """Two ranks, a cheap and an expensive region, with rich metadata."""
+    path = tmp_path / "profiling_data.h5"
+    _write_sample_h5(
+        path,
+        {
+            0: {
+                "setup": ([0], [1 * NS]),
+                "solve": ([2 * NS, 5 * NS], [4 * NS, 8 * NS]),
+            },
+            1: {
+                "setup": ([0], [3 * NS]),
+                "solve": ([2 * NS, 5 * NS], [6 * NS, 9 * NS]),
+            },
+        },
+        metadata={
+            "timestamp": "2026-07-26T10:00:00",
+            "user": "max",
+            "hostname": "lrdn1234",
+            "platform": "Linux-5.14.0-x86_64",
+            "uname": "Linux lrdn1234 5.14.0 #1 SMP x86_64",
+            "chip_information": "AMD EPYC 9654 96-Core Processor",
+            "mpi_size": 2,
+            "omp_num_threads": 8,
+            "total_cores": 16,
+            "modules": ["profile/base", "gcc/12.3.0", "python/3.11.7"],
+            "SLURM_JOB_ID": "1234567",
+            "SLURMD_NODENAME": "lrdn1234",
+            "PATH": "/very/long/path" * 40,
+            "VIRTUAL_ENV": "/home/max/.venv",
+        },
+    )
+    return path
+
+
+def test_inspect_prints_metadata_and_regions(sample_file, capsys):
+    inspect_file(sample_file)
+    out = capsys.readouterr().out
+
+    # Header
+    assert "profiling_data.h5" in out
+    assert "2 rank(s), 2 region(s)" in out
+    assert "wall clock" in out
+
+    # Metadata, grouped
+    assert "Metadata" in out
+    assert "chip_information" in out and "AMD EPYC 9654" in out
+    assert "uname" in out
+    assert "SLURM_JOB_ID" in out and "1234567" in out
+    assert "VIRTUAL_ENV" in out
+
+    # Modules are listed one per line, not as a Python repr
+    assert "Modules (3)" in out
+    assert "    gcc/12.3.0" in out
+    assert "['profile/base'" not in out
+
+    # Region table with overall stats
+    assert "Regions (2)" in out
+    assert "total [s]" in out and "avg [s]" in out and "std [s]" in out
+    assert "setup" in out and "solve" in out
+    assert "TOTAL" in out
+
+
+def test_region_statistics_are_seconds(sample_file, capsys):
+    """solve: 2 s + 3 s on rank 0, 4 s + 4 s on rank 1."""
+    inspect_file(sample_file, include="solve")
+    line = next(
+        line for line in capsys.readouterr().out.splitlines() if "solve" in line
+    )
+    fields = line.split()
+
+    assert fields[0] == "solve"
+    assert fields[1] == "2"  # ranks
+    assert fields[2] == "4"  # calls
+    assert float(fields[3]) == pytest.approx(13.0)  # total
+    assert float(fields[4]) == pytest.approx(13.0 / 4)  # avg
+    assert float(fields[5]) == pytest.approx(2.0)  # min
+    assert float(fields[6]) == pytest.approx(4.0)  # max
+
+
+def test_long_metadata_values_are_clipped_unless_full(sample_file, capsys):
+    inspect_file(sample_file)
+    clipped = next(
+        line for line in capsys.readouterr().out.splitlines() if "PATH" in line
+    )
+    assert "[…]" in clipped
+
+    inspect_file(sample_file, full=True)
+    full = next(line for line in capsys.readouterr().out.splitlines() if "PATH" in line)
+    assert "[…]" not in full
+    assert len(full) > len(clipped)
+
+
+def test_sorting(sample_file, capsys):
+    inspect_file(sample_file, sort="total")
+    ordered = [
+        line.split()[0]
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("  setup") or line.startswith("  solve")
+    ]
+    assert ordered == ["solve", "setup"]  # solve: 13 s, setup: 4 s
+
+    inspect_file(sample_file, sort="name")
+    ordered = [
+        line.split()[0]
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("  setup") or line.startswith("  solve")
+    ]
+    assert ordered == ["setup", "solve"]
+
+
+def test_include_exclude_and_ranks(sample_file, capsys):
+    inspect_file(sample_file, include="solve")
+    out = capsys.readouterr().out
+    assert "solve" in out and "Regions (1)" in out
+
+    inspect_file(sample_file, exclude="solve")
+    out = capsys.readouterr().out
+    assert "Regions (1)" in out and "setup" in out
+
+    # Restricting to rank 0 halves solve's call count (2 of 4).
+    inspect_file(sample_file, include="solve", ranks=[0])
+    line = next(
+        line for line in capsys.readouterr().out.splitlines() if "solve" in line
+    )
+    assert line.split()[1:3] == ["1", "2"]
+
+
+def test_section_switches(sample_file, capsys):
+    inspect_file(sample_file, show_regions=False)
+    out = capsys.readouterr().out
+    assert "Metadata" in out and "Regions" not in out
+
+    inspect_file(sample_file, show_metadata=False)
+    out = capsys.readouterr().out
+    assert "Metadata" not in out and "Regions" in out
+
+
+def test_count_only_regions(tmp_path, capsys):
+    """Regions from time_trace=False runs report calls but no durations."""
+    path = tmp_path / "counts.h5"
+    _write_sample_h5(path, {0: {"counted": None}}, metadata={"user": "max"})
+
+    inspect_file(path)
+    out = capsys.readouterr().out
+    line = next(line for line in out.splitlines() if "counted" in line)
+
+    assert line.split()[1:] == ["1", "3", "-", "-", "-", "-", "-"]
+    assert "time_trace=False" in out
+
+
+def test_file_without_regions_or_metadata(tmp_path, capsys):
+    path = tmp_path / "empty.h5"
+    _write_sample_h5(path, {})
+
+    inspect_file(path)
+    out = capsys.readouterr().out
+
+    assert "0 rank(s), 0 region(s)" in out
+    assert "(none recorded)" in out
+
+
+def test_cli_entry_point(sample_file, capsys):
+    inspect_main([str(sample_file)])
+    assert "Metadata" in capsys.readouterr().out
+
+
+def test_cli_accepts_multiple_files_and_globs(sample_file, capsys):
+    second = sample_file.parent / "second_run.h5"
+    _write_sample_h5(second, {0: {"setup": ([0], [1 * NS])}}, metadata={"user": "max"})
+
+    inspect_main([str(sample_file), str(second)])
+    assert capsys.readouterr().out.count("Metadata") == 2
+
+    # A glob covers both, and repeated paths are reported once (as in pproc).
+    inspect_main([str(sample_file.parent / "*.h5"), str(sample_file)])
+    assert capsys.readouterr().out.count("Metadata") == 2
+
+
+def test_dispatch_from_main_cli(sample_file, capsys):
+    cli_main(["inspect", str(sample_file), "--metadata-only"])
+    out = capsys.readouterr().out
+
+    assert "Metadata" in out
+    assert "Regions" not in out
+
+
+def test_inspect_listed_in_top_level_help(capsys):
+    with pytest.raises(SystemExit):
+        cli_main(["--help"])
+
+    assert "inspect" in capsys.readouterr().out
