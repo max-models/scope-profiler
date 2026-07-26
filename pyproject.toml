@@ -40,6 +40,7 @@ optional-dependencies.pproc = [
   "matplotlib",
   "maxplotlibx >= 0.1.5",
   "pandas",
+  "snakeviz",
 ]
 
 optional-dependencies.dev = [

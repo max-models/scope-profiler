@@ -13,6 +13,7 @@ from scope_profiler.plotting_scripts import (
     plot_speedup,
     write_region_statistics_json,
 )
+from scope_profiler.prof_export import export_prof
 
 
 def parse_ranks(spec: str, verbose: bool = False) -> list[int]:
@@ -156,13 +157,25 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--export-prof",
+        action="store_true",
+        help=(
+            "Also write one profile_rank<N>.prof file per exported rank in the "
+            "cProfile/pstats format, so the run can be browsed with external "
+            "tools (`snakeviz profile_rank0.prof`, `python -m pstats ...`). "
+            "The call graph is reconstructed from region nesting; only ranks "
+            "selected with --ranks are exported (default: rank 0). Requires "
+            "-o/--output."
+        ),
+    )
+    parser.add_argument(
         "--skip-plot-images",
         action="store_true",
         help=(
             "Do not render/save the PNG plot images, only the outputs from "
-            "--export-data. Useful when charts are rendered entirely client-"
-            "side (e.g. with Plotly) from the exported data. Requires "
-            "--export-data."
+            "--export-data/--export-prof. Useful when charts are rendered "
+            "entirely client-side (e.g. with Plotly) from the exported data. "
+            "Requires --export-data or --export-prof."
         ),
     )
     return parser
@@ -203,8 +216,11 @@ def main(argv: list[str] | None = None):
     if args.export_data and not args.output:
         parser.error("--export-data requires -o/--output.")
 
-    if args.skip_plot_images and not args.export_data:
-        parser.error("--skip-plot-images requires --export-data.")
+    if args.export_prof and not args.output:
+        parser.error("--export-prof requires -o/--output.")
+
+    if args.skip_plot_images and not (args.export_data or args.export_prof):
+        parser.error("--skip-plot-images requires --export-data or --export-prof.")
 
     if args.ranks:
         ranks = []
@@ -243,6 +259,9 @@ def main(argv: list[str] | None = None):
     flame_data_path = None
     durations_data_path = None
     speedup_data_path = None
+    prof_path = None
+    prof_paths: list = []
+    durations_paths: list = []
     if args.output:
         os.makedirs(args.output, exist_ok=True)
         if not args.skip_plot_images:
@@ -266,61 +285,79 @@ def main(argv: list[str] | None = None):
                 speedup_data_path = os.path.join(
                     args.output, f"speedup_data.{data_ext}"
                 )
+        if args.export_prof:
+            prof_path = os.path.join(args.output, "profile.prof")
 
-    plot_gantt(
-        profiling_data=readers,
-        filepath=gantt_path,
-        show=args.show,
-        include=args.include,
-        exclude=args.exclude,
-        ranks=args.ranks,
-        cmap=args.cmap,
-        data_filepath=gantt_data_path,
-        data_format=args.export_data_format,
-        backend=args.backend,
-    )
+    # --skip-plot-images still needs the plotting functions to produce the
+    # --export-data files, but a prof-only run should not touch the plotting
+    # backend at all.
+    render_plots = not args.skip_plot_images or args.export_data
 
-    plot_flame(
-        profiling_data=readers,
-        filepath=flame_path,
-        show=args.show,
-        include=args.include,
-        exclude=args.exclude,
-        ranks=args.ranks,
-        cmap=args.cmap,
-        data_filepath=flame_data_path,
-        data_format=args.export_data_format,
-        backend=args.backend,
-    )
-
-    durations_paths = plot_durations(
-        profiling_data=readers,
-        filepath=durations_path,
-        show=args.show,
-        include=args.include,
-        exclude=args.exclude,
-        ranks=args.ranks,
-        metrics=args.metrics,
-        cmap=args.cmap,
-        data_filepath=durations_data_path,
-        data_format=args.export_data_format,
-        backend=args.backend,
-    )
-
-    if len(readers) > 1:
-        plot_speedup(
+    if args.export_prof:
+        prof_paths = export_prof(
             profiling_data=readers,
-            x_field=args.x_field,
+            filepath=prof_path,
             ranks=args.ranks,
-            filepath=speedup_path,
+            include=args.include,
+            exclude=args.exclude,
+            verbose=False,
+        )
+
+    if render_plots:
+        plot_gantt(
+            profiling_data=readers,
+            filepath=gantt_path,
             show=args.show,
             include=args.include,
             exclude=args.exclude,
+            ranks=args.ranks,
             cmap=args.cmap,
-            data_filepath=speedup_data_path,
+            data_filepath=gantt_data_path,
             data_format=args.export_data_format,
             backend=args.backend,
         )
+
+        plot_flame(
+            profiling_data=readers,
+            filepath=flame_path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            cmap=args.cmap,
+            data_filepath=flame_data_path,
+            data_format=args.export_data_format,
+            backend=args.backend,
+        )
+
+        durations_paths = plot_durations(
+            profiling_data=readers,
+            filepath=durations_path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            metrics=args.metrics,
+            cmap=args.cmap,
+            data_filepath=durations_data_path,
+            data_format=args.export_data_format,
+            backend=args.backend,
+        )
+
+        if len(readers) > 1:
+            plot_speedup(
+                profiling_data=readers,
+                x_field=args.x_field,
+                ranks=args.ranks,
+                filepath=speedup_path,
+                show=args.show,
+                include=args.include,
+                exclude=args.exclude,
+                cmap=args.cmap,
+                data_filepath=speedup_data_path,
+                data_format=args.export_data_format,
+                backend=args.backend,
+            )
 
     if statistics_path:
         write_region_statistics_json(
@@ -333,7 +370,7 @@ def main(argv: list[str] | None = None):
 
     if args.output and not args.show:
         saved = [
-            path
+            str(path)
             for path in (
                 gantt_path,
                 flame_path,
@@ -344,10 +381,13 @@ def main(argv: list[str] | None = None):
                 flame_data_path,
                 durations_data_path,
                 speedup_data_path,
+                *prof_paths,
             )
             if path
         ]
         print("Outputs saved to:\n  " + "\n  ".join(saved))
+        if prof_paths:
+            print(f"\nView a .prof file with: snakeviz {prof_paths[0]}")
 
 
 if __name__ == "__main__":
