@@ -67,7 +67,7 @@ The two styles can be mixed freely.
 
 ## 3. Finalize
 
-Call `finalize()` when profiling is done. This flushes all buffered data,
+Call `finalize()` when profiling is done. This writes all buffered data,
 merges per-rank HDF5 files, and prints a summary:
 
 ```python
@@ -77,18 +77,17 @@ ProfileManager.finalize()
 Output:
 
 ```text
-Region: matrix_multiply
-  Total Calls : 100
-  Total Time  : 0.523189 s
-  Avg Time    : 0.005231 s
-  Min Time    : 0.004912 s
-  Max Time    : 0.006104 s
-  Std Dev     : 0.000287 s
-----------------------------------------
-Region: time_step
-  Total Calls : 1000
-  ...
+profiling_data.h5  (1 rank(s))
+  region           ranks  calls   total [s]     avg [s]     min [s]     max [s]     std [s]
+  ------------------------------------------------------------------------------------------
+  matrix_multiply      1    100    0.523189    0.005231    0.004912    0.006104    0.000287
+  time_step            1   1000         ...         ...         ...         ...         ...
+  ------------------------------------------------------------------------------------------
+  TOTAL                     1100         ...
 ```
+
+The same table is available from `ProfilingH5Reader.print_summary()` and from
+`scope-profiler inspect`; pass `verbose=False` to `finalize()` to suppress it.
 
 ## 4. Inspect the data
 
@@ -102,13 +101,17 @@ scope-profiler pproc profiling_data.h5 --show
 Or load the data programmatically:
 
 ```python
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler import ProfilingH5Reader
 
 reader = ProfilingH5Reader("profiling_data.h5")
-for region in reader.get_regions():
-    stats = region[0].get_summary()  # rank 0
-    print(f"{region.name}: {stats['num_calls']} calls, "
-          f"avg {stats['average_duration']/1e9:.4f} s")
+
+# The quickest look: a summary table of every region.
+reader.print_summary()
+
+# Or region by region (durations are in seconds).
+for region in reader:
+    print(f"{region.name}: {region.num_calls} calls, "
+          f"avg {region.average_duration:.4f} s")
 ```
 
 ## Complete example
@@ -137,14 +140,11 @@ python example.py
 ```
 
 ```text
-Region: main
-  Total Calls : 1
-  Total Time  : 0.001503709 s
-  ...
-----------------------------------------
-Region: iteration
-  Total Calls : 10
-  Total Time  : 3.832e-06 s
-  ...
-----------------------------------------
+profiling_data.h5  (1 rank(s))
+  region     ranks  calls    total [s]      avg [s]      min [s]      max [s]  std [s]
+  ------------------------------------------------------------------------------------
+  main           1      1   0.00150371   0.00150371   0.00150371   0.00150371        0
+  iteration      1     10    3.832e-06    3.832e-07     2.08e-07     8.75e-07      ...
+  ------------------------------------------------------------------------------------
+  TOTAL                11   0.00150754
 ```

@@ -75,14 +75,22 @@ scope-profiler pproc profiling_data.h5 --show --ranks 0-3
 From Python:
 
 ```python
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler import ProfilingH5Reader
 
 reader = ProfilingH5Reader("profiling_data.h5")
-region = reader.get_region("compute")
+region = reader["compute"]
 
-# Access per-rank data
-for rank_id, rank_region in region.regions.items():
-    print(f"Rank {rank_id}: avg = {rank_region.average_duration/1e9:.6f} s")
+# Aggregated over every rank (durations in seconds)
+print(region.num_calls, region.total_duration, region.average_duration)
+
+# Per-rank breakdowns, for spotting load imbalance
+print(region.average_durations())   # {rank: seconds}
+print(region.max_durations())
+print(region.num_calls_per_rank())
+
+# Or the raw per-rank data
+for rank_id in region.ranks:
+    print(f"Rank {rank_id}: avg = {region[rank_id].average_duration:.6f} s")
 ```
 
 ## Without MPI

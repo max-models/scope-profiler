@@ -14,7 +14,6 @@ from scope_profiler.region_profiler import (
     LineProfilerRegion,
     NCallsOnlyProfileRegion,
     TimeOnlyProfileRegion,
-    TimeOnlyProfileRegionNoFlush,
 )
 
 
@@ -126,18 +125,6 @@ def test_all_region_types():
     durations = region.get_durations_numpy()
     assert durations[0] > 0
 
-    # Time-only region without flush
-    ProfileManager._region_cls = TimeOnlyProfileRegionNoFlush
-    with ProfileManager.profile_region("time_only_noflush"):
-        sleep(0.001)
-
-    region = ProfileManager.get_region("time_only_noflush")
-    assert isinstance(region, TimeOnlyProfileRegionNoFlush)
-    assert region.num_calls == 1
-    assert region.ptr == 1
-    durations = region.get_durations_numpy()
-    assert durations[0] > 0
-
     # LIKWID-only region (mocked if pylikwid not installed)
     try:
         ProfileManager._region_cls = LikwidOnlyProfileRegion
@@ -227,6 +214,24 @@ def test_line_profiler_context_manager():
     assert len(stats.timings) > 0
 
     ProfileManager.finalize(verbose=False)
+
+
+def test_frame_region_name_without_co_qualname():
+    """Python 3.10 code objects have no co_qualname; naming must still work.
+
+    The unit-test matrix runs 3.11+, where the attribute always exists, so the
+    3.10 path is exercised with a stand-in frame.
+    """
+
+    class CodeWithoutQualname:
+        co_name = "my_function"
+
+    class FrameWithoutQualname:
+        f_globals = {"__name__": "my_module"}
+        f_code = CodeWithoutQualname()
+
+    name = ProfileManager._frame_region_name(FrameWithoutQualname())
+    assert name == "my_module.my_function"
 
 
 def test_recursive_decorator_profiles_nested_calls():
@@ -357,6 +362,41 @@ def test_recursive_profile_setup_default_and_override():
     ProfileManager.finalize(verbose=False)
 
 
+def test_finalize_prints_the_shared_summary_table(tmp_path, capsys):
+    """finalize() renders the same table as print_summary(), not its own."""
+    file_path = tmp_path / "summary.h5"
+    ProfileManager.setup(file_path=str(file_path))
+
+    with ProfileManager.profile_region("outer"):
+        for _ in range(2):
+            with ProfileManager.profile_region("inner"):
+                sleep(0.001)
+
+    ProfileManager.finalize()
+    printed = capsys.readouterr().out
+
+    # Same header, columns and TOTAL row as ProfilingH5Reader.print_summary().
+    reader = ProfilingH5Reader(file_path)
+    reader.print_summary(title=f"{file_path}  (1 rank(s))")
+    assert printed == capsys.readouterr().out
+
+    assert "region" in printed and "std [s]" in printed
+    assert "outer" in printed and "inner" in printed
+    assert "TOTAL" in printed
+    # The old per-region block format is gone.
+    assert "Total Calls" not in printed
+
+
+def test_finalize_quiet(tmp_path, capsys):
+    file_path = tmp_path / "quiet.h5"
+    ProfileManager.setup(file_path=str(file_path))
+    with ProfileManager.profile_region("region"):
+        pass
+    ProfileManager.finalize(verbose=False)
+
+    assert capsys.readouterr().out == ""
+
+
 def test_finalize_writes_global_metadata(tmp_path):
     file_path = tmp_path / "profiling_metadata.h5"
     ProfileManager.setup(file_path=str(file_path))
@@ -370,6 +410,8 @@ def test_finalize_writes_global_metadata(tmp_path):
         "timestamp",
         "hostname",
         "platform",
+        "uname",
+        "chip_information",
         "python_version",
         "scope_profiler_version",
         "working_directory",
@@ -377,6 +419,7 @@ def test_finalize_writes_global_metadata(tmp_path):
         "mpi_size",
         "total_cores",
         "user",
+        "modules",
     }
 
     with h5py.File(file_path, "r") as f:
@@ -394,7 +437,64 @@ def test_finalize_writes_global_metadata(tmp_path):
         assert attrs["total_cores"] == attrs["mpi_size"] * attrs["omp_num_threads"]
 
     reader = ProfilingH5Reader(file_path)
-    assert reader.metadata == attrs
+    # The reader exposes the same fields, decoded into plain Python types
+    # (list-valued attributes come back from h5py as numpy arrays).
+    assert reader.metadata.keys() == attrs.keys()
+    assert reader.metadata["hostname"] == attrs["hostname"]
+    assert isinstance(reader.metadata["modules"], list)
+
+
+@pytest.mark.parametrize("flush_to_disk", [True, False])
+def test_ncalls_only_persists_call_counts(tmp_path, flush_to_disk):
+    """time_trace=False must persist call counts, not just hold them in memory."""
+    file_path = tmp_path / f"profiling_ncalls_{flush_to_disk}.h5"
+    ProfileManager.setup(
+        time_trace=False, flush_to_disk=flush_to_disk, file_path=str(file_path)
+    )
+
+    for _ in range(5):
+        with ProfileManager.profile_region("ctx_region"):
+            pass
+
+    @ProfileManager.profile("decorated_region")
+    def decorated():
+        pass
+
+    for _ in range(3):
+        decorated()
+
+    ProfileManager.finalize(verbose=False)
+
+    with h5py.File(file_path, "r") as f:
+        regions = f["rank0"]["regions"]
+        assert regions["ctx_region"].attrs["num_calls"] == 5
+        assert regions["decorated_region"].attrs["num_calls"] == 3
+        # No timing was requested, so no timestamps are stored.
+        assert "start_times" not in regions["ctx_region"]
+
+    reader = ProfilingH5Reader(file_path)
+    assert reader.get_region("ctx_region")[0].num_calls == 5
+    assert reader.get_region("decorated_region")[0].num_calls == 3
+    # Duration-derived stats stay well-defined despite the absence of timings.
+    assert reader.get_region("ctx_region")[0].total_duration == 0.0
+    assert len(reader.get_region("ctx_region")[0].durations) == 0
+
+
+def test_time_trace_region_reports_timestamp_count(tmp_path):
+    """Regions that do record timing keep deriving num_calls from timestamps."""
+    file_path = tmp_path / "profiling_timed.h5"
+    ProfileManager.setup(file_path=str(file_path))
+
+    for _ in range(4):
+        with ProfileManager.profile_region("timed_region"):
+            sleep(0.001)
+
+    ProfileManager.finalize(verbose=False)
+
+    region = ProfilingH5Reader(file_path).get_region("timed_region")[0]
+    assert region.num_calls == 4
+    assert len(region.durations) == 4
+    assert region.min_duration > 0
 
 
 if __name__ == "__main__":

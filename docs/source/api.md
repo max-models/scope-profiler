@@ -58,14 +58,6 @@ construct one directly for advanced use cases.
    :undoc-members:
 ```
 
-### TimeOnlyProfileRegionNoFlush
-
-```{eval-rst}
-.. autoclass:: scope_profiler.region_profiler.TimeOnlyProfileRegionNoFlush
-   :members:
-   :undoc-members:
-```
-
 ### LikwidOnlyProfileRegion
 
 ```{eval-rst}
@@ -82,14 +74,6 @@ construct one directly for advanced use cases.
    :undoc-members:
 ```
 
-### FullProfileRegionNoFlush
-
-```{eval-rst}
-.. autoclass:: scope_profiler.region_profiler.FullProfileRegionNoFlush
-   :members:
-   :undoc-members:
-```
-
 ### LineProfilerRegion
 
 ```{eval-rst}
@@ -99,6 +83,20 @@ construct one directly for advanced use cases.
 ```
 
 ## Post-processing
+
+Everything in this section is importable from the package root:
+
+```python
+from scope_profiler import (
+    ProfilingH5Reader,
+    plot_flame,
+    plot_gantt,
+    write_region_statistics_json,
+)
+```
+
+All durations and timestamps exposed here are in **seconds**; the HDF5 file
+stores nanoseconds.
 
 ### ProfilingH5Reader
 
@@ -124,8 +122,18 @@ construct one directly for advanced use cases.
    :undoc-members:
 ```
 
-### plot_gantt
+### Plotting
 
 ```{eval-rst}
 .. autofunction:: scope_profiler.plotting_scripts.plot_gantt
+.. autofunction:: scope_profiler.plotting_scripts.plot_flame
+.. autofunction:: scope_profiler.plotting_scripts.plot_durations
+.. autofunction:: scope_profiler.plotting_scripts.plot_speedup
+```
+
+### Statistics export
+
+```{eval-rst}
+.. autofunction:: scope_profiler.plotting_scripts.collect_region_statistics
+.. autofunction:: scope_profiler.plotting_scripts.write_region_statistics_json
 ```

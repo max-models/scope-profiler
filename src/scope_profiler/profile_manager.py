@@ -11,19 +11,16 @@ from types import FrameType
 from typing import Callable, Dict
 
 import h5py
-import numpy as np
 
 from scope_profiler.profile_config import ProfilingConfig
 from scope_profiler.region_profiler import (
     BaseProfileRegion,
     DisabledProfileRegion,
     FullProfileRegion,
-    FullProfileRegionNoFlush,
     LikwidOnlyProfileRegion,
     LineProfilerRegion,
     NCallsOnlyProfileRegion,
     TimeOnlyProfileRegion,
-    TimeOnlyProfileRegionNoFlush,
 )
 
 
@@ -54,7 +51,11 @@ class ProfileManager:
     @classmethod
     def _frame_region_name(cls, frame: FrameType) -> str:
         module_name = frame.f_globals.get("__name__", "<unknown>")
-        qualname = frame.f_code.co_qualname
+        # co_qualname is Python 3.11+; on 3.10 fall back to the plain function
+        # name, which loses the enclosing class but keeps recursive profiling
+        # working. Without this, recursive_profile=True and `scope-profiler
+        # run` raise AttributeError on 3.10.
+        qualname = getattr(frame.f_code, "co_qualname", None) or frame.f_code.co_name
         return f"{module_name}.{qualname}"
 
     @classmethod
@@ -151,8 +152,10 @@ class ProfileManager:
         """
         Update the active region class based on current configuration settings.
 
-        Selects the appropriate ProfileRegion subclass based on profiling options
-        including time tracing, LIKWID hardware counters, and disk flushing.
+        Selects the appropriate ProfileRegion subclass based on profiling
+        options: time tracing, LIKWID hardware counters and line profiling.
+        ``flush_to_disk`` does not affect the choice -- recording is identical
+        either way, it only decides whether finalize() writes the data out.
         """
         cfg = cls._config
         if not cfg.profiling_activated:
@@ -160,15 +163,9 @@ class ProfileManager:
         elif cfg.use_line_profiler:
             cls._region_cls = LineProfilerRegion
         elif cfg.time_trace and cfg.use_likwid:
-            if cfg.flush_to_disk:
-                cls._region_cls = FullProfileRegion
-            else:
-                cls._region_cls = FullProfileRegionNoFlush
+            cls._region_cls = FullProfileRegion
         elif cfg.time_trace:
-            if cfg.flush_to_disk:
-                cls._region_cls = TimeOnlyProfileRegion
-            else:
-                cls._region_cls = TimeOnlyProfileRegionNoFlush
+            cls._region_cls = TimeOnlyProfileRegion
         elif cfg.use_likwid:
             cls._region_cls = LikwidOnlyProfileRegion
         else:
@@ -197,10 +194,14 @@ class ProfileManager:
         ProfileRegion : The ProfileRegion instance.
         """
 
-        region = cls._regions.setdefault(
-            region_name,
-            cls._region_cls(region_name, config=cls._config),
-        )
+        # Deliberately not `setdefault`: it evaluates its default eagerly, so
+        # every lookup of an existing region would construct (and discard) a
+        # full region object, including its preallocated timing buffers. This
+        # runs per call event under recursive profiling.
+        region = cls._regions.get(region_name)
+        if region is None:
+            region = cls._region_cls(region_name, config=cls._config)
+            cls._regions[region_name] = region
         if functions is not None:
             for func in functions:
                 region.add_function(func)
@@ -375,12 +376,15 @@ class ProfileManager:
         rank = config._rank
         size = config._size
 
-        # 1. Flush all buffered regions to per-rank files
-        if config.flush_to_disk:
-            for region in cls.get_all_regions().values():
-                region.flush()
+        # 1. Write every region's buffered timestamps to its per-rank file.
+        # Regions that record no timestamps write only their call count, which
+        # is cheap and has nothing to do with timing buffers, so they write
+        # even when flush_to_disk is off. Otherwise their counts would be lost.
+        for region in cls.get_all_regions().values():
+            if config.flush_to_disk or not region._records_time:
+                region.write_to_disk()
 
-        # 2. Barrier to ensure all ranks finished flushing
+        # 2. Barrier to ensure all ranks finished writing
         if comm is not None:
             comm.Barrier()
 
@@ -391,7 +395,16 @@ class ProfileManager:
                 # Global environment metadata, gathered from rank 0 only.
                 meta_grp = fout.create_group("metadata")
                 for key, value in config.metadata.items():
-                    meta_grp.attrs[key] = value
+                    if isinstance(value, (list, tuple)):
+                        # h5py cannot infer a dtype for an empty list, and
+                        # would store a non-empty one as fixed-width bytes;
+                        # be explicit so list-valued metadata (e.g. the loaded
+                        # modules) always round-trips as strings.
+                        meta_grp.attrs.create(
+                            key, list(value), dtype=h5py.string_dtype()
+                        )
+                    else:
+                        meta_grp.attrs[key] = value
 
                 for r in range(size):
                     rank_file = config.get_local_filepath(r)
@@ -402,53 +415,17 @@ class ProfileManager:
                         # Copy all groups from the rank file under /rank<r>
                         fout.copy(fin, f"rank{r}")
 
-                if verbose:
-                    # 4. Gather statistics for printing
-                    for region_name, region in cls.get_all_regions().items():
-                        all_starts = []
-                        all_ends = []
-                        # Collect from each rank's file
-                        for r in range(size):
-                            rank_file = config.get_local_filepath(r)
-                            if not os.path.exists(rank_file):
-                                continue
-                            with h5py.File(rank_file, "r") as fin:
-                                region_path = f"regions/{region_name}"
-                                if region_path not in fin:
-                                    # Region was created but never flushed
-                                    # (e.g. finalize() called from inside the
-                                    # profiled function before it returned).
-                                    continue
-                                grp = fin[region_path]
-                                starts = grp["start_times"][:]
-                                ends = grp["end_times"][:]
-                                all_starts.append(starts)
-                                all_ends.append(ends)
+            # 4. Summarize the merged file, using the same table that
+            # `scope-profiler inspect` and ProfilingH5Reader.print_summary()
+            # render. Reading it back keeps the merge above a plain copy and
+            # leaves one implementation of the statistics.
+            if verbose:
+                from scope_profiler.h5reader import ProfilingH5Reader
 
-                        if all_starts:
-                            starts = np.concatenate(all_starts)
-                            ends = np.concatenate(all_ends)
-                            durations = ends - starts
-                            total_calls = round(len(durations) / size)
-                            if total_calls > 0:
-                                total_time = durations.sum() / 1e9
-                                avg_time = durations.mean() / 1e9
-                                min_time = durations.min() / 1e9
-                                max_time = durations.max() / 1e9
-                                std_time = durations.std() / 1e9
-                            else:
-                                total_time = avg_time = min_time = max_time = (
-                                    std_time
-                                ) = 0.0
+                ProfilingH5Reader(merged_file_path).print_summary(
+                    title=f"{merged_file_path}  ({size} rank(s))"
+                )
 
-                            print(f"Region: {region_name}")
-                            print(f"  Total Calls : {total_calls}")
-                            print(f"  Total Time  : {total_time} s")
-                            print(f"  Avg Time    : {avg_time} s")
-                            print(f"  Min Time    : {min_time} s")
-                            print(f"  Max Time    : {max_time} s")
-                            print(f"  Std Dev     : {std_time} s")
-                            print("-" * 40)
         if config.use_likwid:
             config.pylikwid_markerclose()
 
@@ -493,7 +470,7 @@ class ProfileManager:
         recursive_profile: bool = False,
         time_trace: bool = True,
         flush_to_disk: bool = True,
-        buffer_limit: int = 100_000,
+        buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
     ):
         """
@@ -514,9 +491,13 @@ class ProfileManager:
         time_trace : bool, optional
             Enable timing trace collection (default: True).
         flush_to_disk : bool, optional
-            Enable flushing profiling data to disk (default: True).
+            Write the recorded data to disk at finalize() (default: True).
+            When False, results stay in memory for the process to read.
         buffer_limit : int, optional
-            Maximum number of profiling events per buffer before flushing (default: 100_000).
+            Initial number of profiling events preallocated per region
+            (default: 1024). Buffers grow on demand, so this is a starting
+            size rather than a limit; raise it for very hot regions to avoid
+            repeated reallocation.
         file_path : str, optional
             Path to the output profiling data file (default: "profiling_data.h5").
         """

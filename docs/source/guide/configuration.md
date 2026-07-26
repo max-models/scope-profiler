@@ -14,8 +14,8 @@ configuration is global: every call to `profile()` or `profile_region()`
 | `use_line_profiler`   | `bool` | `False`               | Enable line-by-line profiling via `line_profiler`. See {doc}`line_profiler`.                    |
 | `recursive_profile`   | `bool` | `False`               | Enable recursive nested-call profiling for all decorated functions by default.                    |
 | `time_trace`          | `bool` | `True`                | Record nanosecond start/end timestamps for every call.                                          |
-| `flush_to_disk`       | `bool` | `True`                | Periodically flush timing buffers to per-rank HDF5 files.                                       |
-| `buffer_limit`        | `int`  | `100_000`             | Number of events buffered in memory before an automatic flush.                                  |
+| `flush_to_disk`       | `bool` | `True`                | Write the recorded timings to per-rank HDF5 files at `finalize()`. When `False`, results stay in memory. |
+| `buffer_limit`        | `int`  | `1024`                | Initial per-region buffer capacity. Buffers grow on demand, so this is a starting size, not a cap. |
 | `file_path`           | `str`  | `"profiling_data.h5"` | Output path for the merged HDF5 file written by `finalize()`.                                   |
 
 ## Profiling modes
@@ -23,19 +23,20 @@ configuration is global: every call to `profile()` or `profile_region()`
 The combination of flags determines which internal region class is used.
 This **strategy dispatch** avoids runtime conditionals in the hot path:
 
-| `time_trace` | `use_likwid` | `flush_to_disk` | Region class                   | What it records                  |
-| :----------: | :----------: | :-------------: | ------------------------------ | -------------------------------- |
-|      --      |      --      |       --        | `DisabledProfileRegion`        | Nothing (profiling off)          |
-|      no      |      no      |       --        | `NCallsOnlyProfileRegion`      | Call count only                  |
-|     yes      |      no      |       no        | `TimeOnlyProfileRegionNoFlush` | Timestamps (in-memory)           |
-|     yes      |      no      |       yes       | `TimeOnlyProfileRegion`        | Timestamps + HDF5                |
-|      no      |     yes      |       --        | `LikwidOnlyProfileRegion`      | LIKWID markers only              |
-|     yes      |     yes      |       no        | `FullProfileRegionNoFlush`     | Timestamps + LIKWID (in-memory)  |
-|     yes      |     yes      |       yes       | `FullProfileRegion`            | Timestamps + LIKWID + HDF5       |
-|      --      |      --      |       --        | `LineProfilerRegion`           | Timestamps + HDF5 + line-by-line |
+| `time_trace` | `use_likwid` | Region class              | What it records                  |
+| :----------: | :----------: | ------------------------- | -------------------------------- |
+|      --      |      --      | `DisabledProfileRegion`   | Nothing (profiling off)          |
+|      no      |      no      | `NCallsOnlyProfileRegion` | Call count only                  |
+|     yes      |      no      | `TimeOnlyProfileRegion`   | Timestamps                       |
+|      no      |     yes      | `LikwidOnlyProfileRegion` | LIKWID markers only              |
+|     yes      |     yes      | `FullProfileRegion`       | Timestamps + LIKWID              |
+|      --      |      --      | `LineProfilerRegion`      | Timestamps + line-by-line        |
 
 When `use_line_profiler=True` it takes precedence over the other
 combinations.
+
+`flush_to_disk` is not part of this dispatch: recording is identical either
+way, and the flag only decides whether `finalize()` writes the buffers out.
 
 ## Toggling profiling at runtime
 

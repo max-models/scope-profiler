@@ -1,4 +1,8 @@
-"""Plotting utilities for visualizing profiling data."""
+"""Plotting utilities for visualizing profiling data using maxplotlib.
+
+This module provides plotting functions that can export to both matplotlib and plotly
+backends using maxplotlib as the unified interface.
+"""
 
 import csv
 import json
@@ -15,12 +19,7 @@ from scope_profiler.h5reader import ProfilingH5Reader
 def _write_csv(
     filepath: str | Path, header: Sequence[str], rows: Sequence[Sequence]
 ) -> None:
-    """Write rows of plotting data to a plain-text CSV file.
-
-    Used by the ``data_filepath`` argument of the ``plot_*`` functions so the
-    exact data behind a chart can be re-parsed and re-plotted later without
-    needing the original HDF5 file.
-    """
+    """Write rows of plotting data to a plain-text CSV file."""
     output_path = Path(filepath)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", newline="", encoding="utf-8") as f:
@@ -30,12 +29,7 @@ def _write_csv(
 
 
 def _write_json(filepath: str | Path, payload: dict) -> None:
-    """Write the exact data behind a plot to a JSON file.
-
-    Used by the ``data_filepath``/``data_format="json"`` arguments of the
-    ``plot_*`` functions so charts can be reconstructed (e.g. with Plotly)
-    later without needing the original HDF5 file or matplotlib.
-    """
+    """Write the exact data behind a plot to a JSON file."""
     output_path = Path(filepath)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
@@ -45,46 +39,183 @@ def _write_json(filepath: str | Path, payload: dict) -> None:
 
 def _to_hex(color) -> str:
     """Convert a matplotlib color (e.g. an RGBA tuple) to a ``#rrggbb`` string."""
-    from matplotlib.colors import to_hex
-
-    return to_hex(color)
-
-
-def _get_pyplot():
+    if isinstance(color, str):
+        return str(color)  # Ensure it's a Python string, not numpy.str_
     try:
-        import matplotlib.pyplot as plt
+        from matplotlib.colors import to_hex
+
+        return str(to_hex(color))  # Ensure result is Python string
+    except (ImportError, TypeError):
+        return "#1f77b4"  # Default blue
+
+
+def _get_canvas():
+    """Get maxplotlib Canvas for plotting."""
+    try:
+        from maxplotlib import Canvas
     except ImportError as exc:
         raise ImportError(
-            "matplotlib is required for plotting. Install scope-profiler[dev] or matplotlib."
+            "maxplotlib is required for plotting. Install scope-profiler[pproc] "
+            "or maxplotlibx (>= 0.1.5, for its gantt and flame charts)."
         ) from exc
-    return plt
+    return Canvas
 
 
 DEFAULT_CMAP = "tab20"
 
 
-def _get_cmap(plt, cmap: str):
-    """Resolve a colormap name to a callable, with a friendly error on typos."""
-    try:
-        return plt.get_cmap(cmap)
-    except ValueError as exc:
-        raise ValueError(
-            f"Unknown colormap {cmap!r}. See "
-            "https://matplotlib.org/stable/users/explain/colors/colormaps.html "
-            "for valid names."
-        ) from exc
+_FALLBACK_COLORS = (
+    "#1f77b4",
+    "#ff7f0e",
+    "#2ca02c",
+    "#d62728",
+    "#9467bd",
+    "#8c564b",
+    "#e377c2",
+    "#7f7f7f",
+    "#bcbd22",
+    "#17becf",
+)
 
 
-def _region_color_map(plt, region_names, cmap: str = DEFAULT_CMAP) -> dict:
-    """Assign each region name a stable color from a canonical sorted order.
+def _get_cmap_colors(cmap: str, n_colors: int) -> list[str]:
+    """Sample ``n_colors`` ``#rrggbb`` strings from a matplotlib colormap.
 
-    Sorting by name (rather than data/insertion order) means gantt and flame
-    charts built from the same region names get identical colors, even
-    though they derive their region lists independently and gantt charts
-    order regions by first-appearance while flame charts don't.
+    Hex strings (rather than RGBA tuples) are returned so the colors can be
+    handed to any maxplotlib backend unchanged.
     """
+    try:
+        import matplotlib.pyplot as plt
+        from matplotlib.colors import to_hex
+
+        samples = plt.get_cmap(cmap)(np.linspace(0, 1, max(n_colors, 1)))
+        return [to_hex(color) for color in samples]
+    except (ImportError, ValueError):
+        # Fall back to a fixed palette if matplotlib is unavailable or the
+        # colormap name is unknown.
+        return [_FALLBACK_COLORS[i % len(_FALLBACK_COLORS)] for i in range(n_colors)]
+
+
+def _add_gantt_bars(
+    canvas,
+    row: int | None,
+    tasks: Sequence[str],
+    starts: Sequence[float],
+    durations: Sequence[float],
+    colors: Sequence[str],
+    alpha: float = 0.7,
+) -> None:
+    """Draw ``Canvas.gantt`` bars, one call per color.
+
+    ``Canvas.gantt`` takes a single color per call: maxplotlib's Plotly
+    backend reads ``color`` as one RGB(A) value, so passing a per-bar list
+    raises. One call is therefore issued per distinct color, with the bars
+    belonging to the other colors passed as NaN. NaN bars draw nothing on
+    either backend while still occupying their row, which keeps every call
+    on the row ``Canvas.gantt`` assigns it (``y = arange(len(tasks))``).
+    """
+    col = None if row is None else 0
+    starts = np.asarray(starts, dtype=float)
+    durations = np.asarray(durations, dtype=float)
+    colors = np.asarray(colors, dtype=object)
+
+    for color in dict.fromkeys(colors.tolist()):
+        mask = colors == color
+        canvas.gantt(
+            list(tasks),
+            np.where(mask, starts, np.nan),
+            np.where(mask, durations, np.nan),
+            row=row,
+            col=col,
+            color=color,
+            edgecolor="black",
+            alpha=alpha,
+        )
+
+
+def _render(
+    canvas,
+    filepath: str | None,
+    show: bool,
+    backend: str,
+    plotly_layout: dict | None = None,
+) -> None:
+    """Save and/or display a canvas."""
+    if backend == "plotly":
+        fig = canvas.plot_plotly(show=False)
+        if plotly_layout:
+            fig.update_layout(**plotly_layout)
+        if filepath:
+            if Path(filepath).suffix.lower() in {".html", ".htm"}:
+                fig.write_html(filepath)
+            else:
+                try:
+                    fig.write_image(filepath)
+                except Exception as exc:
+                    raise RuntimeError(
+                        "Plotly image export failed. For PNG/PDF/SVG export, "
+                        "install kaleido (e.g. `pip install -U kaleido`), or "
+                        "export to an .html filepath instead."
+                    ) from exc
+        if show:
+            fig.show()
+        return
+
+    if filepath:
+        canvas.savefig(filepath, backend=backend)
+    if show:
+        canvas.show(backend=backend)
+    elif backend == "matplotlib":
+        _close_matplotlib_figure(canvas)
+
+
+def _block_ticks(tasks: Sequence[str]) -> tuple[list[float], list[str]]:
+    """Return one tick per run of identical task names, at the run's centre."""
+    ticks: list[float] = []
+    labels: list[str] = []
+    start = 0
+    for index in range(1, len(tasks) + 1):
+        if index == len(tasks) or tasks[index] != tasks[start]:
+            ticks.append((start + index - 1) / 2)
+            labels.append(tasks[start])
+            start = index
+    return ticks, labels
+
+
+def _panel_gridspec(
+    fig_width: float, fig_height: float, label_chars: int, multi_panel: bool
+) -> dict:
+    """Reserve figure margins for tick labels, axis labels and titles.
+
+    maxplotlib renders without ``tight_layout``, so long y-tick labels (region
+    names) and the x-axis label would otherwise be cut off at the figure edge.
+    """
+    label_inches = 0.5 + 0.075 * label_chars
+    gridspec = {
+        "left": min(0.35, label_inches / fig_width),
+        "right": 0.98,
+        "bottom": min(0.25, 0.7 / fig_height),
+        "top": 1 - min(0.25, (1.1 if multi_panel else 0.55) / fig_height),
+    }
+    if multi_panel:
+        gridspec["hspace"] = 0.5
+    return gridspec
+
+
+def _close_matplotlib_figure(canvas) -> None:
+    """Release the figure maxplotlib keeps open after rendering."""
+    fig = getattr(canvas, "_matplotlib_fig", None)
+    if fig is None:
+        return
+    import matplotlib.pyplot as plt
+
+    plt.close(fig)
+
+
+def _region_color_map(region_names, cmap: str = DEFAULT_CMAP) -> dict:
+    """Assign each region name a stable color from a canonical sorted order."""
     names = sorted(set(region_names))
-    colors = _get_cmap(plt, cmap)(np.linspace(0, 1, len(names)))
+    colors = _get_cmap_colors(cmap, len(names))
     return dict(zip(names, colors))
 
 
@@ -202,18 +333,11 @@ def _common_region_names(
     ]
 
 
-# x-axis fields for plot_speedup() that represent a parallelism count:
-# sortable, plotted numerically, and compared against an ideal-scaling line.
 _SCALING_X_FIELDS = {"num_ranks", "omp_num_threads", "total_cores"}
 
 
 def _speedup_x_value(reader: ProfilingH5Reader, x_field: str):
-    """Resolve the x-axis value for a single reader given ``x_field``.
-
-    ``"num_ranks"``, ``"omp_num_threads"``, and ``"total_cores"`` (MPI ranks
-    times OpenMP threads) are computed/looked up directly; any other value is
-    treated as a key into ``reader.metadata``.
-    """
+    """Resolve the x-axis value for a single reader given ``x_field``."""
     if x_field == "num_ranks":
         return reader.num_ranks
 
@@ -349,45 +473,6 @@ def _prepare_gantt_data(
     return regions, normalized_ranks, profiling_data.minimum_start_time
 
 
-def _draw_gantt_axes(
-    plt,
-    ax,
-    regions: list,
-    ranks: list[int],
-    first_start_time: float,
-) -> None:
-    num_ranks = len(ranks)
-
-    for i, region in enumerate(regions):
-        for irank, rank in enumerate(ranks):
-            starts = region[rank].start_times - first_start_time
-            ends = region[rank].end_times - first_start_time
-            y = i * num_ranks + irank
-            for start, end in zip(starts, ends):
-                ax.barh(
-                    y=y,
-                    width=end - start,
-                    left=start,
-                    height=1.0,
-                    color=region.color,
-                    edgecolor="black",
-                    alpha=0.7,
-                )
-
-    yticks = []
-    yticklabels = []
-    for i, region in enumerate(regions):
-        region_name = region.name
-        for irank, rank in enumerate(ranks):
-            yticks.append(i * num_ranks + irank)
-            yticklabels.append(f"{region_name} (rank {rank})")
-
-    ax.set_yticks(yticks)
-    ax.set_yticklabels(yticklabels)
-    ax.set_xlabel("Time (seconds)")
-    ax.grid(True, axis="x", linestyle="--", alpha=0.5)
-
-
 def plot_gantt(
     profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
     ranks: list[int] | int | None = None,
@@ -399,33 +484,17 @@ def plot_gantt(
     cmap: str = DEFAULT_CMAP,
     data_filepath: str | Path | None = None,
     data_format: str = "csv",
+    backend: str = "matplotlib",
 ) -> None:
     """
-    Plot a Gantt chart of all (or selected) regions with per-rank lanes.
+    Plot a Gantt chart of all (or selected) regions with per-rank lanes using maxplotlib.
 
     Parameters
     ----------
-    ranks : list[int] | None
-        List of ranks to include. If None, include all ranks.
-    regions : list[str] | str | None
-        List of region names to plot, or a single region name as a string.
-        If None, plot all regions.
-    filepath : str | None
-        Path to save the figure. If None, figure is not saved.
-    show : bool
-        Whether to display the plot. Default is False.
-    cmap : str
-        Name of the matplotlib colormap used to color regions (default: "tab20").
-    data_filepath : str | Path | None
-        If given, write the underlying (file, rank, region, start, end)
-        intervals plotted here to this path, so the chart can be
-        reconstructed later without the original HDF5 file.
-    data_format : str
-        Format for ``data_filepath``: "csv" (default) or "json". The JSON
-        payload additionally includes a "colors" map of region name to
-        ``#rrggbb`` string, matching the colors used in this plot.
+    backend : str
+        Backend to use for rendering: "matplotlib" (default) or "plotly".
     """
-    plt = _get_pyplot()
+    Canvas = _get_canvas()
     readers = _as_readers(profiling_data)
     if not readers:
         raise ValueError("No profiling data provided.")
@@ -441,7 +510,6 @@ def plot_gantt(
         prepared.append((reader, regions, selected_ranks, first_start_time))
 
     color_map = _region_color_map(
-        plt,
         (region.name for _, regions, _, _ in prepared for region in regions),
         cmap=cmap,
     )
@@ -507,51 +575,76 @@ def plot_gantt(
         else:
             print(f"Plotting combined Gantt chart for files: {', '.join(labels)}")
 
-    if len(prepared) == 1:
-        _, regions, selected_ranks, first_start_time = prepared[0]
-        fig, ax = plt.subplots(
-            figsize=(12, max(3.0, 1 * len(regions) * len(selected_ranks)))
-        )
-        _draw_gantt_axes(plt, ax, regions, selected_ranks, first_start_time)
-        ax.set_title("Profiling Gantt Chart")
-    else:
-        subplot_heights = [
-            max(2.5, 1 * len(regions) * len(selected_ranks))
-            for _, regions, selected_ranks, _ in prepared
+    # Canvas.gantt gives every bar its own row (y = arange(len(tasks))), so a
+    # panel is as tall as the number of calls it draws, and the rows of one
+    # region form a contiguous block labelled at its centre.
+    single_panel = len(prepared) == 1
+    panel_bars = [
+        [
+            (
+                f"{region.name} (rank {rank})",
+                float(start - first_start_time),
+                float(end - start),
+                _to_hex(region.color),
+            )
+            for region in regions
+            for rank in selected_ranks
+            for start, end in zip(region[rank].start_times, region[rank].end_times)
         ]
-        fig, axes = plt.subplots(
-            nrows=len(prepared),
-            ncols=1,
-            figsize=(12, max(4.0, sum(subplot_heights))),
-        )
-        axes = np.atleast_1d(axes).ravel()
-        for ax, label, (_, regions, selected_ranks, first_start_time) in zip(
-            axes,
-            labels,
-            prepared,
-        ):
-            _draw_gantt_axes(plt, ax, regions, selected_ranks, first_start_time)
-            ax.set_title(label)
-        fig.suptitle("Combined Profiling Gantt Chart")
-        fig.tight_layout(rect=(0, 0, 1, 0.98))
+        for _, regions, selected_ranks, first_start_time in prepared
+    ]
+    if not any(panel_bars):
+        raise ValueError("No calls recorded for the requested ranks.")
 
-    if filepath:
-        plt.savefig(filepath, dpi=300)
-    if show:
-        plt.show()
-    plt.close(fig)
+    panel_heights = [max(2.5, 0.22 * len(bars)) for bars in panel_bars]
+    fig_width, fig_height = 12.0, 1.0 + sum(panel_heights)
+    lane_label_chars = max(len(bar[0]) for bars in panel_bars for bar in bars)
+    canvas = Canvas(
+        nrows=len(prepared),
+        ncols=1,
+        figsize=(fig_width, fig_height),
+        gridspec_kw=_panel_gridspec(
+            fig_width, fig_height, lane_label_chars, not single_panel
+        ),
+    )
+
+    for idx, (label, bars) in enumerate(zip(labels, panel_bars)):
+        row = None if single_panel else idx
+        col = None if single_panel else 0
+
+        tasks = [bar[0] for bar in bars]
+        starts = [bar[1] for bar in bars]
+        durations = [bar[2] for bar in bars]
+        colors = [bar[3] for bar in bars]
+        _add_gantt_bars(canvas, row, tasks, starts, durations, colors)
+
+        # Label each region's block of rows once, at its centre, instead of
+        # repeating the region name on every call's row.
+        yticks, yticklabels = _block_ticks(tasks)
+        canvas.set_yticks(yticks, labels=yticklabels, row=row, col=col)
+        canvas.set_xlim(
+            0,
+            max(start + duration for start, duration in zip(starts, durations)),
+            row=row,
+            col=col,
+        )
+        canvas.set_ylim(-0.6, len(tasks) - 0.4, row=row, col=col)
+        canvas.set_xlabel("Time (seconds)", row=row, col=col)
+        canvas.set_title(
+            "Profiling Gantt Chart" if single_panel else label, row=row, col=col
+        )
+        canvas.set_grid(True, row=row, col=col)
+
+    if not single_panel:
+        canvas.suptitle("Combined Profiling Gantt Chart")
+
+    # One Plotly bar trace per region color; without "overlay" they would
+    # share each row's height instead of each drawing on the full row.
+    _render(canvas, filepath, show, backend, plotly_layout={"barmode": "overlay"})
 
 
 def _build_call_stack_intervals(regions: list, rank: int) -> list[dict]:
-    """Reconstruct per-call nesting depth for one rank from region intervals.
-
-    Regions only store flat (start, end) pairs per call, with no explicit
-    parent/child link. Since profiling scopes are always properly nested or
-    sequential in a single rank's execution (recursive self-nesting included,
-    see the recursion fix in region_profiler.py), the call tree can be
-    rebuilt by treating each interval's parent as the innermost still-open
-    interval that encloses it - the same rule used to match parentheses.
-    """
+    """Reconstruct per-call nesting depth for one rank from region intervals."""
     calls = []
     for region in regions:
         if rank not in region.regions:
@@ -567,54 +660,21 @@ def _build_call_stack_intervals(regions: list, rank: int) -> list[dict]:
                 }
             )
 
-    # Longer-running calls that start at the same instant must be sorted
-    # first so they end up enclosing (not enclosed by) shorter siblings.
     calls.sort(key=lambda call: (call["start"], -call["end"]))
 
-    open_stack: list[dict] = []
-    for call in calls:
-        while open_stack and open_stack[-1]["end"] <= call["start"]:
+    # Each call also records its parent's index in this list, which is what
+    # Canvas.flame_chart needs: it accepts either an index or a frame name,
+    # and resolves a name to the *first* frame carrying it - wrong as soon as
+    # a region is called more than once or recurses.
+    open_stack: list[int] = []
+    for index, call in enumerate(calls):
+        while open_stack and calls[open_stack[-1]]["end"] <= call["start"]:
             open_stack.pop()
         call["depth"] = len(open_stack)
-        open_stack.append(call)
+        call["parent"] = open_stack[-1] if open_stack else None
+        open_stack.append(index)
 
     return calls
-
-
-def _draw_flame_axis(plt, ax, calls: list[dict]) -> None:
-    first_start = min(call["start"] for call in calls)
-    total_span = max(call["end"] for call in calls) - first_start
-    max_depth = max(call["depth"] for call in calls)
-
-    for call in calls:
-        start = call["start"] - first_start
-        width = call["end"] - call["start"]
-        ax.barh(
-            y=call["depth"],
-            width=width,
-            left=start,
-            height=1.0,
-            color=call["color"],
-            edgecolor="black",
-            linewidth=0.5,
-            alpha=0.85,
-        )
-        if total_span > 0 and width / total_span > 0.02:
-            ax.text(
-                start + width / 2,
-                call["depth"],
-                call["name"],
-                ha="center",
-                va="center",
-                fontsize=7,
-                clip_on=True,
-            )
-
-    ax.set_xlabel("Time (seconds)")
-    ax.set_ylabel("Call depth")
-    ax.set_yticks(range(max_depth + 1))
-    ax.set_ylim(-0.5, max_depth + 0.5)
-    ax.grid(True, axis="x", linestyle="--", alpha=0.5)
 
 
 def plot_flame(
@@ -628,37 +688,17 @@ def plot_flame(
     cmap: str = DEFAULT_CMAP,
     data_filepath: str | Path | None = None,
     data_format: str = "csv",
+    backend: str = "matplotlib",
 ) -> None:
     """
-    Plot a flame graph reconstructing the call stack from region timings.
-
-    Unlike ``plot_gantt``, which lays out one row per region name, this
-    reconstructs call nesting from each call's (start, end) interval, so
-    recursive calls into the same region are shown at their correct depth,
-    producing a classic flame-graph shape.
+    Plot a flame graph reconstructing the call stack from region timings using maxplotlib.
 
     Parameters
     ----------
-    ranks : list[int] | int | None
-        Ranks to plot, one flame graph per rank. Defaults to rank 0 only,
-        since a flame graph represents a single execution's call stack.
-    filepath : str | None
-        Path to save the figure. If None, figure is not saved.
-    show : bool
-        Whether to display the plot. Default is False.
-    cmap : str
-        Name of the matplotlib colormap used to color regions (default: "tab20").
-        Pass the same value used for ``plot_gantt`` to keep colors matching.
-    data_filepath : str | Path | None
-        If given, write the reconstructed (file, rank, region, depth, start,
-        end) call intervals to this path, so the flame graph can be
-        reconstructed later without the original HDF5 file.
-    data_format : str
-        Format for ``data_filepath``: "csv" (default) or "json". The JSON
-        payload additionally includes a "colors" map of region name to
-        ``#rrggbb`` string, matching the colors used in this plot.
+    backend : str
+        Backend to use for rendering: "matplotlib" (default) or "plotly".
     """
-    plt = _get_pyplot()
+    Canvas = _get_canvas()
     readers = _as_readers(profiling_data)
     if not readers:
         raise ValueError("No profiling data provided.")
@@ -674,7 +714,7 @@ def plot_flame(
         all_region_names.update(region.name for region in regions)
         reader_regions.append((reader, regions))
 
-    color_map = _region_color_map(plt, all_region_names, cmap=cmap)
+    color_map = _region_color_map(all_region_names, cmap=cmap)
     for _, regions in reader_regions:
         for region in regions:
             region.color = color_map[region.name]
@@ -738,32 +778,57 @@ def plot_flame(
             )
         )
 
-    subplot_heights = [
+    single_panel = len(prepared) == 1
+    panel_heights = [
         max(2.0, 0.6 * (max(call["depth"] for call in calls) + 1))
         for _, _, calls in prepared
     ]
-    fig, axes = plt.subplots(
+    fig_width, fig_height = 12.0, 1.0 + sum(panel_heights)
+    canvas = Canvas(
         nrows=len(prepared),
         ncols=1,
-        figsize=(12, max(3.0, sum(subplot_heights))),
+        figsize=(fig_width, fig_height),
+        # Depth numbers plus the "Call depth" axis label.
+        gridspec_kw=_panel_gridspec(fig_width, fig_height, 8, not single_panel),
     )
-    axes = np.atleast_1d(axes).ravel()
 
-    for ax, (reader, rank, calls) in zip(axes, prepared):
-        _draw_flame_axis(plt, ax, calls)
-        ax.set_title(f"{reader.file_path.stem} (rank {rank})")
+    for idx, (reader, rank, calls) in enumerate(prepared):
+        row = None if single_panel else idx
+        col = None if single_panel else 0
 
-    if len(prepared) == 1:
-        fig.tight_layout()
-    else:
-        fig.suptitle("Flame Graphs")
-        fig.tight_layout(rect=(0, 0, 1, 0.98))
+        first_start = min(call["start"] for call in calls)
+        total_span = max(call["end"] for call in calls) - first_start
+        max_depth = max(call["depth"] for call in calls)
 
-    if filepath:
-        plt.savefig(filepath, dpi=300)
-    if show:
-        plt.show()
-    plt.close(fig)
+        canvas.flame_chart(
+            [call["name"] for call in calls],
+            [call["parent"] for call in calls],
+            [call["end"] - call["start"] for call in calls],
+            start_times=[call["start"] - first_start for call in calls],
+            row=row,
+            col=col,
+            edgecolor="black",
+            # Canvas.flame_chart colors frames by depth from a colormap and
+            # ignores per-frame colors. Only the matplotlib backend takes a
+            # matplotlib colormap name; the Plotly one needs a Plotly
+            # colorscale, so it keeps its own default.
+            **({} if backend == "plotly" else {"colormap": cmap}),
+        )
+
+        canvas.set_yticks(list(range(max_depth + 1)), row=row, col=col)
+        # The frames are drawn as rectangles, which don't drive autorange, so
+        # frame the panel from the data.
+        canvas.set_xlim(0, total_span, row=row, col=col)
+        canvas.set_ylim(-0.6, max_depth + 1.0, row=row, col=col)
+        canvas.set_xlabel("Time (seconds)", row=row, col=col)
+        canvas.set_ylabel("Call depth", row=row, col=col)
+        canvas.set_title(f"{reader.file_path.stem} (rank {rank})", row=row, col=col)
+        canvas.set_grid(True, row=row, col=col)
+
+    if not single_panel:
+        canvas.suptitle("Flame Graphs")
+
+    _render(canvas, filepath, show, backend)
 
 
 _DURATION_METRICS: dict[str, tuple[str, str]] = {
@@ -805,32 +870,21 @@ def plot_durations(
     cmap: str = DEFAULT_CMAP,
     data_filepath: str | Path | None = None,
     data_format: str = "csv",
+    backend: str = "matplotlib",
 ) -> list[str]:
-    """Plot duration bar charts for one or more profiling files.
+    """Plot duration bar charts for one or more profiling files using maxplotlib.
 
-    Each requested metric is rendered as its own separate figure.
+    Parameters
+    ----------
+    backend : str
+        Backend to use for rendering: "matplotlib" (default) or "plotly".
 
-    Args:
-        metrics: Which statistics to plot, any of "avg", "min", "max", "total".
-            Defaults to all four.
-        filepath: Base output path. When multiple metrics are plotted, each
-            figure is saved with the metric name inserted before the
-            extension (e.g. "durations_plot.png" -> "durations_plot_avg.png").
-        cmap: Name of the matplotlib colormap used to color files (default:
-            "tab20"). Bars here are colored per-file, not per-region, so this
-            is independent of the region colors used by ``plot_gantt``/
-            ``plot_flame``.
-        data_filepath: If given, write the (file, region, metric, value) bars
-            plotted across all requested metrics to this single path.
-        data_format: Format for ``data_filepath``: "csv" (default) or "json".
-            The JSON payload additionally includes a "colors" map of file
-            label to ``#rrggbb`` string, matching the colors used in this
-            plot, and the list of "metrics" plotted.
-
-    Returns:
+    Returns
+    -------
+    list[str]
         List of filepaths that were written (empty if filepath is None).
     """
-    plt = _get_pyplot()
+    Canvas = _get_canvas()
     readers = _as_readers(profiling_data)
     ranks = _normalize_ranks(ranks)
 
@@ -866,16 +920,13 @@ def plot_durations(
             f"for files: {', '.join(labels)}"
         )
 
-    x = np.arange(len(region_names))
     num_readers = len(readers)
-    width = min(0.8 / max(num_readers, 1), 0.35)
-    colors = _get_cmap(plt, cmap)(np.linspace(0, 1, max(num_readers, 1)))
+    colors = _get_cmap_colors(cmap, max(num_readers, 1))
     fig_width = max(10, 0.85 * len(region_names) + 2)
     fig_height = max(4.5, 2.5 + 0.35 * num_readers)
-    offset_start = -0.5 * width * (num_readers - 1)
+    width = min(0.8 / max(num_readers, 1), 0.35)
 
     saved_paths: list[str] = []
-    figs = []
     data_rows = []
 
     for metric_key in metric_keys:
@@ -896,36 +947,39 @@ def plot_durations(
                 for region_name, value in zip(region_names, file_values):
                     data_rows.append([label, region_name, metric_key, value])
 
-        fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+        canvas = Canvas(figsize=(fig_width, fig_height))
+
+        # Create grouped bar chart
+        x_positions = np.arange(len(region_names))
+        offset_start = -0.5 * width * (num_readers - 1)
+
         for idx, (label, file_values) in enumerate(zip(labels, values)):
-            offsets = x + offset_start + idx * width
-            ax.bar(
+            offsets = x_positions + offset_start + idx * width
+            canvas.bar(
                 offsets,
                 file_values,
                 width=width,
                 label=label if num_readers > 1 else None,
-                color=colors[idx],
+                color=_to_hex(colors[idx]),
                 edgecolor="black",
                 alpha=0.8,
             )
 
-        ax.set_xticks(x)
-        ax.set_xticklabels(region_names, rotation=45, ha="right")
-        ax.set_ylabel(ylabel)
-        ax.set_title(f"Region duration comparison ({metric_key})")
-        ax.grid(True, axis="y", linestyle="--", alpha=0.5)
+        canvas.set_xticks(x_positions, labels=region_names)
+        canvas.set_ylabel(ylabel)
+        canvas.set_title(f"Region duration comparison ({metric_key})")
+        canvas.set_grid(True)
         if num_readers > 1:
-            ax.legend(frameon=False)
-        fig.tight_layout()
+            canvas.set_legend()
 
+        metric_filepath = None
         if filepath:
             metric_filepath = _metric_filepath(
                 filepath, metric_key, single_metric=len(metric_keys) == 1
             )
-            fig.savefig(metric_filepath, dpi=300)
             saved_paths.append(metric_filepath)
 
-        figs.append(fig)
+        _render(canvas, metric_filepath, show, backend)
 
     if data_filepath:
         if data_format == "json":
@@ -948,11 +1002,6 @@ def plot_durations(
                 data_filepath, ["file", "region", "metric", "value_seconds"], data_rows
             )
 
-    if show:
-        plt.show()
-    for fig in figs:
-        plt.close(fig)
-
     return saved_paths
 
 
@@ -968,39 +1017,16 @@ def plot_speedup(
     cmap: str = DEFAULT_CMAP,
     data_filepath: str | Path | None = None,
     data_format: str = "csv",
+    backend: str = "matplotlib",
 ) -> None:
-    """Plot scope speedup versus a chosen parallelism/metadata field across files.
-
-    The speedup is computed from matching scopes' average per-call durations,
-    normalized against a baseline value of ``x_field``.
+    """Plot scope speedup versus a chosen parallelism/metadata field using maxplotlib.
 
     Parameters
     ----------
-    x_field : str
-        What to plot on the x-axis (default: ``"num_ranks"``). One of:
-
-        - ``"num_ranks"``: number of MPI ranks in each file.
-        - ``"omp_num_threads"``: OpenMP thread count, read from metadata.
-        - ``"total_cores"``: ``num_ranks * omp_num_threads``.
-        - any other value is looked up as a key in each file's metadata
-          (see :attr:`ProfilingH5Reader.metadata`).
-
-        The first three are treated as parallelism counts: files are ordered
-        numerically by value and an ideal-scaling reference line is drawn.
-        Any other metadata field is treated as categorical: files are kept in
-        the order given in ``profiling_data``, and no ideal-scaling line is
-        drawn (there is no well-defined "ideal" for an arbitrary field).
-    cmap : str
-        Name of the matplotlib colormap used to color regions (default: "tab20").
-    data_filepath : str | Path | None
-        If given, write the (region, x_field, speedup) points plotted here
-        to this path.
-    data_format : str
-        Format for ``data_filepath``: "csv" (default) or "json". The JSON
-        payload additionally includes a "colors" map of region name to
-        ``#rrggbb`` string, matching the colors used in this plot.
+    backend : str
+        Backend to use for rendering: "matplotlib" (default) or "plotly".
     """
-    plt = _get_pyplot()
+    Canvas = _get_canvas()
     readers = _as_readers(profiling_data)
     if len(readers) < 2:
         raise ValueError("Speedup plot requires at least two profiling files.")
@@ -1013,10 +1039,8 @@ def plot_speedup(
     x_per_reader = [_speedup_x_value(reader, x_field) for reader in readers]
 
     if is_scaling:
-        # Numeric parallelism count: order ascending regardless of CLI order.
         x_keys = sorted({int(value) for value in x_per_reader})
     else:
-        # Arbitrary/categorical field: keep the order files were given in.
         x_keys = list(dict.fromkeys(x_per_reader))
 
     if verbose:
@@ -1038,17 +1062,16 @@ def plot_speedup(
                 duration_samples[region_name][x_value].append(duration)
 
     baseline_key = x_keys[0]
-    colors = _get_cmap(plt, cmap)(np.linspace(0, 1, len(region_names)))
+    colors = _get_cmap_colors(cmap, len(region_names))
     fig_width = max(10, 1.2 * len(x_keys) + 3)
     fig_height = max(4.5, 2.8 + 0.35 * len(region_names))
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
 
-    # Positions on the x-axis: the value itself for a numeric scaling field,
-    # or the index into x_keys (in CLI order) for a categorical one.
     x_position = {key: (key if is_scaling else i) for i, key in enumerate(x_keys)}
 
+    canvas = Canvas(figsize=(fig_width, fig_height))
     plotted = 0
     data_rows = []
+
     for idx, region_name in enumerate(region_names):
         region_values = duration_samples[region_name]
         baseline_samples = region_values.get(baseline_key, [])
@@ -1077,12 +1100,11 @@ def plot_speedup(
             continue
 
         plotted += 1
-        ax.plot(
+        canvas.add_line(
             plot_x,
             speedups,
-            marker="o",
             linewidth=1.8,
-            color=colors[idx],
+            color=_to_hex(colors[idx]),
             label=region_name,
         )
         if data_filepath:
@@ -1114,7 +1136,7 @@ def plot_speedup(
 
     if is_scaling:
         x_line = np.array(x_keys, dtype=float)
-        ax.plot(
+        canvas.add_line(
             x_line,
             x_line / baseline_key,
             linestyle="--",
@@ -1122,20 +1144,14 @@ def plot_speedup(
             linewidth=1.5,
             label="Ideal scaling",
         )
-        ax.set_xticks(x_line)
+        canvas.set_xticks(x_line)
     else:
-        ax.set_xticks(range(len(x_keys)))
-        ax.set_xticklabels([str(key) for key in x_keys], rotation=30, ha="right")
+        canvas.set_xticks(list(range(len(x_keys))), labels=[str(key) for key in x_keys])
 
-    ax.set_xlabel(x_label)
-    ax.set_ylabel("Speedup")
-    ax.set_title(f"Region speedup scaling (baseline: {x_label} = {baseline_key})")
-    ax.grid(True, axis="both", linestyle="--", alpha=0.5)
-    ax.legend(frameon=False)
-    fig.tight_layout()
+    canvas.set_xlabel(x_label)
+    canvas.set_ylabel("Speedup")
+    canvas.set_title(f"Region speedup scaling (baseline: {x_label} = {baseline_key})")
+    canvas.set_grid(True)
+    canvas.set_legend()
 
-    if filepath:
-        plt.savefig(filepath, dpi=300)
-    if show:
-        plt.show()
-    plt.close(fig)
+    _render(canvas, filepath, show, backend)

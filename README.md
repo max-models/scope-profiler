@@ -54,22 +54,81 @@ Execution:
 
 ```bash
 ❯ python test.py
-Region: main
-  Total Calls : 1
-  Total Time  : 0.001503709 s
-  Avg Time    : 0.001503709 s
-  Min Time    : 0.001503709 s
-  Max Time    : 0.001503709 s
-  Std Dev     : 0.0 s
-----------------------------------------
-Region: iteration
-  Total Calls : 10
-  Total Time  : 3.832e-06 s
-  Avg Time    : 3.832e-07 s
-  Min Time    : 2.08e-07 s
-  Max Time    : 8.75e-07 s
-  Std Dev     : 2.2431888016838885e-07 s
-----------------------------------------
+profiling_data.h5  (1 rank(s))
+  region     ranks  calls    total [s]      avg [s]      min [s]      max [s]      std [s]
+  ----------------------------------------------------------------------------------------
+  main           1      1   0.00150371   0.00150371   0.00150371   0.00150371            0
+  iteration      1     10    3.832e-06    3.832e-07     2.08e-07     8.75e-07  2.24319e-07
+  ----------------------------------------------------------------------------------------
+  TOTAL                11   0.00150754
+
+  Regions may nest, so the summed total can exceed the wall-clock time.
+```
+
+`finalize()` prints the same table as `scope-profiler inspect` and
+`ProfilingH5Reader.print_summary()`. Pass `verbose=False` to suppress it.
+
+## Inspecting a profiling file
+
+`scope-profiler inspect` prints what is inside an HDF5 profiling file: the
+full run metadata (host, CPU, loaded modules, Slurm job, environment) and one
+statistics line per region, with no plotting dependencies needed.
+
+```bash
+scope-profiler inspect profiling_data.h5
+```
+
+```text
+==============================================================================
+profiling_data.h5
+2 rank(s), 4 region(s), 0.18 MiB, 0.0951538 s wall clock
+==============================================================================
+
+Metadata
+  Run
+    timestamp              : 2026-07-26T18:57:49
+    user                   : mlindqvi
+    hostname               : lrdn1234
+  System
+    chip_information       : AMD EPYC 9654 96-Core Processor
+  Parallelism
+    mpi_size               : 2
+    omp_num_threads        : 8
+    total_cores            : 16
+  Slurm
+    SLURM_JOB_ID           : 9988776
+  Modules (4)
+    profile/base
+    gcc/12.3.0
+    openmpi/4.1.6--gcc--12.3.0
+    python/3.11.7
+
+Regions (4)
+  region    ranks  calls  total [s]    avg [s]     min [s]    max [s]      std [s]
+  --------------------------------------------------------------------------------
+  timestep      2      8   0.139235  0.0174044   0.0165256  0.0176325  0.000338551
+  solve         2      8  0.0991292  0.0123911   0.0115046  0.0125382  0.000335212
+  setup         2      2  0.0473326  0.0236663   0.0222938  0.0250388   0.00137254
+  assemble      2      8  0.0399496  0.0049937  0.00484729  0.0050345   5.5882e-05
+  --------------------------------------------------------------------------------
+  TOTAL               26   0.325647
+```
+
+Long values such as `PATH` are clipped unless `--full` is passed, regions can
+be filtered with `--include`/`--exclude`/`--ranks`, reordered with `--sort`,
+and either section shown alone with `--metadata-only` / `--regions-only`.
+
+The metadata can also be exported to JSON, with one entry per inspected file
+and no clipping:
+
+```bash
+scope-profiler inspect profiling_data.h5 --export-metadata metadata.json --quiet
+```
+
+```python
+from scope_profiler.inspection import write_metadata_json
+
+write_metadata_json("profiling_data.h5", "metadata.json")
 ```
 
 ## Example plots
@@ -202,6 +261,48 @@ ProfileManager.finalize()
 Both `fibonacci` and `fibonacci_ctx` will report one call per recursive
 invocation, each with correct, non-overlapping timing data.
 
+## Analysing results in Python
+
+`ProfilingH5Reader` loads a merged profiling file and behaves like an ordered
+mapping of region name to region. Every duration and timestamp it reports is in
+**seconds**:
+
+```python
+from scope_profiler import ProfilingH5Reader
+
+reader = ProfilingH5Reader("profiling_data.h5")
+reader.print_summary()
+
+# region       calls     total [s]       avg [s]       min [s]       max [s]
+# ---------------------------------------------------------------------------
+# setup            1       0.02401       0.02401       0.02401       0.02401
+# timestep         5      0.062835      0.012567     0.0087755     0.0187844
+
+solve = reader["solve"]           # an MPIRegion: the region across all ranks
+solve.num_calls                   # summed over ranks
+solve.total_duration              # seconds
+solve.average_durations()         # {rank: seconds}, for load imbalance
+solve[0].durations                # every call on rank 0, as a numpy array
+```
+
+`summary()` returns the same table as a list of dicts, and `to_dataframe()`
+returns it as a pandas DataFrame (one row per region, or per region and rank
+with `per_rank=True`):
+
+```python
+frame = reader.to_dataframe().sort_values("total_duration", ascending=False)
+per_rank = reader.to_dataframe(per_rank=True)
+```
+
+`include` / `exclude` regexes select regions in `get_regions()`, `summary()`,
+`to_dataframe()` and every `plot_*` function.
+
+The [tutorial notebooks](tutorials/) cover this in depth:
+[getting started](tutorials/01_getting_started.ipynb),
+[post-processing](tutorials/02_postprocessing.ipynb),
+[visualization](tutorials/03_visualization.ipynb) and
+[profiling modes](tutorials/04_profiling_modes.ipynb).
+
 ## Flame graphs
 
 Because each call - including recursive re-entries of the same region -
@@ -222,8 +323,7 @@ scope-profiler pproc profiling_data.h5 --show -o figures
 Or programmatically:
 
 ```python
-from scope_profiler.h5reader import ProfilingH5Reader
-from scope_profiler.plotting_scripts import plot_flame
+from scope_profiler import ProfilingH5Reader, plot_flame
 
 reader = ProfilingH5Reader("profiling_data.h5")
 plot_flame(reader, filepath="flame_plot.png")

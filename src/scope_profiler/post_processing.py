@@ -124,6 +124,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--backend",
+        choices=["matplotlib", "plotly"],
+        default="matplotlib",
+        help=(
+            "Renderer used for the plots (default: matplotlib). 'matplotlib' "
+            "writes static .png files; 'plotly' writes interactive .html "
+            "files instead, and makes --show open them in a browser."
+        ),
+    )
+    parser.add_argument(
         "--export-data",
         action="store_true",
         help=(
@@ -204,6 +214,26 @@ def main(argv: list[str] | None = None):
 
     readers = [ProfilingH5Reader(file_path) for file_path in args.files]
 
+    # Files profiled with time_trace=False hold call counts but no timestamps,
+    # so every chart here would be empty. Report the counts and stop, rather
+    # than failing deep inside the plotting code.
+    if not any(
+        len(region[rank].durations)
+        for reader in readers
+        for region in reader.get_regions()
+        for rank in region.regions
+    ):
+        print(
+            "No timing data found — these files were profiled with "
+            "time_trace=False, which records call counts only.\n"
+        )
+        for reader in readers:
+            print(f"{reader.file_path}:")
+            for region in reader.get_regions():
+                total = sum(r.num_calls for r in region.regions.values())
+                print(f"  {region.name}: {total} calls")
+        return
+
     gantt_path = None
     flame_path = None
     durations_path = None
@@ -216,11 +246,14 @@ def main(argv: list[str] | None = None):
     if args.output:
         os.makedirs(args.output, exist_ok=True)
         if not args.skip_plot_images:
-            gantt_path = os.path.join(args.output, "gantt_plot.png")
-            flame_path = os.path.join(args.output, "flame_plot.png")
-            durations_path = os.path.join(args.output, "durations_plot.png")
+            # Plotly's native output is a self-contained interactive page;
+            # writing .png from it would additionally require kaleido.
+            ext = "html" if args.backend == "plotly" else "png"
+            gantt_path = os.path.join(args.output, f"gantt_plot.{ext}")
+            flame_path = os.path.join(args.output, f"flame_plot.{ext}")
+            durations_path = os.path.join(args.output, f"durations_plot.{ext}")
             if len(readers) > 1:
-                speedup_path = os.path.join(args.output, "speedup_plot.png")
+                speedup_path = os.path.join(args.output, f"speedup_plot.{ext}")
         statistics_path = os.path.join(args.output, "region_statistics.json")
         if args.export_data:
             data_ext = args.export_data_format
@@ -244,6 +277,7 @@ def main(argv: list[str] | None = None):
         cmap=args.cmap,
         data_filepath=gantt_data_path,
         data_format=args.export_data_format,
+        backend=args.backend,
     )
 
     plot_flame(
@@ -256,6 +290,7 @@ def main(argv: list[str] | None = None):
         cmap=args.cmap,
         data_filepath=flame_data_path,
         data_format=args.export_data_format,
+        backend=args.backend,
     )
 
     durations_paths = plot_durations(
@@ -269,6 +304,7 @@ def main(argv: list[str] | None = None):
         cmap=args.cmap,
         data_filepath=durations_data_path,
         data_format=args.export_data_format,
+        backend=args.backend,
     )
 
     if len(readers) > 1:
@@ -283,6 +319,7 @@ def main(argv: list[str] | None = None):
             cmap=args.cmap,
             data_filepath=speedup_data_path,
             data_format=args.export_data_format,
+            backend=args.backend,
         )
 
     if statistics_path:
