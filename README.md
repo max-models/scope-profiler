@@ -265,6 +265,48 @@ ProfileManager.finalize()
 Both `fibonacci` and `fibonacci_ctx` will report one call per recursive
 invocation, each with correct, non-overlapping timing data.
 
+## Analysing results in Python
+
+`ProfilingH5Reader` loads a merged profiling file and behaves like an ordered
+mapping of region name to region. Every duration and timestamp it reports is in
+**seconds**:
+
+```python
+from scope_profiler import ProfilingH5Reader
+
+reader = ProfilingH5Reader("profiling_data.h5")
+reader.print_summary()
+
+# region       calls     total [s]       avg [s]       min [s]       max [s]
+# ---------------------------------------------------------------------------
+# setup            1       0.02401       0.02401       0.02401       0.02401
+# timestep         5      0.062835      0.012567     0.0087755     0.0187844
+
+solve = reader["solve"]           # an MPIRegion: the region across all ranks
+solve.num_calls                   # summed over ranks
+solve.total_duration              # seconds
+solve.average_durations()         # {rank: seconds}, for load imbalance
+solve[0].durations                # every call on rank 0, as a numpy array
+```
+
+`summary()` returns the same table as a list of dicts, and `to_dataframe()`
+returns it as a pandas DataFrame (one row per region, or per region and rank
+with `per_rank=True`):
+
+```python
+frame = reader.to_dataframe().sort_values("total_duration", ascending=False)
+per_rank = reader.to_dataframe(per_rank=True)
+```
+
+`include` / `exclude` regexes select regions in `get_regions()`, `summary()`,
+`to_dataframe()` and every `plot_*` function.
+
+The [tutorial notebooks](tutorials/) cover this in depth:
+[getting started](tutorials/01_getting_started.ipynb),
+[post-processing](tutorials/02_postprocessing.ipynb),
+[visualization](tutorials/03_visualization.ipynb) and
+[profiling modes](tutorials/04_profiling_modes.ipynb).
+
 ## Flame graphs
 
 Because each call - including recursive re-entries of the same region -
@@ -285,8 +327,7 @@ scope-profiler pproc profiling_data.h5 --show -o figures
 Or programmatically:
 
 ```python
-from scope_profiler.h5reader import ProfilingH5Reader
-from scope_profiler.plotting_scripts import plot_flame
+from scope_profiler import ProfilingH5Reader, plot_flame
 
 reader = ProfilingH5Reader("profiling_data.h5")
 plot_flame(reader, filepath="flame_plot.png")

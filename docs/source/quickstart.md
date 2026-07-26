@@ -102,13 +102,17 @@ scope-profiler pproc profiling_data.h5 --show
 Or load the data programmatically:
 
 ```python
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler import ProfilingH5Reader
 
 reader = ProfilingH5Reader("profiling_data.h5")
-for region in reader.get_regions():
-    stats = region[0].get_summary()  # rank 0
-    print(f"{region.name}: {stats['num_calls']} calls, "
-          f"avg {stats['average_duration']/1e9:.4f} s")
+
+# The quickest look: a summary table of every region.
+reader.print_summary()
+
+# Or region by region (durations are in seconds).
+for region in reader:
+    print(f"{region.name}: {region.num_calls} calls, "
+          f"avg {region.average_duration:.4f} s")
 ```
 
 ## Complete example

@@ -2,7 +2,7 @@
 
 import re
 from pathlib import Path
-from typing import List
+from typing import Iterator, List
 
 import h5py
 import numpy as np
@@ -27,6 +27,18 @@ def _decode_attribute(value):
 class ProfilingH5Reader:
     """
     Reads profiling data stored by ProfileRegion in an HDF5 file.
+
+    The reader behaves like an ordered mapping of region name to
+    :class:`~scope_profiler.mpi_region.MPIRegion`::
+
+        reader = ProfilingH5Reader("profiling_data.h5")
+        for region in reader:
+            print(region.name, region.total_duration)
+
+        solve = reader["solve"]        # same as reader.get_region("solve")
+        solve[0].average_duration      # rank 0, in seconds
+
+    All durations are reported in seconds.
     """
 
     def __init__(
@@ -121,7 +133,142 @@ class ProfilingH5Reader:
         KeyError
             If the specified region name does not exist.
         """
-        return self._region_dict[region_name]
+        try:
+            return self._region_dict[region_name]
+        except KeyError:
+            raise KeyError(
+                f"No region named {region_name!r} in {self.file_path}. "
+                f"Available regions: {self.region_names}"
+            ) from None
+
+    @property
+    def region_names(self) -> List[str]:
+        """Names of all regions in the file, in order of appearance."""
+        return list(self._region_dict)
+
+    def summary(
+        self,
+        include: list[str] | str | None = None,
+        exclude: list[str] | str | None = None,
+    ) -> List[dict]:
+        """
+        Summarize every region, aggregated over ranks.
+
+        Parameters
+        ----------
+        include, exclude : list of str or str, optional
+            Regex patterns selecting which regions to summarize, matched as in
+            :meth:`get_regions`.
+
+        Returns
+        -------
+        List[dict]
+            One dict per region (see
+            :meth:`~scope_profiler.mpi_region.MPIRegion.get_summary`), ordered
+            by first start time. Durations are in seconds.
+        """
+        return [
+            region.get_summary()
+            for region in self.get_regions(include=include, exclude=exclude)
+        ]
+
+    def to_dataframe(
+        self,
+        include: list[str] | str | None = None,
+        exclude: list[str] | str | None = None,
+        per_rank: bool = False,
+    ):
+        """
+        Return the region summaries as a pandas DataFrame.
+
+        Parameters
+        ----------
+        include, exclude : list of str or str, optional
+            Regex patterns selecting which regions to include, matched as in
+            :meth:`get_regions`.
+        per_rank : bool, optional
+            If True, emit one row per (region, rank) with a ``rank`` column
+            instead of one aggregated row per region (default: False).
+
+        Returns
+        -------
+        pandas.DataFrame
+            Region statistics, with durations in seconds.
+
+        Raises
+        ------
+        ImportError
+            If pandas is not installed.
+        """
+        try:
+            import pandas as pd
+        except ImportError as exc:
+            raise ImportError(
+                "to_dataframe() requires pandas. Install scope-profiler[pproc] "
+                "or pandas directly."
+            ) from exc
+
+        regions = self.get_regions(include=include, exclude=exclude)
+        if not per_rank:
+            return pd.DataFrame(region.get_summary() for region in regions)
+
+        rows = []
+        for region in regions:
+            for rank in region.ranks:
+                rows.append(
+                    {"name": region.name, "rank": rank, **region[rank].get_summary()}
+                )
+        return pd.DataFrame(rows)
+
+    def print_summary(
+        self,
+        include: list[str] | str | None = None,
+        exclude: list[str] | str | None = None,
+    ) -> None:
+        """
+        Print a region summary table, aggregated over ranks.
+
+        Parameters
+        ----------
+        include, exclude : list of str or str, optional
+            Regex patterns selecting which regions to print, matched as in
+            :meth:`get_regions`.
+        """
+        rows = self.summary(include=include, exclude=exclude)
+        if not rows:
+            print(f"{self.file_path}: no regions recorded.")
+            return
+
+        name_width = max(len("region"), max(len(row["name"]) for row in rows))
+        header = (
+            f"{'region':<{name_width}}  {'calls':>8}  {'total [s]':>12}  "
+            f"{'avg [s]':>12}  {'min [s]':>12}  {'max [s]':>12}"
+        )
+        print(f"{self.file_path}  ({self.num_ranks} rank(s))")
+        print(header)
+        print("-" * len(header))
+        for row in rows:
+            print(
+                f"{row['name']:<{name_width}}  {row['num_calls']:>8}  "
+                f"{row['total_duration']:>12.6g}  {row['average_duration']:>12.6g}  "
+                f"{row['min_duration']:>12.6g}  {row['max_duration']:>12.6g}"
+            )
+
+    def __getitem__(self, region_name: str) -> MPIRegion:
+        """Get a region by name; see :meth:`get_region`."""
+        return self.get_region(region_name)
+
+    def __contains__(self, region_name: str) -> bool:
+        """Whether a region with this name exists in the file."""
+        return region_name in self._region_dict
+
+    def __iter__(self) -> Iterator[MPIRegion]:
+        """Iterate over all regions, in order of appearance."""
+        return iter(self._region_dict.values())
+
+    def __len__(self) -> int:
+        """Number of regions in the file."""
+        return len(self._region_dict)
 
     @property
     def file_path(self) -> Path:
@@ -170,12 +317,8 @@ class ProfilingH5Reader:
         float
             Minimum start time in seconds.
         """
-        min_start = float("inf")
-        for region in self.get_regions():
-            region_min = min(r.first_start_time for r in region.regions.values())
-            if region_min < min_start:
-                min_start = region_min
-        return min_start
+        starts = [region.first_start_time for region in self.get_regions()]
+        return min(starts) if starts else 0.0
 
     def get_regions(
         self,
@@ -226,8 +369,7 @@ class ProfilingH5Reader:
         str
             Formatted string containing profiling data for all regions.
         """
-        _out = ""
-        for region_name, region in self._region_dict.items():
-            _out += f"Region: {region_name}\n"
-            _out += str(region[0])
-        return _out
+        return (
+            f"<ProfilingH5Reader {self.file_path.name!r}: "
+            f"{len(self._region_dict)} region(s), {self._num_ranks} rank(s)>"
+        )
