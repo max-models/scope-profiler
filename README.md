@@ -54,23 +54,19 @@ Execution:
 
 ```bash
 ❯ python test.py
-Region: main
-  Total Calls : 1
-  Total Time  : 0.001503709 s
-  Avg Time    : 0.001503709 s
-  Min Time    : 0.001503709 s
-  Max Time    : 0.001503709 s
-  Std Dev     : 0.0 s
-----------------------------------------
-Region: iteration
-  Total Calls : 10
-  Total Time  : 3.832e-06 s
-  Avg Time    : 3.832e-07 s
-  Min Time    : 2.08e-07 s
-  Max Time    : 8.75e-07 s
-  Std Dev     : 2.2431888016838885e-07 s
-----------------------------------------
+profiling_data.h5  (1 rank(s))
+  region     ranks  calls    total [s]      avg [s]      min [s]      max [s]      std [s]
+  ----------------------------------------------------------------------------------------
+  main           1      1   0.00150371   0.00150371   0.00150371   0.00150371            0
+  iteration      1     10    3.832e-06    3.832e-07     2.08e-07     8.75e-07  2.24319e-07
+  ----------------------------------------------------------------------------------------
+  TOTAL                11   0.00150754
+
+  Regions may nest, so the summed total can exceed the wall-clock time.
 ```
+
+`finalize()` prints the same table as `scope-profiler inspect` and
+`ProfilingH5Reader.print_summary()`. Pass `verbose=False` to suppress it.
 
 ## Inspecting a profiling file
 

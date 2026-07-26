@@ -61,16 +61,14 @@ ProfileManager.finalize()
 Output:
 
 ```text
-Region: compute
-  Total Calls : 1
-  Total Time  : 0.033359 s
-  ...
-----------------------------------------
-Region: allocate
-  Total Calls : 1
-  Total Time  : 0.042457 s
-  ...
-----------------------------------------
+profiling_data.h5  (1 rank(s))
+  region    ranks  calls  total [s]   avg [s]   min [s]   max [s]  std [s]
+  ------------------------------------------------------------------------
+  allocate      1      1   0.042457  0.042457  0.042457  0.042457        0
+  compute       1      1   0.033359  0.033359  0.033359  0.033359        0
+  ------------------------------------------------------------------------
+  TOTAL                2   0.075816
+
 Timer unit: 1e-09 s
 
 Total time: 0.029169 s

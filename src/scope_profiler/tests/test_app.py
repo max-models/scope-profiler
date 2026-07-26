@@ -362,6 +362,41 @@ def test_recursive_profile_setup_default_and_override():
     ProfileManager.finalize(verbose=False)
 
 
+def test_finalize_prints_the_shared_summary_table(tmp_path, capsys):
+    """finalize() renders the same table as print_summary(), not its own."""
+    file_path = tmp_path / "summary.h5"
+    ProfileManager.setup(file_path=str(file_path))
+
+    with ProfileManager.profile_region("outer"):
+        for _ in range(2):
+            with ProfileManager.profile_region("inner"):
+                sleep(0.001)
+
+    ProfileManager.finalize()
+    printed = capsys.readouterr().out
+
+    # Same header, columns and TOTAL row as ProfilingH5Reader.print_summary().
+    reader = ProfilingH5Reader(file_path)
+    reader.print_summary(title=f"{file_path}  (1 rank(s))")
+    assert printed == capsys.readouterr().out
+
+    assert "region" in printed and "std [s]" in printed
+    assert "outer" in printed and "inner" in printed
+    assert "TOTAL" in printed
+    # The old per-region block format is gone.
+    assert "Total Calls" not in printed
+
+
+def test_finalize_quiet(tmp_path, capsys):
+    file_path = tmp_path / "quiet.h5"
+    ProfileManager.setup(file_path=str(file_path))
+    with ProfileManager.profile_region("region"):
+        pass
+    ProfileManager.finalize(verbose=False)
+
+    assert capsys.readouterr().out == ""
+
+
 def test_finalize_writes_global_metadata(tmp_path):
     file_path = tmp_path / "profiling_metadata.h5"
     ProfileManager.setup(file_path=str(file_path))

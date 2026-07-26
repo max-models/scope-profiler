@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler.summary import SORT_KEYS, print_region_table, region_rows
 
 # Metadata is printed in these groups, in this order, so the fields that
 # identify a run come first and the sprawling environment variables last.
@@ -45,48 +46,6 @@ _SLURM_PREFIXES = ("SLURM_", "SLURMD_")
 _DEFAULT_VALUE_WIDTH = 96
 _ELLIPSIS = " […]"
 
-_SORT_KEYS = ("total", "calls", "avg", "max", "name")
-
-
-def _region_durations(region, ranks=None) -> np.ndarray:
-    """Pool every recorded call duration of a region, in seconds.
-
-    Pooling the raw per-call durations rather than reusing
-    ``MPIRegion``'s aggregates keeps the ``--ranks`` filter working, since
-    those aggregate over every rank in the file.
-    """
-    selected = (
-        region.regions
-        if ranks is None
-        else {rank: region.regions[rank] for rank in ranks if rank in region.regions}
-    )
-    values = [data.durations for data in selected.values() if data.durations.size]
-    if not values:
-        return np.array([], dtype=float)
-    return np.concatenate(values)
-
-
-def _region_row(region, ranks=None) -> dict:
-    """Collect the summary statistics shown for one region."""
-    if ranks is None:
-        per_rank = region.regions
-    else:
-        per_rank = {
-            rank: region.regions[rank] for rank in ranks if rank in region.regions
-        }
-
-    durations = _region_durations(region, ranks)
-    return {
-        "name": region.name,
-        "num_ranks": len(per_rank),
-        "calls": sum(data.num_calls for data in per_rank.values()),
-        "total": float(np.sum(durations)) if durations.size else None,
-        "avg": float(np.mean(durations)) if durations.size else None,
-        "min": float(np.min(durations)) if durations.size else None,
-        "max": float(np.max(durations)) if durations.size else None,
-        "std": float(np.std(durations)) if durations.size else None,
-    }
-
 
 def _time_span(reader) -> float | None:
     """Wall-clock seconds between the first region entry and the last exit."""
@@ -100,11 +59,6 @@ def _time_span(reader) -> float | None:
     if not starts:
         return None
     return max(ends) - min(starts)
-
-
-def _format_duration(value) -> str:
-    """Format a duration in seconds, or a dash when no timing was recorded."""
-    return "-" if value is None else f"{value:.6g}"
 
 
 def _clip(value: str, full: bool) -> str:
@@ -178,95 +132,6 @@ def _print_metadata(metadata: dict, full: bool, stream) -> None:
     print(file=stream)
 
 
-def _print_regions(reader, rows: list, stream) -> None:
-    """Print the per-region statistics table."""
-    if not rows:
-        print("Regions\n  (none recorded)", file=stream)
-        return
-
-    formatted = [
-        {
-            "name": row["name"],
-            "ranks": str(row["num_ranks"]),
-            "calls": str(row["calls"]),
-            "total": _format_duration(row["total"]),
-            "avg": _format_duration(row["avg"]),
-            "min": _format_duration(row["min"]),
-            "max": _format_duration(row["max"]),
-            "std": _format_duration(row["std"]),
-        }
-        for row in rows
-    ]
-
-    total_calls = sum(row["calls"] for row in rows)
-    timed = [row["total"] for row in rows if row["total"] is not None]
-    formatted.append(
-        {
-            "name": "TOTAL",
-            "ranks": "",
-            "calls": str(total_calls),
-            "total": _format_duration(sum(timed) if timed else None),
-            "avg": "",
-            "min": "",
-            "max": "",
-            "std": "",
-        }
-    )
-
-    headers = {
-        "name": "region",
-        "ranks": "ranks",
-        "calls": "calls",
-        "total": "total [s]",
-        "avg": "avg [s]",
-        "min": "min [s]",
-        "max": "max [s]",
-        "std": "std [s]",
-    }
-    widths = {
-        column: max(len(header), max(len(row[column]) for row in formatted))
-        for column, header in headers.items()
-    }
-
-    def render(row, left_align_name=True):
-        cells = [
-            (
-                f"{row['name']:<{widths['name']}}"
-                if left_align_name
-                else f"{row['name']:>{widths['name']}}"
-            )
-        ]
-        cells += [
-            f"{row[column]:>{widths[column]}}"
-            for column in ("ranks", "calls", "total", "avg", "min", "max", "std")
-        ]
-        return "  ".join(cells)
-
-    print(f"Regions ({len(rows)})", file=stream)
-    header_line = render(headers)
-    print(f"  {header_line}", file=stream)
-    print(f"  {'-' * len(header_line)}", file=stream)
-    for row in formatted[:-1]:
-        print(f"  {render(row)}".rstrip(), file=stream)
-    print(f"  {'-' * len(header_line)}", file=stream)
-    print(f"  {render(formatted[-1])}".rstrip(), file=stream)
-
-    notes = []
-    if len(rows) > 1:
-        # Nested regions are counted in both the inner and the outer row, so
-        # the summed total legitimately exceeds the run's wall-clock time.
-        notes.append(
-            "Regions may nest, so the summed total can exceed the wall-clock time."
-        )
-    if any(row["total"] is None for row in rows):
-        notes.append(
-            "Regions without timing were profiled with time_trace=False; "
-            "only their call counts were recorded."
-        )
-    for note in notes:
-        print(f"\n  {note}", file=stream)
-
-
 def inspect_file(
     file_path,
     include=None,
@@ -322,19 +187,8 @@ def inspect_file(
     if not show_regions:
         return
 
-    rows = [
-        _region_row(region, ranks)
-        for region in reader.get_regions(include=include, exclude=exclude)
-    ]
-
-    # Sort by name first so that the stable sort below breaks ties
-    # alphabetically rather than by whatever order the file happened to use.
-    rows.sort(key=lambda row: row["name"])
-    if sort != "name":
-        # None (no timing recorded) sorts last.
-        rows.sort(key=lambda row: (row[sort] is not None, row[sort] or 0), reverse=True)
-
-    _print_regions(reader, rows, stream=stream)
+    rows = region_rows(reader, include=include, exclude=exclude, ranks=ranks, sort=sort)
+    print_region_table(rows, title=f"Regions ({len(rows)})", stream=stream)
 
 
 def _json_safe(value):
@@ -450,7 +304,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--sort",
-        choices=_SORT_KEYS,
+        choices=SORT_KEYS,
         default="total",
         help="Order regions by this column (default: total)",
     )
