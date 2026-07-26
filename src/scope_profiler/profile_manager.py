@@ -398,7 +398,16 @@ class ProfileManager:
                 # Global environment metadata, gathered from rank 0 only.
                 meta_grp = fout.create_group("metadata")
                 for key, value in config.metadata.items():
-                    meta_grp.attrs[key] = value
+                    if isinstance(value, (list, tuple)):
+                        # h5py cannot infer a dtype for an empty list, and
+                        # would store a non-empty one as fixed-width bytes;
+                        # be explicit so list-valued metadata (e.g. the loaded
+                        # modules) always round-trips as strings.
+                        meta_grp.attrs.create(
+                            key, list(value), dtype=h5py.string_dtype()
+                        )
+                    else:
+                        meta_grp.attrs[key] = value
 
                 # Per-region data for the verbose summary, accumulated during
                 # the merge pass below so each rank file is opened exactly
