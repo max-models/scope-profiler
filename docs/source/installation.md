@@ -49,7 +49,7 @@ build instructions.
 >>> with ProfileManager.profile_region("test"):
 ...     pass
 >>> ProfileManager.finalize()
-Region: test
-  Total Calls : 1
+profiling_data.h5  (1 rank(s))
+  region  ranks  calls  total [s]  avg [s]  min [s]  max [s]  std [s]
   ...
 ```

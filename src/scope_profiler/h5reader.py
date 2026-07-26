@@ -224,35 +224,40 @@ class ProfilingH5Reader:
         self,
         include: list[str] | str | None = None,
         exclude: list[str] | str | None = None,
+        ranks: list[int] | None = None,
+        sort: str = "total",
+        title: str | None = None,
+        stream=None,
     ) -> None:
         """
         Print a region summary table, aggregated over ranks.
+
+        Renders the same table as ``scope-profiler inspect`` and the summary
+        printed by ``ProfileManager.finalize()``.
 
         Parameters
         ----------
         include, exclude : list of str or str, optional
             Regex patterns selecting which regions to print, matched as in
             :meth:`get_regions`.
+        ranks : list of int, optional
+            Restrict the statistics to these ranks (default: all).
+        sort : str, optional
+            Column to order by: ``total`` (default), ``calls``, ``avg``,
+            ``max`` or ``name``.
+        title : str, optional
+            Heading above the table (default: the file path and rank count).
+        stream : file-like, optional
+            Where to write (default: stdout).
         """
-        rows = self.summary(include=include, exclude=exclude)
-        if not rows:
-            print(f"{self.file_path}: no regions recorded.")
-            return
+        from scope_profiler.summary import print_region_table, region_rows
 
-        name_width = max(len("region"), max(len(row["name"]) for row in rows))
-        header = (
-            f"{'region':<{name_width}}  {'calls':>8}  {'total [s]':>12}  "
-            f"{'avg [s]':>12}  {'min [s]':>12}  {'max [s]':>12}"
+        rows = region_rows(
+            self, include=include, exclude=exclude, ranks=ranks, sort=sort
         )
-        print(f"{self.file_path}  ({self.num_ranks} rank(s))")
-        print(header)
-        print("-" * len(header))
-        for row in rows:
-            print(
-                f"{row['name']:<{name_width}}  {row['num_calls']:>8}  "
-                f"{row['total_duration']:>12.6g}  {row['average_duration']:>12.6g}  "
-                f"{row['min_duration']:>12.6g}  {row['max_duration']:>12.6g}"
-            )
+        if title is None:
+            title = f"{self.file_path}  ({self.num_ranks} rank(s))"
+        print_region_table(rows, title=title, stream=stream)
 
     def __getitem__(self, region_name: str) -> MPIRegion:
         """Get a region by name; see :meth:`get_region`."""
