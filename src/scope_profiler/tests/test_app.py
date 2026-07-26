@@ -370,6 +370,8 @@ def test_finalize_writes_global_metadata(tmp_path):
         "timestamp",
         "hostname",
         "platform",
+        "uname",
+        "chip_information",
         "python_version",
         "scope_profiler_version",
         "working_directory",
@@ -377,6 +379,7 @@ def test_finalize_writes_global_metadata(tmp_path):
         "mpi_size",
         "total_cores",
         "user",
+        "modules",
     }
 
     with h5py.File(file_path, "r") as f:
@@ -394,7 +397,11 @@ def test_finalize_writes_global_metadata(tmp_path):
         assert attrs["total_cores"] == attrs["mpi_size"] * attrs["omp_num_threads"]
 
     reader = ProfilingH5Reader(file_path)
-    assert reader.metadata == attrs
+    # The reader exposes the same fields, decoded into plain Python types
+    # (list-valued attributes come back from h5py as numpy arrays).
+    assert reader.metadata.keys() == attrs.keys()
+    assert reader.metadata["hostname"] == attrs["hostname"]
+    assert isinstance(reader.metadata["modules"], list)
 
 
 @pytest.mark.parametrize("flush_to_disk", [True, False])

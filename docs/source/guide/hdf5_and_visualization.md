@@ -10,6 +10,7 @@ layout:
 
 ```text
 profiling_data.h5
+├── metadata/                  (attributes describing the run)
 ├── rank0/
 │   └── regions/
 │       ├── region_a/
@@ -28,6 +29,53 @@ profiling_data.h5
   For serial runs there is only `rank0`.
 - Timestamps are stored as **int64 nanoseconds** from
   `time.perf_counter_ns()`.
+
+## Run metadata
+
+Every file records the environment it was produced in, as attributes on the
+`metadata` group. This is what lets you tell two otherwise identical runs
+apart months later.
+
+Derived fields use lower-case names:
+
+| Field | Description |
+| --- | --- |
+| `timestamp` | ISO-8601 time the run started |
+| `user`, `hostname` | who ran it, and where |
+| `platform`, `uname` | OS description, and the full `uname` tuple |
+| `chip_information` | CPU model (from `/proc/cpuinfo` or `sysctl`) |
+| `python_version` | interpreter version |
+| `scope_profiler_version` | version of this package |
+| `working_directory` | directory the run started in |
+| `omp_num_threads`, `mpi_size`, `total_cores` | parallelism, usable as scaling-plot x-axes |
+| `modules` | loaded environment modules, as a **list of strings** |
+
+Captured environment variables keep their own upper-case names and are
+present only when set:
+
+- `PATH`, `LD_LIBRARY_PATH`, `VIRTUAL_ENV`
+- `LOADEDMODULES`, `MODULEPATH`, `MODULESHOME`, `MODULES_CMD`,
+  `MODULES_RUN_QUARANTINE`
+- `PYTHON_HOME`, `PYTHON_INC`, `PYTHON_INCLUDE`, `PYTHON_LIB`
+- every `SLURM_*` / `SLURMD_*` variable the batch system exported, so a run
+  can be traced back to its job
+
+```python
+from scope_profiler.h5reader import ProfilingH5Reader
+
+metadata = ProfilingH5Reader("profiling_data.h5").metadata
+
+print(metadata["chip_information"])   # 'AMD EPYC 9654 96-Core Processor'
+print(metadata["modules"])            # ['profile/base', 'gcc/12.3.0', ...]
+print(metadata.get("SLURM_JOB_ID"))   # '1234567', or None outside a job
+```
+
+Values longer than 60 000 characters are truncated with a trailing
+`...[truncated]`, since HDF5 attributes cannot exceed 64 KB.
+
+Metadata is collected on every rank but only rank 0's copy is stored, so it
+describes the run as a whole. Per-task values such as `SLURM_PROCID` reflect
+rank 0.
 
 ## Reading data with `ProfilingH5Reader`
 
