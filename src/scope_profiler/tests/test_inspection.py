@@ -1,12 +1,16 @@
 """Tests for ``scope-profiler inspect``."""
 
+import json
+
 import h5py
 import numpy as np
 import pytest
 
 from scope_profiler.__main__ import main as cli_main
-from scope_profiler.inspection import inspect_file
+from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler.inspection import collect_file_metadata, inspect_file
 from scope_profiler.inspection import main as inspect_main
+from scope_profiler.inspection import write_metadata_json
 
 NS = 1_000_000_000
 
@@ -222,6 +226,89 @@ def test_dispatch_from_main_cli(sample_file, capsys):
 
     assert "Metadata" in out
     assert "Regions" not in out
+
+
+def test_write_metadata_json(sample_file, tmp_path):
+    out_file = tmp_path / "exported" / "metadata.json"
+    returned = write_metadata_json(sample_file, out_file)
+
+    # Parent directories are created as needed.
+    assert out_file.exists()
+    payload = json.loads(out_file.read_text(encoding="utf-8"))
+    assert payload == returned
+
+    entry = payload["files"][0]
+    assert entry["file_path"] == str(sample_file.resolve())
+    assert entry["num_ranks"] == 2
+
+    metadata = entry["metadata"]
+    assert metadata["chip_information"] == "AMD EPYC 9654 96-Core Processor"
+    assert metadata["SLURM_JOB_ID"] == "1234567"
+    assert metadata["modules"] == ["profile/base", "gcc/12.3.0", "python/3.11.7"]
+    # numpy scalars from HDF5 must survive as plain JSON numbers.
+    assert metadata["mpi_size"] == 2
+    assert isinstance(metadata["mpi_size"], int)
+    # Export is never clipped, unlike the printed output.
+    assert "[…]" not in metadata["PATH"]
+    assert len(metadata["PATH"]) == len("/very/long/path" * 40)
+
+
+def test_write_metadata_json_accepts_readers_and_sequences(sample_file, tmp_path):
+    second = tmp_path / "second_run.h5"
+    _write_sample_h5(second, {0: {"setup": ([0], [1 * NS])}}, metadata={"user": "max"})
+
+    payload = write_metadata_json(
+        [ProfilingH5Reader(sample_file), second], tmp_path / "both.json"
+    )
+
+    assert len(payload["files"]) == 2
+    assert payload["files"][1]["metadata"]["user"] == "max"
+
+
+def test_collect_file_metadata_without_writing(sample_file):
+    payload = collect_file_metadata(sample_file)
+
+    assert list(payload) == ["files"]
+    assert payload["files"][0]["metadata"]["hostname"] == "lrdn1234"
+
+
+def test_cli_export_metadata(sample_file, tmp_path, capsys):
+    out_file = tmp_path / "metadata.json"
+    inspect_main([str(sample_file), "--export-metadata", str(out_file)])
+
+    out = capsys.readouterr().out
+    assert "Metadata" in out  # summary is still printed
+    assert f"Metadata written to {out_file}" in out
+
+    payload = json.loads(out_file.read_text(encoding="utf-8"))
+    assert payload["files"][0]["metadata"]["SLURM_JOB_ID"] == "1234567"
+
+
+def test_cli_export_metadata_quiet(sample_file, tmp_path, capsys):
+    out_file = tmp_path / "metadata.json"
+    inspect_main([str(sample_file), "--export-metadata", str(out_file), "--quiet"])
+
+    out = capsys.readouterr().out
+    assert "Regions" not in out
+    assert "chip_information" not in out
+    assert out.strip() == f"Metadata written to {out_file}"
+    assert out_file.exists()
+
+
+def test_cli_export_metadata_multiple_files(sample_file, tmp_path, capsys):
+    second = tmp_path / "second_run.h5"
+    _write_sample_h5(second, {0: {"setup": ([0], [1 * NS])}}, metadata={"user": "max"})
+    out_file = tmp_path / "metadata.json"
+
+    inspect_main(
+        [str(sample_file), str(second), "--export-metadata", str(out_file), "--quiet"]
+    )
+
+    payload = json.loads(out_file.read_text(encoding="utf-8"))
+    assert [entry["file_path"] for entry in payload["files"]] == [
+        str(sample_file.resolve()),
+        str(second.resolve()),
+    ]
 
 
 def test_inspect_listed_in_top_level_help(capsys):

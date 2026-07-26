@@ -122,6 +122,19 @@ Long values such as `PATH` are clipped unless `--full` is passed, regions can
 be filtered with `--include`/`--exclude`/`--ranks`, reordered with `--sort`,
 and either section shown alone with `--metadata-only` / `--regions-only`.
 
+The metadata can also be exported to JSON, with one entry per inspected file
+and no clipping:
+
+```bash
+scope-profiler inspect profiling_data.h5 --export-metadata metadata.json --quiet
+```
+
+```python
+from scope_profiler.inspection import write_metadata_json
+
+write_metadata_json("profiling_data.h5", "metadata.json")
+```
+
 ## Example plots
 
 `scope-profiler pproc` turns an HDF5 profiling file into Gantt, flame,

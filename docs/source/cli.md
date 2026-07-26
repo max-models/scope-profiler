@@ -50,12 +50,15 @@ usage: scope-profiler inspect [-h] [--include INCLUDE [INCLUDE ...]]
 | `--ranks`         | Restrict region statistics to these ranks, e.g. `0 2` or `0-3`          |
 | `--sort`          | Order regions by `total` (default), `calls`, `avg`, `max` or `name`     |
 | `--full`          | Print long metadata values (`PATH`, `LD_LIBRARY_PATH`, ...) in full     |
+| `--export-metadata` | Also write the metadata of every inspected file to this JSON file     |
+| `-q`, `--quiet`   | Suppress the printed summary (useful with `--export-metadata`)          |
 | `--metadata-only` | Print only the metadata section                                         |
 | `--regions-only`  | Print only the region statistics                                        |
 
 ```bash
 scope-profiler inspect profiling_data.h5
 scope-profiler inspect 'run_*.h5' --regions-only --sort calls
+scope-profiler inspect profiling_data.h5 --export-metadata metadata.json --quiet
 ```
 
 Example output:
@@ -100,6 +103,43 @@ Regions (4)
 
 Region durations are in seconds, aggregated over the selected ranks. See
 {doc}`/guide/hdf5_and_visualization` for what each metadata field means.
+
+### Exporting metadata to JSON
+
+`--export-metadata` writes the metadata of every inspected file to one JSON
+document. Values are never clipped there, regardless of `--full`:
+
+```bash
+scope-profiler inspect profiling_data.h5 --export-metadata metadata.json --quiet
+```
+
+```json
+{
+  "files": [
+    {
+      "file_path": "/scratch/run/profiling_data.h5",
+      "num_ranks": 2,
+      "metadata": {
+        "chip_information": "AMD EPYC 9654 96-Core Processor",
+        "modules": ["profile/base", "gcc/12.3.0", "python/3.11.7"],
+        "SLURM_JOB_ID": "9988776",
+        "...": "..."
+      }
+    }
+  ]
+}
+```
+
+Several files (or a glob) produce one entry each, which makes the export
+convenient for comparing the environments of a set of runs. The same is
+available from Python:
+
+```python
+from scope_profiler.inspection import collect_file_metadata, write_metadata_json
+
+payload = write_metadata_json("profiling_data.h5", "metadata.json")
+payload = collect_file_metadata(["run_1.h5", "run_2.h5"])  # no file written
+```
 
 ## `scope-profiler pproc`
 
