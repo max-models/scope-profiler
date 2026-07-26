@@ -50,8 +50,8 @@ def _parse_run_args(argv):
     parser.add_argument(
         "--buffer-limit",
         type=int,
-        default=100_000,
-        help="Max buffered calls per region before flushing to disk (default: 100000)",
+        default=1024,
+        help="Initial buffer capacity per region; grows as needed (default: 1024)",
     )
     parser.add_argument("script", help="Script to run and profile")
     parser.add_argument(

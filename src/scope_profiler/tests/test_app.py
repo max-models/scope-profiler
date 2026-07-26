@@ -14,7 +14,6 @@ from scope_profiler.region_profiler import (
     LineProfilerRegion,
     NCallsOnlyProfileRegion,
     TimeOnlyProfileRegion,
-    TimeOnlyProfileRegionNoFlush,
 )
 
 
@@ -121,18 +120,6 @@ def test_all_region_types():
 
     region = ProfileManager.get_region("time_only_region")
     assert isinstance(region, TimeOnlyProfileRegion)
-    assert region.num_calls == 1
-    assert region.ptr == 1
-    durations = region.get_durations_numpy()
-    assert durations[0] > 0
-
-    # Time-only region without flush
-    ProfileManager._region_cls = TimeOnlyProfileRegionNoFlush
-    with ProfileManager.profile_region("time_only_noflush"):
-        sleep(0.001)
-
-    region = ProfileManager.get_region("time_only_noflush")
-    assert isinstance(region, TimeOnlyProfileRegionNoFlush)
     assert region.num_calls == 1
     assert region.ptr == 1
     durations = region.get_durations_numpy()
