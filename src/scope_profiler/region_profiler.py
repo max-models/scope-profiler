@@ -27,10 +27,17 @@ def _import_pylikwid():
 def _import_line_profiler():
     """Import and return the LineProfiler class from line_profiler.
 
-    This function exists to defer the import of line_profiler until needed,
-    preventing unnecessary overhead when line profiling is disabled.
+    Imported lazily: line_profiler is an optional dependency, needed only when
+    ``use_line_profiler=True``.
     """
-    from line_profiler import LineProfiler
+    try:
+        from line_profiler import LineProfiler
+    except ImportError as exc:
+        raise ImportError(
+            "Line-by-line profiling requested but line_profiler is not "
+            "installed. Install scope-profiler[line-profiler], or "
+            "line_profiler directly."
+        ) from exc
 
     return LineProfiler
 

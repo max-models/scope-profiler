@@ -155,6 +155,7 @@ def test_all_region_types():
 
 
 def test_line_profiler_decorator():
+    pytest.importorskip("line_profiler")
     ProfileManager.setup(
         use_line_profiler=True,
         time_trace=True,
@@ -187,6 +188,7 @@ def test_line_profiler_decorator():
 
 
 def test_line_profiler_context_manager():
+    pytest.importorskip("line_profiler")
     ProfileManager.setup(
         use_line_profiler=True,
         time_trace=True,

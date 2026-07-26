@@ -24,6 +24,9 @@ classifiers = [
 dependencies = [
   "h5py",
   "numpy",
+]
+
+optional-dependencies.line-profiler = [
   "line-profiler",
 ]
 
@@ -43,7 +46,7 @@ optional-dependencies.dev = [
   "black[jupyter]",
   "isort",
   "ruff",
-  "scope-profiler[docs,test,mpi,pproc]",
+  "scope-profiler[docs,line-profiler,mpi,pproc,test]",
 ]
 # https://medium.com/@pratikdomadiya123/build-project-documentation-quickly-with-the-sphinx-python-2a9732b66594
 optional-dependencies.docs = [
@@ -54,7 +57,7 @@ optional-dependencies.docs = [
   "pyproject-fmt",
   "sphinx",
   "sphinx-book-theme",
-  "scope-profiler[pproc]",
+  "scope-profiler[line-profiler,pproc]",
 ]
 optional-dependencies.test = [
   "coverage",
