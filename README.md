@@ -72,6 +72,69 @@ Region: iteration
 ----------------------------------------
 ```
 
+## Inspecting a profiling file
+
+`scope-profiler inspect` prints what is inside an HDF5 profiling file: the
+full run metadata (host, CPU, loaded modules, Slurm job, environment) and one
+statistics line per region, with no plotting dependencies needed.
+
+```bash
+scope-profiler inspect profiling_data.h5
+```
+
+```text
+==============================================================================
+profiling_data.h5
+2 rank(s), 4 region(s), 0.18 MiB, 0.0951538 s wall clock
+==============================================================================
+
+Metadata
+  Run
+    timestamp              : 2026-07-26T18:57:49
+    user                   : mlindqvi
+    hostname               : lrdn1234
+  System
+    chip_information       : AMD EPYC 9654 96-Core Processor
+  Parallelism
+    mpi_size               : 2
+    omp_num_threads        : 8
+    total_cores            : 16
+  Slurm
+    SLURM_JOB_ID           : 9988776
+  Modules (4)
+    profile/base
+    gcc/12.3.0
+    openmpi/4.1.6--gcc--12.3.0
+    python/3.11.7
+
+Regions (4)
+  region    ranks  calls  total [s]    avg [s]     min [s]    max [s]      std [s]
+  --------------------------------------------------------------------------------
+  timestep      2      8   0.139235  0.0174044   0.0165256  0.0176325  0.000338551
+  solve         2      8  0.0991292  0.0123911   0.0115046  0.0125382  0.000335212
+  setup         2      2  0.0473326  0.0236663   0.0222938  0.0250388   0.00137254
+  assemble      2      8  0.0399496  0.0049937  0.00484729  0.0050345   5.5882e-05
+  --------------------------------------------------------------------------------
+  TOTAL               26   0.325647
+```
+
+Long values such as `PATH` are clipped unless `--full` is passed, regions can
+be filtered with `--include`/`--exclude`/`--ranks`, reordered with `--sort`,
+and either section shown alone with `--metadata-only` / `--regions-only`.
+
+The metadata can also be exported to JSON, with one entry per inspected file
+and no clipping:
+
+```bash
+scope-profiler inspect profiling_data.h5 --export-metadata metadata.json --quiet
+```
+
+```python
+from scope_profiler.inspection import write_metadata_json
+
+write_metadata_json("profiling_data.h5", "metadata.json")
+```
+
 ## Example plots
 
 `scope-profiler pproc` turns an HDF5 profiling file into Gantt, flame,

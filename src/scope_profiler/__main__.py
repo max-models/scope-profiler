@@ -2,7 +2,7 @@
 
 Also runnable as ``python -m scope_profiler <command> ...``.
 
-Two subcommands:
+Three subcommands:
 
 - ``scope-profiler run script.py [args...]`` -- profiles a script's function
   calls without requiring any decorators or context managers in the script
@@ -12,6 +12,9 @@ Two subcommands:
 - ``scope-profiler pproc file.h5 [...]`` -- reads merged HDF5 profiling
   output and renders Gantt/flame/duration/speedup charts. See
   ``scope_profiler.post_processing`` for its full set of options.
+- ``scope-profiler inspect file.h5 [...]`` -- prints the run metadata and a
+  per-region statistics table for merged HDF5 profiling output, without
+  producing any plots. See ``scope_profiler.inspection``.
 """
 
 import argparse
@@ -97,9 +100,17 @@ def _pproc(argv):
     return pproc_main(argv)
 
 
+def _inspect(argv):
+    """Handle ``scope-profiler inspect``: delegate to the inspection CLI."""
+    from scope_profiler.inspection import main as inspect_main
+
+    return inspect_main(argv)
+
+
 _COMMANDS = {
     "run": _run,
     "pproc": _pproc,
+    "inspect": _inspect,
 }
 
 
@@ -122,6 +133,12 @@ def main(argv=None):
         add_help=False,
         help="Post-process and plot HDF5 profiling data "
         "(see `scope-profiler pproc --help`)",
+    )
+    subparsers.add_parser(
+        "inspect",
+        add_help=False,
+        help="Print metadata and region statistics of HDF5 profiling data "
+        "(see `scope-profiler inspect --help`)",
     )
 
     if not argv:

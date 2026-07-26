@@ -11,6 +11,19 @@ from scope_profiler.mpi_region import MPIRegion
 from scope_profiler.region import Region
 
 
+def _decode_attribute(value):
+    """Convert an HDF5 attribute into a plain Python value.
+
+    h5py hands back list-valued attributes (e.g. the loaded modules) as numpy
+    arrays of bytes; callers want a list of ``str``.
+    """
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, np.ndarray):
+        return [_decode_attribute(item) for item in value.tolist()]
+    return value
+
+
 class ProfilingH5Reader:
     """
     Reads profiling data stored by ProfileRegion in an HDF5 file.
@@ -57,7 +70,10 @@ class ProfilingH5Reader:
         region_names = []
         with h5py.File(self.file_path, "r") as f:
             if "metadata" in f:
-                self._metadata = dict(f["metadata"].attrs)
+                self._metadata = {
+                    key: _decode_attribute(value)
+                    for key, value in f["metadata"].attrs.items()
+                }
 
             # Iterate over all rank groups
             for rank_group_name, rank_group in f.items():
