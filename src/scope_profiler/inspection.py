@@ -1,11 +1,15 @@
 """CLI entry point for ``scope-profiler inspect``: summarize a profiling file.
 
 Prints the run metadata in full and a one-line-per-region overview of the
-timing data, without producing any plots.
+timing data, without producing any plots. The metadata can also be exported
+to JSON, either from the CLI (``--export-metadata``) or with
+:func:`write_metadata_json`.
 """
 
 import argparse
+import json
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -332,6 +336,91 @@ def inspect_file(
     _print_regions(reader, rows, stream=stream)
 
 
+def _json_safe(value):
+    """Convert a metadata value into something ``json.dump`` accepts.
+
+    Values read back from HDF5 arrive as numpy scalars and arrays, which the
+    JSON encoder rejects.
+    """
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return [_json_safe(item) for item in value.tolist()]
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
+def collect_file_metadata(
+    profiling_data: ProfilingH5Reader | str | Path | Sequence,
+) -> dict:
+    """Collect the run metadata of one or more profiling files.
+
+    Parameters
+    ----------
+    profiling_data : ProfilingH5Reader, path, or sequence of either
+        Files to read the metadata from.
+
+    Returns
+    -------
+    dict
+        ``{"files": [{"file_path": ..., "num_ranks": ..., "metadata": {...}}]}``,
+        matching the envelope used by
+        :func:`~scope_profiler.plotting_scripts.collect_region_statistics`, so
+        a single document can describe several runs.
+    """
+    if isinstance(profiling_data, (ProfilingH5Reader, str, Path)):
+        profiling_data = [profiling_data]
+
+    files = []
+    for item in profiling_data:
+        reader = (
+            item if isinstance(item, ProfilingH5Reader) else ProfilingH5Reader(item)
+        )
+        files.append(
+            {
+                "file_path": str(Path(reader.file_path).resolve()),
+                "num_ranks": reader.num_ranks,
+                "metadata": {
+                    key: _json_safe(value) for key, value in reader.metadata.items()
+                },
+            }
+        )
+
+    return {"files": files}
+
+
+def write_metadata_json(
+    profiling_data: ProfilingH5Reader | str | Path | Sequence,
+    filepath: str | Path,
+) -> dict:
+    """Write the run metadata of one or more profiling files to JSON.
+
+    Parameters
+    ----------
+    profiling_data : ProfilingH5Reader, path, or sequence of either
+        Files to read the metadata from.
+    filepath : str or Path
+        Destination JSON file. Parent directories are created as needed.
+
+    Returns
+    -------
+    dict
+        The payload that was written (see :func:`collect_file_metadata`).
+    """
+    payload = collect_file_metadata(profiling_data)
+
+    output_path = Path(filepath)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+        handle.write("\n")
+
+    return payload
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the argument parser for ``scope-profiler inspect``."""
     parser = argparse.ArgumentParser(
@@ -369,6 +458,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print long metadata values (PATH, LD_LIBRARY_PATH, ...) in full",
     )
+    parser.add_argument(
+        "--export-metadata",
+        metavar="PATH",
+        help="Also write the metadata of every inspected file to this JSON file",
+    )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Suppress the printed summary (useful with --export-metadata)",
+    )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
         "--metadata-only",
@@ -395,8 +495,11 @@ def main(argv: list | None = None):
     if args.ranks:
         ranks = sorted({rank for spec in args.ranks for rank in parse_ranks(spec)})
 
-    for index, file_path in enumerate(files):
-        if index:
+    printed = 0
+    for file_path in files:
+        if args.quiet:
+            continue
+        if printed:
             print(file=sys.stdout)
         inspect_file(
             file_path,
@@ -408,3 +511,8 @@ def main(argv: list | None = None):
             show_regions=not args.metadata_only,
             full=args.full,
         )
+        printed += 1
+
+    if args.export_metadata:
+        write_metadata_json(files, args.export_metadata)
+        print(f"Metadata written to {args.export_metadata}", file=sys.stdout)
