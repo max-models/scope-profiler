@@ -177,6 +177,7 @@ usage: scope-profiler pproc [-h] [--show] [-o OUTPUT]
 | `--cmap`          | Matplotlib colormap used to color regions/files in all plots (default: `tab20`) |
 | `--export-data`   | Also write the exact data behind each plot as CSV (requires `-o/--output`) |
 | `--export-prof`   | Also write one `profile_rank<N>.prof` per exported rank in the cProfile/pstats format, for `snakeviz` and `python -m pstats` (requires `-o/--output`) |
+| `--export-speedscope` | Also write `profile.speedscope.json`, one profile per exported rank, for [speedscope](https://www.speedscope.app) (requires `-o/--output`) |
 
 When `-o/--output` is supplied, the CLI saves:
 1. `gantt_plot.png`
@@ -224,6 +225,37 @@ reconstructed from timestamp containment, exactly as the flame chart does. So:
   `2/1`-style call counts, like `cProfile`.
 - Files profiled with `time_trace=False` have no timestamps and cannot be
   exported, and LIKWID counters have no place in the `.prof` format.
+
+### Exporting to speedscope
+
+`--export-speedscope` writes a [speedscope](https://www.speedscope.app) JSON
+file. Where `.prof` keeps aggregates per region, speedscope keeps every
+individual call, so the timeline shows the run as it actually happened —
+closest in spirit to the Gantt and flame charts, but interactive:
+
+```bash
+scope-profiler pproc profiling_data.h5 -o figures --export-speedscope --skip-plot-images
+```
+
+Then open `figures/profile.speedscope.json` at <https://www.speedscope.app>
+(the file never leaves the browser), or run `npx speedscope
+figures/profile.speedscope.json`. Its three views are all useful here: "Time
+Order" is the run's timeline, "Left Heavy" aggregates identical call paths
+(the flame graph), and "Sandwich" ranks regions by self and total time.
+
+One file is written per input HDF5 file, holding one profile per exported rank
+(only the ranks selected with `-r/--ranks`, default rank 0) — the format
+carries several profiles per file, and speedscope switches between them from
+the dropdown in its top bar. Every profile in a file shares one time origin, so
+ranks stay aligned with each other. The stem of the input file is added to the
+name when several HDF5 files are passed.
+
+The call graph is reconstructed from timestamp containment, as for `.prof`,
+with one extra consequence: speedscope replays the events as a stack machine,
+so a region that starts inside another but ends after it is clipped to its
+parent instead of overhanging it. The same caveats otherwise apply — regions
+called from several places, recursion, and `time_trace=False` files behave as
+described above.
 
 ### Examples
 
