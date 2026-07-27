@@ -64,6 +64,7 @@ class BaseProfileRegion:
         "start_times",
         "end_times",
         "num_calls",
+        "_num_calls_written",
         "ptr",
         "buffer_limit",
         "capacity",
@@ -90,6 +91,8 @@ class BaseProfileRegion:
         self.region_name = region_name
         self.config = config
         self.num_calls = 0
+        # Calls already persisted by an earlier finalize(); see mark_written.
+        self._num_calls_written = 0
 
         # Preallocate buffers (skipped entirely when no timing is recorded).
         # `buffer_limit` is the *initial* capacity: `_grow` doubles it as
@@ -170,6 +173,12 @@ class BaseProfileRegion:
 
         with h5py.File(self.config._local_file_path, "a") as f:
             grp = f.require_group(self.group_path)
+            # Never fail on a dataset that is already there: writing twice into
+            # the same per-rank file (a second write_to_disk() outside the
+            # finalize() path) should replace the data, not raise from h5py.
+            for name in ("start_times", "end_times"):
+                if name in grp:
+                    del grp[name]
             grp.create_dataset("start_times", data=self.start_times[: self.ptr])
             grp.create_dataset("end_times", data=self.end_times[: self.ptr])
 
@@ -178,14 +187,37 @@ class BaseProfileRegion:
 
         Used by regions that record no timestamps, so their call counts survive
         into the merged output file instead of being lost with the process.
+        Only the calls made since the last finalize() are written, matching the
+        per-run slice of timestamps the timing regions write.
         """
         with h5py.File(self.config._local_file_path, "a") as f:
             grp = f.require_group(self.group_path)
-            grp.attrs["num_calls"] = self.num_calls
+            grp.attrs["num_calls"] = self.num_calls - self._num_calls_written
 
     def get_durations_numpy(self) -> np.ndarray:
         """Return durations (end - start) for buffered entries as a NumPy array."""
         return self.end_times[: self.ptr] - self.start_times[: self.ptr]
+
+    def mark_written(self) -> None:
+        """Record that everything buffered so far has reached the disk.
+
+        Called by ``finalize()`` once the data is safely written, so that a
+        second run in the same process reports only its own events instead of
+        re-reporting the first run's. The timestamp buffer rewinds (the arrays
+        are reused; anything past ``ptr`` is unread scratch), while
+        ``num_calls`` keeps counting for the lifetime of the process — it is
+        the in-memory view of the region, which callers inspect after
+        ``finalize()`` — so the watermark below is what makes the *written*
+        count per-run.
+
+        A region that is currently open has a slot reserved in the buffer and
+        an index waiting to be popped on exit, so rewinding under it would let
+        the next call overwrite a live slot. Such a region is left untouched.
+        """
+        if self._scope_ptr_stack:
+            return
+        self.ptr = 0
+        self._num_calls_written = self.num_calls
 
     def get_end_times_numpy(self) -> np.ndarray:
         """Return end times offset by config creation time."""
@@ -256,7 +288,7 @@ class NCallsOnlyProfileRegion(BaseProfileRegion):
 
     def write_to_disk(self):
         """Persist the call count — the only thing this region records."""
-        if self.num_calls:
+        if self.num_calls > self._num_calls_written:
             self._write_num_calls()
 
     def get_durations_numpy(self):
@@ -337,7 +369,7 @@ class LikwidOnlyProfileRegion(BaseProfileRegion):
 
     def write_to_disk(self):
         """Persist the call count; LIKWID counters go to LIKWID's own output."""
-        if self.num_calls:
+        if self.num_calls > self._num_calls_written:
             self._write_num_calls()
 
     def wrap(self, func):
