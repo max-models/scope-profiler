@@ -382,3 +382,19 @@ straight from the JSON:
 scope-profiler pproc profiling_data.h5 -o figures \
   --export-data --export-data-format json --skip-plot-images
 ```
+
+### Viewing a run in snakeviz
+
+`--export-prof` writes the profile in the `.prof` format of the standard
+library's `cProfile`, so a run can be explored with
+[snakeviz](https://jiffyclub.github.io/snakeviz/) or `python -m pstats`:
+
+```bash
+scope-profiler pproc profiling_data.h5 -o figures --export-prof --skip-plot-images
+snakeviz figures/profile_rank0.prof
+```
+
+Regions become "functions": `cumtime` is a region's total wall time and
+`tottime` is that minus the time spent in its nested regions. One file is
+written per exported rank, since `.prof` has no notion of ranks — see
+[the CLI docs](docs/source/cli.md) for the caveats of the reconstruction.

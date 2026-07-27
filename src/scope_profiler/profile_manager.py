@@ -376,13 +376,26 @@ class ProfileManager:
         rank = config._rank
         size = config._size
 
+        # 0. Discard any per-rank file left by an earlier finalize() on this
+        # config. Nothing else writes it, so its presence means a previous run
+        # in this process already finalized, and its regions would otherwise be
+        # merged into this run's output alongside the current ones.
+        stale_file = config._local_file_path
+        if os.path.exists(stale_file):
+            os.remove(stale_file)
+
         # 1. Write every region's buffered timestamps to its per-rank file.
         # Regions that record no timestamps write only their call count, which
         # is cheap and has nothing to do with timing buffers, so they write
         # even when flush_to_disk is off. Otherwise their counts would be lost.
+        # Once written, a region is marked so finalize() acts as a run
+        # boundary: a second run in the same process (e.g. a restart) writes
+        # only its own events. Regions that were not written keep their
+        # buffers, because with flush_to_disk off those are the only copy.
         for region in cls.get_all_regions().values():
             if config.flush_to_disk or not region._records_time:
                 region.write_to_disk()
+                region.mark_written()
 
         # 2. Barrier to ensure all ranks finished writing
         if comm is not None:

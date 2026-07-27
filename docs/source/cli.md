@@ -154,6 +154,7 @@ usage: scope-profiler pproc [-h] [--show] [-o OUTPUT]
                             [--metrics [{avg,min,max,total} ...]]
                             [--cmap CMAP]
                             [--export-data]
+                            [--export-prof]
                             files [files ...]
 ```
 
@@ -175,6 +176,7 @@ usage: scope-profiler pproc [-h] [--show] [-o OUTPUT]
 | `-m`, `--metrics` | Duration statistics to plot: any of `avg`, `min`, `max`, `total` (default: all four) |
 | `--cmap`          | Matplotlib colormap used to color regions/files in all plots (default: `tab20`) |
 | `--export-data`   | Also write the exact data behind each plot as CSV (requires `-o/--output`) |
+| `--export-prof`   | Also write one `profile_rank<N>.prof` per exported rank in the cProfile/pstats format, for `snakeviz` and `python -m pstats` (requires `-o/--output`) |
 
 When `-o/--output` is supplied, the CLI saves:
 1. `gantt_plot.png`
@@ -193,6 +195,35 @@ only when multiple files are passed).
 
 For multiple files, the JSON includes per-file region statistics and the set of
 common regions across all inputs.
+
+### Exporting to `.prof` for snakeviz
+
+`--export-prof` writes the profile in the format `cProfile` uses, so regions
+can be browsed with any pstats-based viewer:
+
+```bash
+scope-profiler pproc profiling_data.h5 -o figures --export-prof --skip-plot-images
+snakeviz figures/profile_rank0.prof
+```
+
+One file is written per exported rank (`profile_rank0.prof`, …; only the ranks
+selected with `-r/--ranks` are exported, default rank 0), prefixed with the
+input file's stem when several HDF5 files are passed. Regions become
+"functions", `cumtime` is a region's total wall time and `tottime` is that
+minus the time spent in its nested regions, with a synthetic
+`<file rank N>` frame as the root of the tree.
+
+Since regions carry no call graph, the caller/callee relations are
+reconstructed from timestamp containment, exactly as the flame chart does. So:
+
+- Regions that only partially overlap (async work, threads) are attributed to
+  whichever region enclosed their start, and the enclosing region's `tottime`
+  is clamped at zero rather than going negative.
+- A region called from several places is merged into one entry, as pstats is
+  keyed by function rather than by call path; recursion is reported as
+  `2/1`-style call counts, like `cProfile`.
+- Files profiled with `time_trace=False` have no timestamps and cannot be
+  exported, and LIKWID counters have no place in the `.prof` format.
 
 ### Examples
 
