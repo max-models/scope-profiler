@@ -84,6 +84,22 @@ jobs:
           python3 src/scope_profiler/tests/examples.py
           scope-profiler pproc profiling_data.h5 --show -o figures
 
+      # mpi4py is installed at this point (via the dev extra), so the only
+      # difference between these runs is the launcher: MPI must be used when
+      # started by mpirun and never touched otherwise.
+      - name: Test MPI launcher detection (without mpirun)
+        run: |
+          python3 src/scope_profiler/tests/check_mpi_launch.py serial
+
+      - name: Test MPI launcher detection (with mpirun)
+        run: |
+          mpirun -n 2 python3 src/scope_profiler/tests/check_mpi_launch.py mpi 2
+
+      - name: Test MPI launcher detection (mpirun, SCOPE_PROFILER_MPI=0)
+        run: |
+          SCOPE_PROFILER_MPI=0 mpirun -n 1 -x SCOPE_PROFILER_MPI \
+            python3 src/scope_profiler/tests/check_mpi_launch.py serial
+
       - name: Test postprocessing (MPI)
         run: |
           mpirun -n 2 python3 src/scope_profiler/tests/test_mpi.py

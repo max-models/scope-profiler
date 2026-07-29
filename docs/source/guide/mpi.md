@@ -1,8 +1,9 @@
 # MPI support
 
-scope-profiler is MPI-aware out of the box. When `mpi4py` is installed,
-the profiler automatically detects `MPI.COMM_WORLD` and handles
-per-rank data collection and merging.
+scope-profiler is MPI-aware out of the box. When the process is launched
+under an MPI launcher and `mpi4py` is installed, the profiler
+automatically detects `MPI.COMM_WORLD` and handles per-rank data
+collection and merging.
 
 ## Installation
 
@@ -11,6 +12,17 @@ pip install "scope-profiler[mpi]"
 ```
 
 ## How it works
+
+0. **Launcher detection** --- before anything MPI-related happens,
+   scope-profiler checks whether this process was started by
+   `mpirun`/`mpiexec`/`srun` or an equivalent launcher, by looking for the
+   per-rank environment variables those launchers export
+   (`OMPI_COMM_WORLD_RANK`, `PMI_RANK`, `PMIX_RANK`, ...). If none is
+   present, `mpi4py` is never imported and no MPI call is ever made --- a
+   plain `python script.py` run pays nothing for MPI support, not even
+   `MPI_Init`. The one exception is an application that already imported
+   `mpi4py` and initialized MPI itself; then the existing communicator is
+   used.
 
 1. **Setup** --- `ProfilingConfig` reads `COMM_WORLD` to determine rank
    and size. Rank 0 creates a shared temporary directory and broadcasts
@@ -95,5 +107,25 @@ for rank_id in region.ranks:
 
 ## Without MPI
 
-If `mpi4py` is not installed, scope-profiler silently falls back to
-single-rank mode. No code changes are needed --- the API is identical.
+If the run was not started by an MPI launcher, or `mpi4py` is not
+installed, scope-profiler silently falls back to single-rank mode. No
+code changes are needed --- the API is identical.
+
+## Overriding the detection
+
+If a launcher is not recognized (or you want to profile an MPI-enabled
+build as if it were serial), the decision can be forced:
+
+```python
+ProfileManager.setup(use_mpi=True)   # always use MPI.COMM_WORLD
+ProfileManager.setup(use_mpi=False)  # never touch MPI
+```
+
+or from the environment, without touching the code:
+
+```bash
+SCOPE_PROFILER_MPI=1 ./my_launcher python my_script.py
+```
+
+`use_mpi=True` raises `ImportError` if `mpi4py` is missing, since the
+request cannot be honoured.
