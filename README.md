@@ -398,3 +398,18 @@ Regions become "functions": `cumtime` is a region's total wall time and
 `tottime` is that minus the time spent in its nested regions. One file is
 written per exported rank, since `.prof` has no notion of ranks — see
 [the CLI docs](docs/source/cli.md) for the caveats of the reconstruction.
+
+### Viewing a run in speedscope
+
+`--export-speedscope` writes the run as a
+[speedscope](https://www.speedscope.app) JSON file. Unlike `.prof`, it keeps
+every individual call, so the timeline shows the run as it happened:
+
+```bash
+scope-profiler pproc profiling_data.h5 -o figures --export-speedscope --skip-plot-images
+npx speedscope figures/profile.speedscope.json  # or drop the file on speedscope.app
+```
+
+One file is written per input, holding one profile per exported rank, all
+sharing a time origin so ranks stay aligned. See
+[the CLI docs](docs/source/cli.md) for details.

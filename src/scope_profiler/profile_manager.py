@@ -485,6 +485,7 @@ class ProfileManager:
         flush_to_disk: bool = True,
         buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
+        use_mpi: bool | None = None,
     ):
         """
         Initialize and configure the profiling system.
@@ -513,6 +514,12 @@ class ProfileManager:
             repeated reallocation.
         file_path : str, optional
             Path to the output profiling data file (default: "profiling_data.h5").
+        use_mpi : bool or None, optional
+            Whether to use MPI collectives (default: None). None auto-detects:
+            MPI is used only when the process was launched by mpirun/mpiexec/
+            srun or an equivalent launcher, so a plain ``python script.py``
+            run never imports mpi4py or calls into MPI. True forces MPI on,
+            False forces it off.
         """
         ProfilingConfig().reset()
         config = ProfilingConfig(
@@ -524,6 +531,7 @@ class ProfileManager:
             flush_to_disk=flush_to_disk,
             buffer_limit=buffer_limit,
             file_path=file_path,
+            use_mpi=use_mpi,
         )
         cls.set_config(config=config)
 

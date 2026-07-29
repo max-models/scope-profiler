@@ -14,6 +14,7 @@ from scope_profiler.plotting_scripts import (
     write_region_statistics_json,
 )
 from scope_profiler.prof_export import export_prof
+from scope_profiler.speedscope_export import export_speedscope
 
 
 def parse_ranks(spec: str, verbose: bool = False) -> list[int]:
@@ -169,13 +170,26 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--export-speedscope",
+        action="store_true",
+        help=(
+            "Also write a profile.speedscope.json file holding one profile per "
+            "exported rank, viewable at https://www.speedscope.app (or with "
+            "`npx speedscope profile.speedscope.json`). Unlike --export-prof "
+            "this keeps every individual call, so the timeline shows the run "
+            "as it happened. The call graph is reconstructed from region "
+            "nesting; only ranks selected with --ranks are exported (default: "
+            "rank 0). Requires -o/--output."
+        ),
+    )
+    parser.add_argument(
         "--skip-plot-images",
         action="store_true",
         help=(
             "Do not render/save the PNG plot images, only the outputs from "
-            "--export-data/--export-prof. Useful when charts are rendered "
-            "entirely client-side (e.g. with Plotly) from the exported data. "
-            "Requires --export-data or --export-prof."
+            "--export-data/--export-prof/--export-speedscope. Useful when "
+            "charts are rendered entirely client-side (e.g. with Plotly) from "
+            "the exported data. Requires one of those export options."
         ),
     )
     return parser
@@ -219,8 +233,15 @@ def main(argv: list[str] | None = None):
     if args.export_prof and not args.output:
         parser.error("--export-prof requires -o/--output.")
 
-    if args.skip_plot_images and not (args.export_data or args.export_prof):
-        parser.error("--skip-plot-images requires --export-data or --export-prof.")
+    if args.export_speedscope and not args.output:
+        parser.error("--export-speedscope requires -o/--output.")
+
+    exports_requested = args.export_data or args.export_prof or args.export_speedscope
+    if args.skip_plot_images and not exports_requested:
+        parser.error(
+            "--skip-plot-images requires --export-data, --export-prof or "
+            "--export-speedscope."
+        )
 
     if args.ranks:
         ranks = []
@@ -261,6 +282,8 @@ def main(argv: list[str] | None = None):
     speedup_data_path = None
     prof_path = None
     prof_paths: list = []
+    speedscope_path = None
+    speedscope_paths: list = []
     durations_paths: list = []
     if args.output:
         os.makedirs(args.output, exist_ok=True)
@@ -287,16 +310,28 @@ def main(argv: list[str] | None = None):
                 )
         if args.export_prof:
             prof_path = os.path.join(args.output, "profile.prof")
+        if args.export_speedscope:
+            speedscope_path = os.path.join(args.output, "profile.speedscope.json")
 
     # --skip-plot-images still needs the plotting functions to produce the
-    # --export-data files, but a prof-only run should not touch the plotting
-    # backend at all.
+    # --export-data files, but an export-only run should not touch the
+    # plotting backend at all.
     render_plots = not args.skip_plot_images or args.export_data
 
     if args.export_prof:
         prof_paths = export_prof(
             profiling_data=readers,
             filepath=prof_path,
+            ranks=args.ranks,
+            include=args.include,
+            exclude=args.exclude,
+            verbose=False,
+        )
+
+    if args.export_speedscope:
+        speedscope_paths = export_speedscope(
+            profiling_data=readers,
+            filepath=speedscope_path,
             ranks=args.ranks,
             include=args.include,
             exclude=args.exclude,
@@ -382,12 +417,18 @@ def main(argv: list[str] | None = None):
                 durations_data_path,
                 speedup_data_path,
                 *prof_paths,
+                *speedscope_paths,
             )
             if path
         ]
         print("Outputs saved to:\n  " + "\n  ".join(saved))
         if prof_paths:
             print(f"\nView a .prof file with: snakeviz {prof_paths[0]}")
+        if speedscope_paths:
+            print(
+                f"\nView {speedscope_paths[0]} at https://www.speedscope.app "
+                "(or: npx speedscope <file>)"
+            )
 
 
 if __name__ == "__main__":

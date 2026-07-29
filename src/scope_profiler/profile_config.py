@@ -6,17 +6,10 @@ from time import perf_counter_ns
 from typing import TYPE_CHECKING
 
 from scope_profiler.metadata import collect_metadata
+from scope_profiler.mpi_launch import get_comm
 
 if TYPE_CHECKING:
     from mpi4py.MPI import Intercomm
-
-try:
-    from mpi4py import MPI
-
-    _MPI_AVAILABLE = True
-except ImportError:
-    MPI = None
-    _MPI_AVAILABLE = False
 
 # try:
 # import pylikwid
@@ -72,6 +65,7 @@ class ProfilingConfig:
         flush_to_disk: bool = True,
         buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
+        use_mpi: bool | None = None,
     ):
         """Initialize the profiling configuration.
 
@@ -94,6 +88,11 @@ class ProfilingConfig:
             The buffers grow on demand, so this is a starting size, not a cap.
         file_path : str
             Global output file path for combined profiling data.
+        use_mpi : bool or None
+            Whether to use MPI collectives. None (default) enables them only
+            when the process was started by an MPI launcher (mpirun/mpiexec/
+            srun/...); see :mod:`scope_profiler.mpi_launch`. True forces MPI
+            on, False forces it off.
         """
 
         if self._initialized:
@@ -101,10 +100,10 @@ class ProfilingConfig:
 
         self._config_creation_time = perf_counter_ns()
 
-        if _MPI_AVAILABLE:
-            self._comm = MPI.COMM_WORLD
-        else:
-            self._comm = None
+        # Serial runs must not import mpi4py (which would call MPI_Init) nor
+        # issue any collective, so the communicator stays None unless this
+        # process really is part of an MPI job.
+        self._comm = get_comm(use_mpi)
         self._profiling_activated = profiling_activated
         self._use_likwid = use_likwid
         self._use_line_profiler = use_line_profiler
