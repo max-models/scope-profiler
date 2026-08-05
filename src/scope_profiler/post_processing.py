@@ -7,6 +7,7 @@ import os
 from scope_profiler.h5reader import ProfilingH5Reader
 from scope_profiler.plotting_scripts import (
     DEFAULT_CMAP,
+    plot_duration_timeseries,
     plot_durations,
     plot_flame,
     plot_gantt,
@@ -60,7 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Directory where outputs are saved "
             "(gantt_plot.png, flame_plot.png, durations_plot.png, "
-            "optional speedup_plot.png, and region_statistics.json)"
+            "duration_timeseries_plot.png, optional speedup_plot.png, "
+            "and region_statistics.json)"
         ),
     )
     parser.add_argument(
@@ -140,7 +142,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Also write the exact data behind each plot as a data file "
-            "(gantt_data, flame_data, durations_data, optional speedup_data; "
+            "(gantt_data, flame_data, durations_data, "
+            "duration_timeseries_data, optional speedup_data; "
             "see --export-data-format for the file extension/content), so "
             "charts can be reconstructed later without the original HDF5 "
             "files. Requires -o/--output."
@@ -274,11 +277,13 @@ def main(argv: list[str] | None = None):
     gantt_path = None
     flame_path = None
     durations_path = None
+    timeseries_path = None
     speedup_path = None
     statistics_path = None
     gantt_data_path = None
     flame_data_path = None
     durations_data_path = None
+    timeseries_data_path = None
     speedup_data_path = None
     prof_path = None
     prof_paths: list = []
@@ -294,6 +299,9 @@ def main(argv: list[str] | None = None):
             gantt_path = os.path.join(args.output, f"gantt_plot.{ext}")
             flame_path = os.path.join(args.output, f"flame_plot.{ext}")
             durations_path = os.path.join(args.output, f"durations_plot.{ext}")
+            timeseries_path = os.path.join(
+                args.output, f"duration_timeseries_plot.{ext}"
+            )
             if len(readers) > 1:
                 speedup_path = os.path.join(args.output, f"speedup_plot.{ext}")
         statistics_path = os.path.join(args.output, "region_statistics.json")
@@ -303,6 +311,9 @@ def main(argv: list[str] | None = None):
             flame_data_path = os.path.join(args.output, f"flame_data.{data_ext}")
             durations_data_path = os.path.join(
                 args.output, f"durations_data.{data_ext}"
+            )
+            timeseries_data_path = os.path.join(
+                args.output, f"duration_timeseries_data.{data_ext}"
             )
             if len(readers) > 1:
                 speedup_data_path = os.path.join(
@@ -379,6 +390,19 @@ def main(argv: list[str] | None = None):
             backend=args.backend,
         )
 
+        plot_duration_timeseries(
+            profiling_data=readers,
+            filepath=timeseries_path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            cmap=args.cmap,
+            data_filepath=timeseries_data_path,
+            data_format=args.export_data_format,
+            backend=args.backend,
+        )
+
         if len(readers) > 1:
             plot_speedup(
                 profiling_data=readers,
@@ -410,11 +434,13 @@ def main(argv: list[str] | None = None):
                 gantt_path,
                 flame_path,
                 *durations_paths,
+                timeseries_path,
                 speedup_path,
                 statistics_path,
                 gantt_data_path,
                 flame_data_path,
                 durations_data_path,
+                timeseries_data_path,
                 speedup_data_path,
                 *prof_paths,
                 *speedscope_paths,
