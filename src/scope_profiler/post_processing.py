@@ -93,15 +93,29 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--plots",
+        "-p",
+        nargs="*",
+        type=str,
+        choices=["gantt", "flame", "durations", "timeseries", "speedup"],
+        default=None,
+        help=(
+            "Which plots to generate (default: all). "
+            "Choices: gantt, flame, durations, timeseries, speedup. "
+            "Example: --plots gantt durations"
+        ),
+    )
+    parser.add_argument(
         "--metrics",
         "-m",
         nargs="*",
         type=str,
         choices=["avg", "min", "max", "total"],
-        default=None,
+        default=["total"],
         help=(
             "Which duration statistics to include in the durations bar plot "
-            "(default: all of avg, min, max, total)."
+            "(default: total). "
+            "Example: --metrics avg min max total"
         ),
     )
     parser.add_argument(
@@ -246,6 +260,9 @@ def main(argv: list[str] | None = None):
             "--export-speedscope."
         )
 
+    _ALL_PLOTS = {"gantt", "flame", "durations", "timeseries", "speedup"}
+    selected_plots: set[str] = set(args.plots) if args.plots is not None else _ALL_PLOTS
+
     if args.ranks:
         ranks = []
         for spec in args.ranks:
@@ -296,26 +313,34 @@ def main(argv: list[str] | None = None):
             # Plotly's native output is a self-contained interactive page;
             # writing .png from it would additionally require kaleido.
             ext = "html" if args.backend == "plotly" else "png"
-            gantt_path = os.path.join(args.output, f"gantt_plot.{ext}")
-            flame_path = os.path.join(args.output, f"flame_plot.{ext}")
-            durations_path = os.path.join(args.output, f"durations_plot.{ext}")
-            timeseries_path = os.path.join(
-                args.output, f"duration_timeseries_plot.{ext}"
-            )
-            if len(readers) > 1:
+            if "gantt" in selected_plots:
+                gantt_path = os.path.join(args.output, f"gantt_plot.{ext}")
+            if "flame" in selected_plots:
+                flame_path = os.path.join(args.output, f"flame_plot.{ext}")
+            if "durations" in selected_plots:
+                durations_path = os.path.join(args.output, f"durations_plot.{ext}")
+            if "timeseries" in selected_plots:
+                timeseries_path = os.path.join(
+                    args.output, f"duration_timeseries_plot.{ext}"
+                )
+            if len(readers) > 1 and "speedup" in selected_plots:
                 speedup_path = os.path.join(args.output, f"speedup_plot.{ext}")
         statistics_path = os.path.join(args.output, "region_statistics.json")
         if args.export_data:
             data_ext = args.export_data_format
-            gantt_data_path = os.path.join(args.output, f"gantt_data.{data_ext}")
-            flame_data_path = os.path.join(args.output, f"flame_data.{data_ext}")
-            durations_data_path = os.path.join(
-                args.output, f"durations_data.{data_ext}"
-            )
-            timeseries_data_path = os.path.join(
-                args.output, f"duration_timeseries_data.{data_ext}"
-            )
-            if len(readers) > 1:
+            if "gantt" in selected_plots:
+                gantt_data_path = os.path.join(args.output, f"gantt_data.{data_ext}")
+            if "flame" in selected_plots:
+                flame_data_path = os.path.join(args.output, f"flame_data.{data_ext}")
+            if "durations" in selected_plots:
+                durations_data_path = os.path.join(
+                    args.output, f"durations_data.{data_ext}"
+                )
+            if "timeseries" in selected_plots:
+                timeseries_data_path = os.path.join(
+                    args.output, f"duration_timeseries_data.{data_ext}"
+                )
+            if len(readers) > 1 and "speedup" in selected_plots:
                 speedup_data_path = os.path.join(
                     args.output, f"speedup_data.{data_ext}"
                 )
@@ -350,60 +375,64 @@ def main(argv: list[str] | None = None):
         )
 
     if render_plots:
-        plot_gantt(
-            profiling_data=readers,
-            filepath=gantt_path,
-            show=args.show,
-            include=args.include,
-            exclude=args.exclude,
-            ranks=args.ranks,
-            cmap=args.cmap,
-            data_filepath=gantt_data_path,
-            data_format=args.export_data_format,
-            backend=args.backend,
-        )
+        if "gantt" in selected_plots:
+            plot_gantt(
+                profiling_data=readers,
+                filepath=gantt_path,
+                show=args.show,
+                include=args.include,
+                exclude=args.exclude,
+                ranks=args.ranks,
+                cmap=args.cmap,
+                data_filepath=gantt_data_path,
+                data_format=args.export_data_format,
+                backend=args.backend,
+            )
 
-        plot_flame(
-            profiling_data=readers,
-            filepath=flame_path,
-            show=args.show,
-            include=args.include,
-            exclude=args.exclude,
-            ranks=args.ranks,
-            cmap=args.cmap,
-            data_filepath=flame_data_path,
-            data_format=args.export_data_format,
-            backend=args.backend,
-        )
+        if "flame" in selected_plots:
+            plot_flame(
+                profiling_data=readers,
+                filepath=flame_path,
+                show=args.show,
+                include=args.include,
+                exclude=args.exclude,
+                ranks=args.ranks,
+                cmap=args.cmap,
+                data_filepath=flame_data_path,
+                data_format=args.export_data_format,
+                backend=args.backend,
+            )
 
-        durations_paths = plot_durations(
-            profiling_data=readers,
-            filepath=durations_path,
-            show=args.show,
-            include=args.include,
-            exclude=args.exclude,
-            ranks=args.ranks,
-            metrics=args.metrics,
-            cmap=args.cmap,
-            data_filepath=durations_data_path,
-            data_format=args.export_data_format,
-            backend=args.backend,
-        )
+        if "durations" in selected_plots:
+            durations_paths = plot_durations(
+                profiling_data=readers,
+                filepath=durations_path,
+                show=args.show,
+                include=args.include,
+                exclude=args.exclude,
+                ranks=args.ranks,
+                metrics=args.metrics,
+                cmap=args.cmap,
+                data_filepath=durations_data_path,
+                data_format=args.export_data_format,
+                backend=args.backend,
+            )
 
-        plot_duration_timeseries(
-            profiling_data=readers,
-            filepath=timeseries_path,
-            show=args.show,
-            include=args.include,
-            exclude=args.exclude,
-            ranks=args.ranks,
-            cmap=args.cmap,
-            data_filepath=timeseries_data_path,
-            data_format=args.export_data_format,
-            backend=args.backend,
-        )
+        if "timeseries" in selected_plots:
+            plot_duration_timeseries(
+                profiling_data=readers,
+                filepath=timeseries_path,
+                show=args.show,
+                include=args.include,
+                exclude=args.exclude,
+                ranks=args.ranks,
+                cmap=args.cmap,
+                data_filepath=timeseries_data_path,
+                data_format=args.export_data_format,
+                backend=args.backend,
+            )
 
-        if len(readers) > 1:
+        if len(readers) > 1 and "speedup" in selected_plots:
             plot_speedup(
                 profiling_data=readers,
                 x_field=args.x_field,
