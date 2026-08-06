@@ -1,0 +1,306 @@
+{
+  "units": {
+    "durations": "seconds"
+  },
+  "filters": {
+    "include": null,
+    "exclude": null,
+    "ranks": null
+  },
+  "common_regions": [
+    "sensor.py",
+    "__main__.<module>",
+    "__main__.Sensor",
+    "__main__.Analyzer",
+    "__main__.main",
+    "__main__.create_sensors",
+    "__main__.Sensor.__init__",
+    "__main__.Analyzer.__init__",
+    "__main__.Analyzer.compute_scores",
+    "__main__.Analyzer._score",
+    "__main__.Sensor.mean",
+    "__main__.Sensor.calibrated_readings",
+    "__main__.clamp",
+    "__main__.average",
+    "__main__.print_report"
+  ],
+  "files": [
+    {
+      "label": "openmp1",
+      "file_path": "/Users/max/git_repos/scope-profiler/openmp1.h5",
+      "num_ranks": 1,
+      "region_statistics": {
+        "sensor.py": {
+          "count": 1,
+          "average_duration_seconds": 0.004262792,
+          "min_duration_seconds": 0.004262792,
+          "max_duration_seconds": 0.004262792,
+          "std_duration_seconds": 0.0,
+          "total_duration_seconds": 0.004262792,
+          "per_rank": {
+            "0": {
+              "count": 1,
+              "average_duration_seconds": 0.004262792,
+              "min_duration_seconds": 0.004262792,
+              "max_duration_seconds": 0.004262792,
+              "std_duration_seconds": 0.0,
+              "total_duration_seconds": 0.004262792
+            }
+          }
+        },
+        "__main__.<module>": {
+          "count": 1,
+          "average_duration_seconds": 0.000301042,
+          "min_duration_seconds": 0.000301042,
+          "max_duration_seconds": 0.000301042,
+          "std_duration_seconds": 0.0,
+          "total_duration_seconds": 0.000301042,
+          "per_rank": {
+            "0": {
+              "count": 1,
+              "average_duration_seconds": 0.000301042,
+              "min_duration_seconds": 0.000301042,
+              "max_duration_seconds": 0.000301042,
+              "std_duration_seconds": 0.0,
+              "total_duration_seconds": 0.000301042
+            }
+          }
+        },
+        "__main__.Sensor": {
+          "count": 1,
+          "average_duration_seconds": 2.875e-06,
+          "min_duration_seconds": 2.875e-06,
+          "max_duration_seconds": 2.875e-06,
+          "std_duration_seconds": 0.0,
+          "total_duration_seconds": 2.875e-06,
+          "per_rank": {
+            "0": {
+              "count": 1,
+              "average_duration_seconds": 2.875e-06,
+              "min_duration_seconds": 2.875e-06,
+              "max_duration_seconds": 2.875e-06,
+              "std_duration_seconds": 0.0,
+              "total_duration_seconds": 2.875e-06
+            }
+          }
+        },
+        "__main__.Analyzer": {
+          "count": 1,
+          "average_duration_seconds": 2.083e-06,
+          "min_duration_seconds": 2.083e-06,
+          "max_duration_seconds": 2.083e-06,
+          "std_duration_seconds": 0.0,
+          "total_duration_seconds": 2.083e-06,
+          "per_rank": {
+            "0": {
+              "count": 1,
+              "average_duration_seconds": 2.083e-06,
+              "min_duration_seconds": 2.083e-06,
+              "max_duration_seconds": 2.083e-06,
+              "std_duration_seconds": 0.0,
+              "total_duration_seconds": 2.083e-06
+            }
+          }
+        },
+        "__main__.main": {
+          "count": 1,
+          "average_duration_seconds": 0.000220916,
+          "min_duration_seconds": 0.000220916,
+          "max_duration_seconds": 0.000220916,
+          "std_duration_seconds": 0.0,
+          "total_duration_seconds": 0.000220916,
+          "per_rank": {
+            "0": {
+              "count": 1,
+              "average_duration_seconds": 0.000220916,
+              "min_duration_seconds": 0.000220916,
+              "max_duration_seconds": 0.000220916,
+              "std_duration_seconds": 0.0,
+              "total_duration_seconds": 0.000220916
+            }
+          }
+        },
+        "__main__.create_sensors": {
+          "count": 1,
+          "average_duration_seconds": 2.0792e-05,
+          "min_duration_seconds": 2.0792e-05,
+          "max_duration_seconds": 2.0792e-05,
+          "std_duration_seconds": 0.0,
+          "total_duration_seconds": 2.0792e-05,
+          "per_rank": {
+            "0": {
+              "count": 1,
+              "average_duration_seconds": 2.0792e-05,
+              "min_duration_seconds": 2.0792e-05,
+              "max_duration_seconds": 2.0792e-05,
+              "std_duration_seconds": 0.0,
+              "total_duration_seconds": 2.0792e-05
+            }
+          }
+        },
+        "__main__.Sensor.__init__": {
+          "count": 3,
+          "average_duration_seconds": 1.0420000000000001e-06,
+          "min_duration_seconds": 6.25e-07,
+          "max_duration_seconds": 1.667e-06,
+          "std_duration_seconds": 4.501029511863555e-07,
+          "total_duration_seconds": 3.1260000000000002e-06,
+          "per_rank": {
+            "0": {
+              "count": 3,
+              "average_duration_seconds": 1.0420000000000001e-06,
+              "min_duration_seconds": 6.25e-07,
+              "max_duration_seconds": 1.667e-06,
+              "std_duration_seconds": 4.501029511863555e-07,
+              "total_duration_seconds": 3.1260000000000002e-06
+            }
+          }
+        },
+        "__main__.Analyzer.__init__": {
+          "count": 1,
+          "average_duration_seconds": 1.125e-06,
+          "min_duration_seconds": 1.125e-06,
+          "max_duration_seconds": 1.125e-06,
+          "std_duration_seconds": 0.0,
+          "total_duration_seconds": 1.125e-06,
+          "per_rank": {
+            "0": {
+              "count": 1,
+              "average_duration_seconds": 1.125e-06,
+              "min_duration_seconds": 1.125e-06,
+              "max_duration_seconds": 1.125e-06,
+              "std_duration_seconds": 0.0,
+              "total_duration_seconds": 1.125e-06
+            }
+          }
+        },
+        "__main__.Analyzer.compute_scores": {
+          "count": 1,
+          "average_duration_seconds": 0.000116167,
+          "min_duration_seconds": 0.000116167,
+          "max_duration_seconds": 0.000116167,
+          "std_duration_seconds": 0.0,
+          "total_duration_seconds": 0.000116167,
+          "per_rank": {
+            "0": {
+              "count": 1,
+              "average_duration_seconds": 0.000116167,
+              "min_duration_seconds": 0.000116167,
+              "max_duration_seconds": 0.000116167,
+              "std_duration_seconds": 0.0,
+              "total_duration_seconds": 0.000116167
+            }
+          }
+        },
+        "__main__.Analyzer._score": {
+          "count": 3,
+          "average_duration_seconds": 3.183333333333333e-05,
+          "min_duration_seconds": 1.3292e-05,
+          "max_duration_seconds": 6.675e-05,
+          "std_duration_seconds": 2.470564169487519e-05,
+          "total_duration_seconds": 9.549999999999999e-05,
+          "per_rank": {
+            "0": {
+              "count": 3,
+              "average_duration_seconds": 3.183333333333333e-05,
+              "min_duration_seconds": 1.3292e-05,
+              "max_duration_seconds": 6.675e-05,
+              "std_duration_seconds": 2.470564169487519e-05,
+              "total_duration_seconds": 9.549999999999999e-05
+            }
+          }
+        },
+        "__main__.Sensor.mean": {
+          "count": 3,
+          "average_duration_seconds": 2.5694333333333336e-05,
+          "min_duration_seconds": 1.1291e-05,
+          "max_duration_seconds": 5.2667e-05,
+          "std_duration_seconds": 1.908724616654331e-05,
+          "total_duration_seconds": 7.708300000000001e-05,
+          "per_rank": {
+            "0": {
+              "count": 3,
+              "average_duration_seconds": 2.5694333333333336e-05,
+              "min_duration_seconds": 1.1291e-05,
+              "max_duration_seconds": 5.2667e-05,
+              "std_duration_seconds": 1.908724616654331e-05,
+              "total_duration_seconds": 7.708300000000001e-05
+            }
+          }
+        },
+        "__main__.Sensor.calibrated_readings": {
+          "count": 3,
+          "average_duration_seconds": 1.2597e-05,
+          "min_duration_seconds": 6.833e-06,
+          "max_duration_seconds": 2.3208e-05,
+          "std_duration_seconds": 7.512443588251872e-06,
+          "total_duration_seconds": 3.7791e-05,
+          "per_rank": {
+            "0": {
+              "count": 3,
+              "average_duration_seconds": 1.2597e-05,
+              "min_duration_seconds": 6.833e-06,
+              "max_duration_seconds": 2.3208e-05,
+              "std_duration_seconds": 7.512443588251872e-06,
+              "total_duration_seconds": 3.7791e-05
+            }
+          }
+        },
+        "__main__.clamp": {
+          "count": 10,
+          "average_duration_seconds": 1.0667e-06,
+          "min_duration_seconds": 8.33e-07,
+          "max_duration_seconds": 1.75e-06,
+          "std_duration_seconds": 2.495019238402783e-07,
+          "total_duration_seconds": 1.0667000000000001e-05,
+          "per_rank": {
+            "0": {
+              "count": 10,
+              "average_duration_seconds": 1.0667e-06,
+              "min_duration_seconds": 8.33e-07,
+              "max_duration_seconds": 1.75e-06,
+              "std_duration_seconds": 2.495019238402783e-07,
+              "total_duration_seconds": 1.0667000000000001e-05
+            }
+          }
+        },
+        "__main__.average": {
+          "count": 3,
+          "average_duration_seconds": 1.8333333333333333e-06,
+          "min_duration_seconds": 1.125e-06,
+          "max_duration_seconds": 2.75e-06,
+          "std_duration_seconds": 6.795627679291704e-07,
+          "total_duration_seconds": 5.5e-06,
+          "per_rank": {
+            "0": {
+              "count": 3,
+              "average_duration_seconds": 1.8333333333333333e-06,
+              "min_duration_seconds": 1.125e-06,
+              "max_duration_seconds": 2.75e-06,
+              "std_duration_seconds": 6.795627679291704e-07,
+              "total_duration_seconds": 5.5e-06
+            }
+          }
+        },
+        "__main__.print_report": {
+          "count": 1,
+          "average_duration_seconds": 2.8542e-05,
+          "min_duration_seconds": 2.8542e-05,
+          "max_duration_seconds": 2.8542e-05,
+          "std_duration_seconds": 0.0,
+          "total_duration_seconds": 2.8542e-05,
+          "per_rank": {
+            "0": {
+              "count": 1,
+              "average_duration_seconds": 2.8542e-05,
+              "min_duration_seconds": 2.8542e-05,
+              "max_duration_seconds": 2.8542e-05,
+              "std_duration_seconds": 0.0,
+              "total_duration_seconds": 2.8542e-05
+            }
+          }
+        }
+      }
+    }
+  ]
+}

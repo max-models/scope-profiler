@@ -57,7 +57,8 @@ quickstart
 
 guide/configuration
 guide/regions
-guide/hdf5_and_visualization
+guide/hdf5_and_python_api
+guide/postprocessing_cli
 guide/mpi
 guide/line_profiler
 guide/overhead
