@@ -99,32 +99,44 @@ def _get_cmap_colors(cmap: str, n_colors: int) -> list[str]:
 def _add_gantt_bars(
     canvas,
     row: int | None,
-    tasks: Sequence[str],
-    starts: Sequence[float],
-    durations: Sequence[float],
-    colors: Sequence[str],
+    lanes: Sequence[str],
+    bars: Sequence[tuple[int, float, float, str]],
     alpha: float = 0.7,
 ) -> None:
-    """Draw ``Canvas.gantt`` bars, one call per color.
+    """Draw ``Canvas.gantt`` bars, every call of a lane on that lane's row.
 
-    ``Canvas.gantt`` takes a single color per call: maxplotlib's Plotly
-    backend reads ``color`` as one RGB(A) value, so passing a per-bar list
-    raises. One call is therefore issued per distinct color, with the bars
-    belonging to the other colors passed as NaN. NaN bars draw nothing on
-    either backend while still occupying their row, which keeps every call
-    on the row ``Canvas.gantt`` assigns it (``y = arange(len(tasks))``).
+    ``Canvas.gantt`` puts bar *i* of a call on row *i* (``y =
+    arange(len(tasks))``, on both backends) and takes a single color for the
+    whole call, since maxplotlib's Plotly backend reads ``color`` as one
+    RGB(A) value. Each drawing call therefore passes one entry per lane --- so
+    the entry index is the lane's row --- and only fills in the bars sharing
+    one color; the rest are NaN, which draws nothing on either backend.
+
+    Lanes hold several calls, so bars are grouped by their position within the
+    lane as well: the *k*-th call of every lane goes into the same group,
+    leaving at most one bar per lane per drawing call.
     """
     col = None if row is None else 0
-    starts = np.asarray(starts, dtype=float)
-    durations = np.asarray(durations, dtype=float)
-    colors = np.asarray(colors, dtype=object)
+    n_lanes = len(lanes)
 
-    for color in dict.fromkeys(colors.tolist()):
-        mask = colors == color
+    # (color, index within the lane) -> the bars drawn together.
+    groups: dict[tuple[str, int], list[tuple[int, float, float]]] = defaultdict(list)
+    calls_per_lane: dict[int, int] = defaultdict(int)
+    for lane, start, duration, color in bars:
+        slot = calls_per_lane[lane]
+        calls_per_lane[lane] += 1
+        groups[(color, slot)].append((lane, start, duration))
+
+    for (color, _), group in groups.items():
+        starts = np.full(n_lanes, np.nan)
+        durations = np.full(n_lanes, np.nan)
+        for lane, start, duration in group:
+            starts[lane] = start
+            durations[lane] = duration
         canvas.gantt(
-            list(tasks),
-            np.where(mask, starts, np.nan),
-            np.where(mask, durations, np.nan),
+            list(lanes),
+            starts,
+            durations,
             row=row,
             col=col,
             color=color,
@@ -167,19 +179,6 @@ def _render(
         canvas.show(backend=backend)
     elif backend == "matplotlib":
         _close_matplotlib_figure(canvas)
-
-
-def _block_ticks(tasks: Sequence[str]) -> tuple[list[float], list[str]]:
-    """Return one tick per run of identical task names, at the run's centre."""
-    ticks: list[float] = []
-    labels: list[str] = []
-    start = 0
-    for index in range(1, len(tasks) + 1):
-        if index == len(tasks) or tasks[index] != tasks[start]:
-            ticks.append((start + index - 1) / 2)
-            labels.append(tasks[start])
-            start = index
-    return ticks, labels
 
 
 def _panel_gridspec(
@@ -575,30 +574,43 @@ def plot_gantt(
         else:
             print(f"Plotting combined Gantt chart for files: {', '.join(labels)}")
 
-    # Canvas.gantt gives every bar its own row (y = arange(len(tasks))), so a
-    # panel is as tall as the number of calls it draws, and the rows of one
-    # region form a contiguous block labelled at its centre.
+    # One lane per (region, rank): every call of a region lands on the same
+    # row, so a panel is as tall as the number of lanes it draws.
     single_panel = len(prepared) == 1
-    panel_bars = [
-        [
-            (
-                f"{region.name} (rank {rank})",
-                float(start - first_start_time),
-                float(end - start),
-                _to_hex(region.color),
-            )
-            for region in regions
-            for rank in selected_ranks
-            for start, end in zip(region[rank].start_times, region[rank].end_times)
-        ]
-        for _, regions, selected_ranks, first_start_time in prepared
-    ]
+    panel_lanes: list[list[str]] = []
+    panel_bars: list[list[tuple[int, float, float, str]]] = []
+    for _, regions, selected_ranks, first_start_time in prepared:
+        lanes: list[str] = []
+        bars: list[tuple[int, float, float, str]] = []
+        for region in regions:
+            for rank in selected_ranks:
+                # A region need not have been entered on every rank.
+                if rank not in region:
+                    continue
+                region_data = region[rank]
+                if not len(region_data.start_times):
+                    continue
+                lane = len(lanes)
+                lanes.append(f"{region.name} (rank {rank})")
+                color = _to_hex(region.color)
+                for start, end in zip(region_data.start_times, region_data.end_times):
+                    bars.append(
+                        (
+                            lane,
+                            float(start - first_start_time),
+                            float(end - start),
+                            color,
+                        )
+                    )
+        panel_lanes.append(lanes)
+        panel_bars.append(bars)
+
     if not any(panel_bars):
         raise ValueError("No calls recorded for the requested ranks.")
 
-    panel_heights = [max(2.5, 0.22 * len(bars)) for bars in panel_bars]
+    panel_heights = [max(2.5, 0.35 * len(lanes)) for lanes in panel_lanes]
     fig_width, fig_height = 12.0, 1.0 + sum(panel_heights)
-    lane_label_chars = max(len(bar[0]) for bars in panel_bars for bar in bars)
+    lane_label_chars = max(len(lane) for lanes in panel_lanes for lane in lanes)
     canvas = Canvas(
         nrows=len(prepared),
         ncols=1,
@@ -608,27 +620,20 @@ def plot_gantt(
         ),
     )
 
-    for idx, (label, bars) in enumerate(zip(labels, panel_bars)):
+    for idx, (label, lanes, bars) in enumerate(zip(labels, panel_lanes, panel_bars)):
         row = None if single_panel else idx
         col = None if single_panel else 0
 
-        tasks = [bar[0] for bar in bars]
-        starts = [bar[1] for bar in bars]
-        durations = [bar[2] for bar in bars]
-        colors = [bar[3] for bar in bars]
-        _add_gantt_bars(canvas, row, tasks, starts, durations, colors)
+        _add_gantt_bars(canvas, row, lanes, bars)
 
-        # Label each region's block of rows once, at its centre, instead of
-        # repeating the region name on every call's row.
-        yticks, yticklabels = _block_ticks(tasks)
-        canvas.set_yticks(yticks, labels=yticklabels, row=row, col=col)
+        canvas.set_yticks(list(range(len(lanes))), labels=lanes, row=row, col=col)
         canvas.set_xlim(
             0,
-            max(start + duration for start, duration in zip(starts, durations)),
+            max(start + duration for _, start, duration, _ in bars),
             row=row,
             col=col,
         )
-        canvas.set_ylim(-0.6, len(tasks) - 0.4, row=row, col=col)
+        canvas.set_ylim(-0.6, len(lanes) - 0.4, row=row, col=col)
         canvas.set_xlabel("Time (seconds)", row=row, col=col)
         canvas.set_title(
             "Profiling Gantt Chart" if single_panel else label, row=row, col=col
