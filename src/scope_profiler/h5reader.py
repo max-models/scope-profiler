@@ -1,5 +1,6 @@
 """Reader for merged HDF5 profiling output files."""
 
+import functools
 import re
 from pathlib import Path
 from typing import Iterator, List
@@ -7,6 +8,7 @@ from typing import Iterator, List
 import h5py
 import numpy as np
 
+from scope_profiler.likwid_data import LIKWID_GROUP, LikwidRegionResult
 from scope_profiler.mpi_region import MPIRegion
 from scope_profiler.region import Region
 
@@ -22,6 +24,38 @@ def _decode_attribute(value):
     if isinstance(value, np.ndarray):
         return [_decode_attribute(item) for item in value.tolist()]
     return value
+
+
+def _read_likwid_group(group) -> dict:
+    """Rebuild the LIKWID results stored under one rank's ``likwid`` group.
+
+    Returns
+    -------
+    dict
+        Region tag -> :class:`~scope_profiler.likwid_data.LikwidRegionResult`.
+    """
+    results = {}
+    regions = group.get("regions")
+    if regions is None:
+        return results
+
+    for region_grp in regions.values():
+        attrs = region_grp.attrs
+        tag = _decode_attribute(attrs.get("tag", ""))
+        results[tag] = LikwidRegionResult(
+            tag=tag,
+            group_id=int(attrs.get("group_id", -1)),
+            group_name=_decode_attribute(attrs.get("group_name", "")),
+            cpus=[int(c) for c in region_grp["cpus"][()]],
+            times=region_grp["times"][()],
+            call_counts=region_grp["call_counts"][()],
+            event_names=list(_decode_attribute(attrs.get("event_names", []))),
+            events=region_grp["events"][()],
+            metric_names=list(_decode_attribute(attrs.get("metric_names", []))),
+            metrics=region_grp["metrics"][()],
+            source=_decode_attribute(attrs.get("source", "")),
+        )
+    return results
 
 
 class ProfilingH5Reader:
@@ -62,6 +96,8 @@ class ProfilingH5Reader:
         self._file_path = Path(file_path)
         self._num_ranks = 0
         self._metadata: dict = {}
+        # rank -> {tag: LikwidRegionResult}; empty unless the run used LIKWID.
+        self._likwid: dict[int, dict[str, LikwidRegionResult]] = {}
         if not self.file_path.exists():
             raise FileNotFoundError(f"HDF5 file not found: {self.file_path}")
 
@@ -84,6 +120,10 @@ class ProfilingH5Reader:
                     print(f"{rank_group_name = }")
                     print(rank_group_name, rank_group)
                 rank = int(rank_group_name.replace("rank", ""))
+
+                if LIKWID_GROUP in rank_group:
+                    self._likwid[rank] = _read_likwid_group(rank_group[LIKWID_GROUP])
+
                 if "regions" not in rank_group:
                     continue
                 regions_group = rank_group["regions"]
@@ -311,6 +351,158 @@ class ProfilingH5Reader:
             Number of ranks.
         """
         return self._num_ranks
+
+    @property
+    def has_likwid(self) -> bool:
+        """Whether the file contains LIKWID hardware counter results."""
+        return any(self._likwid.values())
+
+    @property
+    def likwid_ranks(self) -> List[int]:
+        """Ranks that recorded LIKWID results, in ascending order."""
+        return sorted(rank for rank, regions in self._likwid.items() if regions)
+
+    def get_likwid_regions(self, rank: int | None = None) -> dict:
+        """
+        Get the LIKWID marker results stored in the file.
+
+        Parameters
+        ----------
+        rank : int, optional
+            Return only this rank's regions. By default every rank is
+            included, keyed by rank.
+
+        Returns
+        -------
+        dict
+            With ``rank`` given, a mapping of region tag to
+            :class:`~scope_profiler.likwid_data.LikwidRegionResult`; otherwise a
+            mapping of rank to such a dict. Empty when the run did not use
+            LIKWID.
+
+        Examples
+        --------
+        ::
+
+            reader = ProfilingH5Reader("profiling_data.h5")
+            for rank, regions in reader.get_likwid_regions().items():
+                for tag, result in regions.items():
+                    for name, values in zip(result.metric_names, result.metrics):
+                        print(rank, tag, name, values)
+        """
+        if rank is None:
+            return dict(self._likwid)
+        return self._likwid.get(rank, {})
+
+    def get_likwid_region(self, tag: str, rank: int = 0) -> LikwidRegionResult:
+        """
+        Get one region's LIKWID results for a single rank.
+
+        Parameters
+        ----------
+        tag : str
+            LIKWID marker region tag (the profiled region's name).
+        rank : int, optional
+            Rank to read from (default: 0).
+
+        Returns
+        -------
+        LikwidRegionResult
+            The region's counters, event names and derived metrics.
+
+        Raises
+        ------
+        KeyError
+            If the rank recorded no LIKWID data or has no such region.
+        """
+        regions = self._likwid.get(rank, {})
+        try:
+            return regions[tag]
+        except KeyError:
+            raise KeyError(
+                f"No LIKWID region {tag!r} for rank {rank} in {self.file_path}. "
+                f"Available regions: {sorted(regions)}"
+            ) from None
+
+    def likwid_to_dataframe(self):
+        """
+        Return every LIKWID event and metric as a tidy pandas DataFrame.
+
+        One row per (rank, region, hardware thread), with a column per event
+        and per derived metric, plus the region's LIKWID runtime and call
+        count. Regions measured with different event groups simply leave the
+        other group's columns empty.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Empty if the file holds no LIKWID data.
+
+        Raises
+        ------
+        ImportError
+            If pandas is not installed.
+        """
+        try:
+            import pandas as pd
+        except ImportError as exc:
+            raise ImportError(
+                "likwid_to_dataframe() requires pandas. Install "
+                "scope-profiler[pproc] or pandas directly."
+            ) from exc
+
+        rows = []
+        for rank in self.likwid_ranks:
+            for tag, result in self._likwid[rank].items():
+                for thread in range(len(result.times)):
+                    row = {
+                        "rank": rank,
+                        "region": tag,
+                        "thread": thread,
+                        "cpu": (
+                            result.cpus[thread] if thread < len(result.cpus) else np.nan
+                        ),
+                        "group": result.group_name,
+                        "time": result.times[thread],
+                        "call_count": result.call_counts[thread],
+                    }
+                    for name, values in zip(result.event_names, result.events):
+                        row[name] = values[thread]
+                    for name, values in zip(result.metric_names, result.metrics):
+                        row[name] = values[thread]
+                    rows.append(row)
+        return pd.DataFrame(rows)
+
+    def print_likwid_summary(self, stream=None) -> None:
+        """
+        Print every LIKWID region's events and derived metrics.
+
+        Parameters
+        ----------
+        stream : file-like, optional
+            Destination (default: stdout).
+        """
+        print_ = print if stream is None else functools.partial(print, file=stream)
+
+        if not self.has_likwid:
+            print_(f"No LIKWID data in {self.file_path}")
+            return
+
+        for rank in self.likwid_ranks:
+            for tag, result in self._likwid[rank].items():
+                header = f"rank {rank}  region {tag!r}"
+                if result.group_name:
+                    header += f"  group {result.group_name}"
+                print_(header)
+                for thread, cpu in enumerate(result.cpus or range(len(result.times))):
+                    print_(
+                        f"  cpu {cpu}: {result.call_counts[thread]} call(s), "
+                        f"{result.times[thread]:.6f} s"
+                    )
+                    for name, values in zip(result.event_names, result.events):
+                        print_(f"    {name:<30s} {values[thread]:>18.4f}")
+                    for name, values in zip(result.metric_names, result.metrics):
+                        print_(f"    {name:<30s} {values[thread]:>18.4f}")
 
     @property
     def minimum_start_time(self) -> float:

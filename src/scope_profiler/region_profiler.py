@@ -17,11 +17,13 @@ def _import_pylikwid():
     """Import and return the pylikwid module.
 
     This function exists to defer the import of pylikwid until needed,
-    preventing unnecessary overhead when LIKWID profiling is disabled.
+    preventing unnecessary overhead when LIKWID profiling is disabled. It
+    delegates so that regions and the config resolve pylikwid identically,
+    including the liblikwid preloading fallback.
     """
-    import pylikwid
+    from scope_profiler.profile_config import _import_pylikwid as _import
 
-    return pylikwid
+    return _import()
 
 
 def _import_line_profiler():

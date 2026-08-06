@@ -26,6 +26,10 @@ dependencies = [
   "numpy",
 ]
 
+optional-dependencies.likwid = [
+  "pylikwid",
+]
+
 optional-dependencies.line-profiler = [
   "line-profiler",
 ]

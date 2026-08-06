@@ -137,3 +137,26 @@ stores nanoseconds.
 .. autofunction:: scope_profiler.plotting_scripts.collect_region_statistics
 .. autofunction:: scope_profiler.plotting_scripts.write_region_statistics_json
 ```
+
+## LIKWID
+
+See {doc}`guide/likwid` for the workflow and the HDF5 layout.
+
+### LikwidRegionResult
+
+```{eval-rst}
+.. autoclass:: scope_profiler.likwid_data.LikwidRegionResult
+   :members:
+   :undoc-members:
+```
+
+### Collection and storage
+
+```{eval-rst}
+.. autofunction:: scope_profiler.likwid_data.collect_marker_results
+.. autofunction:: scope_profiler.likwid_data.collect_region_snapshots
+.. autofunction:: scope_profiler.likwid_data.snapshots_to_results
+.. autofunction:: scope_profiler.likwid_data.write_likwid_results
+.. autofunction:: scope_profiler.likwid_data.markers_available
+.. autofunction:: scope_profiler.likwid_data.likwid_environment
+```

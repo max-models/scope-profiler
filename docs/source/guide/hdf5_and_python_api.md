@@ -33,6 +33,9 @@ profiling_data.h5
   For serial runs there is only `rank0`.
 - Timestamps are stored as **int64 nanoseconds** from
   `time.perf_counter_ns()`.
+- Runs with `use_likwid=True` additionally get a `rank<N>/likwid/` group
+  holding the hardware counters and derived metrics of every marker region.
+  See {doc}`likwid`.
 
 ## Run metadata
 
