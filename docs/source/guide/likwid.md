@@ -49,23 +49,40 @@ your CPU supports).
 
 ## What gets collected
 
-Both of LIKWID's APIs are used, and they complement each other:
+Counter collection runs at `finalize()`, on top of a job that has already
+finished. Losing a long run's output because a counter read went wrong would
+be absurd, so there are three sources, tried richest first. Each region
+records which one produced it in its `source` attribute.
 
-- The **marker API** (`markergetregion`) is sampled while the markers are
-  still open. It always works, but reports only raw numbers for the calling
-  thread.
-- The **full API** re-registers the event sets from `LIKWID_EVENTS` after
-  `markerclose()` has written the marker file, then reads that file back with
-  `markerreadfile()`. This yields *every* region of the run, for every
-  hardware thread, with event **names**, per-thread call counts and LIKWID's
-  derived metrics (`Clock [MHz]`, `CPI`, `DP [MFLOP/s]`, `Energy [J]`, ...).
+| `source`        | How                                                       | What you get                                        |
+| --------------- | --------------------------------------------------------- | --------------------------------------------------- |
+| `full_api`      | perfmon re-init + `markerreadfile()`, **in a subprocess**  | Everything: event names, counter registers, metrics |
+| `marker_file`   | LIKWID's marker file parsed directly, no LIKWID calls      | Real values; positional event names, no metrics     |
+| `marker_api`    | `markergetregion()` before the markers were closed         | Calling thread only; no names, no metrics           |
 
-The full API is preferred; the marker-API snapshot is the fallback used when
-the performance counters cannot be re-opened. A region records which one it
-came from in its `source` attribute (`"full_api"` or `"marker_api"`).
+The full API is the only path that can name events and compute derived
+metrics (`Clock [MHz]`, `CPI`, `DP [MFLOP/s]`, `Energy [J]`, ...), because
+those live in LIKWID's group definitions rather than in the marker file.
 
-Counter collection never fails a run: if LIKWID cannot be read, `finalize()`
-still writes the timing data.
+It is also the only step that can bring the interpreter down instead of
+raising: re-initializing perfmon has been observed to **segfault** on hosts
+that cannot really count --- a virtualized runner with an unreadable TSC, or
+one where HyperThreading disables the PMCs. It therefore runs in a child
+process. If that child dies, the parent notices, falls back to parsing the
+marker file, and the run still ends up with real call counts, runtimes and
+counter values in the HDF5 file. (If the child crashes *after* writing its
+results, they are kept --- a complete JSON document is proof the work
+finished.)
+
+So counter collection never fails a run, and rarely degrades one.
+
+```{note}
+Whether the counters hold meaningful numbers is a property of the machine, not
+of the profiler. A virtualized CPU may report structurally valid zeros for
+every event; LIKWID prints `WARN: Counter PMC0 is only available with
+deactivated HyperThreading` and similar in that case. The call counts are
+LIKWID's own bookkeeping and stay exact regardless.
+```
 
 ## HDF5 layout
 

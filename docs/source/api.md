@@ -162,6 +162,8 @@ See {doc}`guide/likwid` for the workflow and the HDF5 layout.
 ### Collection and storage
 
 ```{eval-rst}
+.. autofunction:: scope_profiler.likwid_data.collect_marker_results_isolated
+.. autofunction:: scope_profiler.likwid_data.parse_marker_file
 .. autofunction:: scope_profiler.likwid_data.collect_marker_results
 .. autofunction:: scope_profiler.likwid_data.collect_region_snapshots
 .. autofunction:: scope_profiler.likwid_data.snapshots_to_results

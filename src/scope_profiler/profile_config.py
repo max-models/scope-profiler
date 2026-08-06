@@ -298,11 +298,18 @@ class ProfilingConfig:
     def collect_likwid_results(self, region_names) -> list:
         """Close the LIKWID markers and return the run's counter results.
 
-        Takes a marker-API snapshot of every known region first (while the
-        markers are still open), then closes them and reads the full marker
-        file back, which additionally yields event names, derived metrics and
-        any region LIKWID recorded that the profiler does not know about. The
-        snapshots are used only if that read-back fails.
+        Tries three sources, richest first, so a host where LIKWID cannot do
+        the fancy parts still ends up with real numbers in the HDF5 file:
+
+        1. the perfmon read-back, run in a subprocess because it can crash
+           the interpreter outright on hosts that cannot really count;
+        2. LIKWID's marker file, parsed directly --- real values, but no
+           event names or derived metrics;
+        3. a marker-API snapshot taken before the markers were closed, for
+           when there is no marker file at all.
+
+        See :mod:`scope_profiler.likwid_data` for why the first one is fenced
+        off.
 
         Parameters
         ----------
@@ -328,9 +335,10 @@ class ProfilingConfig:
             return []
 
         from scope_profiler.likwid_data import (
-            collect_marker_results,
+            collect_marker_results_isolated,
             collect_region_snapshots,
             markers_available,
+            parse_marker_file,
             snapshots_to_results,
         )
 
@@ -340,10 +348,15 @@ class ProfilingConfig:
             self.pylikwid_markerclose()
             return []
 
+        # Taken while the markers are still open; only used if both paths
+        # below come up empty.
         snapshots = collect_region_snapshots(self._pylikwid, region_names)
         self.pylikwid_markerclose()
-        results = collect_marker_results(self._pylikwid)
-        return results or snapshots_to_results(snapshots)
+
+        results = collect_marker_results_isolated()
+        if results:
+            return results
+        return parse_marker_file() or snapshots_to_results(snapshots)
 
     def likwid_environment(self) -> dict:
         """Return the ``LIKWID_*`` environment variables of this process."""

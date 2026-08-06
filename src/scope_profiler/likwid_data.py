@@ -1,31 +1,43 @@
 """Collection and storage of LIKWID marker results.
 
-LIKWID's marker API only accumulates counters while the process runs; the
-numbers themselves are handed out in two different ways, and this module uses
-both:
+Counter collection happens at ``finalize()``, on top of a run that has already
+completed. It is a bonus, never the point of the job, so no failure here may
+cost the user their timing data. That constraint shapes the whole module:
+there are three sources of counter data, tried richest first, and the risky
+one is fenced off in a child process.
+
+* **Full API, out of process** (:func:`collect_marker_results_isolated`) ---
+  the richest source. After ``markerclose()`` has written the marker file,
+  re-initializing the perfmon module and calling ``markerreadfile()`` exposes
+  every region, for every thread, with event names, counter registers and
+  LIKWID's derived metrics (``Clock [MHz]``, ``CPI``, ``Energy [J]``, ...).
+
+  Re-initializing perfmon is also the one step that can take the interpreter
+  down rather than raise: on hosts where LIKWID cannot really count (a
+  virtualized CI runner with an unreadable TSC and counters disabled by
+  HyperThreading, say) it has been observed to segfault. It therefore runs in
+  a subprocess, where a crash costs nothing but the enrichment.
+
+* **Marker file** (:func:`parse_marker_file`) --- the file LIKWID writes is
+  plain text, so it can be read with no LIKWID calls at all and cannot fail
+  catastrophically. It yields every region, thread, call count, runtime and
+  raw counter value; only the *names* and the derived metrics are missing.
+  This is the fallback whenever the subprocess above does not come back.
 
 * **Marker API** (:func:`collect_region_snapshots`) --- ``markergetregion(tag)``
-  returns the raw counter values for a single region on the calling thread.
-  It works at any point while the markers are open, needs no extra privileges,
-  but gives neither event names nor derived metrics.
-* **Full API** (:func:`collect_marker_results`) --- after ``markerclose()`` has
-  written the marker file, re-initializing the perfmon module and calling
-  ``markerreadfile()`` exposes *every* region of the run, for every thread,
-  with event names, per-thread call counts and LIKWID's derived metrics
-  (``Clock [MHz]``, ``CPI``, ``Energy [J]``, ...).
+  read while the markers are still open. Last resort, for when the marker file
+  is absent entirely; reports only the calling thread.
 
-The full API is the richer of the two but needs to re-open the performance
-counters, which can fail (no access daemon, no permissions, no marker file).
-The snapshots are therefore taken first, while the markers are still open, and
-are used as a fallback so a run always ends up with *some* counter data in the
-HDF5 file.
-
-Both paths require the process to have been started under ``likwid-perfctr -m``
+All three require the process to have been started under ``likwid-perfctr -m``
 (or ``likwid-mpirun ... -marker``). Without that, LIKWID sets no environment
 and there is nothing to collect.
 """
 
+import json
 import os
+import subprocess
+import sys
+import tempfile
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Iterable, List
@@ -80,9 +92,11 @@ class LikwidRegionResult:
     metrics : numpy.ndarray
         Derived metric values, shape ``(nmetrics, nthreads)``.
     source : str
-        ``"full_api"`` when read back from the marker file, ``"marker_api"``
-        when taken from a ``markergetregion`` snapshot (no metrics, and event
-        names are placeholders).
+        Which collection path produced this result: ``"full_api"`` (perfmon
+        read-back, the only one with real event names and metrics),
+        ``"marker_file"`` (LIKWID's marker file parsed directly --- real
+        values, placeholder event names, no metrics) or ``"marker_api"`` (a
+        ``markergetregion`` snapshot of the calling thread only).
     """
 
     tag: str
@@ -250,6 +264,96 @@ def snapshots_to_results(snapshots: Iterable[dict]) -> List[LikwidRegionResult]:
     return results
 
 
+def parse_marker_file(path=None) -> List[LikwidRegionResult]:
+    """Read LIKWID's marker file directly, without calling into LIKWID.
+
+    The file ``markerclose()`` writes is plain text::
+
+        <nthreads> <nregions> <ngroups>
+        <region_id>:<tag>-<group_id>          (one line per region)
+        <region_id> <group_id> <cpu> <call_count> <time> <nevents> <values...>
+
+    Parsing it here is the crash-proof path: it touches no counters and calls
+    no LIKWID function, so it cannot take the interpreter down the way
+    re-initializing perfmon can. The cost is that event names, counter
+    registers and derived metrics are not in the file --- those exist only
+    inside LIKWID's group definitions --- so events come back positionally
+    named and the metric list is empty.
+
+    Parameters
+    ----------
+    path : str, optional
+        Marker file to read (default: ``$LIKWID_FILEPATH``).
+
+    Returns
+    -------
+    list of LikwidRegionResult
+        One entry per region, ordered by region id. Empty if the file is
+        missing or malformed.
+    """
+    path = path or os.environ.get(_ENV_FILEPATH)
+    if not path or not os.path.exists(path):
+        return []
+
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            lines = [line.strip() for line in handle if line.strip()]
+    except OSError:
+        return []
+
+    if not lines:
+        return []
+
+    try:
+        num_regions = int(lines[0].split()[1])
+
+        tags, groups = {}, {}
+        for line in lines[1 : 1 + num_regions]:
+            region_id, _, rest = line.partition(":")
+            # The group id is appended to the tag as "-<gid>"; a tag may itself
+            # contain a dash, so split from the right.
+            tag, _, group_id = rest.rpartition("-")
+            tags[int(region_id)] = tag
+            groups[int(region_id)] = int(group_id)
+
+        per_region = {}
+        for line in lines[1 + num_regions :]:
+            fields = line.split()
+            if len(fields) < 6:
+                continue
+            region_id = int(fields[0])
+            cpu = int(fields[2])
+            count = int(float(fields[3]))
+            time = float(fields[4])
+            num_events = int(fields[5])
+            values = [float(v) for v in fields[6 : 6 + num_events]]
+            per_region.setdefault(region_id, []).append((cpu, count, time, values))
+    except (ValueError, IndexError):
+        # A truncated or unexpected file is not worth failing finalize() over.
+        return []
+
+    results = []
+    for region_id in sorted(per_region):
+        threads = per_region[region_id]
+        num_events = max((len(values) for *_, values in threads), default=0)
+        events = np.zeros((num_events, len(threads)), dtype=np.float64)
+        for index, (_, _, _, values) in enumerate(threads):
+            events[: len(values), index] = values
+        results.append(
+            LikwidRegionResult(
+                tag=tags.get(region_id, str(region_id)),
+                group_id=groups.get(region_id, -1),
+                cpus=[cpu for cpu, _, _, _ in threads],
+                times=np.array([t for _, _, t, _ in threads], dtype=np.float64),
+                call_counts=np.array([c for _, c, _, _ in threads], dtype=np.int64),
+                event_names=[f"event_{i}" for i in range(num_events)],
+                events=events,
+                source="marker_file",
+            )
+        )
+    return results
+
+
 def collect_marker_results(pylikwid) -> List[LikwidRegionResult]:
     """Read every region of the run back from LIKWID's marker file.
 
@@ -368,6 +472,133 @@ def collect_marker_results(pylikwid) -> List[LikwidRegionResult]:
             pass
 
 
+def _result_to_json(result: LikwidRegionResult) -> dict:
+    """Serialize a result so it can cross a process boundary."""
+    return {
+        "tag": result.tag,
+        "group_id": int(result.group_id),
+        "group_name": result.group_name,
+        "cpus": [int(c) for c in result.cpus],
+        "times": [float(t) for t in result.times],
+        "call_counts": [int(c) for c in result.call_counts],
+        "event_names": list(result.event_names),
+        "counter_names": list(result.counter_names),
+        "events": [[float(v) for v in row] for row in result.events],
+        "metric_names": list(result.metric_names),
+        "metrics": [[float(v) for v in row] for row in result.metrics],
+        "source": result.source,
+    }
+
+
+def _result_from_json(payload: dict) -> LikwidRegionResult:
+    """Rebuild a result from :func:`_result_to_json`."""
+    num_threads = len(payload["times"])
+
+    def matrix(rows):
+        if not rows:
+            return np.zeros((0, num_threads), dtype=np.float64)
+        return np.array(rows, dtype=np.float64)
+
+    return LikwidRegionResult(
+        tag=payload["tag"],
+        group_id=payload["group_id"],
+        group_name=payload["group_name"],
+        cpus=payload["cpus"],
+        times=np.array(payload["times"], dtype=np.float64),
+        call_counts=np.array(payload["call_counts"], dtype=np.int64),
+        event_names=payload["event_names"],
+        counter_names=payload.get("counter_names", []),
+        events=matrix(payload["events"]),
+        metric_names=payload["metric_names"],
+        metrics=matrix(payload["metrics"]),
+        source=payload.get("source", "full_api"),
+    )
+
+
+def collect_marker_results_isolated(timeout: float = 120.0):
+    """Run the perfmon read-back in a child process and return its results.
+
+    :func:`collect_marker_results` has to re-initialize LIKWID's perfmon
+    module, and on hosts where the counters are not really usable that can
+    abort the process outright instead of raising --- which at ``finalize()``
+    time would destroy a completed run's output. Running it behind a process
+    boundary turns that worst case into a missing enrichment.
+
+    Parameters
+    ----------
+    timeout : float, optional
+        Seconds to wait for the child before giving up (default: 120).
+
+    Returns
+    -------
+    list of LikwidRegionResult or None
+        ``None`` when the child could not deliver results (crashed, timed out,
+        or LIKWID refused to re-open the counters), which tells the caller to
+        fall back to :func:`parse_marker_file`.
+    """
+    if not markers_available():
+        return None
+
+    # The child writes to a file rather than stdout: LIKWID itself prints
+    # warnings and error banners on both streams, which would corrupt JSON.
+    handle, out_path = tempfile.mkstemp(prefix="likwid_results_", suffix=".json")
+    os.close(handle)
+
+    try:
+        env = dict(os.environ)
+        # The child must import the same scope_profiler (and find pylikwid)
+        # as this process, however this process was started.
+        env["PYTHONPATH"] = os.pathsep.join(
+            [path for path in sys.path if path] + [env.get("PYTHONPATH", "")]
+        ).strip(os.pathsep)
+
+        subprocess.run(
+            [sys.executable, "-m", "scope_profiler.likwid_data", out_path],
+            capture_output=True,
+            env=env,
+            timeout=timeout,
+            check=False,
+        )
+        # Deliberately not gated on the return code. LIKWID has been seen to
+        # abort during interpreter teardown, i.e. after the results were
+        # written; a complete JSON document is proof enough that the work
+        # finished, and a crash mid-write leaves one that will not parse.
+        with open(out_path, encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    finally:
+        try:
+            os.unlink(out_path)
+        except OSError:
+            pass
+
+    if not payload:
+        return None
+    return [_result_from_json(item) for item in payload]
+
+
+def _subprocess_main(argv=None) -> int:
+    """Entry point of the isolated collector (``python -m ...likwid_data``).
+
+    Not part of the public API: this is the body that runs behind the process
+    boundary set up by :func:`collect_marker_results_isolated`.
+    """
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if not argv:
+        print(
+            "usage: python -m scope_profiler.likwid_data <output.json>", file=sys.stderr
+        )
+        return 2
+
+    from scope_profiler.profile_config import _import_pylikwid
+
+    results = collect_marker_results(_import_pylikwid())
+    with open(argv[0], "w", encoding="utf-8") as fh:
+        json.dump([_result_to_json(result) for result in results], fh)
+    return 0
+
+
 def _h5_safe(tag: str) -> str:
     """Escape a region tag for use as an HDF5 group name.
 
@@ -433,3 +664,7 @@ def write_likwid_results(
         rgrp.create_dataset("call_counts", data=result.call_counts)
         rgrp.create_dataset("events", data=result.events)
         rgrp.create_dataset("metrics", data=result.metrics)
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised via a subprocess
+    raise SystemExit(_subprocess_main())

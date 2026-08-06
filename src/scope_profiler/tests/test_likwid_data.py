@@ -7,7 +7,9 @@ so it runs anywhere.
 """
 
 import builtins
+import json
 import os
+import subprocess
 from unittest import mock
 
 import h5py
@@ -15,14 +17,19 @@ import numpy as np
 import pytest
 
 from scope_profiler import ProfileManager, ProfilingH5Reader
+from scope_profiler import likwid_data as likwid_data_module
 from scope_profiler import profile_config as profile_config_module
 from scope_profiler import region_profiler as region_profiler_module
 from scope_profiler.likwid_data import (
     LIKWID_GROUP,
     LikwidRegionResult,
+    _result_from_json,
+    _result_to_json,
     collect_marker_results,
+    collect_marker_results_isolated,
     collect_region_snapshots,
     markers_available,
+    parse_marker_file,
     snapshots_to_results,
     write_likwid_results,
 )
@@ -227,6 +234,256 @@ def test_markers_available_follows_the_environment():
         os.environ, {"LIKWID_FILEPATH": "/tmp/x", "LIKWID_EVENTS": "CLOCK"}
     ):
         assert markers_available()
+
+
+#: A real two-region LIKWID marker file, as markerclose() writes it.
+MARKER_FILE = """\
+1 2 1
+0:main-0
+1:io-0
+0 0 10 1 1.700627e-03 6 1.898247e+07 4.093639e+06 4.093728e+06 2.046807e+07 \
+7.774658e-01 0.000000e+00
+1 0 10 4 4.628672e-05 6 1.891340e+05 8.803600e+04 8.812800e+04 4.402750e+05 \
+0.000000e+00 0.000000e+00
+"""
+
+
+def test_parse_marker_file_reads_every_field(tmp_path):
+    """The marker file alone carries regions, counts, runtimes and counters."""
+    path = tmp_path / "likwid.txt"
+    path.write_text(MARKER_FILE)
+
+    results = {r.tag: r for r in parse_marker_file(str(path))}
+    assert sorted(results) == ["io", "main"]
+
+    main = results["main"]
+    assert main.source == "marker_file"
+    assert main.group_id == 0
+    assert main.cpus == [10]
+    assert main.call_counts.tolist() == [1]
+    assert main.times[0] == pytest.approx(1.700627e-03)
+    assert main.events.shape == (6, 1)
+    assert main.events[0, 0] == pytest.approx(1.898247e07)
+    # No group definition is in the file, so names are positional and there
+    # are no derived metrics.
+    assert main.event_names == [f"event_{i}" for i in range(6)]
+    assert main.metric_names == []
+    assert results["io"].call_counts.tolist() == [4]
+
+
+def test_parse_marker_file_handles_a_tag_containing_a_dash(tmp_path):
+    """The group id is appended with '-', so tags must split from the right."""
+    path = tmp_path / "likwid.txt"
+    path.write_text("1 1 1\n0:my-region-0\n0 0 3 2 1.0e-03 1 5.0\n")
+
+    (result,) = parse_marker_file(str(path))
+    assert result.tag == "my-region"
+    assert result.group_id == 0
+
+
+def test_parse_marker_file_is_multithread_aware(tmp_path):
+    """Each thread of a region becomes a column, in file order."""
+    path = tmp_path / "likwid.txt"
+    path.write_text(
+        "2 1 1\n0:solve-0\n0 0 4 1 1.0e-03 2 1.0 2.0\n0 0 5 1 2.0e-03 2 3.0 4.0\n"
+    )
+
+    (result,) = parse_marker_file(str(path))
+    assert result.cpus == [4, 5]
+    assert result.events.tolist() == [[1.0, 3.0], [2.0, 4.0]]
+    assert result.times.tolist() == [pytest.approx(1e-3), pytest.approx(2e-3)]
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["", "garbage\n", "1 2 1\n0:main-0\n", "not a header\n0:main-0\n"],
+    ids=["empty", "garbage", "truncated", "bad-header"],
+)
+def test_parse_marker_file_never_raises(tmp_path, content):
+    """A damaged file yields nothing rather than breaking finalize()."""
+    path = tmp_path / "likwid.txt"
+    path.write_text(content)
+    assert parse_marker_file(str(path)) == []
+
+
+def test_parse_marker_file_without_a_file(tmp_path):
+    """A missing marker file is simply no data."""
+    assert parse_marker_file(str(tmp_path / "nope.txt")) == []
+
+
+def test_result_survives_the_process_boundary():
+    """Results are serialized to cross into the isolated collector's output."""
+    original = LikwidRegionResult(
+        tag="solve",
+        group_id=1,
+        group_name="MEM_DP",
+        cpus=[2, 3],
+        times=np.array([0.5, 0.6]),
+        call_counts=np.array([7, 8], dtype=np.int64),
+        event_names=["CAS_COUNT_RD", "CAS_COUNT_RD"],
+        counter_names=["MBOX0C0", "MBOX1C0"],
+        events=np.array([[1.0, 2.0], [3.0, 4.0]]),
+        metric_names=["CPI"],
+        metrics=np.array([[0.5, 0.6]]),
+        source="full_api",
+    )
+    restored = _result_from_json(_result_to_json(original))
+
+    assert restored.tag == original.tag
+    assert restored.group_name == original.group_name
+    assert restored.cpus == original.cpus
+    assert restored.counter_names == original.counter_names
+    assert restored.event_labels == original.event_labels
+    np.testing.assert_allclose(restored.events, original.events)
+    np.testing.assert_allclose(restored.metrics, original.metrics)
+    np.testing.assert_array_equal(restored.call_counts, original.call_counts)
+
+
+def test_isolated_collector_survives_a_segfaulting_child(tmp_path):
+    """A crash behind the process boundary must not propagate.
+
+    This is the whole reason the perfmon read-back is run out of process: on
+    hosts where LIKWID cannot really count it has aborted the interpreter, and
+    at finalize() time that would destroy a completed run's output.
+    """
+    marker = tmp_path / "likwid.txt"
+    marker.write_text(MARKER_FILE)
+
+    # -11 is what subprocess reports for a child killed by SIGSEGV. The child
+    # never got as far as writing anything, so there is nothing to salvage.
+    crashed = subprocess.CompletedProcess(
+        args=[], returncode=-11, stdout=b"", stderr=b""
+    )
+    with mock.patch.dict(
+        os.environ,
+        {"LIKWID_FILEPATH": str(marker), "LIKWID_EVENTS": "CLOCK"},
+    ):
+        with mock.patch("subprocess.run", return_value=crashed):
+            assert collect_marker_results_isolated() is None
+
+
+def test_isolated_collector_salvages_results_written_before_a_crash(tmp_path):
+    """LIKWID can abort during teardown, after the results are already out.
+
+    Discarding a complete document because the child later died would throw
+    away the richest data for no reason, so the JSON is what counts, not the
+    exit status.
+    """
+    marker = tmp_path / "likwid.txt"
+    marker.write_text(MARKER_FILE)
+
+    payload = [
+        _result_to_json(
+            LikwidRegionResult(
+                tag="solve",
+                group_name="CLOCK",
+                cpus=[0],
+                times=np.array([1.0]),
+                call_counts=np.array([2], dtype=np.int64),
+                event_names=["INSTR_RETIRED_ANY"],
+                counter_names=["FIXC0"],
+                events=np.array([[42.0]]),
+                metric_names=["CPI"],
+                metrics=np.array([[0.5]]),
+            )
+        )
+    ]
+
+    def write_then_crash(cmd, **kwargs):
+        with open(cmd[-1], "w", encoding="utf-8") as fh:
+            json.dump(payload, fh)
+        return subprocess.CompletedProcess(args=cmd, returncode=-11)
+
+    with mock.patch.dict(
+        os.environ,
+        {"LIKWID_FILEPATH": str(marker), "LIKWID_EVENTS": "CLOCK"},
+    ):
+        with mock.patch("subprocess.run", side_effect=write_then_crash):
+            results = collect_marker_results_isolated()
+
+    assert results is not None
+    (result,) = results
+    assert result.tag == "solve"
+    assert result.metric_names == ["CPI"]
+
+
+def test_isolated_collector_discards_a_truncated_document(tmp_path):
+    """A child that died mid-write leaves unusable JSON, so fall back."""
+    marker = tmp_path / "likwid.txt"
+    marker.write_text(MARKER_FILE)
+
+    def write_partial(cmd, **kwargs):
+        with open(cmd[-1], "w", encoding="utf-8") as fh:
+            fh.write('[{"tag": "solve", "times": [1.0')
+        return subprocess.CompletedProcess(args=cmd, returncode=-11)
+
+    with mock.patch.dict(
+        os.environ,
+        {"LIKWID_FILEPATH": str(marker), "LIKWID_EVENTS": "CLOCK"},
+    ):
+        with mock.patch("subprocess.run", side_effect=write_partial):
+            assert collect_marker_results_isolated() is None
+
+
+def test_isolated_collector_survives_a_hanging_child(tmp_path):
+    """A child that never returns is abandoned, not waited on forever."""
+    marker = tmp_path / "likwid.txt"
+    marker.write_text(MARKER_FILE)
+
+    with mock.patch.dict(
+        os.environ,
+        {"LIKWID_FILEPATH": str(marker), "LIKWID_EVENTS": "CLOCK"},
+    ):
+        with mock.patch(
+            "subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="x", timeout=1),
+        ):
+            assert collect_marker_results_isolated() is None
+
+
+def test_isolated_collector_skipped_outside_a_likwid_run():
+    """No marker environment means there is nothing to spawn a child for."""
+    with mock.patch.dict(os.environ, {}, clear=True):
+        with mock.patch("subprocess.run") as run:
+            assert collect_marker_results_isolated() is None
+        run.assert_not_called()
+
+
+def test_collection_falls_back_to_the_marker_file(monkeypatch, tmp_path):
+    """When the isolated read-back fails, real values still reach the file.
+
+    The fallback loses event names and derived metrics, but keeps the counts,
+    runtimes and raw counter values -- which is the difference between a
+    degraded run and a lost one.
+    """
+    marker = tmp_path / "likwid.txt"
+    marker.write_text(MARKER_FILE)
+
+    pylikwid = mock.Mock()
+    pylikwid.markergetregion.return_value = (1, [1.0], 0.5, 1)
+    monkeypatch.setattr(profile_config_module, "_import_pylikwid", lambda: pylikwid)
+    monkeypatch.setattr(region_profiler_module, "_import_pylikwid", lambda: pylikwid)
+    monkeypatch.setenv("LIKWID_FILEPATH", str(marker))
+    monkeypatch.setenv("LIKWID_EVENTS", "CLOCK")
+    monkeypatch.setenv("LIKWID_THREADS", "10")
+    # Stand in for the child crashing on a host that cannot count.
+    monkeypatch.setattr(
+        likwid_data_module, "collect_marker_results_isolated", lambda *a, **k: None
+    )
+
+    try:
+        ProfileManager.setup(
+            use_likwid=True, use_mpi=False, file_path=str(tmp_path / "out.h5")
+        )
+        results = ProfileManager.get_config().collect_likwid_results(["main"])
+    finally:
+        ProfileManager._reset()
+
+    by_tag = {r.tag: r for r in results}
+    assert sorted(by_tag) == ["io", "main"]
+    assert all(r.source == "marker_file" for r in results)
+    assert by_tag["main"].events[0, 0] == pytest.approx(1.898247e07)
+    assert by_tag["io"].call_counts.tolist() == [4]
 
 
 def test_collect_marker_results_without_likwid_environment():
