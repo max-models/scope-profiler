@@ -151,6 +151,7 @@ aggregate region statistics to JSON. See
 usage: scope-profiler pproc [-h] [--show] [-o OUTPUT]
                             [--include [INCLUDE ...]]
                             [--exclude [EXCLUDE ...]] [--ranks [RANKS ...]]
+                            [-p [{gantt,flame,durations,timeseries,speedup} ...]]
                             [--metrics [{avg,min,max,total} ...]]
                             [--x-field X_FIELD] [--cmap CMAP]
                             [--backend {matplotlib,plotly}] [--export-data]
@@ -174,7 +175,8 @@ usage: scope-profiler pproc [-h] [--show] [-o OUTPUT]
 | `-i`, `--include` | Region names to include (regex patterns)         |
 | `-e`, `--exclude` | Region names to exclude (regex patterns)         |
 | `-r`, `--ranks`   | Ranks to include; supports ranges (e.g. `0-3,5`) |
-| `-m`, `--metrics` | Duration statistics to plot: any of `avg`, `min`, `max`, `total` (default: all four) |
+| `-p`, `--plots`   | Which plots to generate: any of `gantt`, `flame`, `durations`, `timeseries`, `speedup` (default: all five) |
+| `-m`, `--metrics` | Duration statistics to plot: any of `avg`, `min`, `max`, `total` (default: `total`) |
 | `--x-field`       | X-axis of the speedup plot: `num_ranks` (default), `omp_num_threads`, `total_cores`, or any other metadata field |
 | `--cmap`          | Matplotlib colormap used to color regions/files in all plots (default: `tab20`) |
 | `--backend`       | Renderer: `matplotlib` (default, writes `.png`) or `plotly` (writes interactive `.html`) |
@@ -187,13 +189,14 @@ usage: scope-profiler pproc [-h] [--show] [-o OUTPUT]
 When `-o/--output` is supplied, the CLI saves:
 1. `gantt_plot.png`
 2. `flame_plot.png`
-3. one `durations_plot_<metric>.png` per selected metric (e.g.
-   `durations_plot_avg.png`, `durations_plot_min.png`, `durations_plot_max.png`,
-   `durations_plot_total.png`)
+3. `durations_plot.png` (one file when a single metric; one
+   `durations_plot_<metric>.png` per metric when several are requested, e.g.
+   `durations_plot_avg.png`, `durations_plot_total.png`)
 4. `duration_timeseries_plot.png`
 5. `speedup_plot.png` (only when multiple files are passed)
 6. `region_statistics.json`
 
+Use `--plots` to skip charts that are not needed.
 With `--backend plotly` the plots are written as `.html` instead of `.png`.
 
 Adding `--export-data` also writes the raw data behind each chart as CSV,
@@ -309,4 +312,11 @@ can be combined: `0,2,4-7` expands to ranks 0, 2, 4, 5, 6, 7.
 
 ```bash
 scope-profiler pproc profiling_data.h5 -o figures/ --metrics avg total
+```
+
+**Only generate the duration bar chart and speedup plot:**
+
+```bash
+scope-profiler pproc run_1.h5 run_2.h5 run_4.h5 -o figures/ \
+    --plots durations speedup
 ```
