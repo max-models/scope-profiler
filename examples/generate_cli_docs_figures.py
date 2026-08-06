@@ -147,7 +147,15 @@ def main() -> None:
 
         # Also produce an avg plot for the docs illustration of --metrics.
         pproc(
-            ["run_2.h5", "-o", "figures_avg", "--plots", "durations", "--metrics", "avg"],
+            [
+                "run_2.h5",
+                "-o",
+                "figures_avg",
+                "--plots",
+                "durations",
+                "--metrics",
+                "avg",
+            ],
             work_dir,
         )
 
@@ -168,7 +176,9 @@ def main() -> None:
         # page which references it as durations_plot_total.png.
         total_src = os.path.join(figures_dir, "durations_plot.png")
         if os.path.exists(total_src):
-            shutil.copy(total_src, os.path.join(args.output, "durations_plot_total.png"))
+            shutil.copy(
+                total_src, os.path.join(args.output, "durations_plot_total.png")
+            )
             copied.append("durations_plot_total.png")
 
         # The avg chart was generated in a separate output dir to avoid

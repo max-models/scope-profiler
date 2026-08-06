@@ -64,7 +64,10 @@ def test_plot_durations_comparison(tmp_path):
     readers = [ProfilingH5Reader(file_one), ProfilingH5Reader(file_two)]
 
     saved_paths = plot_durations(
-        readers, filepath=out_file, show=False, verbose=False,
+        readers,
+        filepath=out_file,
+        show=False,
+        verbose=False,
         metrics=["avg", "min", "max", "total"],
     )
 
