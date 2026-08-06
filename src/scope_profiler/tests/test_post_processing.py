@@ -179,6 +179,59 @@ def test_plot_gantt_combined(tmp_path):
     assert out_file.stat().st_size > 0
 
 
+def test_plot_gantt_puts_every_call_of_a_region_on_one_lane(tmp_path, monkeypatch):
+    """Repeated calls of a region share one row per rank, not a row each."""
+    h5_path = tmp_path / "run.h5"
+    _write_sample_h5(
+        h5_path,
+        {
+            rank: {
+                "setup": ([0], [10]),
+                "solve": ([20, 40, 60], [30, 50, 70]),
+            }
+            for rank in range(2)
+        },
+    )
+
+    bars_by_lane = {}
+
+    class _RecordingCanvas:
+        """Collect what plot_gantt draws instead of rendering it."""
+
+        def __init__(self, *args, **kwargs):
+            self.lanes = None
+
+        def gantt(self, tasks, start_times, durations, **kwargs):
+            self.lanes = tasks
+            for lane, start in enumerate(start_times):
+                if not np.isnan(start):
+                    bars_by_lane.setdefault(lane, []).append(float(start))
+
+        def __getattr__(self, name):
+            # set_yticks, set_xlim, set_title, ... are all no-ops here.
+            return lambda *args, **kwargs: None
+
+    import scope_profiler.plotting_scripts as plotting_scripts
+
+    canvas = _RecordingCanvas()
+    monkeypatch.setattr(
+        plotting_scripts, "_get_canvas", lambda: lambda *a, **kw: canvas
+    )
+    monkeypatch.setattr(plotting_scripts, "_render", lambda *a, **kw: None)
+
+    plot_gantt(ProfilingH5Reader(h5_path), show=False, verbose=False)
+
+    # One lane per (region, rank), and solve's three calls share their lane.
+    assert canvas.lanes == [
+        "setup (rank 0)",
+        "setup (rank 1)",
+        "solve (rank 0)",
+        "solve (rank 1)",
+    ]
+    assert sorted(bars_by_lane) == [0, 1, 2, 3]
+    assert [len(bars_by_lane[lane]) for lane in sorted(bars_by_lane)] == [1, 1, 3, 3]
+
+
 def test_build_call_stack_intervals_reconstructs_nesting(tmp_path):
     # "outer" [0, 100) encloses two sequential "inner" calls, [10, 40) and
     # [50, 90), which in turn each enclose a "leaf" call.
