@@ -37,8 +37,7 @@ RANK_COUNTS = (1, 2, 4)
 SINGLE_RUN_FIGURES = (
     "gantt_plot.png",
     "flame_plot.png",
-    "durations_plot_avg.png",
-    "durations_plot_total.png",
+    "durations_plot.png",
     "duration_timeseries_plot.png",
 )
 
@@ -85,6 +84,9 @@ def generate_h5_files(work_dir: str) -> list[str]:
     mpirun = shutil.which("mpirun")
     paths = []
 
+    # HDF5 file locking can fail on NFS-mounted filesystems (errno 11).
+    env = {**os.environ, "HDF5_USE_FILE_LOCKING": "FALSE"}
+
     for num_ranks in RANK_COUNTS:
         h5_path = os.path.join(work_dir, f"run_{num_ranks}.h5")
         cmd = [sys.executable, os.path.abspath(__file__), "--workload", h5_path]
@@ -92,7 +94,7 @@ def generate_h5_files(work_dir: str) -> list[str]:
             cmd = [mpirun, "-n", str(num_ranks), *cmd]
         elif num_ranks > 1:
             print(f"mpirun not found - running the {num_ranks}-rank case serially")
-        subprocess.run(cmd, check=True, cwd=work_dir)
+        subprocess.run(cmd, check=True, cwd=work_dir, env=env)
         paths.append(h5_path)
 
     return paths
@@ -140,8 +142,22 @@ def main() -> None:
         generate_h5_files(work_dir)
         figures_dir = os.path.join(work_dir, "figures")
 
-        # Single run: gantt, flame, durations, duration timeseries.
+        # Single run: gantt, flame, durations (total only), duration timeseries.
         pproc(["run_2.h5", "-o", "figures"], work_dir)
+
+        # Also produce an avg plot for the docs illustration of --metrics.
+        pproc(
+            [
+                "run_2.h5",
+                "-o",
+                "figures_avg",
+                "--plots",
+                "durations",
+                "--metrics",
+                "avg",
+            ],
+            work_dir,
+        )
 
         # Several runs: the speedup plot, on the total time per region.
         pproc(
@@ -155,6 +171,22 @@ def main() -> None:
             if os.path.exists(src):
                 shutil.copy(src, os.path.join(args.output, name))
                 copied.append(name)
+
+        # Copy the total durations chart under the _total suffix for the docs
+        # page which references it as durations_plot_total.png.
+        total_src = os.path.join(figures_dir, "durations_plot.png")
+        if os.path.exists(total_src):
+            shutil.copy(
+                total_src, os.path.join(args.output, "durations_plot_total.png")
+            )
+            copied.append("durations_plot_total.png")
+
+        # The avg chart was generated in a separate output dir to avoid
+        # overwriting the total chart.
+        avg_src = os.path.join(work_dir, "figures_avg", "durations_plot.png")
+        if os.path.exists(avg_src):
+            shutil.copy(avg_src, os.path.join(args.output, "durations_plot_avg.png"))
+            copied.append("durations_plot_avg.png")
 
         speedup_src = os.path.join(work_dir, "figures_scaling", "speedup_plot.png")
         if os.path.exists(speedup_src):

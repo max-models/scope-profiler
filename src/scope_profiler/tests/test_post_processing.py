@@ -63,7 +63,13 @@ def test_plot_durations_comparison(tmp_path):
 
     readers = [ProfilingH5Reader(file_one), ProfilingH5Reader(file_two)]
 
-    saved_paths = plot_durations(readers, filepath=out_file, show=False, verbose=False)
+    saved_paths = plot_durations(
+        readers,
+        filepath=out_file,
+        show=False,
+        verbose=False,
+        metrics=["avg", "min", "max", "total"],
+    )
 
     assert len(saved_paths) == 4
     for metric in ("avg", "min", "max", "total"):
@@ -394,10 +400,9 @@ def test_post_processing_cli_supports_multiple_files(tmp_path):
     assert gantt_plot.stat().st_size > 0
     assert flame_plot.exists()
     assert flame_plot.stat().st_size > 0
-    for metric in ("avg", "min", "max", "total"):
-        metric_file = output_dir / f"durations_plot_{metric}.png"
-        assert metric_file.exists()
-        assert metric_file.stat().st_size > 0
+    durations_plot = output_dir / "durations_plot.png"
+    assert durations_plot.exists()
+    assert durations_plot.stat().st_size > 0
     assert timeseries_plot.exists()
     assert timeseries_plot.stat().st_size > 0
     assert speedup_plot.exists()
@@ -433,10 +438,9 @@ def test_post_processing_cli_supports_wildcard_file_patterns(tmp_path):
     assert gantt_plot.stat().st_size > 0
     assert flame_plot.exists()
     assert flame_plot.stat().st_size > 0
-    for metric in ("avg", "min", "max", "total"):
-        metric_file = output_dir / f"durations_plot_{metric}.png"
-        assert metric_file.exists()
-        assert metric_file.stat().st_size > 0
+    durations_plot = output_dir / "durations_plot.png"
+    assert durations_plot.exists()
+    assert durations_plot.stat().st_size > 0
     assert speedup_plot.exists()
     assert speedup_plot.stat().st_size > 0
     assert stats_json.exists()
@@ -505,6 +509,7 @@ def test_plot_durations_export_data_json(tmp_path):
         verbose=False,
         data_filepath=data_file,
         data_format="json",
+        metrics=["avg", "min", "max", "total"],
     )
 
     payload = json.loads(data_file.read_text(encoding="utf-8"))

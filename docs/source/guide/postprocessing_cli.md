@@ -46,15 +46,12 @@ scope-profiler pproc run_2.h5 -o figures
 ```text
 Plotting Gantt chart for ranks: [0, 1]
 Plotting flame graph for: run_2 (rank 0)
-Plotting duration comparison (avg, min, max, total) for files: run_2
+Plotting duration comparison (total) for files: run_2
 Plotting duration over time for files: run_2
 Outputs saved to:
   figures/gantt_plot.png
   figures/flame_plot.png
-  figures/durations_plot_avg.png
-  figures/durations_plot_min.png
-  figures/durations_plot_max.png
-  figures/durations_plot_total.png
+  figures/durations_plot.png
   figures/duration_timeseries_plot.png
   figures/region_statistics.json
 ```
@@ -94,8 +91,8 @@ rank 0 only; pass `--ranks` to render more (one panel each).
 
 ## Duration bar charts
 
-One bar chart is written per duration statistic — `avg`, `min`, `max` and
-`total` by default. `--metrics` narrows that down:
+One bar chart is written per duration statistic. By default only `total` time
+is shown; `--metrics` selects which statistics to include:
 
 ```bash
 scope-profiler pproc run_2.h5 -o figures --metrics avg total
@@ -168,6 +165,22 @@ scope-profiler expand it rather than the shell:
 ```bash
 scope-profiler pproc "runs/run_*.h5" -o figures_scaling
 ```
+
+## Selecting which plots to generate
+
+By default all five plots are generated. `--plots` (short: `-p`) restricts
+the run to any subset:
+
+```bash
+# only the total-time bar chart and the speedup comparison
+scope-profiler pproc run_1.h5 run_2.h5 run_4.h5 -o figures \
+    --plots durations speedup
+```
+
+Available plot names: `gantt`, `flame`, `durations`, `timeseries`, `speedup`.
+Omitting `--plots` is equivalent to passing all five. Filtering applies before
+any chart is drawn, so skipping charts you do not need also speeds up the
+run.
 
 ## Filtering regions and ranks
 
