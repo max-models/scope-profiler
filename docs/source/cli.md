@@ -102,7 +102,7 @@ Regions (4)
 ```
 
 Region durations are in seconds, aggregated over the selected ranks. See
-{doc}`/guide/hdf5_and_visualization` for what each metadata field means.
+{doc}`/guide/hdf5_and_python_api` for what each metadata field means.
 
 ### Exporting metadata to JSON
 
@@ -144,17 +144,18 @@ payload = collect_file_metadata(["run_1.h5", "run_2.h5"])  # no file written
 ## `scope-profiler pproc`
 
 Post-process one or more HDF5 profiling files, generate plots, and export
-aggregate region statistics to JSON.
+aggregate region statistics to JSON. See
+{doc}`/guide/postprocessing_cli` for a walkthrough with example figures.
 
 ```text
 usage: scope-profiler pproc [-h] [--show] [-o OUTPUT]
                             [--include [INCLUDE ...]]
-                            [--exclude [EXCLUDE ...]]
-                            [--ranks [RANKS ...]]
+                            [--exclude [EXCLUDE ...]] [--ranks [RANKS ...]]
                             [--metrics [{avg,min,max,total} ...]]
-                            [--cmap CMAP]
-                            [--export-data]
-                            [--export-prof]
+                            [--x-field X_FIELD] [--cmap CMAP]
+                            [--backend {matplotlib,plotly}] [--export-data]
+                            [--export-data-format {csv,json}] [--export-prof]
+                            [--export-speedscope] [--skip-plot-images]
                             files [files ...]
 ```
 
@@ -174,25 +175,34 @@ usage: scope-profiler pproc [-h] [--show] [-o OUTPUT]
 | `-e`, `--exclude` | Region names to exclude (regex patterns)         |
 | `-r`, `--ranks`   | Ranks to include; supports ranges (e.g. `0-3,5`) |
 | `-m`, `--metrics` | Duration statistics to plot: any of `avg`, `min`, `max`, `total` (default: all four) |
+| `--x-field`       | X-axis of the speedup plot: `num_ranks` (default), `omp_num_threads`, `total_cores`, or any other metadata field |
 | `--cmap`          | Matplotlib colormap used to color regions/files in all plots (default: `tab20`) |
+| `--backend`       | Renderer: `matplotlib` (default, writes `.png`) or `plotly` (writes interactive `.html`) |
 | `--export-data`   | Also write the exact data behind each plot as CSV (requires `-o/--output`) |
+| `--export-data-format` | Format used by `--export-data`: `csv` (default) or `json` (adds a `colors` map) |
+| `--skip-plot-images` | Do not render the plot images, only the requested exports |
 | `--export-prof`   | Also write one `profile_rank<N>.prof` per exported rank in the cProfile/pstats format, for `snakeviz` and `python -m pstats` (requires `-o/--output`) |
 | `--export-speedscope` | Also write `profile.speedscope.json`, one profile per exported rank, for [speedscope](https://www.speedscope.app) (requires `-o/--output`) |
 
 When `-o/--output` is supplied, the CLI saves:
 1. `gantt_plot.png`
-2. one `durations_plot_<metric>.png` per selected metric (e.g.
+2. `flame_plot.png`
+3. one `durations_plot_<metric>.png` per selected metric (e.g.
    `durations_plot_avg.png`, `durations_plot_min.png`, `durations_plot_max.png`,
    `durations_plot_total.png`)
-3. `speedup_plot.png` (only when multiple files are passed)
-4. `region_statistics.json`
+4. `duration_timeseries_plot.png`
+5. `speedup_plot.png` (only when multiple files are passed)
+6. `region_statistics.json`
+
+With `--backend plotly` the plots are written as `.html` instead of `.png`.
 
 Adding `--export-data` also writes the raw data behind each chart as CSV,
 so plots can be reconstructed later without the original HDF5 files:
 `gantt_data.csv` (file, rank, region, start/end seconds), `flame_data.csv`
 (file, rank, region, depth, start/end seconds), `durations_data.csv` (file,
-region, metric, value), and `speedup_data.csv` (region, rank count, speedup;
-only when multiple files are passed).
+region, metric, value), `duration_timeseries_data.csv` (file, region, call
+index, time, mean/min/max duration, rank count), and `speedup_data.csv`
+(region, rank count, speedup; only when multiple files are passed).
 
 For multiple files, the JSON includes per-file region statistics and the set of
 common regions across all inputs.

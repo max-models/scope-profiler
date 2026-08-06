@@ -1,7 +1,11 @@
-# HDF5 output & visualization
+# HDF5 output & post-processing from Python
 
 When `flush_to_disk=True` (the default), scope-profiler writes timing
 data into HDF5 files and merges them on `finalize()`.
+
+This page covers the file layout and the Python API for reading and plotting
+it. The same charts are available from the command line without writing any
+code --- see {doc}`/guide/postprocessing_cli`.
 
 ## HDF5 file structure
 
@@ -109,29 +113,12 @@ reader.get_regions(include="solver.*")
 reader.get_regions(exclude="io.*")
 ```
 
-## Gantt chart and statistics CLI
-
-The `scope-profiler pproc` command generates a Gantt chart and exports region
-statistics JSON from one or more HDF5 files:
-
-```bash
-# Save to a directory
-scope-profiler pproc profiling_data.h5 -o figures/
-
-# Compare multiple scaling runs
-scope-profiler pproc run_1.h5 run_2.h5 run_4.h5 -o figures/
-
-# Display interactively
-scope-profiler pproc profiling_data.h5 --show
-
-# Filter regions and ranks
-scope-profiler pproc profiling_data.h5 --show \
-    --include solver rhs \
-    --exclude io \
-    --ranks 0-3
+```{note}
+Everything below has a command-line equivalent that needs no code:
+`scope-profiler pproc profiling_data.h5 -o figures/` writes the same charts
+plus a statistics JSON. See {doc}`/guide/postprocessing_cli` for a worked
+walkthrough with example figures, and {doc}`/cli` for the flag reference.
 ```
-
-See {doc}`/cli` for the full option reference.
 
 ## Gantt chart from Python
 
@@ -154,11 +141,6 @@ plot_gantt(
 The chart displays one horizontal lane per (region, rank) combination,
 with bars spanning each recorded start-to-end interval. When multiple files
 are provided, each file gets its own stacked subplot in the exported chart.
-
-When `-o/--output` is used, the CLI also writes `region_statistics.json` with:
-1. per-file, per-region aggregate statistics (`count`, `average`, `min`, `max`, `std`, `total`)
-2. per-rank statistics for each region
-3. common region names across all input files
 
 ## Comparison bar charts from Python
 
@@ -196,6 +178,47 @@ When `filepath` is given and more than one metric is plotted, the metric name
 is inserted before the file extension, e.g. `durations_avg.png`,
 `durations_total.png`. `plot_durations` returns the list of filepaths it
 wrote (empty if `filepath` is `None`).
+
+## Flame graph from Python
+
+```python
+from scope_profiler.plotting_scripts import plot_flame
+
+plot_flame(reader, ranks=[0], filepath="flame.png", show=True)
+```
+
+The call stack is reconstructed from timestamp containment: a region whose
+interval falls inside another's becomes its child. Unlike the Gantt chart,
+the flame graph draws one panel per rank, defaulting to rank 0 only.
+
+## Duration over time from Python
+
+```python
+from scope_profiler.plotting_scripts import plot_duration_timeseries
+
+plot_duration_timeseries(reader, filepath="duration_timeseries.png", show=True)
+```
+
+One line per region tracks the mean duration of each call over wall-clock
+time, shaded between the minimum and maximum across the selected ranks, so
+rank imbalance and drift over the run become visible.
+
+## Statistics JSON from Python
+
+```python
+from scope_profiler.plotting_scripts import (
+    collect_region_statistics,
+    write_region_statistics_json,
+)
+
+stats = collect_region_statistics(readers)                    # dict, nothing written
+stats = write_region_statistics_json(readers, "stats.json")   # same dict, and a file
+```
+
+Both return per-file, per-region aggregates (`count`, `average`, `min`,
+`max`, `std`, `total`, all in seconds), per-rank statistics for each region,
+and the region names common to all inputs. This is the same document
+`scope-profiler pproc -o ...` writes as `region_statistics.json`.
 
 ## Speedup graph from Python
 
