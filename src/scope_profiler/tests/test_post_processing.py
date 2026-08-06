@@ -7,6 +7,8 @@ import pytest
 from scope_profiler.h5reader import ProfilingH5Reader
 from scope_profiler.plotting_scripts import (
     _build_call_stack_intervals,
+    _duration_timeseries,
+    plot_duration_timeseries,
     plot_durations,
     plot_flame,
     plot_gantt,
@@ -36,6 +38,11 @@ def _write_sample_h5(path, rank_regions, metadata=None):
                 )
 
 
+def _seconds(nanoseconds):
+    """Timestamps are written in nanoseconds; the reader reports seconds."""
+    return [value / 1e9 for value in nanoseconds]
+
+
 def _sample_file_data(rank_count, setup_duration, solve_duration):
     return {
         rank: {
@@ -56,13 +63,104 @@ def test_plot_durations_comparison(tmp_path):
 
     readers = [ProfilingH5Reader(file_one), ProfilingH5Reader(file_two)]
 
-    saved_paths = plot_durations(readers, filepath=out_file, show=False, verbose=False)
+    saved_paths = plot_durations(
+        readers,
+        filepath=out_file,
+        show=False,
+        verbose=False,
+        metrics=["avg", "min", "max", "total"],
+    )
 
     assert len(saved_paths) == 4
     for metric in ("avg", "min", "max", "total"):
         metric_file = tmp_path / f"durations_plot_{metric}.png"
         assert metric_file.exists()
         assert metric_file.stat().st_size > 0
+
+
+def test_duration_timeseries_bands_span_ranks(tmp_path):
+    file_path = tmp_path / "run.h5"
+    # Two calls of "solve" per rank, with rank 1 slower on the second call, so
+    # the band has to widen between the two points.
+    _write_sample_h5(
+        file_path,
+        {
+            0: {"solve": ([0, 100], [10, 110])},
+            1: {"solve": ([0, 100], [20, 140])},
+        },
+    )
+    reader = ProfilingH5Reader(file_path)
+
+    series = _duration_timeseries(reader.get_region("solve"), None, 0.0)
+
+    assert list(series["num_ranks"]) == [2, 2]
+    assert series["min"] == pytest.approx(_seconds([10, 10]))
+    assert series["max"] == pytest.approx(_seconds([20, 40]))
+    assert series["mean"] == pytest.approx(_seconds([15, 25]))
+    assert series["time"] == pytest.approx(_seconds([0, 100]))
+
+
+def test_duration_timeseries_handles_ragged_call_counts(tmp_path):
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(
+        file_path,
+        {
+            0: {"solve": ([0, 100], [10, 130])},
+            1: {"solve": ([0], [20])},
+        },
+    )
+    reader = ProfilingH5Reader(file_path)
+
+    series = _duration_timeseries(reader.get_region("solve"), None, 0.0)
+
+    # The second call exists on rank 0 only, so its band collapses to a point.
+    assert list(series["num_ranks"]) == [2, 1]
+    assert series["min"] == pytest.approx(_seconds([10, 30]))
+    assert series["max"] == pytest.approx(_seconds([20, 30]))
+
+
+def test_duration_timeseries_respects_rank_selection(tmp_path):
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(
+        file_path,
+        {
+            0: {"solve": ([0], [10])},
+            1: {"solve": ([0], [50])},
+        },
+    )
+    reader = ProfilingH5Reader(file_path)
+
+    series = _duration_timeseries(reader.get_region("solve"), [0], 0.0)
+
+    assert list(series["num_ranks"]) == [1]
+    assert series["min"] == pytest.approx(series["max"])
+    assert series["max"] == pytest.approx(_seconds([10]))
+
+
+def test_plot_duration_timeseries_export_data_json(tmp_path):
+    file_path = tmp_path / "run.h5"
+    data_file = tmp_path / "duration_timeseries_data.json"
+
+    _write_sample_h5(file_path, _sample_file_data(2, 10, 20))
+    reader = ProfilingH5Reader(file_path)
+
+    plot_duration_timeseries(
+        reader,
+        filepath=tmp_path / "duration_timeseries_plot.png",
+        show=False,
+        verbose=False,
+        data_filepath=data_file,
+        data_format="json",
+    )
+
+    assert (tmp_path / "duration_timeseries_plot.png").stat().st_size > 0
+    payload = json.loads(data_file.read_text(encoding="utf-8"))
+    assert {point["region"] for point in payload["points"]} == {"setup", "solve"}
+    for point in payload["points"]:
+        assert point["min_duration_seconds"] <= point["mean_duration_seconds"]
+        assert point["mean_duration_seconds"] <= point["max_duration_seconds"]
+        assert point["num_ranks"] == 2
+    assert set(payload["colors"]) == {"setup", "solve"}
 
 
 def test_plot_gantt_combined(tmp_path):
@@ -294,6 +392,7 @@ def test_post_processing_cli_supports_multiple_files(tmp_path):
 
     gantt_plot = output_dir / "gantt_plot.png"
     flame_plot = output_dir / "flame_plot.png"
+    timeseries_plot = output_dir / "duration_timeseries_plot.png"
     speedup_plot = output_dir / "speedup_plot.png"
     stats_json = output_dir / "region_statistics.json"
 
@@ -301,10 +400,11 @@ def test_post_processing_cli_supports_multiple_files(tmp_path):
     assert gantt_plot.stat().st_size > 0
     assert flame_plot.exists()
     assert flame_plot.stat().st_size > 0
-    for metric in ("avg", "min", "max", "total"):
-        metric_file = output_dir / f"durations_plot_{metric}.png"
-        assert metric_file.exists()
-        assert metric_file.stat().st_size > 0
+    durations_plot = output_dir / "durations_plot.png"
+    assert durations_plot.exists()
+    assert durations_plot.stat().st_size > 0
+    assert timeseries_plot.exists()
+    assert timeseries_plot.stat().st_size > 0
     assert speedup_plot.exists()
     assert speedup_plot.stat().st_size > 0
     assert stats_json.exists()
@@ -338,10 +438,9 @@ def test_post_processing_cli_supports_wildcard_file_patterns(tmp_path):
     assert gantt_plot.stat().st_size > 0
     assert flame_plot.exists()
     assert flame_plot.stat().st_size > 0
-    for metric in ("avg", "min", "max", "total"):
-        metric_file = output_dir / f"durations_plot_{metric}.png"
-        assert metric_file.exists()
-        assert metric_file.stat().st_size > 0
+    durations_plot = output_dir / "durations_plot.png"
+    assert durations_plot.exists()
+    assert durations_plot.stat().st_size > 0
     assert speedup_plot.exists()
     assert speedup_plot.stat().st_size > 0
     assert stats_json.exists()
@@ -410,6 +509,7 @@ def test_plot_durations_export_data_json(tmp_path):
         verbose=False,
         data_filepath=data_file,
         data_format="json",
+        metrics=["avg", "min", "max", "total"],
     )
 
     payload = json.loads(data_file.read_text(encoding="utf-8"))

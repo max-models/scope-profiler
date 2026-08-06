@@ -98,7 +98,8 @@ Use the built-in CLI to generate a Gantt chart:
 scope-profiler pproc profiling_data.h5 --show
 ```
 
-Or load the data programmatically:
+See {doc}`/guide/postprocessing_cli` for the other charts and exports it can
+produce. Or load the data programmatically:
 
 ```python
 from scope_profiler import ProfilingH5Reader
