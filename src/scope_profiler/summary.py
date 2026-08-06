@@ -242,6 +242,9 @@ def likwid_tables(reader, include=None, exclude=None, ranks=None) -> list:
     every column of a table comparable, since a group fixes which events and
     metrics exist.
 
+    Columns are ordered by descending LIKWID runtime (ties alphabetically), so
+    the costliest regions lead, as in the region table.
+
     Parameters
     ----------
     reader : ProfilingH5Reader
@@ -259,21 +262,36 @@ def likwid_tables(reader, include=None, exclude=None, ranks=None) -> list:
         region labels) and ``sections`` (``(title, rows)`` pairs, where a row
         is ``(name, values)``). Empty when the file holds no LIKWID data.
     """
-    tables = {}
-
+    # Collect first, so the columns of each table can be ordered before any
+    # cell is placed. HDF5 hands regions back alphabetically; showing the
+    # costliest first instead matches how the region table is sorted, so the
+    # two tables read together.
+    grouped = {}
     for rank, regions in sorted(reader.get_likwid_regions().items()):
         if ranks is not None and rank not in ranks:
             continue
         for tag, result in regions.items():
             if not _name_selected(tag, include, exclude):
                 continue
+            grouped.setdefault((rank, result.group_name), []).append((tag, result))
 
-            key = (rank, result.group_name)
+    for entries in grouped.values():
+        entries.sort(
+            key=lambda item: (
+                -float(np.max(item[1].times)) if len(item[1].times) else 0.0,
+                item[0],
+            )
+        )
+
+    tables = {}
+    for key, entries in grouped.items():
+        rank, group_name = key
+        for tag, result in entries:
             table = tables.setdefault(
                 key,
                 {
                     "rank": rank,
-                    "group": result.group_name,
+                    "group": group_name,
                     "columns": [],
                     "info": {},
                     "events": {},
@@ -291,7 +309,9 @@ def likwid_tables(reader, include=None, exclude=None, ranks=None) -> list:
                 table["columns"].append(label)
                 column = len(table["columns"]) - 1
 
-                _set_cell(table["info"], "call count", column, result.call_counts[thread])
+                _set_cell(
+                    table["info"], "call count", column, result.call_counts[thread]
+                )
                 _set_cell(table["info"], "runtime [s]", column, result.times[thread])
                 # event_labels, not event_names: groups such as MEM_DP program
                 # one event per memory channel, so the bare names repeat.
@@ -345,9 +365,7 @@ def print_likwid_table(table, title=None, stream=None) -> None:
         title = f"LIKWID counters (rank {table['rank']}"
         title += f", group {table['group']})" if table["group"] else ")"
 
-    sections = [
-        (heading, rows) for heading, rows in table["sections"] if rows
-    ]
+    sections = [(heading, rows) for heading, rows in table["sections"] if rows]
     all_rows = [row for _, rows in sections for row in rows]
 
     name_width = max(
@@ -380,7 +398,9 @@ def print_likwid_table(table, title=None, stream=None) -> None:
         if heading:
             print(f"  {heading}", file=stream)
         for name, values in rows:
-            print(f"  {render(name, [_format_counter(v) for v in values])}", file=stream)
+            print(
+                f"  {render(name, [_format_counter(v) for v in values])}", file=stream
+            )
     print(f"  {rule}", file=stream)
     print(file=stream)
 

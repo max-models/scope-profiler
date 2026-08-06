@@ -59,6 +59,37 @@ Outputs saved to:
 Without `-o/--output` nothing is written; use `--show` to open the charts
 interactively instead. The two can be combined.
 
+## Text summary
+
+`--summary` prints the numbers instead of drawing them, which is often all
+you need over ssh:
+
+```bash
+scope-profiler pproc run_2.h5 --summary
+```
+
+```text
+run_2.h5  (2 rank(s))
+  region        ranks  calls  total [s]   avg [s]    min [s]   max [s]    std [s]
+  -------------------------------------------------------------------------------
+  main              1      1    0.16637   0.16637    0.16637   0.16637          0
+  matmul            1      3   0.125949  0.041983  0.0083437  0.109189  0.0475221
+  memory_bound      1      1   0.035121  0.035121   0.035121  0.035121          0
+  -------------------------------------------------------------------------------
+  TOTAL                    5    0.32744
+```
+
+This is the same table `ProfileManager.finalize()` and
+{doc}`scope-profiler inspect <../cli>` render. `--summary-sort` reorders it
+(`total`, `calls`, `avg`, `max` or `name`), and `--include`/`--exclude`/
+`--ranks` narrow it as they do for the charts.
+
+On its own `--summary` produces no plots --- the summary is the whole job.
+Combine it with `--show` or `-o/--output` to get both.
+
+If the run recorded LIKWID hardware counters, they follow as a separate table
+per rank and event group; see {doc}`likwid`.
+
 ## Gantt chart
 
 `gantt_plot.png` places one lane per (region, rank) pair, with a bar for every

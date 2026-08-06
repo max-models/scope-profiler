@@ -92,6 +92,63 @@ profiling_data.h5
 `cpus[t]`. Because `/` separates HDF5 groups, a `/` in a region name is stored
 as `|` in the group name --- the `tag` attribute always holds the real name.
 
+## From the command line
+
+`scope-profiler pproc file.h5 --summary` prints the region statistics and, if
+the run recorded counters, one LIKWID table per rank and event group:
+
+```text
+LIKWID counters (rank 0, group MEM_DP)
+  counter                                        main     matmul  memory_bound
+  ----------------------------------------------------------------------------
+  call count                                        1          3             1
+  runtime [s]                                0.161376   0.110618     0.0301046
+  ----------------------------------------------------------------------------
+  Events
+  INSTR_RETIRED_ANY                          70478340   65807930       4541968
+  CPU_CLK_UNHALTED_CORE                      78814130   63363840      14723860
+  ...
+  CAS_COUNT_RD:MBOX0C0                        1220547    1002233        198776
+  CAS_COUNT_RD:MBOX1C0                        1208866     998410        197254
+  ...
+  ----------------------------------------------------------------------------
+  Metrics
+  Runtime (RDTSC) [s]                        0.161376   0.110618     0.0301046
+  Clock [MHz]                                 2376.17    2376.37       2374.59
+  CPI                                        0.796200   0.717700       1.78210
+  Memory bandwidth [MBytes/s]                 9799.37    12387.5       11098.8
+  Operational intensity [FLOP/Byte]            0.1335     0.2300        0.0155
+  ----------------------------------------------------------------------------
+```
+
+Regions are the columns and counters the rows, because a run usually has a
+few regions and a few dozen counters. Columns are ordered costliest-first, to
+match the region table above it. One table is emitted per event group, since
+a group is what fixes which events and metrics exist. `--include`, `--exclude`
+and `--ranks` filter this table too.
+
+Note the `CAS_COUNT_RD:MBOX0C0` style names: see
+[repeated events](#repeated-events) below.
+
+(repeated-events)=
+## Repeated events
+
+An event name is not a unique key. A group such as `MEM_DP` programs the same
+event on one counter per memory channel, so `CAS_COUNT_RD` legitimately
+appears eight times on an eight-channel socket (channels with no DIMM read
+zero). LIKWID's derived `Memory bandwidth` is the sum over all of them.
+
+`LikwidRegionResult.event_labels` is therefore what you should key anything by:
+names that occur once are returned unchanged, repeated ones get the hardware
+counter appended (`CAS_COUNT_RD:MBOX0C0`, ...). `event_names` and
+`counter_names` hold the raw pair if you need them.
+
+```python
+result = reader.get_likwid_region("solve")
+dict(zip(result.event_labels, result.events[:, 0]))   # safe
+dict(zip(result.event_names, result.events[:, 0]))    # loses all but one channel
+```
+
 ## Reading the counters back
 
 ```python

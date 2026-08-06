@@ -157,6 +157,8 @@ usage: scope-profiler pproc [-h] [--show] [-o OUTPUT]
                             [--backend {matplotlib,plotly}] [--export-data]
                             [--export-data-format {csv,json}] [--export-prof]
                             [--export-speedscope] [--skip-plot-images]
+                            [--summary]
+                            [--summary-sort {total,calls,avg,max,name}]
                             files [files ...]
 ```
 
@@ -185,6 +187,8 @@ usage: scope-profiler pproc [-h] [--show] [-o OUTPUT]
 | `--skip-plot-images` | Do not render the plot images, only the requested exports |
 | `--export-prof`   | Also write one `profile_rank<N>.prof` per exported rank in the cProfile/pstats format, for `snakeviz` and `python -m pstats` (requires `-o/--output`) |
 | `--export-speedscope` | Also write `profile.speedscope.json`, one profile per exported rank, for [speedscope](https://www.speedscope.app) (requires `-o/--output`) |
+| `--summary`       | Print the per-region statistics table, plus a separate LIKWID hardware counter table per rank and event group when the run recorded any. On its own it produces no plots |
+| `--summary-sort`  | Order the `--summary` region table: `total` (default), `calls`, `avg`, `max` or `name` |
 
 When `-o/--output` is supplied, the CLI saves:
 1. `gantt_plot.png`
