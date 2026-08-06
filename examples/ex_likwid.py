@@ -66,7 +66,9 @@ def main() -> None:
             print(f"  hardware threads : {result.cpus}")
             print(f"  LIKWID runtime   : {result.times[0]:.6f} s")
             print(f"  calls            : {result.call_counts[0]}")
-            for name, values in zip(result.event_names, result.events):
+            # event_labels disambiguates events a group programs on several
+            # counters (MEM_DP measures CAS_COUNT_RD once per memory channel).
+            for name, values in zip(result.event_labels, result.events):
                 print(f"  event  {name:<28s} {values[0]:>18.1f}")
             for name, values in zip(result.metric_names, result.metrics):
                 print(f"  metric {name:<28s} {values[0]:>18.4f}")

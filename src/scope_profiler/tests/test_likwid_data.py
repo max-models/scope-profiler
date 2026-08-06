@@ -277,6 +277,68 @@ def test_collect_marker_results_rejects_error_codes(tmp_path):
     pylikwid.finalize.assert_called_once()
 
 
+def test_event_labels_disambiguate_repeated_events():
+    """A group measuring one event on many counters must stay distinguishable.
+
+    MEM_DP programs CAS_COUNT_RD once per memory channel, so the bare event
+    names collide; the counter register is what separates them.
+    """
+    result = LikwidRegionResult(
+        tag="solve",
+        event_names=["INSTR_RETIRED_ANY", "CAS_COUNT_RD", "CAS_COUNT_RD"],
+        counter_names=["FIXC0", "MBOX0C0", "MBOX1C0"],
+        events=np.array([[1.0], [2.0], [3.0]]),
+    )
+    assert result.event_labels == [
+        "INSTR_RETIRED_ANY",  # unique, so left alone
+        "CAS_COUNT_RD:MBOX0C0",
+        "CAS_COUNT_RD:MBOX1C0",
+    ]
+    assert len(set(result.event_labels)) == 3
+
+
+def test_event_labels_fall_back_to_position_without_counter_names():
+    """Files predating counter names still get unique labels."""
+    result = LikwidRegionResult(
+        tag="solve",
+        event_names=["CAS_COUNT_RD", "CAS_COUNT_RD"],
+        counter_names=[],
+        events=np.array([[2.0], [3.0]]),
+    )
+    assert result.event_labels == ["CAS_COUNT_RD#0", "CAS_COUNT_RD#1"]
+
+
+def test_dataframe_keeps_every_channel_of_a_repeated_event(tmp_path):
+    """Repeated events must not collapse into a single column."""
+    pytest.importorskip("pandas")
+
+    result = _make_result(nthreads=1)
+    result.event_names = ["CAS_COUNT_RD", "CAS_COUNT_RD"]
+    result.counter_names = ["MBOX0C0", "MBOX1C0"]
+    result.events = np.array([[11.0], [22.0]])
+
+    path = tmp_path / "profiling_data.h5"
+    _write_merged_file(path, [result])
+
+    df = ProfilingH5Reader(path).likwid_to_dataframe()
+    # Both channels survive, with their own values.
+    assert df["CAS_COUNT_RD:MBOX0C0"].tolist() == [11.0]
+    assert df["CAS_COUNT_RD:MBOX1C0"].tolist() == [22.0]
+
+
+def test_counter_names_round_trip(tmp_path):
+    """Counter registers survive the write/read cycle."""
+    result = _make_result(nthreads=1)
+    result.counter_names = ["FIXC0", "FIXC1"]
+    path = tmp_path / "profiling_data.h5"
+    _write_merged_file(path, [result])
+
+    assert ProfilingH5Reader(path).get_likwid_region("solve").counter_names == [
+        "FIXC0",
+        "FIXC1",
+    ]
+
+
 def test_search_dirs_come_from_the_likwid_module(tmp_path, monkeypatch):
     """The lib directory of a loaded LIKWID module is where we look first."""
     lib = tmp_path / "lib"

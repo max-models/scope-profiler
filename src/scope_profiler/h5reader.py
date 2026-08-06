@@ -50,6 +50,8 @@ def _read_likwid_group(group) -> dict:
             times=region_grp["times"][()],
             call_counts=region_grp["call_counts"][()],
             event_names=list(_decode_attribute(attrs.get("event_names", []))),
+            # Absent in files written before counter names were recorded.
+            counter_names=list(_decode_attribute(attrs.get("counter_names", []))),
             events=region_grp["events"][()],
             metric_names=list(_decode_attribute(attrs.get("metric_names", []))),
             metrics=region_grp["metrics"][()],
@@ -466,7 +468,10 @@ class ProfilingH5Reader:
                         "time": result.times[thread],
                         "call_count": result.call_counts[thread],
                     }
-                    for name, values in zip(result.event_names, result.events):
+                    # event_labels, not event_names: a group like MEM_DP
+                    # repeats an event across memory channels, and keying by
+                    # the bare name would keep only the last channel.
+                    for name, values in zip(result.event_labels, result.events):
                         row[name] = values[thread]
                     for name, values in zip(result.metric_names, result.metrics):
                         row[name] = values[thread]
@@ -499,10 +504,16 @@ class ProfilingH5Reader:
                         f"  cpu {cpu}: {result.call_counts[thread]} call(s), "
                         f"{result.times[thread]:.6f} s"
                     )
-                    for name, values in zip(result.event_names, result.events):
-                        print_(f"    {name:<30s} {values[thread]:>18.4f}")
+                    # Labels rather than raw names, so repeated events show
+                    # which counter (memory channel, ...) they came from.
+                    width = max(
+                        [len(n) for n in result.event_labels + result.metric_names]
+                        + [30]
+                    )
+                    for name, values in zip(result.event_labels, result.events):
+                        print_(f"    {name:<{width}s} {values[thread]:>18.4f}")
                     for name, values in zip(result.metric_names, result.metrics):
-                        print_(f"    {name:<30s} {values[thread]:>18.4f}")
+                        print_(f"    {name:<{width}s} {values[thread]:>18.4f}")
 
     @property
     def minimum_start_time(self) -> float:

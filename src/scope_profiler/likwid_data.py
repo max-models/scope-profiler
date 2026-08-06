@@ -26,6 +26,7 @@ and there is nothing to collect.
 """
 
 import os
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Iterable, List
 
@@ -65,7 +66,13 @@ class LikwidRegionResult:
     call_counts : numpy.ndarray
         Per-thread number of times the region was entered, shape ``(nthreads,)``.
     event_names : list of str
-        Names of the raw hardware events, length ``nevents``.
+        Names of the raw hardware events, length ``nevents``. **Not unique**:
+        a group may program one event on several counters (see
+        :attr:`event_labels`).
+    counter_names : list of str
+        Hardware counter register each event was programmed on (``FIXC0``,
+        ``PMC1``, ``MBOX3C0``, ...), length ``nevents``. Empty for files
+        written before counter names were recorded.
     events : numpy.ndarray
         Raw counter values, shape ``(nevents, nthreads)``.
     metric_names : list of str
@@ -85,10 +92,37 @@ class LikwidRegionResult:
     times: np.ndarray = field(default_factory=lambda: np.zeros(0))
     call_counts: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int64))
     event_names: List[str] = field(default_factory=list)
+    counter_names: List[str] = field(default_factory=list)
     events: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))
     metric_names: List[str] = field(default_factory=list)
     metrics: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))
     source: str = "full_api"
+
+    @property
+    def event_labels(self) -> List[str]:
+        """Unique per-event labels, safe to use as dict or column keys.
+
+        ``event_names`` alone is not unique. A group such as ``MEM_DP``
+        programs the same event on one counter per memory channel, so
+        ``CAS_COUNT_RD`` legitimately appears eight times on a socket with
+        eight channels (the ones reading zero are unpopulated). Keying
+        anything by the bare name silently keeps only the last channel.
+
+        Names that occur once are returned unchanged; repeated ones get the
+        hardware counter appended --- ``CAS_COUNT_RD:MBOX0C0``,
+        ``CAS_COUNT_RD:MBOX1C0``, ... --- or a positional suffix if the file
+        predates counter names being recorded.
+        """
+        seen = Counter(self.event_names)
+        labels = []
+        for index, name in enumerate(self.event_names):
+            if seen[name] == 1:
+                labels.append(name)
+            elif index < len(self.counter_names):
+                labels.append(f"{name}:{self.counter_names[index]}")
+            else:
+                labels.append(f"{name}#{index}")
+        return labels
 
     def as_dict(self) -> dict:
         """Return the region's results as a plain dictionary.
@@ -104,6 +138,8 @@ class LikwidRegionResult:
             "times": self.times,
             "call_counts": self.call_counts,
             "event_names": list(self.event_names),
+            "counter_names": list(self.counter_names),
+            "event_labels": self.event_labels,
             "events": self.events,
             "metric_names": list(self.metric_names),
             "metrics": self.metrics,
@@ -306,6 +342,12 @@ def collect_marker_results(pylikwid) -> List[LikwidRegionResult]:
                     event_names=[
                         pylikwid.getnameofevent(gid, e) for e in range(nevents)
                     ],
+                    # The register each event sits on. This is what tells the
+                    # eight identically-named CAS_COUNT_RD entries of a group
+                    # like MEM_DP apart (one per memory channel).
+                    counter_names=[
+                        pylikwid.getnameofcounter(gid, e) for e in range(nevents)
+                    ],
                     events=events,
                     metric_names=[
                         pylikwid.getnameofmetric(gid, m) for m in range(nmetrics)
@@ -379,6 +421,9 @@ def write_likwid_results(
         # fixed-width bytes, and an empty list has no inferable dtype at all.
         rgrp.attrs.create(
             "event_names", list(result.event_names), dtype=h5py.string_dtype()
+        )
+        rgrp.attrs.create(
+            "counter_names", list(result.counter_names), dtype=h5py.string_dtype()
         )
         rgrp.attrs.create(
             "metric_names", list(result.metric_names), dtype=h5py.string_dtype()
