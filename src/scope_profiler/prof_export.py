@@ -8,7 +8,7 @@ enough for :mod:`pstats`, ``snakeviz`` and friends to read the data.
 
 Regions carry no call graph of their own, so the caller/callee relations are
 reconstructed from timestamp containment - the same reconstruction the flame
-chart uses (:func:`~scope_profiler.plotting_scripts._build_call_stack_intervals`).
+chart uses (:func:`~scope_profiler.call_stack.build_call_stack`).
 """
 
 from __future__ import annotations
@@ -18,10 +18,10 @@ from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
 
+from scope_profiler.call_stack import build_call_stack
 from scope_profiler.h5reader import ProfilingH5Reader
 from scope_profiler.plotting_scripts import (
     _as_readers,
-    _build_call_stack_intervals,
     _normalize_ranks,
     _unique_labels,
 )
@@ -59,7 +59,7 @@ def build_pstats_dict(
     ----------
     calls : list[dict]
         Calls as returned by
-        :func:`~scope_profiler.plotting_scripts._build_call_stack_intervals`:
+        :func:`~scope_profiler.call_stack.build_call_stack`:
         each entry has ``name``, ``start`` and ``end`` in seconds, and
         ``parent`` (an index into this list, or ``None`` for a top-level call).
     root_name : str, optional
@@ -182,7 +182,7 @@ def export_prof(
         for rank in normalized_ranks:
             if rank < 0 or rank >= reader.num_ranks:
                 raise ValueError(f"Invalid rank requested: {rank}")
-            calls = _build_call_stack_intervals(regions, rank)
+            calls = build_call_stack(regions, rank)
             if calls:
                 prepared.append((label, rank, calls))
 

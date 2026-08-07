@@ -8,7 +8,7 @@ import sys
 import sysconfig
 import threading
 from types import FrameType
-from typing import Callable, Dict
+from typing import TYPE_CHECKING, Callable, Dict
 
 import h5py
 
@@ -22,6 +22,9 @@ from scope_profiler.region_profiler import (
     NCallsOnlyProfileRegion,
     TimeOnlyProfileRegion,
 )
+
+if TYPE_CHECKING:  # imported lazily in read_results() to keep imports cheap
+    from scope_profiler.h5reader import ProfilingH5Reader
 
 
 class ProfileManager:
@@ -446,6 +449,34 @@ class ProfileManager:
             for region in cls.get_all_regions().values():
                 if isinstance(region, LineProfilerRegion):
                     region.print_stats()
+
+    @classmethod
+    def read_results(cls) -> "ProfilingH5Reader":
+        """
+        Open the merged profiling file this run wrote, for post-processing.
+
+        Convenience for analysing results in the same script that produced
+        them::
+
+            ProfileManager.finalize()
+            reader = ProfileManager.read_results()
+            reader.print_summary()
+
+        Returns
+        -------
+        ProfilingH5Reader
+            Reader for the file at ``config.file_path``.
+
+        Raises
+        ------
+        FileNotFoundError
+            If the merged file does not exist yet. It is written by
+            :meth:`finalize`, and only on rank 0 - guard the call with
+            ``if ProfileManager.get_config()._rank == 0`` under MPI.
+        """
+        from scope_profiler.h5reader import ProfilingH5Reader
+
+        return ProfilingH5Reader(cls.get_config().file_path)
 
     @classmethod
     def get_region(cls, region_name) -> BaseProfileRegion:

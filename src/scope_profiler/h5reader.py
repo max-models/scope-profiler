@@ -220,6 +220,130 @@ class ProfilingH5Reader:
                 )
         return pd.DataFrame(rows)
 
+    def events(
+        self,
+        include: list[str] | str | None = None,
+        exclude: list[str] | str | None = None,
+        ranks: list[int] | int | None = None,
+        relative: bool = True,
+    ) -> List[dict]:
+        """
+        Return one dict per recorded call, across all regions and ranks.
+
+        This is the long-form ("tidy") view to build custom plots from: one
+        row per call rather than one per region.
+
+        Parameters
+        ----------
+        include, exclude : list of str or str, optional
+            Regex patterns selecting which regions to include, matched as in
+            :meth:`get_regions`.
+        ranks : list of int or int, optional
+            Restrict to these ranks (default: all).
+        relative : bool, optional
+            If True (default), timestamps are measured from the first region
+            entry in the file, so the timeline starts at zero. If False, the
+            raw monotonic-clock timestamps are returned; those are only
+            comparable within a single run.
+
+        Returns
+        -------
+        List[dict]
+            Entries with keys ``name``, ``rank``, ``call_index``, ``start``,
+            ``end`` and ``duration``, in seconds, ordered by region (as in
+            :meth:`get_regions`) then rank then call order.
+
+        Examples
+        --------
+        >>> for event in reader.events(include="solve"):  # doctest: +SKIP
+        ...     print(event["rank"], event["start"], event["duration"])
+        """
+        origin = self.minimum_start_time if relative else 0.0
+        events = []
+        for region in self.get_regions(include=include, exclude=exclude):
+            events.extend(region.events(ranks=ranks, origin=origin))
+        return events
+
+    def to_events_dataframe(
+        self,
+        include: list[str] | str | None = None,
+        exclude: list[str] | str | None = None,
+        ranks: list[int] | int | None = None,
+        relative: bool = True,
+    ):
+        """
+        Return every recorded call as a pandas DataFrame (one row per call).
+
+        Parameters
+        ----------
+        include, exclude, ranks, relative
+            As in :meth:`events`.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Columns ``name``, ``rank``, ``call_index``, ``start``, ``end``,
+            ``duration``, with times in seconds.
+
+        Raises
+        ------
+        ImportError
+            If pandas is not installed.
+        """
+        try:
+            import pandas as pd
+        except ImportError as exc:
+            raise ImportError(
+                "to_events_dataframe() requires pandas. Install "
+                "scope-profiler[pproc] or pandas directly."
+            ) from exc
+
+        columns = ["name", "rank", "call_index", "start", "end", "duration"]
+        events = self.events(
+            include=include, exclude=exclude, ranks=ranks, relative=relative
+        )
+        return pd.DataFrame(events, columns=columns)
+
+    def call_stack(
+        self,
+        rank: int = 0,
+        include: list[str] | str | None = None,
+        exclude: list[str] | str | None = None,
+        relative: bool = True,
+    ) -> List[dict]:
+        """
+        Reconstruct the nested call stack for one rank.
+
+        Regions record no call graph, so nesting is recovered from timestamp
+        containment - the same reconstruction the flame chart, the ``.prof``
+        export and the speedscope export use.
+
+        Parameters
+        ----------
+        rank : int, optional
+            Rank whose calls to reconstruct (default: 0).
+        include, exclude : list of str or str, optional
+            Regex patterns selecting which regions to include, matched as in
+            :meth:`get_regions`.
+        relative : bool, optional
+            If True (default), timestamps start at zero; see :meth:`events`.
+
+        Returns
+        -------
+        List[dict]
+            One entry per call, parents before children, with keys ``name``,
+            ``start``, ``end``, ``duration``, ``depth`` and ``parent`` (the
+            index of the enclosing call in this list, or None). See
+            :func:`~scope_profiler.call_stack.build_call_stack`.
+        """
+        from scope_profiler.call_stack import build_call_stack
+
+        return build_call_stack(
+            self.get_regions(include=include, exclude=exclude),
+            rank=rank,
+            origin=self.minimum_start_time if relative else 0.0,
+        )
+
     def print_summary(
         self,
         include: list[str] | str | None = None,
@@ -317,13 +441,52 @@ class ProfilingH5Reader:
         """
         Get the minimum start time across all regions and ranks.
 
+        This is the origin of the timeline: subtract it from any timestamp to
+        get seconds since the first region entry. Regions without timing
+        (profiled with ``time_trace=False``) are ignored; the result is 0.0
+        if no region recorded any.
+
         Returns
         -------
         float
             Minimum start time in seconds.
         """
-        starts = [region.first_start_time for region in self.get_regions()]
+        starts = [
+            region.first_start_time
+            for region in self.get_regions()
+            if region.has_timing
+        ]
         return min(starts) if starts else 0.0
+
+    @property
+    def maximum_end_time(self) -> float:
+        """
+        Get the maximum end time across all regions and ranks.
+
+        Returns
+        -------
+        float
+            Maximum end time in seconds, or 0.0 if no region recorded timing.
+        """
+        ends = [
+            region.last_end_time for region in self.get_regions() if region.has_timing
+        ]
+        return max(ends) if ends else 0.0
+
+    @property
+    def time_span(self) -> float:
+        """
+        Wall-clock seconds between the first region entry and the last exit.
+
+        Returns
+        -------
+        float
+            Duration of the profiled window in seconds, or 0.0 if no region
+            recorded timing.
+        """
+        if not any(region.has_timing for region in self.get_regions()):
+            return 0.0
+        return self.maximum_end_time - self.minimum_start_time
 
     def get_regions(
         self,

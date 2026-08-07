@@ -8,7 +8,7 @@ class.
 
 ```{eval-rst}
 .. autoclass:: scope_profiler.profile_manager.ProfileManager
-   :members: setup, profile, profile_region, finalize, get_region, get_all_regions, get_config, set_config
+   :members: setup, profile, profile_region, finalize, read_results, get_region, get_all_regions, get_config, set_config
    :undoc-members:
 ```
 
@@ -89,6 +89,7 @@ Everything in this section is importable from the package root:
 ```python
 from scope_profiler import (
     ProfilingH5Reader,
+    build_call_stack,
     plot_flame,
     plot_gantt,
     write_region_statistics_json,
@@ -122,12 +123,26 @@ stores nanoseconds.
    :undoc-members:
 ```
 
+### Call stack reconstruction
+
+Regions record no call graph, so nesting is recovered from timestamp
+containment. `ProfilingH5Reader.call_stack()` is the usual entry point; the
+functions below operate on its result and let you walk the reconstructed tree
+when building your own nested visualisation.
+
+```{eval-rst}
+.. autofunction:: scope_profiler.call_stack.build_call_stack
+.. autofunction:: scope_profiler.call_stack.call_stack_roots
+.. autofunction:: scope_profiler.call_stack.call_stack_children
+```
+
 ### Plotting
 
 ```{eval-rst}
 .. autofunction:: scope_profiler.plotting_scripts.plot_gantt
 .. autofunction:: scope_profiler.plotting_scripts.plot_flame
 .. autofunction:: scope_profiler.plotting_scripts.plot_durations
+.. autofunction:: scope_profiler.plotting_scripts.plot_duration_timeseries
 .. autofunction:: scope_profiler.plotting_scripts.plot_speedup
 ```
 
@@ -136,4 +151,11 @@ stores nanoseconds.
 ```{eval-rst}
 .. autofunction:: scope_profiler.plotting_scripts.collect_region_statistics
 .. autofunction:: scope_profiler.plotting_scripts.write_region_statistics_json
+```
+
+### Exporting to other tools
+
+```{eval-rst}
+.. autofunction:: scope_profiler.speedscope_export.export_speedscope
+.. autofunction:: scope_profiler.prof_export.export_prof
 ```

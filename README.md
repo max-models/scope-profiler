@@ -297,6 +297,35 @@ per_rank = reader.to_dataframe(per_rank=True)
 `include` / `exclude` regexes select regions in `get_regions()`, `summary()`,
 `to_dataframe()` and every `plot_*` function.
 
+### Building your own plots
+
+For custom analysis, work from the individual calls instead of the
+aggregates. `events()` returns one entry per recorded call, and
+`to_events_dataframe()` returns the same as a pandas DataFrame. Timestamps
+start at zero (the first region entry in the file), so they plot directly:
+
+```python
+events = reader.to_events_dataframe()
+# columns: name, rank, call_index, start, end, duration   (seconds)
+
+events.query("name == 'solve'")["duration"].hist(bins=50)
+events.pivot_table(index="rank", columns="name", values="duration", aggfunc="sum")
+```
+
+`reader.minimum_start_time`, `reader.maximum_end_time` and `reader.time_span`
+bound the profiled window, and `reader.call_stack(rank=0)` hands back the
+nesting the flame graph draws — one dict per call with `depth` and `parent` —
+so you can render your own nested view:
+
+```python
+for call in reader.call_stack(rank=0):
+    print(f"{'  ' * call['depth']}{call['name']}: {call['duration']:.6f} s")
+```
+
+To post-process in the same script that recorded the data, use
+`ProfileManager.read_results()` after `finalize()` — it opens the file the
+current configuration wrote (on rank 0 under MPI).
+
 The [tutorial notebooks](tutorials/) cover this in depth:
 [getting started](tutorials/01_getting_started.ipynb),
 [post-processing](tutorials/02_postprocessing.ipynb),

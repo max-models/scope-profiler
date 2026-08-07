@@ -389,6 +389,33 @@ def test_finalize_prints_the_shared_summary_table(tmp_path, capsys):
     assert "Total Calls" not in printed
 
 
+def test_read_results_opens_the_finalized_file(tmp_path):
+    """Results can be post-processed in the script that produced them."""
+    file_path = tmp_path / "results.h5"
+    ProfileManager.setup(file_path=str(file_path))
+
+    for _ in range(3):
+        with ProfileManager.profile_region("step"):
+            sleep(0.001)
+
+    ProfileManager.finalize(verbose=False)
+    reader = ProfileManager.read_results()
+
+    assert isinstance(reader, ProfilingH5Reader)
+    assert reader.file_path == file_path
+    assert reader["step"].num_calls == 3
+    assert len(reader.events(include="step")) == 3
+
+
+def test_read_results_before_finalize_raises(tmp_path):
+    ProfileManager.setup(file_path=str(tmp_path / "missing.h5"))
+
+    with pytest.raises(FileNotFoundError):
+        ProfileManager.read_results()
+
+    ProfileManager.finalize(verbose=False)
+
+
 def test_finalize_quiet(tmp_path, capsys):
     file_path = tmp_path / "quiet.h5"
     ProfileManager.setup(file_path=str(file_path))
