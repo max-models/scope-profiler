@@ -4,7 +4,7 @@ Step-by-step tutorials and self-contained example scripts.
 
 ## Notebooks
 
-Four notebooks that build on each other. Each one is self-contained --- it
+Six notebooks that build on each other. Each one is self-contained --- it
 generates its own profiling data in a temporary directory, so they can be run
 in any order and in any environment.
 
@@ -18,6 +18,12 @@ in any order and in any environment.
    the equivalent `scope-profiler pproc` invocations.
 4. **Profiling modes** --- what each `setup()` option records, recursive and
    line-by-line profiling, the zero-instrumentation CLI, MPI and LIKWID.
+5. **Custom analysis** --- one level below the summaries: `events()` and the
+   per-call DataFrame, the timeline anchors, `call_stack()` and the self-time
+   it makes possible.
+6. **Building your own plots** --- five charts drawn with plain matplotlib on
+   top of that data: a timeline, a duration histogram, drift over the run, a
+   total-vs-self breakdown, a hand-rolled flame graph and a run comparison.
 
 ```{toctree}
 :maxdepth: 1
@@ -26,7 +32,7 @@ in any order and in any environment.
 tutorials/*
 ```
 
-Notebooks 3 and 4 need the plotting extra:
+Notebooks 3, 4 and 6 need the plotting extra:
 
 ```bash
 pip install "scope-profiler[pproc]"

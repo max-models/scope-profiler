@@ -329,8 +329,10 @@ current configuration wrote (on rank 0 under MPI).
 The [tutorial notebooks](tutorials/) cover this in depth:
 [getting started](tutorials/01_getting_started.ipynb),
 [post-processing](tutorials/02_postprocessing.ipynb),
-[visualization](tutorials/03_visualization.ipynb) and
-[profiling modes](tutorials/04_profiling_modes.ipynb).
+[visualization](tutorials/03_visualization.ipynb),
+[profiling modes](tutorials/04_profiling_modes.ipynb),
+[custom analysis](tutorials/05_custom_analysis.ipynb) and
+[building your own plots](tutorials/06_custom_plots.ipynb).
 
 ## Flame graphs
 
