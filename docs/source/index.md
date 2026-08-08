@@ -19,7 +19,8 @@ all through a single, unified API.
 - **MPI-aware** --- per-rank data is collected and merged transparently via
   `mpi4py`.
 - **LIKWID integration** --- hardware counter regions are opened/closed
-  alongside timing, with no extra boilerplate.
+  alongside timing, with no extra boilerplate, and every marker region's raw
+  events and derived metrics land in the same HDF5 file.
 - **Line profiler integration** --- enable `line_profiler` per-line stats on
   any decorated function with a single flag.
 - **CLI post-processing** --- `scope-profiler pproc` reads HDF5 output and
@@ -60,6 +61,7 @@ guide/regions
 guide/hdf5_and_python_api
 guide/postprocessing_cli
 guide/mpi
+guide/likwid
 guide/line_profiler
 guide/overhead
 ```

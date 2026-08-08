@@ -8,7 +8,8 @@ It allows you to:
 - Collect timing data via context-managed profiling regions.
 - Use a clean decorator syntax to profile functions.
 - Optionally record time traces in HDF5 files.
-- Automatically initialize and close LIKWID markers only when needed.
+- Automatically initialize and close LIKWID markers only when needed, and store
+  the resulting hardware counters and derived metrics in the same HDF5 file.
 - Print aggregated summaries of all profiling regions.
 
 ## Install
