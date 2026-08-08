@@ -2,6 +2,11 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
+from scope_profiler.call_stack import (
+    build_call_stack,
+    call_stack_children,
+    call_stack_roots,
+)
 from scope_profiler.h5reader import ProfilingH5Reader
 from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.mpi_region import MPIRegion
@@ -13,19 +18,23 @@ try:
 except PackageNotFoundError:
     __version__ = "unknown"
 
-# Plotting pulls in the optional maxplotlib stack, so these are resolved on
-# first access (PEP 562) rather than at import time, keeping
-# `import scope_profiler` cheap inside the applications being profiled.
-_LAZY_PLOTTING = frozenset(
-    {
-        "collect_region_statistics",
-        "plot_durations",
-        "plot_flame",
-        "plot_gantt",
-        "plot_speedup",
-        "write_region_statistics_json",
-    }
-)
+# Plotting pulls in the optional maxplotlib stack, and the exporters pull in
+# the plotting module, so these are resolved on first access (PEP 562) rather
+# than at import time, keeping `import scope_profiler` cheap inside the
+# applications being profiled.
+_LAZY_ATTRS = {
+    "collect_region_statistics": "plotting_scripts",
+    "plot_duration_timeseries": "plotting_scripts",
+    "plot_durations": "plotting_scripts",
+    "plot_flame": "plotting_scripts",
+    "plot_gantt": "plotting_scripts",
+    "plot_speedup": "plotting_scripts",
+    "write_region_statistics_json": "plotting_scripts",
+    "export_prof": "prof_export",
+    "export_speedscope": "speedscope_export",
+    "collect_file_metadata": "inspection",
+    "inspect_file": "inspection",
+}
 
 __all__ = [
     "LikwidRegionResult",
@@ -33,19 +42,24 @@ __all__ = [
     "ProfileManager",
     "ProfilingH5Reader",
     "Region",
-    *sorted(_LAZY_PLOTTING),
+    "build_call_stack",
+    "call_stack_children",
+    "call_stack_roots",
+    *sorted(_LAZY_ATTRS),
 ]
 
 
 def __getattr__(name: str):
-    """Resolve the plotting helpers lazily; see ``_LAZY_PLOTTING``."""
-    if name in _LAZY_PLOTTING:
-        from scope_profiler import plotting_scripts
+    """Resolve the plotting and export helpers lazily; see ``_LAZY_ATTRS``."""
+    module_name = _LAZY_ATTRS.get(name)
+    if module_name is not None:
+        import importlib
 
-        return getattr(plotting_scripts, name)
+        module = importlib.import_module(f"scope_profiler.{module_name}")
+        return getattr(module, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def __dir__() -> list:
-    """Include the lazily-resolved plotting helpers in ``dir()``."""
-    return sorted(set(globals()) | _LAZY_PLOTTING)
+    """Include the lazily-resolved helpers in ``dir()``."""
+    return sorted(set(globals()) | set(_LAZY_ATTRS))

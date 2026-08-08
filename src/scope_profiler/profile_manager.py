@@ -8,7 +8,7 @@ import sys
 import sysconfig
 import threading
 from types import FrameType
-from typing import Callable, Dict
+from typing import TYPE_CHECKING, Callable, Dict
 
 import h5py
 
@@ -22,6 +22,9 @@ from scope_profiler.region_profiler import (
     NCallsOnlyProfileRegion,
     TimeOnlyProfileRegion,
 )
+
+if TYPE_CHECKING:  # imported lazily in read_results() to keep imports cheap
+    from scope_profiler.h5reader import ProfilingH5Reader
 
 
 class ProfileManager:
@@ -466,6 +469,34 @@ class ProfileManager:
                     region.print_stats()
 
     @classmethod
+    def read_results(cls) -> "ProfilingH5Reader":
+        """
+        Open the merged profiling file this run wrote, for post-processing.
+
+        Convenience for analysing results in the same script that produced
+        them::
+
+            ProfileManager.finalize()
+            reader = ProfileManager.read_results()
+            reader.print_summary()
+
+        Returns
+        -------
+        ProfilingH5Reader
+            Reader for the file at ``config.file_path``.
+
+        Raises
+        ------
+        FileNotFoundError
+            If the merged file does not exist yet. It is written by
+            :meth:`finalize`, and only on rank 0 - guard the call with
+            ``if ProfileManager.get_config()._rank == 0`` under MPI.
+        """
+        from scope_profiler.h5reader import ProfilingH5Reader
+
+        return ProfilingH5Reader(cls.get_config().file_path)
+
+    @classmethod
     def get_region(cls, region_name) -> BaseProfileRegion:
         """
         Get a registered ProfileRegion by name.
@@ -504,6 +535,7 @@ class ProfileManager:
         buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
         use_mpi: bool | None = None,
+        start_time_ns: int | None = None,
     ):
         """
         Initialize and configure the profiling system.
@@ -538,6 +570,21 @@ class ProfileManager:
             srun or an equivalent launcher, so a plain ``python script.py``
             run never imports mpi4py or calls into MPI. True forces MPI on,
             False forces it off.
+        start_time_ns : int or None, optional
+            The instant the run started, as a ``time.perf_counter_ns()``
+            value (default: the moment ``setup()`` is called). Post-processing
+            measures its relative timeline from here, so pass a value captured
+            earlier to account for work that happened before the profiler was
+            configured::
+
+                from time import perf_counter_ns
+
+                T0 = perf_counter_ns()      # first line of the program
+                ...                         # imports, input parsing, ...
+                ProfileManager.setup(start_time_ns=T0)
+
+            The value is stored in the output file as the ``start_time_ns``
+            metadata field.
         """
         ProfilingConfig().reset()
         config = ProfilingConfig(
@@ -550,6 +597,7 @@ class ProfileManager:
             buffer_limit=buffer_limit,
             file_path=file_path,
             use_mpi=use_mpi,
+            start_time_ns=start_time_ns,
         )
         cls.set_config(config=config)
 

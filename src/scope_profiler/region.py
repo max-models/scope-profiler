@@ -1,6 +1,6 @@
 """Data container for a single profiling region loaded from HDF5."""
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import numpy as np
 
@@ -59,10 +59,55 @@ class Region:
             "std_duration": self.std_duration,
         }
 
+    def events(self, origin: float = 0.0) -> List[Dict[str, Any]]:
+        """
+        Return one dict per recorded call.
+
+        Parameters
+        ----------
+        origin : float, optional
+            Seconds subtracted from every timestamp, so passing
+            ``reader.minimum_start_time`` yields a timeline starting at zero
+            (default: 0.0, i.e. raw timestamps).
+
+        Returns
+        -------
+        list of dict
+            One entry per call with keys ``call_index``, ``start``, ``end``
+            and ``duration``, in seconds and in recorded order. Empty for a
+            region profiled with ``time_trace=False``.
+        """
+        starts = self.start_times - origin
+        ends = self.end_times - origin
+        return [
+            {
+                "call_index": index,
+                "start": float(start),
+                "end": float(end),
+                "duration": float(end - start),
+            }
+            for index, (start, end) in enumerate(zip(starts, ends))
+        ]
+
     @property
     def has_timing(self) -> bool:
         """Whether timestamps were recorded (False with ``time_trace=False``)."""
         return len(self._durations) > 0
+
+    @property
+    def start_times_ns(self) -> np.ndarray:
+        """Start times of all calls in nanoseconds, exactly as stored."""
+        return self._start_times
+
+    @property
+    def end_times_ns(self) -> np.ndarray:
+        """End times of all calls in nanoseconds, exactly as stored."""
+        return self._end_times
+
+    @property
+    def durations_ns(self) -> np.ndarray:
+        """Duration of all calls in nanoseconds, as integers."""
+        return self._durations
 
     @property
     def start_times(self) -> np.ndarray:

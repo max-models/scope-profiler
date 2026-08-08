@@ -13,6 +13,7 @@ from pathlib import Path
 
 import numpy as np
 
+from scope_profiler.call_stack import build_call_stack
 from scope_profiler.h5reader import ProfilingH5Reader
 
 
@@ -469,6 +470,10 @@ def _prepare_gantt_data(
         if invalid_ranks:
             raise ValueError(f"Invalid ranks requested: {invalid_ranks}")
 
+    # Charts frame the recorded window: x = 0 is the first region entry, not
+    # the run's registered start (reader.time_origin), so that a long gap
+    # between setup() and the first region does not push the bars off to one
+    # side. reader.events(origin=reader.minimum_start_time) matches this.
     return regions, normalized_ranks, profiling_data.minimum_start_time
 
 
@@ -648,40 +653,6 @@ def plot_gantt(
     _render(canvas, filepath, show, backend, plotly_layout={"barmode": "overlay"})
 
 
-def _build_call_stack_intervals(regions: list, rank: int) -> list[dict]:
-    """Reconstruct per-call nesting depth for one rank from region intervals."""
-    calls = []
-    for region in regions:
-        if rank not in region.regions:
-            continue
-        region_data = region.regions[rank]
-        for start, end in zip(region_data.start_times, region_data.end_times):
-            calls.append(
-                {
-                    "name": region.name,
-                    "start": float(start),
-                    "end": float(end),
-                    "color": region.color,
-                }
-            )
-
-    calls.sort(key=lambda call: (call["start"], -call["end"]))
-
-    # Each call also records its parent's index in this list, which is what
-    # Canvas.flame_chart needs: it accepts either an index or a frame name,
-    # and resolves a name to the *first* frame carrying it - wrong as soon as
-    # a region is called more than once or recurses.
-    open_stack: list[int] = []
-    for index, call in enumerate(calls):
-        while open_stack and calls[open_stack[-1]]["end"] <= call["start"]:
-            open_stack.pop()
-        call["depth"] = len(open_stack)
-        call["parent"] = open_stack[-1] if open_stack else None
-        open_stack.append(index)
-
-    return calls
-
-
 def plot_flame(
     profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
     ranks: list[int] | int | None = None,
@@ -729,7 +700,7 @@ def plot_flame(
         for rank in normalized_ranks:
             if rank < 0 or rank >= reader.num_ranks:
                 raise ValueError(f"Invalid rank requested: {rank}")
-            calls = _build_call_stack_intervals(regions, rank)
+            calls = build_call_stack(regions, rank)
             if calls:
                 prepared.append((reader, rank, calls))
 
@@ -1110,6 +1081,7 @@ def plot_duration_timeseries(
 
     prepared = []
     for reader, regions in reader_regions:
+        # As in _prepare_gantt_data: charts are framed on the first entry.
         first_start_time = reader.minimum_start_time
         series = [
             (

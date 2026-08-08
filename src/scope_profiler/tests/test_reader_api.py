@@ -189,16 +189,295 @@ def test_reader_handles_count_only_regions(tmp_path):
     assert reader.minimum_start_time == 0.0
 
 
+def test_region_events(sample_file):
+    """Region.events() gives one entry per call, optionally rebased."""
+    solve = ProfilingH5Reader(sample_file)["solve"][0]
+
+    assert solve.events() == [
+        {"call_index": 0, "start": 2.0, "end": 4.0, "duration": 2.0},
+        {"call_index": 1, "start": 5.0, "end": 8.0, "duration": 3.0},
+    ]
+    # The origin shifts timestamps but leaves durations alone.
+    rebased = solve.events(origin=2.0)
+    assert [event["start"] for event in rebased] == [0.0, 3.0]
+    assert [event["duration"] for event in rebased] == [2.0, 3.0]
+
+
+def test_region_raw_nanosecond_arrays(sample_file):
+    solve = ProfilingH5Reader(sample_file)["solve"][0]
+
+    assert solve.start_times_ns.tolist() == [2 * NS, 5 * NS]
+    assert solve.end_times_ns.tolist() == [4 * NS, 8 * NS]
+    assert solve.durations_ns.tolist() == [2 * NS, 3 * NS]
+
+
+def test_mpi_region_events_span_ranks(sample_file):
+    solve = ProfilingH5Reader(sample_file)["solve"]
+
+    events = solve.events()
+    assert len(events) == 4
+    assert [event["rank"] for event in events] == [0, 0, 1, 1]
+    assert {event["name"] for event in events} == {"solve"}
+    assert [event["duration"] for event in events] == pytest.approx(
+        [2.0, 3.0, 4.0, 4.0]
+    )
+
+    # A single rank can be selected, as an int or a list.
+    assert len(solve.events(ranks=1)) == 2
+    assert solve.events(ranks=[1]) == solve.events(ranks=1)
+    # Ranks that never recorded the region are skipped, not an error.
+    assert solve.events(ranks=[7]) == []
+
+
+def test_reader_events(sample_file):
+    reader = ProfilingH5Reader(sample_file)
+
+    events = reader.events()
+    assert len(events) == 6
+    assert [event["name"] for event in events[:2]] == ["setup", "setup"]
+
+    # Relative timestamps (the default) start the timeline at zero.
+    assert min(event["start"] for event in events) == 0.0
+    absolute = reader.events(relative=False)
+    assert min(event["start"] for event in absolute) == 0.0  # sample starts at 0
+
+    solve_events = reader.events(include="solve", ranks=0)
+    assert [event["call_index"] for event in solve_events] == [0, 1]
+    assert [event["start"] for event in solve_events] == pytest.approx([2.0, 5.0])
+
+
+def test_reader_events_are_rebased_on_first_entry(tmp_path):
+    """A run whose clock starts far from zero still yields a zeroed timeline."""
+    path = tmp_path / "offset.h5"
+    _write_sample_h5(path, {0: {"solve": ([100 * NS, 130 * NS], [110 * NS, 140 * NS])}})
+
+    reader = ProfilingH5Reader(path)
+
+    assert [event["start"] for event in reader.events()] == pytest.approx([0.0, 30.0])
+    assert [event["start"] for event in reader.events(relative=False)] == pytest.approx(
+        [100.0, 130.0]
+    )
+    assert reader.minimum_start_time == pytest.approx(100.0)
+    assert reader.maximum_end_time == pytest.approx(140.0)
+    assert reader.time_span == pytest.approx(40.0)
+
+
+def test_reader_uses_registered_start_time_as_origin(tmp_path):
+    """setup() records a start time; relative timestamps measure from it."""
+    path = tmp_path / "with_start.h5"
+    _write_sample_h5(
+        path,
+        {0: {"solve": ([100 * NS, 130 * NS], [110 * NS, 140 * NS])}},
+        # The run started 20 s before the first region was entered.
+        metadata={"start_time_ns": 80 * NS},
+    )
+
+    reader = ProfilingH5Reader(path)
+
+    assert reader.run_start_time == pytest.approx(80.0)
+    assert reader.time_origin == pytest.approx(80.0)
+    # Events now carry the 20 s of un-instrumented startup.
+    assert [event["start"] for event in reader.events()] == pytest.approx([20.0, 50.0])
+    assert [call["start"] for call in reader.call_stack()] == pytest.approx(
+        [20.0, 50.0]
+    )
+    # The startup gap the instrumentation could not see.
+    assert reader.minimum_start_time - reader.run_start_time == pytest.approx(20.0)
+    # Durations and the profiled window are unaffected by the origin.
+    assert [event["duration"] for event in reader.events()] == pytest.approx(
+        [10.0, 10.0]
+    )
+    assert reader.time_span == pytest.approx(40.0)
+
+
+def test_reader_origin_overrides_registered_start_time(tmp_path):
+    path = tmp_path / "with_start.h5"
+    _write_sample_h5(
+        path,
+        {0: {"solve": ([100 * NS], [110 * NS])}},
+        metadata={"start_time_ns": 80 * NS},
+    )
+    reader = ProfilingH5Reader(path)
+
+    # Explicit origin wins over the registered start time...
+    assert reader.events(origin=reader.minimum_start_time)[0]["start"] == 0.0
+    assert reader.call_stack(origin=reader.minimum_start_time)[0]["start"] == 0.0
+    assert reader.to_events_dataframe(origin=100.0)["start"].tolist() == [0.0]
+    # ...and over relative=False.
+    assert reader.events(relative=False)[0]["start"] == pytest.approx(100.0)
+    assert reader.events(relative=False, origin=80.0)[0]["start"] == pytest.approx(20.0)
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        None,  # no metadata group at all (oldest files)
+        {"hostname": "somewhere"},  # metadata, but no start time
+        {"start_time_ns": "not a number"},  # unreadable value
+    ],
+    ids=["no_metadata", "metadata_without_start", "unreadable_start"],
+)
+def test_reader_without_registered_start_time_falls_back(tmp_path, metadata):
+    """Post-processing works unchanged on files carrying no start time."""
+    path = tmp_path / "no_start.h5"
+    _write_sample_h5(
+        path,
+        {0: {"solve": ([100 * NS, 130 * NS], [110 * NS, 140 * NS])}},
+        metadata=metadata,
+    )
+
+    reader = ProfilingH5Reader(path)
+
+    assert reader.run_start_time is None
+    # The timeline falls back to the first region entry, as before.
+    assert reader.time_origin == pytest.approx(reader.minimum_start_time)
+    assert reader.startup_time == 0.0
+    assert [event["start"] for event in reader.events()] == pytest.approx([0.0, 30.0])
+    assert [call["start"] for call in reader.call_stack()] == pytest.approx([0.0, 30.0])
+    assert reader.to_events_dataframe()["start"].tolist() == pytest.approx([0.0, 30.0])
+    # An explicit origin still works, and so does the raw timeline.
+    assert reader.events(origin=130.0)[1]["start"] == pytest.approx(0.0)
+    assert reader.events(relative=False)[0]["start"] == pytest.approx(100.0)
+    assert reader.time_span == pytest.approx(40.0)
+
+
+def test_startup_time_measures_the_gap_before_the_first_region(tmp_path):
+    path = tmp_path / "with_start.h5"
+    _write_sample_h5(
+        path,
+        {0: {"solve": ([100 * NS], [110 * NS])}},
+        metadata={"start_time_ns": 80 * NS},
+    )
+
+    assert ProfilingH5Reader(path).startup_time == pytest.approx(20.0)
+
+
+def test_reader_time_span_ignores_count_only_regions(tmp_path):
+    """A count-only region must not drag the timeline origin down to zero."""
+    path = tmp_path / "mixed.h5"
+    _write_sample_h5(
+        path,
+        {0: {"counted": None, "solve": ([100 * NS], [110 * NS])}},
+    )
+
+    reader = ProfilingH5Reader(path)
+
+    assert reader.minimum_start_time == pytest.approx(100.0)
+    assert reader.time_span == pytest.approx(10.0)
+    # The count-only region contributes no events.
+    assert [event["name"] for event in reader.events()] == ["solve"]
+
+
+def test_reader_time_span_without_timing(tmp_path):
+    path = tmp_path / "counts.h5"
+    _write_sample_h5(path, {0: {"counted": None}})
+
+    reader = ProfilingH5Reader(path)
+
+    assert reader.minimum_start_time == 0.0
+    assert reader.maximum_end_time == 0.0
+    assert reader.time_span == 0.0
+    assert reader.events() == []
+
+
+def test_reader_to_events_dataframe(sample_file):
+    pd = pytest.importorskip("pandas")
+    reader = ProfilingH5Reader(sample_file)
+
+    frame = reader.to_events_dataframe()
+    assert isinstance(frame, pd.DataFrame)
+    assert list(frame.columns) == [
+        "name",
+        "rank",
+        "call_index",
+        "start",
+        "end",
+        "duration",
+    ]
+    assert len(frame) == 6
+    assert frame.loc[frame["name"] == "solve", "duration"].sum() == pytest.approx(13.0)
+
+
+def test_reader_to_events_dataframe_columns_when_empty(tmp_path):
+    """An empty selection still yields the documented columns."""
+    pytest.importorskip("pandas")
+    path = tmp_path / "counts.h5"
+    _write_sample_h5(path, {0: {"counted": None}})
+
+    frame = ProfilingH5Reader(path).to_events_dataframe()
+
+    assert frame.empty
+    assert list(frame.columns) == [
+        "name",
+        "rank",
+        "call_index",
+        "start",
+        "end",
+        "duration",
+    ]
+
+
+def test_reader_call_stack(tmp_path):
+    """Nesting is reconstructed from containment, parents before children."""
+    path = tmp_path / "nested.h5"
+    _write_sample_h5(
+        path,
+        {
+            0: {
+                "outer": ([10 * NS], [110 * NS]),
+                "inner": ([20 * NS, 60 * NS], [50 * NS, 100 * NS]),
+                "leaf": ([25 * NS], [30 * NS]),
+            }
+        },
+    )
+    reader = ProfilingH5Reader(path)
+
+    calls = reader.call_stack(rank=0)
+
+    assert [(call["name"], call["depth"]) for call in calls] == [
+        ("outer", 0),
+        ("inner", 1),
+        ("leaf", 2),
+        ("inner", 1),
+    ]
+    # Relative timestamps by default: the outermost call starts at zero.
+    assert calls[0]["start"] == 0.0
+    assert calls[0]["duration"] == pytest.approx(100.0)
+    assert calls[2]["parent"] == 1
+    assert calls[0]["parent"] is None
+
+    from scope_profiler.call_stack import call_stack_children, call_stack_roots
+
+    assert call_stack_roots(calls) == [0]
+    assert call_stack_children(calls) == [[1, 3], [2], [], []]
+
+    # A filtered stack renests around what is left.
+    assert [call["depth"] for call in reader.call_stack(exclude="inner")] == [0, 1]
+
+
 def test_top_level_exports_and_lazy_plotting():
     """Post-processing types are importable from the package root."""
     assert scope_profiler.ProfilingH5Reader is ProfilingH5Reader
     assert scope_profiler.Region is Region
     assert scope_profiler.MPIRegion is MPIRegion
 
-    from scope_profiler.plotting_scripts import plot_gantt
+    from scope_profiler.call_stack import build_call_stack
+
+    assert scope_profiler.build_call_stack is build_call_stack
+
+    from scope_profiler.plotting_scripts import plot_duration_timeseries, plot_gantt
 
     assert scope_profiler.plot_gantt is plot_gantt
+    assert scope_profiler.plot_duration_timeseries is plot_duration_timeseries
     assert "plot_flame" in dir(scope_profiler)
+
+    from scope_profiler.speedscope_export import export_speedscope
+
+    assert scope_profiler.export_speedscope is export_speedscope
+
+    # Every advertised name resolves.
+    for name in scope_profiler.__all__:
+        assert getattr(scope_profiler, name) is not None
 
     with pytest.raises(AttributeError):
         scope_profiler.not_a_real_attribute

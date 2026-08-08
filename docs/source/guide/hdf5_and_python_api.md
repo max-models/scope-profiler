@@ -48,6 +48,7 @@ Derived fields use lower-case names:
 | Field | Description |
 | --- | --- |
 | `timestamp` | ISO-8601 time the run started |
+| `start_time_ns` | run start on the `perf_counter_ns` clock, the origin of the relative timeline |
 | `user`, `hostname` | who ran it, and where |
 | `platform`, `uname` | OS description, and the full `uname` tuple |
 | `chip_information` | CPU model (from `/proc/cpuinfo` or `sysctl`) |
@@ -115,6 +116,130 @@ reader.get_regions(include="solver.*")
 # Everything except IO regions
 reader.get_regions(exclude="io.*")
 ```
+
+### Post-processing in the script that produced the data
+
+`ProfileManager.read_results()` opens the file the current configuration just
+wrote, so a run can analyse itself without repeating the path:
+
+```python
+ProfileManager.finalize()
+reader = ProfileManager.read_results()
+reader.print_summary()
+```
+
+Under MPI only rank 0 writes the merged file, so guard the call accordingly.
+
+## Building your own plots and analyses
+
+The built-in charts cover the common cases; when you want something else,
+work from the raw calls rather than the aggregates.
+
+### One row per call
+
+`events()` returns the long-form ("tidy") view: one entry per recorded call,
+with `name`, `rank`, `call_index`, `start`, `end` and `duration` in seconds.
+Timestamps are measured from the first region entry in the file, so the
+timeline starts at zero and is directly plottable — pass `relative=False` for
+the raw monotonic-clock values.
+
+```python
+import matplotlib.pyplot as plt
+
+reader = ProfilingH5Reader("profiling_data.h5")
+
+for event in reader.events(include="solver.*", ranks=0):
+    plt.barh(event["name"], event["duration"], left=event["start"])
+```
+
+`to_events_dataframe()` returns the same data as a pandas DataFrame, which is
+usually the shortest path to a custom chart:
+
+```python
+events = reader.to_events_dataframe()
+
+# Which region has the most variable calls?
+events.groupby("name")["duration"].std().sort_values(ascending=False)
+
+# Per-rank load imbalance in one line
+events.pivot_table(index="rank", columns="name", values="duration", aggfunc="sum")
+
+# Distribution of a single region's call durations
+events.query("name == 'solve'")["duration"].hist(bins=50)
+```
+
+The same filters apply as everywhere else: `include`/`exclude` regexes and
+`ranks`. Regions profiled with `time_trace=False` record only a call count
+and so contribute no events.
+
+Individual `Region` and `MPIRegion` objects expose the same view for a single
+region (`reader["solve"].events()`), and `Region` also offers the stored
+integer nanoseconds via `start_times_ns`, `end_times_ns` and `durations_ns`
+for anyone who wants to avoid the float conversion.
+
+### Useful timeline anchors
+
+`reader.minimum_start_time`, `reader.maximum_end_time` and `reader.time_span`
+bound the profiled window in seconds — handy for normalising axes or
+computing what fraction of the run a region accounts for:
+
+```python
+frame = reader.to_dataframe()
+frame["fraction_of_run"] = frame["total_duration"] / reader.time_span
+```
+
+`reader.run_start_time` is when the run itself started, as registered by
+`ProfileManager.setup()`, and `reader.startup_time` is the gap from there to
+the first region — the time the instrumentation never saw:
+
+```python
+print(f"{reader.startup_time:.3f} s elapsed before the first region was entered")
+```
+
+### Which zero the timeline uses
+
+`events()` and `call_stack()` measure from `reader.time_origin`: the
+registered start time when the file has one, and the first region entry
+otherwise. Two ways to override it:
+
+```python
+reader.events(relative=False)                        # raw clock timestamps
+reader.events(origin=reader.minimum_start_time)      # zero on the first region
+```
+
+The `plot_*` functions are the exception: they frame the x axis on the first
+region entry, so that a long gap between `setup()` and the first region does
+not fill a chart with empty space. The second line above reproduces exactly
+what a chart's axis shows.
+
+Files that carry no start time — anything written before `setup()` began
+recording one — need no special handling anywhere: `run_start_time` is `None`,
+`time_origin` falls back to the first region entry, `startup_time` is `0.0`,
+and every reader method, export and chart behaves exactly as it did before.
+
+### Walking the reconstructed call stack
+
+`call_stack()` recovers the nesting the flame graph draws, as plain dicts you
+can render however you like. Each call carries its `depth` and the index of
+its `parent` in the returned list:
+
+```python
+from scope_profiler import call_stack_children, call_stack_roots
+
+calls = reader.call_stack(rank=0)
+
+for call in calls:
+    print(f"{'  ' * call['depth']}{call['name']}: {call['duration']:.6f} s")
+
+# Or walk it as a tree
+children = call_stack_children(calls)
+for root in call_stack_roots(calls):
+    print(calls[root]["name"], "has", len(children[root]), "direct children")
+```
+
+Calls are identified by position rather than by name, because a region that
+is called repeatedly — or recursively — contributes several entries under one
+name.
 
 ```{note}
 Everything below has a command-line equivalent that needs no code:

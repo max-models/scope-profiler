@@ -1,5 +1,5 @@
 import socket
-from time import sleep
+from time import perf_counter_ns, sleep
 
 import h5py
 import pytest
@@ -387,6 +387,77 @@ def test_finalize_prints_the_shared_summary_table(tmp_path, capsys):
     assert "TOTAL" in printed
     # The old per-region block format is gone.
     assert "Total Calls" not in printed
+
+
+def test_read_results_opens_the_finalized_file(tmp_path):
+    """Results can be post-processed in the script that produced them."""
+    file_path = tmp_path / "results.h5"
+    ProfileManager.setup(file_path=str(file_path))
+
+    for _ in range(3):
+        with ProfileManager.profile_region("step"):
+            sleep(0.001)
+
+    ProfileManager.finalize(verbose=False)
+    reader = ProfileManager.read_results()
+
+    assert isinstance(reader, ProfilingH5Reader)
+    assert reader.file_path == file_path
+    assert reader["step"].num_calls == 3
+    assert len(reader.events(include="step")) == 3
+
+
+def test_setup_registers_the_run_start_time(tmp_path):
+    """The run's start time is persisted and becomes the timeline origin."""
+    file_path = tmp_path / "start_time.h5"
+    before = perf_counter_ns()
+    ProfileManager.setup(file_path=str(file_path))
+    after = perf_counter_ns()
+
+    sleep(0.01)  # un-instrumented work, invisible to the regions
+    with ProfileManager.profile_region("step"):
+        sleep(0.001)
+
+    ProfileManager.finalize(verbose=False)
+    reader = ProfileManager.read_results()
+
+    recorded = reader.metadata["start_time_ns"]
+    assert before <= recorded <= after
+    assert reader.run_start_time == pytest.approx(recorded / 1e9)
+    assert reader.time_origin == reader.run_start_time
+
+    # The sleep before the first region is now visible as a startup gap.
+    startup = reader.minimum_start_time - reader.run_start_time
+    assert startup >= 0.01
+    assert reader.events()[0]["start"] == pytest.approx(startup)
+
+
+def test_setup_accepts_an_earlier_start_time(tmp_path):
+    """A start time captured before setup() accounts for imports and parsing."""
+    file_path = tmp_path / "early_start.h5"
+    program_start = perf_counter_ns()
+    sleep(0.01)  # stand in for imports, input parsing, ...
+    ProfileManager.setup(file_path=str(file_path), start_time_ns=program_start)
+
+    with ProfileManager.profile_region("step"):
+        sleep(0.001)
+
+    ProfileManager.finalize(verbose=False)
+    reader = ProfileManager.read_results()
+
+    assert reader.metadata["start_time_ns"] == program_start
+    assert reader.run_start_time == pytest.approx(program_start / 1e9)
+    # The first region starts at least the pre-setup sleep into the run.
+    assert reader.events()[0]["start"] >= 0.01
+
+
+def test_read_results_before_finalize_raises(tmp_path):
+    ProfileManager.setup(file_path=str(tmp_path / "missing.h5"))
+
+    with pytest.raises(FileNotFoundError):
+        ProfileManager.read_results()
+
+    ProfileManager.finalize(verbose=False)
 
 
 def test_finalize_quiet(tmp_path, capsys):

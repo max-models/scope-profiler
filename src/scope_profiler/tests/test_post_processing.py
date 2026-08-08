@@ -4,9 +4,9 @@ import h5py
 import numpy as np
 import pytest
 
+from scope_profiler.call_stack import build_call_stack
 from scope_profiler.h5reader import ProfilingH5Reader
 from scope_profiler.plotting_scripts import (
-    _build_call_stack_intervals,
     _duration_timeseries,
     plot_duration_timeseries,
     plot_durations,
@@ -232,7 +232,7 @@ def test_plot_gantt_puts_every_call_of_a_region_on_one_lane(tmp_path, monkeypatc
     assert [len(bars_by_lane[lane]) for lane in sorted(bars_by_lane)] == [1, 1, 3, 3]
 
 
-def test_build_call_stack_intervals_reconstructs_nesting(tmp_path):
+def test_build_call_stack_reconstructs_nesting(tmp_path):
     # "outer" [0, 100) encloses two sequential "inner" calls, [10, 40) and
     # [50, 90), which in turn each enclose a "leaf" call.
     rank_regions = {
@@ -245,7 +245,7 @@ def test_build_call_stack_intervals_reconstructs_nesting(tmp_path):
     file_path = tmp_path / "run.h5"
     _write_sample_h5(file_path, rank_regions)
     reader = ProfilingH5Reader(file_path)
-    calls = _build_call_stack_intervals(reader.get_regions(), rank=0)
+    calls = build_call_stack(reader.get_regions(), rank=0)
 
     # Region.start_times converts stored nanoseconds to seconds.
     depths = {(call["name"], call["start"]): call["depth"] for call in calls}
@@ -276,7 +276,7 @@ def test_plot_flame_reconstructs_recursive_calls(tmp_path):
     assert out_file.exists()
     assert out_file.stat().st_size > 0
 
-    calls = _build_call_stack_intervals(reader.get_regions(), rank=0)
+    calls = build_call_stack(reader.get_regions(), rank=0)
     assert len(calls) == 3
     depths = sorted(call["depth"] for call in calls)
     assert depths == [0, 1, 2]

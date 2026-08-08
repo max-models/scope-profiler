@@ -173,6 +173,7 @@ class ProfilingConfig:
         buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
         use_mpi: bool | None = None,
+        start_time_ns: int | None = None,
     ):
         """Initialize the profiling configuration.
 
@@ -200,12 +201,26 @@ class ProfilingConfig:
             when the process was started by an MPI launcher (mpirun/mpiexec/
             srun/...); see :mod:`scope_profiler.mpi_launch`. True forces MPI
             on, False forces it off.
+        start_time_ns : int or None
+            The instant the run started, as a ``time.perf_counter_ns()``
+            value. Defaults to the moment this configuration is created.
+            Pass a value captured earlier (at the top of the program, before
+            imports) to have post-processing measure from there instead; it
+            is persisted as the ``start_time_ns`` metadata field and becomes
+            the origin of the relative timeline in
+            :class:`~scope_profiler.h5reader.ProfilingH5Reader`.
         """
 
         if self._initialized:
             return
 
         self._config_creation_time = perf_counter_ns()
+        # The run's declared origin. Identical to the creation time unless the
+        # caller recorded one earlier, which is the only way to account for
+        # time spent before the profiler existed (imports, input parsing).
+        self._start_time_ns = (
+            self._config_creation_time if start_time_ns is None else int(start_time_ns)
+        )
 
         # Serial runs must not import mpi4py (which would call MPI_Init) nor
         # issue any collective, so the communicator stays None unless this
@@ -245,6 +260,9 @@ class ProfilingConfig:
         # Collected on every rank, but only rank 0's copy ends up persisted
         # (see ProfileManager.finalize), so it is treated as global for the run.
         self._metadata = collect_metadata(mpi_size=self._size)
+        # Persisted so post-processing can express timestamps relative to the
+        # start of the run rather than to the first region entry.
+        self._metadata["start_time_ns"] = self._start_time_ns
 
         self._pylikwid = None
         # markerclose() must run exactly once: it writes the marker file and
@@ -413,6 +431,16 @@ class ProfilingConfig:
     def config_creation_time(self) -> int:
         """Timestamp (ns) when the configuration was created."""
         return self._config_creation_time
+
+    @property
+    def start_time_ns(self) -> int:
+        """The run's start time (ns, ``perf_counter_ns`` clock).
+
+        The configuration's creation time unless ``setup()`` was given an
+        earlier one. Persisted as metadata and used as the timeline origin
+        when reading the results back.
+        """
+        return self._start_time_ns
 
     @property
     def metadata(self) -> dict:

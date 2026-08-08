@@ -23,6 +23,7 @@ from scope_profiler.summary import SORT_KEYS, print_region_table, region_rows
 # metadata fields never silently disappear from the output.
 _RUN_FIELDS = (
     "timestamp",
+    "start_time_ns",
     "user",
     "hostname",
     "working_directory",
@@ -48,17 +49,10 @@ _ELLIPSIS = " […]"
 
 
 def _time_span(reader) -> float | None:
-    """Wall-clock seconds between the first region entry and the last exit."""
-    starts = []
-    ends = []
-    for region in reader.get_regions():
-        for data in region.regions.values():
-            if data.durations.size:
-                starts.append(float(np.min(data.start_times)))
-                ends.append(float(np.max(data.end_times)))
-    if not starts:
+    """Wall-clock seconds of the run, or None when nothing was timed."""
+    if not any(region.has_timing for region in reader.get_regions()):
         return None
-    return max(ends) - min(starts)
+    return reader.time_span
 
 
 def _clip(value: str, full: bool) -> str:
