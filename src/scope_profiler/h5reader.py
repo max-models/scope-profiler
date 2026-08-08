@@ -77,9 +77,15 @@ class ProfilingH5Reader:
                 }
                 # Recorded by setup(); absent in files written before it
                 # existed, and in any file whose run did not reach finalize().
+                # Everything downstream falls back to the first region entry,
+                # so an unreadable value is ignored rather than fatal: a file
+                # is worth reading for its timings even if this field is not.
                 start_time_ns = self._metadata.get("start_time_ns")
                 if start_time_ns is not None:
-                    self._run_start_time = float(start_time_ns) / NS_PER_SECOND
+                    try:
+                        self._run_start_time = float(start_time_ns) / NS_PER_SECOND
+                    except (TypeError, ValueError):
+                        self._run_start_time = None
 
             # Iterate over all rank groups
             for rank_group_name, rank_group in f.items():
@@ -496,15 +502,9 @@ class ProfilingH5Reader:
         -------
         float or None
             The registered start time, or None for files written without one
-            (older files, or runs that never called setup()).
-
-        Examples
-        --------
-        Time that elapsed before the first profiled region — imports, input
-        parsing, anything the instrumentation cannot see:
-
-        >>> reader.minimum_start_time - reader.run_start_time  # doctest: +SKIP
-        1.8321
+            (older files, or runs that never called setup()). Use
+            :attr:`startup_time` for the elapsed time before the first region,
+            which stays defined either way.
         """
         return self._run_start_time
 
@@ -531,6 +531,23 @@ class ProfilingH5Reader:
         if self._run_start_time is not None:
             return self._run_start_time
         return self.minimum_start_time
+
+    @property
+    def startup_time(self) -> float:
+        """
+        Seconds between the start of the run and the first profiled region.
+
+        Time the instrumentation never saw: imports, reading input, building
+        a mesh. Zero for files with no registered start time
+        (:attr:`run_start_time` is None), since the run is then only known
+        from its first region onwards.
+
+        Returns
+        -------
+        float
+            Elapsed time before the first region entry, in seconds.
+        """
+        return self.minimum_start_time - self.time_origin
 
     @property
     def maximum_end_time(self) -> float:

@@ -313,12 +313,16 @@ events.pivot_table(index="rank", columns="name", values="duration", aggfunc="sum
 ```
 
 Timestamps are measured from the start of the run, which `setup()` records.
-`reader.run_start_time` is that instant, and the gap to the first profiled
-region is time the instrumentation never saw:
+`reader.run_start_time` is that instant, and `reader.startup_time` the gap to
+the first profiled region — time the instrumentation never saw:
 
 ```python
-startup = reader.minimum_start_time - reader.run_start_time
+print(f"{reader.startup_time:.3f} s before the first region was entered")
 ```
+
+Files written without a start time (anything from before this existed) still
+read fine: `run_start_time` is then `None`, `startup_time` is `0.0`, and the
+relative timeline falls back to the first region entry as before.
 
 To count from before the profiler was even configured, capture the instant
 yourself and hand it to `setup()`:

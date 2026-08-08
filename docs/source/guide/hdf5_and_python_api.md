@@ -186,12 +186,11 @@ frame["fraction_of_run"] = frame["total_duration"] / reader.time_span
 ```
 
 `reader.run_start_time` is when the run itself started, as registered by
-`ProfileManager.setup()`. The difference between the two is the time the
-instrumentation never saw:
+`ProfileManager.setup()`, and `reader.startup_time` is the gap from there to
+the first region — the time the instrumentation never saw:
 
 ```python
-startup = reader.minimum_start_time - reader.run_start_time
-print(f"{startup:.3f} s elapsed before the first region was entered")
+print(f"{reader.startup_time:.3f} s elapsed before the first region was entered")
 ```
 
 ### Which zero the timeline uses
@@ -209,6 +208,11 @@ The `plot_*` functions are the exception: they frame the x axis on the first
 region entry, so that a long gap between `setup()` and the first region does
 not fill a chart with empty space. The second line above reproduces exactly
 what a chart's axis shows.
+
+Files that carry no start time — anything written before `setup()` began
+recording one — need no special handling anywhere: `run_start_time` is `None`,
+`time_origin` falls back to the first region entry, `startup_time` is `0.0`,
+and every reader method, export and chart behaves exactly as it did before.
 
 ### Walking the reconstructed call stack
 

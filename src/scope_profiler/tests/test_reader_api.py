@@ -308,16 +308,48 @@ def test_reader_origin_overrides_registered_start_time(tmp_path):
     assert reader.events(relative=False, origin=80.0)[0]["start"] == pytest.approx(20.0)
 
 
-def test_reader_without_registered_start_time_falls_back(tmp_path):
-    """Files written before start_time_ns existed keep the old origin."""
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        None,  # no metadata group at all (oldest files)
+        {"hostname": "somewhere"},  # metadata, but no start time
+        {"start_time_ns": "not a number"},  # unreadable value
+    ],
+    ids=["no_metadata", "metadata_without_start", "unreadable_start"],
+)
+def test_reader_without_registered_start_time_falls_back(tmp_path, metadata):
+    """Post-processing works unchanged on files carrying no start time."""
     path = tmp_path / "no_start.h5"
-    _write_sample_h5(path, {0: {"solve": ([100 * NS], [110 * NS])}})
+    _write_sample_h5(
+        path,
+        {0: {"solve": ([100 * NS, 130 * NS], [110 * NS, 140 * NS])}},
+        metadata=metadata,
+    )
 
     reader = ProfilingH5Reader(path)
 
     assert reader.run_start_time is None
+    # The timeline falls back to the first region entry, as before.
     assert reader.time_origin == pytest.approx(reader.minimum_start_time)
-    assert reader.events()[0]["start"] == 0.0
+    assert reader.startup_time == 0.0
+    assert [event["start"] for event in reader.events()] == pytest.approx([0.0, 30.0])
+    assert [call["start"] for call in reader.call_stack()] == pytest.approx([0.0, 30.0])
+    assert reader.to_events_dataframe()["start"].tolist() == pytest.approx([0.0, 30.0])
+    # An explicit origin still works, and so does the raw timeline.
+    assert reader.events(origin=130.0)[1]["start"] == pytest.approx(0.0)
+    assert reader.events(relative=False)[0]["start"] == pytest.approx(100.0)
+    assert reader.time_span == pytest.approx(40.0)
+
+
+def test_startup_time_measures_the_gap_before_the_first_region(tmp_path):
+    path = tmp_path / "with_start.h5"
+    _write_sample_h5(
+        path,
+        {0: {"solve": ([100 * NS], [110 * NS])}},
+        metadata={"start_time_ns": 80 * NS},
+    )
+
+    assert ProfilingH5Reader(path).startup_time == pytest.approx(20.0)
 
 
 def test_reader_time_span_ignores_count_only_regions(tmp_path):
