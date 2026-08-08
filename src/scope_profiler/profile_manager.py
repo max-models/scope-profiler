@@ -517,6 +517,7 @@ class ProfileManager:
         buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
         use_mpi: bool | None = None,
+        start_time_ns: int | None = None,
     ):
         """
         Initialize and configure the profiling system.
@@ -551,6 +552,21 @@ class ProfileManager:
             srun or an equivalent launcher, so a plain ``python script.py``
             run never imports mpi4py or calls into MPI. True forces MPI on,
             False forces it off.
+        start_time_ns : int or None, optional
+            The instant the run started, as a ``time.perf_counter_ns()``
+            value (default: the moment ``setup()`` is called). Post-processing
+            measures its relative timeline from here, so pass a value captured
+            earlier to account for work that happened before the profiler was
+            configured::
+
+                from time import perf_counter_ns
+
+                T0 = perf_counter_ns()      # first line of the program
+                ...                         # imports, input parsing, ...
+                ProfileManager.setup(start_time_ns=T0)
+
+            The value is stored in the output file as the ``start_time_ns``
+            metadata field.
         """
         ProfilingConfig().reset()
         config = ProfilingConfig(
@@ -563,6 +579,7 @@ class ProfileManager:
             buffer_limit=buffer_limit,
             file_path=file_path,
             use_mpi=use_mpi,
+            start_time_ns=start_time_ns,
         )
         cls.set_config(config=config)
 

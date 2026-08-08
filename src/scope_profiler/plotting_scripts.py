@@ -470,6 +470,10 @@ def _prepare_gantt_data(
         if invalid_ranks:
             raise ValueError(f"Invalid ranks requested: {invalid_ranks}")
 
+    # Charts frame the recorded window: x = 0 is the first region entry, not
+    # the run's registered start (reader.time_origin), so that a long gap
+    # between setup() and the first region does not push the bars off to one
+    # side. reader.events(origin=reader.minimum_start_time) matches this.
     return regions, normalized_ranks, profiling_data.minimum_start_time
 
 
@@ -1077,6 +1081,7 @@ def plot_duration_timeseries(
 
     prepared = []
     for reader, regions in reader_regions:
+        # As in _prepare_gantt_data: charts are framed on the first entry.
         first_start_time = reader.minimum_start_time
         series = [
             (

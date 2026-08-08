@@ -312,6 +312,25 @@ events.query("name == 'solve'")["duration"].hist(bins=50)
 events.pivot_table(index="rank", columns="name", values="duration", aggfunc="sum")
 ```
 
+Timestamps are measured from the start of the run, which `setup()` records.
+`reader.run_start_time` is that instant, and the gap to the first profiled
+region is time the instrumentation never saw:
+
+```python
+startup = reader.minimum_start_time - reader.run_start_time
+```
+
+To count from before the profiler was even configured, capture the instant
+yourself and hand it to `setup()`:
+
+```python
+from time import perf_counter_ns
+
+T0 = perf_counter_ns()                     # first line of the program
+...                                        # imports, input parsing, ...
+ProfileManager.setup(start_time_ns=T0)
+```
+
 `reader.minimum_start_time`, `reader.maximum_end_time` and `reader.time_span`
 bound the profiled window, and `reader.call_stack(rank=0)` hands back the
 nesting the flame graph draws — one dict per call with `depth` and `parent` —

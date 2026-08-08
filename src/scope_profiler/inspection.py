@@ -23,6 +23,7 @@ from scope_profiler.summary import SORT_KEYS, print_region_table, region_rows
 # metadata fields never silently disappear from the output.
 _RUN_FIELDS = (
     "timestamp",
+    "start_time_ns",
     "user",
     "hostname",
     "working_directory",

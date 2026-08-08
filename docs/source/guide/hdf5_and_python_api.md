@@ -45,6 +45,7 @@ Derived fields use lower-case names:
 | Field | Description |
 | --- | --- |
 | `timestamp` | ISO-8601 time the run started |
+| `start_time_ns` | run start on the `perf_counter_ns` clock, the origin of the relative timeline |
 | `user`, `hostname` | who ran it, and where |
 | `platform`, `uname` | OS description, and the full `uname` tuple |
 | `chip_information` | CPU model (from `/proc/cpuinfo` or `sysctl`) |
@@ -183,6 +184,31 @@ computing what fraction of the run a region accounts for:
 frame = reader.to_dataframe()
 frame["fraction_of_run"] = frame["total_duration"] / reader.time_span
 ```
+
+`reader.run_start_time` is when the run itself started, as registered by
+`ProfileManager.setup()`. The difference between the two is the time the
+instrumentation never saw:
+
+```python
+startup = reader.minimum_start_time - reader.run_start_time
+print(f"{startup:.3f} s elapsed before the first region was entered")
+```
+
+### Which zero the timeline uses
+
+`events()` and `call_stack()` measure from `reader.time_origin`: the
+registered start time when the file has one, and the first region entry
+otherwise. Two ways to override it:
+
+```python
+reader.events(relative=False)                        # raw clock timestamps
+reader.events(origin=reader.minimum_start_time)      # zero on the first region
+```
+
+The `plot_*` functions are the exception: they frame the x axis on the first
+region entry, so that a long gap between `setup()` and the first region does
+not fill a chart with empty space. The second line above reproduces exactly
+what a chart's axis shows.
 
 ### Walking the reconstructed call stack
 

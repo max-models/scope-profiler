@@ -262,6 +262,64 @@ def test_reader_events_are_rebased_on_first_entry(tmp_path):
     assert reader.time_span == pytest.approx(40.0)
 
 
+def test_reader_uses_registered_start_time_as_origin(tmp_path):
+    """setup() records a start time; relative timestamps measure from it."""
+    path = tmp_path / "with_start.h5"
+    _write_sample_h5(
+        path,
+        {0: {"solve": ([100 * NS, 130 * NS], [110 * NS, 140 * NS])}},
+        # The run started 20 s before the first region was entered.
+        metadata={"start_time_ns": 80 * NS},
+    )
+
+    reader = ProfilingH5Reader(path)
+
+    assert reader.run_start_time == pytest.approx(80.0)
+    assert reader.time_origin == pytest.approx(80.0)
+    # Events now carry the 20 s of un-instrumented startup.
+    assert [event["start"] for event in reader.events()] == pytest.approx([20.0, 50.0])
+    assert [call["start"] for call in reader.call_stack()] == pytest.approx(
+        [20.0, 50.0]
+    )
+    # The startup gap the instrumentation could not see.
+    assert reader.minimum_start_time - reader.run_start_time == pytest.approx(20.0)
+    # Durations and the profiled window are unaffected by the origin.
+    assert [event["duration"] for event in reader.events()] == pytest.approx(
+        [10.0, 10.0]
+    )
+    assert reader.time_span == pytest.approx(40.0)
+
+
+def test_reader_origin_overrides_registered_start_time(tmp_path):
+    path = tmp_path / "with_start.h5"
+    _write_sample_h5(
+        path,
+        {0: {"solve": ([100 * NS], [110 * NS])}},
+        metadata={"start_time_ns": 80 * NS},
+    )
+    reader = ProfilingH5Reader(path)
+
+    # Explicit origin wins over the registered start time...
+    assert reader.events(origin=reader.minimum_start_time)[0]["start"] == 0.0
+    assert reader.call_stack(origin=reader.minimum_start_time)[0]["start"] == 0.0
+    assert reader.to_events_dataframe(origin=100.0)["start"].tolist() == [0.0]
+    # ...and over relative=False.
+    assert reader.events(relative=False)[0]["start"] == pytest.approx(100.0)
+    assert reader.events(relative=False, origin=80.0)[0]["start"] == pytest.approx(20.0)
+
+
+def test_reader_without_registered_start_time_falls_back(tmp_path):
+    """Files written before start_time_ns existed keep the old origin."""
+    path = tmp_path / "no_start.h5"
+    _write_sample_h5(path, {0: {"solve": ([100 * NS], [110 * NS])}})
+
+    reader = ProfilingH5Reader(path)
+
+    assert reader.run_start_time is None
+    assert reader.time_origin == pytest.approx(reader.minimum_start_time)
+    assert reader.events()[0]["start"] == 0.0
+
+
 def test_reader_time_span_ignores_count_only_regions(tmp_path):
     """A count-only region must not drag the timeline origin down to zero."""
     path = tmp_path / "mixed.h5"

@@ -8,7 +8,7 @@ import h5py
 import numpy as np
 
 from scope_profiler.mpi_region import MPIRegion
-from scope_profiler.region import Region
+from scope_profiler.region import NS_PER_SECOND, Region
 
 
 def _decode_attribute(value):
@@ -62,6 +62,7 @@ class ProfilingH5Reader:
         self._file_path = Path(file_path)
         self._num_ranks = 0
         self._metadata: dict = {}
+        self._run_start_time: float | None = None
         if not self.file_path.exists():
             raise FileNotFoundError(f"HDF5 file not found: {self.file_path}")
 
@@ -74,6 +75,11 @@ class ProfilingH5Reader:
                     key: _decode_attribute(value)
                     for key, value in f["metadata"].attrs.items()
                 }
+                # Recorded by setup(); absent in files written before it
+                # existed, and in any file whose run did not reach finalize().
+                start_time_ns = self._metadata.get("start_time_ns")
+                if start_time_ns is not None:
+                    self._run_start_time = float(start_time_ns) / NS_PER_SECOND
 
             # Iterate over all rank groups
             for rank_group_name, rank_group in f.items():
@@ -226,6 +232,7 @@ class ProfilingH5Reader:
         exclude: list[str] | str | None = None,
         ranks: list[int] | int | None = None,
         relative: bool = True,
+        origin: float | None = None,
     ) -> List[dict]:
         """
         Return one dict per recorded call, across all regions and ranks.
@@ -241,10 +248,17 @@ class ProfilingH5Reader:
         ranks : list of int or int, optional
             Restrict to these ranks (default: all).
         relative : bool, optional
-            If True (default), timestamps are measured from the first region
-            entry in the file, so the timeline starts at zero. If False, the
-            raw monotonic-clock timestamps are returned; those are only
-            comparable within a single run.
+            If True (default), timestamps are measured from
+            :attr:`time_origin` — the start time registered by
+            ``ProfileManager.setup()``, or the first region entry for files
+            without one — so the timeline starts at zero. If False, the raw
+            monotonic-clock timestamps are returned; those are only comparable
+            within a single run.
+        origin : float, optional
+            Measure from this timestamp instead, in seconds on the recording
+            clock. Overrides ``relative``; pass
+            ``origin=reader.minimum_start_time`` to zero the timeline on the
+            first region entry regardless of what the file registered.
 
         Returns
         -------
@@ -258,7 +272,8 @@ class ProfilingH5Reader:
         >>> for event in reader.events(include="solve"):  # doctest: +SKIP
         ...     print(event["rank"], event["start"], event["duration"])
         """
-        origin = self.minimum_start_time if relative else 0.0
+        if origin is None:
+            origin = self.time_origin if relative else 0.0
         events = []
         for region in self.get_regions(include=include, exclude=exclude):
             events.extend(region.events(ranks=ranks, origin=origin))
@@ -270,13 +285,14 @@ class ProfilingH5Reader:
         exclude: list[str] | str | None = None,
         ranks: list[int] | int | None = None,
         relative: bool = True,
+        origin: float | None = None,
     ):
         """
         Return every recorded call as a pandas DataFrame (one row per call).
 
         Parameters
         ----------
-        include, exclude, ranks, relative
+        include, exclude, ranks, relative, origin
             As in :meth:`events`.
 
         Returns
@@ -300,7 +316,11 @@ class ProfilingH5Reader:
 
         columns = ["name", "rank", "call_index", "start", "end", "duration"]
         events = self.events(
-            include=include, exclude=exclude, ranks=ranks, relative=relative
+            include=include,
+            exclude=exclude,
+            ranks=ranks,
+            relative=relative,
+            origin=origin,
         )
         return pd.DataFrame(events, columns=columns)
 
@@ -310,6 +330,7 @@ class ProfilingH5Reader:
         include: list[str] | str | None = None,
         exclude: list[str] | str | None = None,
         relative: bool = True,
+        origin: float | None = None,
     ) -> List[dict]:
         """
         Reconstruct the nested call stack for one rank.
@@ -327,6 +348,8 @@ class ProfilingH5Reader:
             :meth:`get_regions`.
         relative : bool, optional
             If True (default), timestamps start at zero; see :meth:`events`.
+        origin : float, optional
+            Measure from this timestamp instead; see :meth:`events`.
 
         Returns
         -------
@@ -338,10 +361,12 @@ class ProfilingH5Reader:
         """
         from scope_profiler.call_stack import build_call_stack
 
+        if origin is None:
+            origin = self.time_origin if relative else 0.0
         return build_call_stack(
             self.get_regions(include=include, exclude=exclude),
             rank=rank,
-            origin=self.minimum_start_time if relative else 0.0,
+            origin=origin,
         )
 
     def print_summary(
@@ -457,6 +482,55 @@ class ProfilingH5Reader:
             if region.has_timing
         ]
         return min(starts) if starts else 0.0
+
+    @property
+    def run_start_time(self) -> float | None:
+        """
+        When the run started, in seconds on the recording clock.
+
+        This is the ``start_time_ns`` metadata field, written by
+        ``ProfileManager.setup()`` — by default the moment setup() was called,
+        or an earlier instant if one was passed to it.
+
+        Returns
+        -------
+        float or None
+            The registered start time, or None for files written without one
+            (older files, or runs that never called setup()).
+
+        Examples
+        --------
+        Time that elapsed before the first profiled region — imports, input
+        parsing, anything the instrumentation cannot see:
+
+        >>> reader.minimum_start_time - reader.run_start_time  # doctest: +SKIP
+        1.8321
+        """
+        return self._run_start_time
+
+    @property
+    def time_origin(self) -> float:
+        """
+        Zero point of the relative timeline, in seconds.
+
+        The registered :attr:`run_start_time` when the file has one, and
+        otherwise the first region entry (:attr:`minimum_start_time`). This is
+        what :meth:`events` and :meth:`call_stack` measure from.
+
+        Note the ``plot_*`` functions instead frame their x axis on the first
+        region entry, so that a long gap between ``setup()`` and the first
+        region does not fill a chart with empty space. Pass
+        ``origin=reader.minimum_start_time`` to :meth:`events` to reproduce
+        the numbers on a chart's axis.
+
+        Returns
+        -------
+        float
+            Origin timestamp on the recording clock.
+        """
+        if self._run_start_time is not None:
+            return self._run_start_time
+        return self.minimum_start_time
 
     @property
     def maximum_end_time(self) -> float:

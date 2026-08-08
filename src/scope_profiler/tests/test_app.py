@@ -1,5 +1,5 @@
 import socket
-from time import sleep
+from time import perf_counter_ns, sleep
 
 import h5py
 import pytest
@@ -405,6 +405,50 @@ def test_read_results_opens_the_finalized_file(tmp_path):
     assert reader.file_path == file_path
     assert reader["step"].num_calls == 3
     assert len(reader.events(include="step")) == 3
+
+
+def test_setup_registers_the_run_start_time(tmp_path):
+    """The run's start time is persisted and becomes the timeline origin."""
+    file_path = tmp_path / "start_time.h5"
+    before = perf_counter_ns()
+    ProfileManager.setup(file_path=str(file_path))
+    after = perf_counter_ns()
+
+    sleep(0.01)  # un-instrumented work, invisible to the regions
+    with ProfileManager.profile_region("step"):
+        sleep(0.001)
+
+    ProfileManager.finalize(verbose=False)
+    reader = ProfileManager.read_results()
+
+    recorded = reader.metadata["start_time_ns"]
+    assert before <= recorded <= after
+    assert reader.run_start_time == pytest.approx(recorded / 1e9)
+    assert reader.time_origin == reader.run_start_time
+
+    # The sleep before the first region is now visible as a startup gap.
+    startup = reader.minimum_start_time - reader.run_start_time
+    assert startup >= 0.01
+    assert reader.events()[0]["start"] == pytest.approx(startup)
+
+
+def test_setup_accepts_an_earlier_start_time(tmp_path):
+    """A start time captured before setup() accounts for imports and parsing."""
+    file_path = tmp_path / "early_start.h5"
+    program_start = perf_counter_ns()
+    sleep(0.01)  # stand in for imports, input parsing, ...
+    ProfileManager.setup(file_path=str(file_path), start_time_ns=program_start)
+
+    with ProfileManager.profile_region("step"):
+        sleep(0.001)
+
+    ProfileManager.finalize(verbose=False)
+    reader = ProfileManager.read_results()
+
+    assert reader.metadata["start_time_ns"] == program_start
+    assert reader.run_start_time == pytest.approx(program_start / 1e9)
+    # The first region starts at least the pre-setup sleep into the run.
+    assert reader.events()[0]["start"] >= 0.01
 
 
 def test_read_results_before_finalize_raises(tmp_path):
