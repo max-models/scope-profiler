@@ -1,6 +1,7 @@
 """Singleton configuration for the profiling system."""
 
 import os
+import shutil
 import tempfile
 from time import perf_counter_ns
 from typing import TYPE_CHECKING
@@ -19,8 +20,73 @@ if TYPE_CHECKING:
 #     _PYLIKWID_AVAILABLE = False
 
 
+def _liblikwid_search_dirs() -> list:
+    """Directories that plausibly hold LIKWID's shared library.
+
+    Derived from the variables a ``likwid`` environment module exports, then
+    from the location of ``likwid-perfctr`` itself, which is on ``PATH``
+    whenever the module is loaded.
+    """
+    dirs = []
+
+    for var in ("LIKWID_LIB", "LIKWID_HOME", "LIKWID_ROOT", "LIKWID_PREFIX"):
+        root = os.environ.get(var)
+        if not root:
+            continue
+        # LIKWID_LIB may already point at the library directory itself.
+        dirs.extend([root, os.path.join(root, "lib"), os.path.join(root, "lib64")])
+
+    perfctr = shutil.which("likwid-perfctr")
+    if perfctr:
+        prefix = os.path.dirname(os.path.dirname(os.path.realpath(perfctr)))
+        dirs.extend([os.path.join(prefix, "lib"), os.path.join(prefix, "lib64")])
+
+    seen = set()
+    return [d for d in dirs if os.path.isdir(d) and not (d in seen or seen.add(d))]
+
+
+def _preload_liblikwid() -> bool:
+    """Load LIKWID's shared library into this process, if it can be found.
+
+    ``pylikwid`` is linked against ``liblikwid.so``, so importing it fails
+    unless the dynamic loader can find that library. Clusters routinely ship a
+    ``likwid`` module that puts ``likwid-perfctr`` on ``PATH`` and exports
+    ``LIKWID_HOME`` without ever touching ``LD_LIBRARY_PATH``, which makes the
+    import fail even though everything needed is installed.
+
+    Setting ``LD_LIBRARY_PATH`` from inside Python cannot help --- the loader
+    reads it once, at process start. Opening the library explicitly with
+    ``RTLD_GLOBAL`` does: its symbols then satisfy the pylikwid extension when
+    it is imported moments later.
+
+    Returns
+    -------
+    bool
+        True if a library was loaded, False if none could be found.
+    """
+    import ctypes
+    import glob
+
+    for directory in _liblikwid_search_dirs():
+        # Prefer the fully versioned name (liblikwid.so.5.3) over the bare
+        # symlink, so a directory holding several versions resolves the same
+        # way the loader would.
+        candidates = sorted(glob.glob(os.path.join(directory, "liblikwid.so*")))
+        for path in reversed(candidates):
+            try:
+                ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
+                return True
+            except OSError:
+                continue
+    return False
+
+
 def _import_pylikwid():
     """Dynamically import the pylikwid module.
+
+    If the import fails only because LIKWID's shared library is not on the
+    loader path, the library is located and preloaded and the import retried;
+    see :func:`_preload_liblikwid`.
 
     Returns
     -------
@@ -32,9 +98,50 @@ def _import_pylikwid():
     ImportError
         If the module cannot be imported.
     """
-    import pylikwid
+    try:
+        import pylikwid
+    except ImportError as exc:
+        # A missing liblikwid is recoverable; a missing pylikwid is not.
+        if "liblikwid" not in str(exc) or not _preload_liblikwid():
+            raise
+        import pylikwid
 
     return pylikwid
+
+
+def _pylikwid_import_error(exc: ImportError) -> str:
+    """Explain why ``import pylikwid`` failed, and how to fix it.
+
+    The two failures look alike from the outside but need opposite fixes:
+    the bindings can be genuinely absent, or they can be installed and merely
+    unable to find LIKWID's shared library at load time (typical on clusters,
+    where a ``likwid`` module puts ``likwid-perfctr`` on ``PATH`` without
+    touching ``LD_LIBRARY_PATH``). Reporting the second as "not installed"
+    sends people off to reinstall a package they already have.
+    """
+    message = str(exc)
+
+    if "liblikwid" in message:
+        likwid_home = os.environ.get("LIKWID_HOME") or os.environ.get("LIKWID_ROOT")
+        hint = (
+            f'export LD_LIBRARY_PATH="{likwid_home}/lib:$LD_LIBRARY_PATH"'
+            if likwid_home
+            else 'export LD_LIBRARY_PATH="<likwid-prefix>/lib:$LD_LIBRARY_PATH"'
+        )
+        return (
+            "LIKWID profiling requested and pylikwid is installed, but the "
+            f"LIKWID runtime library could not be loaded ({message}). Point "
+            "the dynamic loader at your LIKWID installation, e.g.\n"
+            f"    {hint}\n"
+            "On a cluster, load the LIKWID module first (module load likwid)."
+        )
+
+    return (
+        "LIKWID profiling requested but the pylikwid module could not be "
+        f"imported ({message}). Install scope-profiler[likwid], or pylikwid "
+        "directly. It builds against an existing LIKWID installation, so "
+        "install or load LIKWID first."
+    )
 
 
 class ProfilingConfig:
@@ -158,15 +265,17 @@ class ProfilingConfig:
         self._metadata["start_time_ns"] = self._start_time_ns
 
         self._pylikwid = None
+        # markerclose() must run exactly once: it writes the marker file and
+        # tears the perfmon module down, so a second call (e.g. a second
+        # finalize()) would have nothing left to close.
+        self._likwid_closed = False
         if self.use_likwid:
             # pylikwid.markerinit()
             try:
                 self._pylikwid = _import_pylikwid()
                 self.pylikwid_markerinit()
             except ImportError as e:
-                raise ImportError(
-                    "LIKWID profiling requested but pylikwid module not installed"
-                ) from e
+                raise ImportError(_pylikwid_import_error(e)) from e
         self._initialized = True
 
     def get_local_filepath(self, rank):
@@ -195,8 +304,83 @@ class ProfilingConfig:
         self._pylikwid.markerinit()
 
     def pylikwid_markerclose(self):
-        """Close LIKWID markers to finalize measurement regions."""
+        """Close LIKWID markers to finalize measurement regions.
+
+        Idempotent: repeated calls (a second ``finalize()``, say) do nothing.
+        """
+        if self._likwid_closed or self._pylikwid is None:
+            return
+        self._likwid_closed = True
         self._pylikwid.markerclose()
+
+    def collect_likwid_results(self, region_names) -> list:
+        """Close the LIKWID markers and return the run's counter results.
+
+        Tries three sources, richest first, so a host where LIKWID cannot do
+        the fancy parts still ends up with real numbers in the HDF5 file:
+
+        1. the perfmon read-back, run in a subprocess because it can crash
+           the interpreter outright on hosts that cannot really count;
+        2. LIKWID's marker file, parsed directly --- real values, but no
+           event names or derived metrics;
+        3. a marker-API snapshot taken before the markers were closed, for
+           when there is no marker file at all.
+
+        See :mod:`scope_profiler.likwid_data` for why the first one is fenced
+        off.
+
+        Parameters
+        ----------
+        region_names : iterable of str
+            Region names to snapshot via the marker API.
+
+        Returns
+        -------
+        list of scope_profiler.likwid_data.LikwidRegionResult
+            Empty when LIKWID is disabled, the process was not started under
+            ``likwid-perfctr -m`` / ``likwid-mpirun -marker``, or the markers
+            were already collected.
+
+        Notes
+        -----
+        A process can only do this once. Closing the markers tears the marker
+        API down, and querying it afterwards crashes the interpreter rather
+        than raising, so a second ``finalize()`` returns nothing instead of
+        reading again. The counters of the whole process therefore end up in
+        the file written by the *first* ``finalize()``.
+        """
+        if not self.use_likwid or self._pylikwid is None or self._likwid_closed:
+            return []
+
+        from scope_profiler.likwid_data import (
+            collect_marker_results_isolated,
+            collect_region_snapshots,
+            markers_available,
+            parse_marker_file,
+            snapshots_to_results,
+        )
+
+        if not markers_available():
+            # markerinit() degrades to a no-op outside likwid-perfctr, so there
+            # are no counters to read -- not an error, just nothing to report.
+            self.pylikwid_markerclose()
+            return []
+
+        # Taken while the markers are still open; only used if both paths
+        # below come up empty.
+        snapshots = collect_region_snapshots(self._pylikwid, region_names)
+        self.pylikwid_markerclose()
+
+        results = collect_marker_results_isolated()
+        if results:
+            return results
+        return parse_marker_file() or snapshots_to_results(snapshots)
+
+    def likwid_environment(self) -> dict:
+        """Return the ``LIKWID_*`` environment variables of this process."""
+        from scope_profiler.likwid_data import likwid_environment
+
+        return likwid_environment()
 
     @property
     def comm(self) -> "Intercomm | None":

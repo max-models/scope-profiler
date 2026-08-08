@@ -365,6 +365,12 @@ class ProfileManager:
         and merges per-rank profiling files into a single output file. Optionally
         prints profiling statistics for each region.
 
+        With ``use_likwid=True`` this is also where the LIKWID markers are
+        closed and every marker region of the run is read back and stored in
+        the output file under ``rank<r>/likwid/regions/<tag>``; see
+        :meth:`~scope_profiler.h5reader.ProfilingH5Reader.get_likwid_regions`
+        for reading it back.
+
         Parameters
         ----------
         verbose : bool, optional
@@ -400,11 +406,26 @@ class ProfileManager:
                 region.write_to_disk()
                 region.mark_written()
 
-        # 2. Barrier to ensure all ranks finished writing
+        # 2. Close the LIKWID markers and store this rank's hardware counters
+        # alongside its timings. This has to happen before the merge below,
+        # not after it, or the counters would miss the copy into the output
+        # file. Closing the markers here also means the marker file exists in
+        # time to be read back; see ProfilingConfig.collect_likwid_results.
+        if config.use_likwid:
+            from scope_profiler.likwid_data import write_likwid_results
+
+            likwid_results = config.collect_likwid_results(cls.get_all_regions().keys())
+            if likwid_results:
+                with h5py.File(config._local_file_path, "a") as f:
+                    write_likwid_results(
+                        f, likwid_results, environment=config.likwid_environment()
+                    )
+
+        # 3. Barrier to ensure all ranks finished writing
         if comm is not None:
             comm.Barrier()
 
-        # 3. Only rank 0 performs the merge
+        # 4. Only rank 0 performs the merge
         if rank == 0:
             merged_file_path = config.file_path
             with h5py.File(merged_file_path, "w") as fout:
@@ -431,7 +452,7 @@ class ProfileManager:
                         # Copy all groups from the rank file under /rank<r>
                         fout.copy(fin, f"rank{r}")
 
-            # 4. Summarize the merged file, using the same table that
+            # 5. Summarize the merged file, using the same table that
             # `scope-profiler inspect` and ProfilingH5Reader.print_summary()
             # render. Reading it back keeps the merge above a plain copy and
             # leaves one implementation of the statistics.
@@ -441,9 +462,6 @@ class ProfileManager:
                 ProfilingH5Reader(merged_file_path).print_summary(
                     title=f"{merged_file_path}  ({size} rank(s))"
                 )
-
-        if config.use_likwid:
-            config.pylikwid_markerclose()
 
         if config.use_line_profiler and verbose:
             for region in cls.get_all_regions().values():

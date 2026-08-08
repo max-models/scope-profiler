@@ -8,6 +8,7 @@ from scope_profiler.call_stack import (
     call_stack_roots,
 )
 from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.mpi_region import MPIRegion
 from scope_profiler.profile_manager import ProfileManager
 from scope_profiler.region import Region
@@ -36,6 +37,7 @@ _LAZY_ATTRS = {
 }
 
 __all__ = [
+    "LikwidRegionResult",
     "MPIRegion",
     "ProfileManager",
     "ProfilingH5Reader",

@@ -16,6 +16,12 @@ from scope_profiler.plotting_scripts import (
 )
 from scope_profiler.prof_export import export_prof
 from scope_profiler.speedscope_export import export_speedscope
+from scope_profiler.summary import (
+    SORT_KEYS,
+    print_likwid_tables,
+    print_region_table,
+    region_rows,
+)
 
 
 def parse_ranks(spec: str, verbose: bool = False) -> list[int]:
@@ -36,6 +42,46 @@ def parse_ranks(spec: str, verbose: bool = False) -> list[int]:
     if verbose:
         print(f"Parsed ranks: {ranks}")
     return ranks
+
+
+def print_summary(
+    reader,
+    include=None,
+    exclude=None,
+    ranks=None,
+    sort: str = "total",
+    stream=None,
+) -> None:
+    """Print one file's region statistics, and its LIKWID counters if any.
+
+    The region table is the same one ``ProfileManager.finalize()`` and
+    ``scope-profiler inspect`` render. LIKWID results, when the run recorded
+    them, follow as one additional table per rank and event group; files
+    without LIKWID data simply end after the region table.
+
+    Parameters
+    ----------
+    reader : ProfilingH5Reader
+        File to summarize.
+    include, exclude : list of str or str, optional
+        Regex patterns selecting which regions to report.
+    ranks : list of int, optional
+        Restrict the statistics to these ranks (default: all).
+    sort : str, optional
+        Region table ordering; one of
+        :data:`~scope_profiler.summary.SORT_KEYS`.
+    stream : file-like, optional
+        Where to write (default: stdout).
+    """
+    rows = region_rows(reader, include=include, exclude=exclude, ranks=ranks, sort=sort)
+    print_region_table(
+        rows,
+        title=f"{reader.file_path}  ({reader.num_ranks} rank(s))",
+        stream=stream,
+    )
+    print_likwid_tables(
+        reader, include=include, exclude=exclude, ranks=ranks, stream=stream
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -209,6 +255,23 @@ def build_parser() -> argparse.ArgumentParser:
             "the exported data. Requires one of those export options."
         ),
     )
+    parser.add_argument(
+        "--summary",
+        action="store_true",
+        help=(
+            "Print the per-region statistics table for each file, plus a "
+            "separate LIKWID hardware counter table per rank and event group "
+            "when the run recorded any. Honours --include/--exclude/--ranks. "
+            "On its own this prints the summary and produces no plots; "
+            "combine it with --show or -o/--output to get both."
+        ),
+    )
+    parser.add_argument(
+        "--summary-sort",
+        choices=SORT_KEYS,
+        default="total",
+        help="Order the --summary region table by this column (default: total)",
+    )
     return parser
 
 
@@ -270,6 +333,24 @@ def main(argv: list[str] | None = None):
         args.ranks = sorted(set(ranks))
 
     readers = [ProfilingH5Reader(file_path) for file_path in args.files]
+
+    if args.summary:
+        # Before the time_trace check below: a count-only file still has a
+        # perfectly good summary table, and so does a LIKWID-only one.
+        for index, reader in enumerate(readers):
+            if index:
+                print()
+            print_summary(
+                reader,
+                include=args.include,
+                exclude=args.exclude,
+                ranks=args.ranks,
+                sort=args.summary_sort,
+            )
+        # Asking only for a summary means the summary is the whole job;
+        # rendering charts nobody requested would just cost time.
+        if not (args.show or args.output):
+            return
 
     # Files profiled with time_trace=False hold call counts but no timestamps,
     # so every chart here would be empty. Report the counts and stop, rather

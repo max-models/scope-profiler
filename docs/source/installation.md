@@ -17,6 +17,7 @@ with the bracket syntax:
 
 | Extra           | Install command                               | What it adds                                                                         |
 | --------------- | --------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `likwid`        | `pip install "scope-profiler[likwid]"`        | LIKWID hardware counters via [pylikwid](https://github.com/RRZE-HPC/pylikwid)         |
 | `line-profiler` | `pip install "scope-profiler[line-profiler]"` | Line-by-line profiling via [line_profiler](https://github.com/pyutils/line_profiler) |
 | `mpi`           | `pip install "scope-profiler[mpi]"`           | MPI support via [mpi4py](https://mpi4py.readthedocs.io/)                             |
 | `pproc`         | `pip install "scope-profiler[pproc]"`         | Plotting and post-processing (`scope-profiler pproc`, `to_dataframe()`)               |
@@ -47,6 +48,32 @@ LIKWID hardware counter support requires the
 installed on the system. See the
 [LIKWID documentation](https://github.com/RRZE-HPC/likwid/wiki) for
 build instructions.
+
+`pip install "scope-profiler[likwid]"` installs the `pylikwid` bindings, but
+they build against an existing LIKWID installation --- install (or
+`module load`) LIKWID first.
+
+`pylikwid` is linked against `liblikwid.so`, and many cluster modules put
+`likwid-perfctr` on `PATH` without adding the library to `LD_LIBRARY_PATH`,
+which makes `import pylikwid` fail with
+`ImportError: liblikwid.so.5: cannot open shared object file`. scope-profiler
+recovers from this on its own: it locates the library via `LIKWID_HOME` /
+`LIKWID_ROOT` (or the prefix of `likwid-perfctr` on `PATH`) and loads it
+before importing the bindings, so `module load likwid` is enough.
+
+If LIKWID lives somewhere none of those point to, set the loader path
+yourself before starting Python:
+
+```bash
+export LD_LIBRARY_PATH="/path/to/likwid/lib:$LD_LIBRARY_PATH"
+python -c "import pylikwid"
+```
+
+Counters are only recorded when the process is started under LIKWID's marker
+mode --- `likwid-perfctr -C 0 -g CLOCK -m python script.py`, or
+`likwid-mpirun ... -marker`. Run the script plainly and the marker calls
+become no-ops: the timings are still recorded, there are simply no counters.
+See {doc}`guide/likwid`.
 
 ## Verify installation
 

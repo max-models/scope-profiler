@@ -105,9 +105,20 @@ jobs:
           mpirun -n 2 python3 src/scope_profiler/tests/test_mpi.py
           scope-profiler pproc profiling_data.h5 --show -o figures
 
-      - name: Test examples with pylikwid
+      # examples_pylikwid.py asserts that the hardware counters actually reach
+      # the HDF5 file, so these runs cover the whole marker -> h5 path. Serial
+      # first, to keep a LIKWID failure distinguishable from an MPI one.
+      - name: Test examples with pylikwid (serial)
+        run: |
+          likwid-perfctr -C 0 -g FLOPS_SP -m python3 src/scope_profiler/tests/examples_pylikwid.py
+
+      - name: Test examples with pylikwid (MPI)
         run: |
           likwid-mpirun -n 2 -g FLOPS_SP -mpi openmpi -stats -marker python3 src/scope_profiler/tests/examples_pylikwid.py
+
+      - name: Test LIKWID example
+        run: |
+          likwid-perfctr -C 0 -g FLOPS_DP -m python3 examples/ex_likwid.py
 
     # - name: Test tutorials
     #   run: |
