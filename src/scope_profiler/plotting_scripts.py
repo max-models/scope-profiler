@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 
 from scope_profiler.call_stack import build_call_stack
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler.results import ProfilingResults
 
 
 def _write_csv(
@@ -220,9 +220,9 @@ def _region_color_map(region_names, cmap: str = DEFAULT_CMAP) -> dict:
 
 
 def _as_readers(
-    profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
-) -> list[ProfilingH5Reader]:
-    if isinstance(profiling_data, ProfilingH5Reader):
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
+) -> list[ProfilingResults]:
+    if isinstance(profiling_data, ProfilingResults):
         return [profiling_data]
     return list(profiling_data)
 
@@ -313,7 +313,7 @@ def _stats_from_values(values: np.ndarray) -> dict[str, float | int | None]:
 
 
 def _common_region_names(
-    readers: Sequence[ProfilingH5Reader],
+    readers: Sequence[ProfilingResults],
     include: list[str] | str | None = None,
     exclude: list[str] | str | None = None,
 ) -> list[str]:
@@ -336,7 +336,7 @@ def _common_region_names(
 _SCALING_X_FIELDS = {"num_ranks", "omp_num_threads", "total_cores"}
 
 
-def _speedup_x_value(reader: ProfilingH5Reader, x_field: str):
+def _speedup_x_value(reader: ProfilingResults, x_field: str):
     """Resolve the x-axis value for a single reader given ``x_field``."""
     if x_field == "num_ranks":
         return reader.num_ranks
@@ -366,7 +366,7 @@ def _speedup_x_value(reader: ProfilingH5Reader, x_field: str):
 
 
 def collect_region_statistics(
-    profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
     ranks: list[int] | int | None = None,
     include: list[str] | str | None = None,
     exclude: list[str] | str | None = None,
@@ -427,7 +427,7 @@ def collect_region_statistics(
 
 
 def write_region_statistics_json(
-    profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
     filepath: str | Path,
     ranks: list[int] | int | None = None,
     include: list[str] | str | None = None,
@@ -449,7 +449,7 @@ def write_region_statistics_json(
 
 
 def _prepare_gantt_data(
-    profiling_data: ProfilingH5Reader,
+    profiling_data: ProfilingResults,
     ranks: list[int] | int | None,
     include: list[str] | str | None,
     exclude: list[str] | str | None,
@@ -478,7 +478,7 @@ def _prepare_gantt_data(
 
 
 def plot_gantt(
-    profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
     ranks: list[int] | int | None = None,
     include: list[str] | str | None = None,
     exclude: list[str] | str | None = None,
@@ -654,7 +654,7 @@ def plot_gantt(
 
 
 def plot_flame(
-    profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
     ranks: list[int] | int | None = None,
     include: list[str] | str | None = None,
     exclude: list[str] | str | None = None,
@@ -834,7 +834,7 @@ def _metric_filepath(filepath: str, metric_key: str, single_metric: bool) -> str
 
 
 def plot_durations(
-    profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
     ranks: list[int] | int | None = None,
     include: list[str] | str | None = None,
     exclude: list[str] | str | None = None,
@@ -1038,7 +1038,7 @@ def _duration_timeseries(
 
 
 def plot_duration_timeseries(
-    profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
     ranks: list[int] | int | None = None,
     include: list[str] | str | None = None,
     exclude: list[str] | str | None = None,
@@ -1190,7 +1190,7 @@ def plot_duration_timeseries(
 
 
 def plot_speedup(
-    profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
     x_field: str = "num_ranks",
     ranks: list[int] | int | None = None,
     include: list[str] | str | None = None,

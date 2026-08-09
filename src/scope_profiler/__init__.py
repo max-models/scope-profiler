@@ -12,6 +12,7 @@ from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.mpi_region import MPIRegion
 from scope_profiler.profile_manager import ProfileManager
 from scope_profiler.region import Region
+from scope_profiler.results import ProfilingResults
 
 try:
     __version__ = version("scope-profiler")
@@ -41,6 +42,7 @@ __all__ = [
     "MPIRegion",
     "ProfileManager",
     "ProfilingH5Reader",
+    "ProfilingResults",
     "Region",
     "build_call_stack",
     "call_stack_children",

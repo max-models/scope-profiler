@@ -37,6 +37,9 @@ combinations.
 
 `flush_to_disk` is not part of this dispatch: recording is identical either
 way, and the flag only decides whether `finalize()` writes the buffers out.
+With `flush_to_disk=False`, use `finalize(return_results=True)` to get the
+recorded data back — see
+[the Python API guide](hdf5_and_python_api.md#getting-the-results-without-touching-disk).
 
 ## Toggling profiling at runtime
 

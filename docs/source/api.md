@@ -99,12 +99,25 @@ from scope_profiler import (
 All durations and timestamps exposed here are in **seconds**; the HDF5 file
 stores nanoseconds.
 
+### ProfilingResults
+
+The post-processing API itself. `ProfilingH5Reader` is this class loaded from
+a file, and `ProfileManager.finalize(return_results=True)` returns one built
+straight from memory.
+
+```{eval-rst}
+.. autoclass:: scope_profiler.results.ProfilingResults
+   :members:
+   :undoc-members:
+```
+
 ### ProfilingH5Reader
 
 ```{eval-rst}
 .. autoclass:: scope_profiler.h5reader.ProfilingH5Reader
    :members:
    :undoc-members:
+   :show-inheritance:
 ```
 
 ### Region

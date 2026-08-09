@@ -19,12 +19,12 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from scope_profiler.call_stack import build_call_stack
-from scope_profiler.h5reader import ProfilingH5Reader
 from scope_profiler.plotting_scripts import (
     _as_readers,
     _normalize_ranks,
     _unique_labels,
 )
+from scope_profiler.results import ProfilingResults
 
 # pstats keys are (filename, lineno, funcname) triples, and
 # ``pstats.func_std_string`` renders a key starting with ("~", 0) as the bare
@@ -139,7 +139,7 @@ def write_prof_file(
 
 
 def export_prof(
-    profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
     filepath: str | Path,
     ranks: list[int] | int | None = None,
     include: list[str] | str | None = None,
@@ -150,7 +150,7 @@ def export_prof(
 
     Parameters
     ----------
-    profiling_data : ProfilingH5Reader | Sequence[ProfilingH5Reader]
+    profiling_data : ProfilingResults | Sequence[ProfilingResults]
         Reader(s) for the merged HDF5 file(s) to export.
     filepath : str | Path
         Base output path, e.g. ``figures/profile.prof``. A ``_rank<N>`` suffix

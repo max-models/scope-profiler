@@ -130,6 +130,28 @@ reader.print_summary()
 
 Under MPI only rank 0 writes the merged file, so guard the call accordingly.
 
+### Getting the results without touching disk
+
+`finalize(return_results=True)` hands back the run's data directly from the
+in-memory buffers, with no file to write and read back:
+
+```python
+results = ProfileManager.finalize(return_results=True)
+
+results.print_summary()
+df = results.to_dataframe()
+plot_gantt(results)
+```
+
+The returned `ProfilingResults` is exactly what `ProfilingH5Reader` is — the
+reader is that class loaded from a file — so every method on this page, every
+`plot_*` function and every exporter accepts it.
+
+This works with `flush_to_disk=False`, where no timing data is written at all.
+Under MPI the per-rank data is gathered on rank 0, which is collective: every
+rank must pass `return_results=True`, and only rank 0 gets the results back
+(the others get `None`), mirroring the merged file.
+
 ## Building your own plots and analyses
 
 The built-in charts cover the common cases; when you want something else,
