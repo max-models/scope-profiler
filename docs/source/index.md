@@ -32,7 +32,7 @@ all through a single, unified API.
 ```python
 from scope_profiler import ProfileManager
 
-ProfileManager.setup(time_trace=True, flush_to_disk=True)
+ProfileManager.setup()
 
 @ProfileManager.profile("compute")
 def compute():

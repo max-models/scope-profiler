@@ -40,10 +40,10 @@ def test_returned_results_match_the_written_file(tmp_path):
     assert results.time_origin == from_disk.time_origin
 
 
-def test_results_without_flushing_to_disk(tmp_path):
+def test_results_without_file_output(tmp_path):
     """The point of the option: full results when nothing is written out."""
     out = tmp_path / "profiling_data.h5"
-    ProfileManager.setup(file_path=str(out), flush_to_disk=False)
+    ProfileManager.setup(file_path=str(out), deactivate_file_output=True)
 
     _run("step", 4)
     results = ProfileManager.finalize(verbose=False, return_results=True)
@@ -52,18 +52,7 @@ def test_results_without_flushing_to_disk(tmp_path):
     assert results["step"].num_calls == 4
     assert results["step"].total_duration > 0
     assert len(results.events()) == 4
-
-
-def test_count_only_regions_are_included(tmp_path):
-    """With time_trace=False the counts survive, exactly as they do on disk."""
-    out = tmp_path / "profiling_data.h5"
-    ProfileManager.setup(file_path=str(out), time_trace=False)
-
-    _run("counted", 3)
-    results = ProfileManager.finalize(verbose=False, return_results=True)
-
-    assert results["counted"].num_calls == 3
-    assert results.summary() == read_h5(str(out)).summary()
+    assert not out.exists()
 
 
 def test_second_finalize_returns_only_its_own_events(tmp_path):
@@ -84,7 +73,7 @@ def test_second_finalize_returns_only_its_own_events(tmp_path):
 
 def test_disabled_profiling_returns_empty_results(tmp_path):
     """Nothing recorded, but still a usable object rather than None."""
-    ProfileManager.setup(profiling_activated=False)
+    ProfileManager.setup(deactivate_profiling=True)
 
     results = ProfileManager.finalize(verbose=False, return_results=True)
 

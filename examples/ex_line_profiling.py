@@ -34,7 +34,7 @@ import random
 
 from scope_profiler import ProfileManager
 
-# Enable line_profiler (time_trace and flush_to_disk default to True)
+# Enable line_profiler; timestamps are always recorded as well
 ProfileManager.setup(use_line_profiler=True)
 
 # ---------------------------------------------------------------------------

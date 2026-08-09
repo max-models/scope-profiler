@@ -44,7 +44,9 @@ def test_without_a_label_the_file_stem_is_used(tmp_path):
 def test_in_memory_results_carry_the_label(tmp_path):
     """finalize(return_results=True) reads it from the same metadata."""
     ProfileManager.setup(
-        file_path=str(tmp_path / "run.h5"), flush_to_disk=False, label="in memory"
+        file_path=str(tmp_path / "run.h5"),
+        deactivate_file_output=True,
+        label="in memory",
     )
     with ProfileManager.profile_region("solve"):
         sleep(0.0001)

@@ -1,7 +1,7 @@
 # HDF5 output & post-processing from Python
 
-When `flush_to_disk=True` (the default), scope-profiler writes timing
-data into HDF5 files and merges them on `finalize()`.
+Unless `deactivate_file_output=True`, scope-profiler writes timing data into
+per-rank HDF5 files and merges them on `finalize()`.
 
 This page covers the file layout and the Python API for reading and plotting
 it. The same charts are available from the command line without writing any
@@ -148,7 +148,7 @@ plot_gantt(results)
 gives back — the only difference is where the data came from — so every method
 on this page, every `plot_*` function and every exporter accepts it.
 
-This works with `flush_to_disk=False`, where no timing data is written at all.
+This works with `deactivate_file_output=True`, where no file is written at all.
 
 ### Under MPI
 
@@ -219,8 +219,7 @@ events.query("name == 'solve'")["duration"].hist(bins=50)
 ```
 
 The same filters apply as everywhere else: `include`/`exclude` regexes and
-`ranks`. Regions profiled with `time_trace=False` record only a call count
-and so contribute no events.
+`ranks`.
 
 Individual `Region` and `MPIRegion` objects expose the same view for a single
 region (`results["solve"].events()`), and `Region` also offers the stored

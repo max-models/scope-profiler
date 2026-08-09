@@ -4,9 +4,9 @@ Post-processing straight from memory, serial or under MPI
 
 ``ProfileManager.finalize(return_results=True)`` hands back the run's data as a
 ``ProfilingResults`` --- the same post-processing API ``read_h5()`` gives you,
-but built from the in-memory buffers instead of by reading a file back. Here it is used with ``flush_to_disk=False``, so no timing data is
-written to disk at all (the output file is left holding just the run metadata)
-and the summary and figures are produced from memory.
+but built from the in-memory buffers instead of by reading a file back. Here
+it is used with ``deactivate_file_output=True``, so no HDF5 file is written at
+all and the summary and figures are produced from memory.
 
 The same script runs unchanged on any number of ranks. There is deliberately
 no ``if rank == 0`` anywhere below: under MPI the per-rank timings are gathered
@@ -57,11 +57,12 @@ def simulate(num_iterations=5, size=20_000):
 def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # flush_to_disk=False: no timing data goes to disk, the results come back
-    # from memory instead. Drop it (or set it to True) to get a full HDF5 file
-    # as well; everything below works the same either way.
+    # deactivate_file_output=True: nothing is written to disk, the results
+    # come back from memory instead. Drop it to get a full HDF5 file as well;
+    # everything below works the same either way.
     ProfileManager.setup(
-        flush_to_disk=False, file_path=str(OUTPUT_DIR / "in_memory_example.h5")
+        deactivate_file_output=True,
+        file_path=str(OUTPUT_DIR / "in_memory_example.h5"),
     )
 
     simulate()

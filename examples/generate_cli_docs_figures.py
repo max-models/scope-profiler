@@ -46,7 +46,7 @@ def run_workload(h5_path: str) -> None:
     """Mock solver: work per rank shrinks with the rank count, imperfectly."""
     from scope_profiler import ProfileManager
 
-    ProfileManager.setup(time_trace=True, flush_to_disk=True, file_path=h5_path)
+    ProfileManager.setup(file_path=h5_path)
 
     try:
         from mpi4py import MPI

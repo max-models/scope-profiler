@@ -364,17 +364,13 @@ partially overlapping regions and recursion.
 
 ## Files without timing data
 
-A file profiled with `time_trace=False` records call counts but no
-timestamps, so there is nothing to plot. Rather than failing inside the
-plotting code, `pproc` reports the counts and stops:
+A run that entered no region records nothing to plot. Rather than failing
+inside the plotting code, `pproc` reports what is there and stops:
 
 ```text
-No timing data found — these files were profiled with time_trace=False,
-which records call counts only.
+No timing data found — these files recorded no calls.
 
-ncalls_only.h5:
-  setup: 1 calls
-  timestep: 3 calls
+empty_run.h5:
 ```
 
 ## Reproducing the figures on this page

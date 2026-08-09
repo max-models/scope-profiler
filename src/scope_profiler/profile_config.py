@@ -164,103 +164,97 @@ class ProfilingConfig:
 
     def __init__(
         self,
-        profiling_activated: bool = True,
+        deactivate_profiling: bool = False,
+        deactivate_file_output: bool = False,
         use_likwid: bool = False,
         use_line_profiler: bool = False,
         recursive_profile: bool = False,
-        time_trace: bool = True,
-        flush_to_disk: bool = True,
         buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
-        use_mpi: bool | None = None,
-        start_time_ns: int | None = None,
         label: str | None = None,
     ):
         """Initialize the profiling configuration.
 
         Parameters
         ----------
-        profiling_activated : bool
-            Whether profiling features are enabled.
+        deactivate_profiling : bool
+            Turn profiling off entirely. Every region becomes a no-op, so
+            instrumentation can stay in the code at near-zero cost.
+        deactivate_file_output : bool
+            Write no HDF5 file at all: no per-rank files, no merged output,
+            not even the run metadata. The recorded data then lives only in
+            memory, where ``finalize(return_results=True)`` can still return
+            it.
         use_likwid : bool
             Enable LIKWID marker API if available.
         use_line_profiler : bool
             Enable line-by-line profiling via line_profiler.
         recursive_profile : bool
             Enable recursive profiling by default for decorated functions.
-        time_trace : bool
-            Enable time trace profiling.
-        flush_to_disk : bool
-            If True, flush profiling buffers to disk periodically.
         buffer_limit : int
             Initial number of in-memory records to preallocate per region.
             The buffers grow on demand, so this is a starting size, not a cap.
         file_path : str
             Global output file path for combined profiling data.
-        use_mpi : bool or None
-            Whether to use MPI collectives. None (default) enables them only
-            when the process was started by an MPI launcher (mpirun/mpiexec/
-            srun/...); see :mod:`scope_profiler.mpi_launch`. True forces MPI
-            on, False forces it off.
-        start_time_ns : int or None
-            The instant the run started, as a ``time.perf_counter_ns()``
-            value. Defaults to the moment this configuration is created.
-            Pass a value captured earlier (at the top of the program, before
-            imports) to have post-processing measure from there instead; it
-            is persisted as the ``start_time_ns`` metadata field and becomes
-            the origin of the relative timeline in
-            :class:`~scope_profiler.results.ProfilingResults`.
         label : str or None
             Short name for this run, used by post-processing wherever a run
             has to be named: chart legends, the summary heading, the JSON
             statistics. Defaults to None, in which case the output file's stem
             is used. Persisted as the ``label`` metadata field.
+
+        Notes
+        -----
+        MPI is not configurable: collectives are used exactly when the process
+        was started by an MPI launcher, so a plain ``python script.py`` never
+        touches MPI. See :mod:`scope_profiler.mpi_launch` for the detection and
+        its ``SCOPE_PROFILER_MPI`` override.
         """
 
         if self._initialized:
             return
 
-        self._config_creation_time = perf_counter_ns()
-        # The run's declared origin. Identical to the creation time unless the
-        # caller recorded one earlier, which is the only way to account for
-        # time spent before the profiler existed (imports, input parsing).
-        self._start_time_ns = (
-            self._config_creation_time if start_time_ns is None else int(start_time_ns)
-        )
+        # The run's origin, on the perf_counter_ns clock. Persisted as
+        # metadata, and the point post-processing measures its relative
+        # timeline from.
+        self._start_time_ns = perf_counter_ns()
 
         # Serial runs must not import mpi4py (which would call MPI_Init) nor
         # issue any collective, so the communicator stays None unless this
         # process really is part of an MPI job.
-        self._comm = get_comm(use_mpi)
-        self._profiling_activated = profiling_activated
+        self._comm = get_comm()
+        self._deactivate_profiling = deactivate_profiling
+        self._deactivate_file_output = deactivate_file_output
         self._use_likwid = use_likwid
         self._use_line_profiler = use_line_profiler
         self._recursive_profile = recursive_profile
-        self._time_trace = time_trace
-        self._flush_to_disk = flush_to_disk
         self._buffer_limit = buffer_limit
         self._file_path = file_path
 
         self._rank = 0 if self._comm is None else self._comm.Get_rank()
         self._size = 1 if self._comm is None else self._comm.Get_size()
 
-        # Only rank 0 creates the TemporaryDirectory
-        if self._rank == 0:
-            self._temp_dir_obj = tempfile.TemporaryDirectory(prefix="profile_h5_")
-            temp_dir = self._temp_dir_obj.name
+        # The per-rank files are staging for the merge, so they are only
+        # created when there is going to be an output file at all.
+        if self._deactivate_file_output:
+            self._temp_dir_obj = None
+            self.temp_dir = None
+            self._local_file_path = None
         else:
-            temp_dir = None
-            self._temp_dir_obj = None  # still define to keep the attribute
+            # Only rank 0 creates the TemporaryDirectory
+            if self._rank == 0:
+                self._temp_dir_obj = tempfile.TemporaryDirectory(prefix="profile_h5_")
+                temp_dir = self._temp_dir_obj.name
+            else:
+                temp_dir = None
+                self._temp_dir_obj = None  # still define to keep the attribute
 
-        # Broadcast the directory path to all ranks
-        if self._comm is not None:
-            temp_dir = self._comm.bcast(temp_dir, root=0)
+            # Broadcast the directory path to all ranks
+            if self._comm is not None:
+                temp_dir = self._comm.bcast(temp_dir, root=0)
 
-        self.temp_dir = temp_dir
-        self._global_file_path = self.file_path
-
-        # Temporary file with rank-specific timings
-        self._local_file_path = self.get_local_filepath(self._rank)
+            self.temp_dir = temp_dir
+            # Temporary file with rank-specific timings
+            self._local_file_path = self.get_local_filepath(self._rank)
 
         # Environment metadata (hostname, OpenMP threads, versions, ...).
         # Collected on every rank, but only rank 0's copy ends up persisted
@@ -399,9 +393,9 @@ class ProfilingConfig:
         return self._comm
 
     @property
-    def profiling_activated(self) -> bool:
-        """Return whether profiling is globally enabled."""
-        return self._profiling_activated
+    def deactivate_profiling(self) -> bool:
+        """Return whether profiling is globally turned off."""
+        return self._deactivate_profiling
 
     @property
     def buffer_limit(self) -> int:
@@ -424,14 +418,9 @@ class ProfilingConfig:
         return self._use_line_profiler
 
     @property
-    def flush_to_disk(self) -> bool:
-        """Return whether profiling buffers should flush to disk."""
-        return self._flush_to_disk
-
-    @property
-    def time_trace(self) -> bool:
-        """Return whether time trace profiling is enabled."""
-        return self._time_trace
+    def deactivate_file_output(self) -> bool:
+        """Return whether the run writes no HDF5 file at all."""
+        return self._deactivate_file_output
 
     @property
     def recursive_profile(self) -> bool:
@@ -439,17 +428,11 @@ class ProfilingConfig:
         return self._recursive_profile
 
     @property
-    def config_creation_time(self) -> int:
-        """Timestamp (ns) when the configuration was created."""
-        return self._config_creation_time
-
-    @property
     def start_time_ns(self) -> int:
         """The run's start time (ns, ``perf_counter_ns`` clock).
 
-        The configuration's creation time unless ``setup()`` was given an
-        earlier one. Persisted as metadata and used as the timeline origin
-        when reading the results back.
+        The moment the configuration was created. Persisted as metadata and
+        used as the timeline origin when reading the results back.
         """
         return self._start_time_ns
 

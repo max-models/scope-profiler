@@ -28,9 +28,6 @@ def _write_sample_h5(path, rank_regions, metadata=None):
             regions_group = h5file.create_group(f"rank{rank}").create_group("regions")
             for region_name, payload in regions.items():
                 region_group = regions_group.create_group(region_name)
-                if payload is None:
-                    region_group.attrs["num_calls"] = 3
-                    continue
                 starts, ends = payload
                 region_group.create_dataset(
                     "start_times", data=np.asarray(starts, dtype=np.int64)
@@ -177,19 +174,6 @@ def test_section_switches(sample_file, capsys):
     inspect_file(sample_file, show_metadata=False)
     out = capsys.readouterr().out
     assert "Metadata" not in out and "Regions" in out
-
-
-def test_count_only_regions(tmp_path, capsys):
-    """Regions from time_trace=False runs report calls but no durations."""
-    path = tmp_path / "counts.h5"
-    _write_sample_h5(path, {0: {"counted": None}}, metadata={"user": "max"})
-
-    inspect_file(path)
-    out = capsys.readouterr().out
-    line = next(line for line in out.splitlines() if "counted" in line)
-
-    assert line.split()[1:] == ["1", "3", "-", "-", "-", "-", "-"]
-    assert "time_trace=False" in out
 
 
 def test_file_without_regions_or_metadata(tmp_path, capsys):

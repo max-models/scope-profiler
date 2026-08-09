@@ -79,8 +79,6 @@ def _run(argv):
         recursive_profile=True,
         use_likwid=False,
         use_line_profiler=False,
-        time_trace=True,
-        flush_to_disk=True,
         buffer_limit=args.buffer_limit,
         file_path=args.outfile,
     )

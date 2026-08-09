@@ -14,8 +14,6 @@ from scope_profiler import ProfileManager
 
 ProfileManager.setup(
     use_likwid=False,
-    time_trace=True,
-    flush_to_disk=True,
     recursive_profile=True,
 )
 

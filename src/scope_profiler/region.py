@@ -18,7 +18,6 @@ class Region:
         self,
         start_times: np.ndarray,
         end_times: np.ndarray,
-        num_calls: int | None = None,
     ) -> None:
         """
         Initialize a Region with timing information for multiple calls.
@@ -29,15 +28,11 @@ class Region:
             Start times of all calls in nanoseconds.
         end_times : np.ndarray
             End times of all calls in nanoseconds.
-        num_calls : int, optional
-            Explicit call count. Defaults to the number of recorded timestamps.
-            Regions profiled with ``time_trace=False`` record a count but no
-            timestamps, so the two differ there.
         """
         self._start_times = start_times
         self._end_times = end_times
         self._durations = end_times - start_times
-        self._num_calls = len(self._durations) if num_calls is None else int(num_calls)
+        self._num_calls = len(self._durations)
 
     def get_summary(self) -> Dict[str, Any]:
         """
@@ -74,8 +69,7 @@ class Region:
         -------
         list of dict
             One entry per call with keys ``call_index``, ``start``, ``end``
-            and ``duration``, in seconds and in recorded order. Empty for a
-            region profiled with ``time_trace=False``.
+            and ``duration``, in seconds and in recorded order.
         """
         starts = self.start_times - origin
         ends = self.end_times - origin
@@ -91,7 +85,7 @@ class Region:
 
     @property
     def has_timing(self) -> bool:
-        """Whether timestamps were recorded (False with ``time_trace=False``)."""
+        """Whether this region recorded any calls at all."""
         return len(self._durations) > 0
 
     @property
@@ -140,11 +134,7 @@ class Region:
 
     @property
     def num_calls(self) -> int:
-        """Number of recorded calls.
-
-        Equals the number of recorded timestamps unless the region was profiled
-        with ``time_trace=False``, where only the count is recorded.
-        """
+        """Number of recorded calls."""
         return self._num_calls
 
     @property

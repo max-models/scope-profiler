@@ -130,16 +130,8 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
 
             for region_name, region_grp in regions_group.items():
                 region_names.append(region_name)
-                if "start_times" in region_grp:
-                    starts = region_grp["start_times"][()]
-                    ends = region_grp["end_times"][()]
-                else:
-                    # Count-only region (time_trace=False): the call count
-                    # is stored as an attribute, with no timestamps.
-                    starts = np.empty(0, dtype=np.int64)
-                    ends = np.empty(0, dtype=np.int64)
                 region = Region(
-                    starts, ends, num_calls=region_grp.attrs.get("num_calls")
+                    region_grp["start_times"][()], region_grp["end_times"][()]
                 )
                 # Merge if region already exists (from another rank)
                 if region_name in _region_dict:

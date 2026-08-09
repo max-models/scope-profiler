@@ -20,10 +20,6 @@ def _write_sample_h5(path, rank_regions, metadata=None):
             regions_group = h5file.create_group(f"rank{rank}").create_group("regions")
             for region_name, payload in regions.items():
                 region_group = regions_group.create_group(region_name)
-                if payload is None:
-                    # Count-only region (time_trace=False).
-                    region_group.attrs["num_calls"] = 3
-                    continue
                 start_times, end_times = payload
                 region_group.create_dataset(
                     "start_times", data=np.asarray(start_times, dtype=np.int64)
@@ -71,16 +67,17 @@ def test_region_durations_are_seconds():
     assert region.get_summary()["total_duration"] == 6.0
 
 
-def test_region_without_timing_is_safe():
+def test_region_without_any_calls_is_safe():
+    """A region that recorded nothing still answers every query."""
     empty = np.empty(0, dtype=np.int64)
-    region = Region(empty, empty, num_calls=7)
+    region = Region(empty, empty)
 
-    assert region.num_calls == 7
-    assert len(region) == 7
+    assert region.num_calls == 0
+    assert len(region) == 0
     assert not region.has_timing
     # Every duration stat stays defined rather than raising on empty input.
     assert region.get_summary() == {
-        "num_calls": 7,
+        "num_calls": 0,
         "total_duration": 0.0,
         "average_duration": 0.0,
         "min_duration": 0.0,
@@ -173,20 +170,6 @@ def test_reader_to_dataframe(sample_file):
     assert per_rank.loc[
         (per_rank["name"] == "solve") & (per_rank["rank"] == 0), "total_duration"
     ].item() == pytest.approx(5.0)
-
-
-def test_reader_handles_count_only_regions(tmp_path):
-    path = tmp_path / "counts.h5"
-    _write_sample_h5(path, {0: {"counted": None}})
-
-    reader = read_h5(path)
-    region = reader["counted"]
-
-    assert region.num_calls == 3
-    assert not region.has_timing
-    assert region.durations.size == 0
-    assert reader.summary()[0]["total_duration"] == 0.0
-    assert reader.minimum_start_time == 0.0
 
 
 def test_region_events(sample_file):
@@ -352,25 +335,10 @@ def test_startup_time_measures_the_gap_before_the_first_region(tmp_path):
     assert read_h5(path).startup_time == pytest.approx(20.0)
 
 
-def test_reader_time_span_ignores_count_only_regions(tmp_path):
-    """A count-only region must not drag the timeline origin down to zero."""
-    path = tmp_path / "mixed.h5"
-    _write_sample_h5(
-        path,
-        {0: {"counted": None, "solve": ([100 * NS], [110 * NS])}},
-    )
-
-    reader = read_h5(path)
-
-    assert reader.minimum_start_time == pytest.approx(100.0)
-    assert reader.time_span == pytest.approx(10.0)
-    # The count-only region contributes no events.
-    assert [event["name"] for event in reader.events()] == ["solve"]
-
-
-def test_reader_time_span_without_timing(tmp_path):
-    path = tmp_path / "counts.h5"
-    _write_sample_h5(path, {0: {"counted": None}})
+def test_reader_time_span_without_regions(tmp_path):
+    """A run that profiled nothing still answers the timeline queries."""
+    path = tmp_path / "empty.h5"
+    _write_sample_h5(path, {0: {}})
 
     reader = read_h5(path)
 
@@ -401,8 +369,8 @@ def test_reader_to_events_dataframe(sample_file):
 def test_reader_to_events_dataframe_columns_when_empty(tmp_path):
     """An empty selection still yields the documented columns."""
     pytest.importorskip("pandas")
-    path = tmp_path / "counts.h5"
-    _write_sample_h5(path, {0: {"counted": None}})
+    path = tmp_path / "empty.h5"
+    _write_sample_h5(path, {0: {}})
 
     frame = read_h5(path).to_events_dataframe()
 

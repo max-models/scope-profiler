@@ -31,8 +31,6 @@ from scope_profiler import ProfileManager
 ProfileManager.setup(
     use_likwid=False,
     recursive_profile=False,
-    time_trace=True,
-    flush_to_disk=True,
 )
 
 # Profile the main() function with a decorator
@@ -158,11 +156,11 @@ against a bare function call:
 
 ![Profiling overhead by region type](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/benchmark_overhead.png)
 
-The two modes most relevant to HPC — **NCallsOnly** and **TimeOnly** — add
-roughly **0.09 µs** and **0.75 µs** per instrumented call respectively.
+The default **TimeOnly** mode — nanosecond timestamps for every call — adds
+roughly **0.75 µs** per instrumented call.
 
 Profiling can also be fully deactivated at setup time
-(`profiling_activated=False`) to reduce the overhead to ~0.03 µs — barely
+(`deactivate_profiling=True`) to reduce the overhead to ~0.03 µs — barely
 above a bare function call — making it safe to leave instrumentation in
 production code and toggle it on only when needed.
 
@@ -324,17 +322,6 @@ print(f"{results.startup_time:.3f} s before the first region was entered")
 Files written without a start time (anything from before this existed) still
 read fine: `run_start_time` is then `None`, `startup_time` is `0.0`, and the
 relative timeline falls back to the first region entry as before.
-
-To count from before the profiler was even configured, capture the instant
-yourself and hand it to `setup()`:
-
-```python
-from time import perf_counter_ns
-
-T0 = perf_counter_ns()                     # first line of the program
-...                                        # imports, input parsing, ...
-ProfileManager.setup(start_time_ns=T0)
-```
 
 `results.minimum_start_time`, `results.maximum_end_time` and `results.time_span`
 bound the profiled window, and `results.call_stack(rank=0)` hands back the

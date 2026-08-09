@@ -30,8 +30,6 @@ def create_sample_profile(filepath: str):
     """Create a sample profile for demonstration."""
     ProfileManager.setup(
         use_likwid=False,
-        time_trace=True,
-        flush_to_disk=True,
         file_path=filepath,
     )
 

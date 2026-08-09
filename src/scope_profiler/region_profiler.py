@@ -66,7 +66,6 @@ class BaseProfileRegion:
         "start_times",
         "end_times",
         "num_calls",
-        "_num_calls_written",
         "ptr",
         "buffer_limit",
         "capacity",
@@ -93,8 +92,6 @@ class BaseProfileRegion:
         self.region_name = region_name
         self.config = config
         self.num_calls = 0
-        # Calls already persisted by an earlier finalize(); see mark_written.
-        self._num_calls_written = 0
 
         # Preallocate buffers (skipped entirely when no timing is recorded).
         # `buffer_limit` is the *initial* capacity: `_grow` doubles it as
@@ -184,18 +181,6 @@ class BaseProfileRegion:
             grp.create_dataset("start_times", data=self.start_times[: self.ptr])
             grp.create_dataset("end_times", data=self.end_times[: self.ptr])
 
-    def _write_num_calls(self) -> None:
-        """Persist the call count as an attribute on this region's HDF5 group.
-
-        Used by regions that record no timestamps, so their call counts survive
-        into the merged output file instead of being lost with the process.
-        Only the calls made since the last finalize() are written, matching the
-        per-run slice of timestamps the timing regions write.
-        """
-        with h5py.File(self.config._local_file_path, "a") as f:
-            grp = f.require_group(self.group_path)
-            grp.attrs["num_calls"] = self.num_calls - self._num_calls_written
-
     def get_durations_numpy(self) -> np.ndarray:
         """Return durations (end - start) for buffered entries as a NumPy array."""
         return self.end_times[: self.ptr] - self.start_times[: self.ptr]
@@ -209,8 +194,7 @@ class BaseProfileRegion:
         are reused; anything past ``ptr`` is unread scratch), while
         ``num_calls`` keeps counting for the lifetime of the process — it is
         the in-memory view of the region, which callers inspect after
-        ``finalize()`` — so the watermark below is what makes the *written*
-        count per-run.
+        ``finalize()``.
 
         A region that is currently open has a slot reserved in the buffer and
         an index waiting to be popped on exit, so rewinding under it would let
@@ -219,15 +203,14 @@ class BaseProfileRegion:
         if self._scope_ptr_stack:
             return
         self.ptr = 0
-        self._num_calls_written = self.num_calls
 
     def get_end_times_numpy(self) -> np.ndarray:
-        """Return end times offset by config creation time."""
-        return self.end_times[: self.ptr] - self.config.config_creation_time
+        """Return end times offset by the run's start time."""
+        return self.end_times[: self.ptr] - self.config.start_time_ns
 
     def get_start_times_numpy(self) -> np.ndarray:
-        """Return start times offset by config creation time."""
-        return self.start_times[: self.ptr] - self.config.config_creation_time
+        """Return start times offset by the run's start time."""
+        return self.start_times[: self.ptr] - self.config.start_time_ns
 
     def add_function(self, func) -> None:
         """Register a function for profiling. No-op except in LineProfilerRegion."""
@@ -265,45 +248,6 @@ class DisabledProfileRegion(BaseProfileRegion):
 
     def __exit__(self, exc_type, exc_value, traceback):
         """Exit a non-operational context manager."""
-        pass
-
-
-class NCallsOnlyProfileRegion(BaseProfileRegion):
-    """Region that records only the number of calls, not timing."""
-
-    _records_time = False
-
-    def wrap(self, func):
-        """Wrap a function and increment the call counter for each invocation."""
-
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            self.num_calls += 1
-            out = func(*args, **kwargs)
-            return out
-
-        return wrapper
-
-    def append(self, start, end):
-        """Ignored: timing information is not stored."""
-        pass
-
-    def write_to_disk(self):
-        """Persist the call count — the only thing this region records."""
-        if self.num_calls > self._num_calls_written:
-            self._write_num_calls()
-
-    def get_durations_numpy(self):
-        """Return an empty array because no timing data is collected."""
-        return np.array([])
-
-    def __enter__(self):
-        """Increment the call counter when entering the context."""
-        self.num_calls += 1
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        """Context exit does nothing."""
         pass
 
 
@@ -349,54 +293,6 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
         """Record the end time at this scope's reserved slot."""
         scope_ptr = self._scope_ptr_stack.pop()
         self.end_times[scope_ptr] = np.int64(perf_counter_ns())
-
-
-# LIKWID-only region
-class LikwidOnlyProfileRegion(BaseProfileRegion):
-    """Region that wraps a LIKWID marker region without recording timing.
-
-    This region enables hardware performance counter collection using LIKWID,
-    but does not store timing or write data to HDF5. Useful when the user only
-    wants LIKWID metrics while still using the unified region API.
-    """
-
-    __slots__ = ("likwid_marker_start", "likwid_marker_stop")
-
-    def __init__(self, region_name: str, config: ProfilingConfig):
-        """Initialize LIKWID marker callbacks."""
-        super().__init__(region_name, config)
-        pylikwid = _import_pylikwid()
-        self.likwid_marker_start = pylikwid.markerstartregion
-        self.likwid_marker_stop = pylikwid.markerstopregion
-
-    def write_to_disk(self):
-        """Persist the call count; LIKWID counters go to LIKWID's own output."""
-        if self.num_calls > self._num_calls_written:
-            self._write_num_calls()
-
-    def wrap(self, func):
-        """Wrap a function to enclose it in a LIKWID marker region."""
-
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            self.num_calls += 1
-            self.likwid_marker_start(self.region_name)
-            try:
-                return func(*args, **kwargs)
-            finally:
-                self.likwid_marker_stop(self.region_name)
-
-        return wrapper
-
-    def __enter__(self):
-        """Record start time and increment call count."""
-        self.num_calls += 1
-        self.likwid_marker_start(self.region_name)
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        """Stop the LIKWID marker region on context exit."""
-        self.likwid_marker_stop(self.region_name)
 
 
 # Full region: time + LIKWID

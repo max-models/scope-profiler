@@ -9,12 +9,11 @@ configuration is global: every call to `profile()` or `profile_region()`
 
 | Parameter             | Type   | Default               | Description                                                                                     |
 | --------------------- | ------ | --------------------- | ----------------------------------------------------------------------------------------------- |
-| `profiling_activated` | `bool` | `True`                | Master switch. When `False`, all regions become no-ops with near-zero cost.                     |
+| `deactivate_profiling`| `bool` | `False`               | Master switch. When `True`, all regions become no-ops with near-zero cost.                      |
 | `use_likwid`          | `bool` | `False`               | Wrap regions with LIKWID marker API calls for hardware counter collection. Requires `pylikwid`. |
 | `use_line_profiler`   | `bool` | `False`               | Enable line-by-line profiling via `line_profiler`. See {doc}`line_profiler`.                    |
 | `recursive_profile`   | `bool` | `False`               | Enable recursive nested-call profiling for all decorated functions by default.                    |
-| `time_trace`          | `bool` | `True`                | Record nanosecond start/end timestamps for every call.                                          |
-| `flush_to_disk`       | `bool` | `True`                | Write the recorded timings to per-rank HDF5 files at `finalize()`. When `False`, results stay in memory. |
+| `deactivate_file_output`| `bool` | `False`             | When `True`, write no HDF5 file at all; the run stays in memory. See below.                      |
 | `buffer_limit`        | `int`  | `1024`                | Initial per-region buffer capacity. Buffers grow on demand, so this is a starting size, not a cap. |
 | `file_path`           | `str`  | `"profiling_data.h5"` | Output path for the merged HDF5 file written by `finalize()`.                                   |
 | `label`               | `str`  | `None`                | Short name for the run, used by post-processing wherever a run has to be named. See below.       |
@@ -41,26 +40,37 @@ actually prints.
 
 ## Profiling modes
 
-The combination of flags determines which internal region class is used.
-This **strategy dispatch** avoids runtime conditionals in the hot path:
+Every active region records nanosecond timestamps; the remaining flags decide
+what it records *on top* of them. This **strategy dispatch** picks the region
+class once, at `setup()`, so there are no runtime conditionals in the hot path:
 
-| `time_trace` | `use_likwid` | Region class              | What it records                  |
-| :----------: | :----------: | ------------------------- | -------------------------------- |
-|      --      |      --      | `DisabledProfileRegion`   | Nothing (profiling off)          |
-|      no      |      no      | `NCallsOnlyProfileRegion` | Call count only                  |
-|     yes      |      no      | `TimeOnlyProfileRegion`   | Timestamps                       |
-|      no      |     yes      | `LikwidOnlyProfileRegion` | LIKWID markers only              |
-|     yes      |     yes      | `FullProfileRegion`       | Timestamps + LIKWID              |
-|      --      |      --      | `LineProfilerRegion`      | Timestamps + line-by-line        |
+| Flags                     | Region class            | What it records           |
+| ------------------------- | ----------------------- | ------------------------- |
+| `deactivate_profiling`    | `DisabledProfileRegion` | Nothing (profiling off)   |
+| *(defaults)*              | `TimeOnlyProfileRegion` | Timestamps                |
+| `use_likwid`              | `FullProfileRegion`     | Timestamps + LIKWID       |
+| `use_line_profiler`       | `LineProfilerRegion`    | Timestamps + line-by-line |
 
-When `use_line_profiler=True` it takes precedence over the other
-combinations.
+`use_line_profiler=True` takes precedence over `use_likwid=True`.
 
-`flush_to_disk` is not part of this dispatch: recording is identical either
-way, and the flag only decides whether `finalize()` writes the buffers out.
-With `flush_to_disk=False`, use `finalize(return_results=True)` to get the
-recorded data back — see
+`deactivate_file_output` is not part of this dispatch: recording is identical
+either way, and the flag only decides whether `finalize()` writes the buffers
+out. With `deactivate_file_output=True`, use `finalize(return_results=True)`
+to get the recorded data back — see
 [the Python API guide](hdf5_and_python_api.md#getting-the-results-without-touching-disk).
+
+## What is no longer configurable
+
+Two things used to be options and are now decided for you, because there was
+only ever one sensible answer:
+
+- **The run's start time** is the moment `setup()` is called. It is stored as
+  the `start_time_ns` metadata field and is the origin of the relative
+  timeline in post-processing.
+- **MPI** is used exactly when the process was started by an MPI launcher
+  (`mpirun`, `mpiexec`, `srun`, ...), so a plain `python script.py` never
+  imports `mpi4py`. Set `SCOPE_PROFILER_MPI=0` or `=1` in the environment to
+  overrule the detection.
 
 ## Toggling profiling at runtime
 
@@ -72,7 +82,7 @@ import os
 from scope_profiler import ProfileManager
 
 ProfileManager.setup(
-    profiling_activated=os.environ.get("ENABLE_PROFILING", "0") == "1",
+    deactivate_profiling=os.environ.get("DISABLE_PROFILING", "0") == "1",
 )
 ```
 
@@ -93,7 +103,7 @@ You can override this per function with
 `@ProfileManager.profile(..., recursive=False)` or
 `@ProfileManager.profile(..., recursive=True)`.
 
-When `profiling_activated=False`, every region is a `DisabledProfileRegion`
+When `deactivate_profiling=True`, every region is a `DisabledProfileRegion`
 whose `__enter__` / `__exit__` / `wrap` are trivial no-ops, adding only
 the cost of a Python function call (~45 ns).
 
@@ -103,12 +113,12 @@ Calling `setup()` again resets all existing regions and applies the new
 configuration:
 
 ```python
-ProfileManager.setup(time_trace=True)
+ProfileManager.setup(file_path="run_a.h5")
 # ... profile some code ...
 ProfileManager.finalize()
 
 # Start a fresh session with different settings
-ProfileManager.setup(time_trace=False)
+ProfileManager.setup(file_path="run_b.h5", use_line_profiler=True)
 # ...
 ProfileManager.finalize()
 ```

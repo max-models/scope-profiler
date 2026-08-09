@@ -1,13 +1,11 @@
 import os
 import time
 
-from scope_profiler import ProfileManager, read_h5
+from scope_profiler import ProfileManager
 from scope_profiler.plotting_scripts import plot_flame, plot_gantt
 
 ProfileManager.setup(
     use_likwid=False,
-    time_trace=True,
-    flush_to_disk=True,
     file_path="profiling_data.h5",
 )
 

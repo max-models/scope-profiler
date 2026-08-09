@@ -13,8 +13,6 @@ modules --- share this configuration.
 from scope_profiler import ProfileManager
 
 ProfileManager.setup(
-    time_trace=True,       # record start/end timestamps
-    flush_to_disk=True,    # write HDF5 time-trace data
     recursive_profile=False,  # profile nested Python calls from decorators
 )
 ```
@@ -121,8 +119,6 @@ for region in results:
 from scope_profiler import ProfileManager
 
 ProfileManager.setup(
-    time_trace=True,
-    flush_to_disk=True,
 )
 
 @ProfileManager.profile("main")
