@@ -208,7 +208,7 @@ class ProfilingConfig:
             imports) to have post-processing measure from there instead; it
             is persisted as the ``start_time_ns`` metadata field and becomes
             the origin of the relative timeline in
-            :class:`~scope_profiler.h5reader.ProfilingH5Reader`.
+            :class:`~scope_profiler.results.ProfilingResults`.
         """
 
         if self._initialized:

@@ -19,12 +19,12 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from scope_profiler.call_stack import build_call_stack
-from scope_profiler.h5reader import ProfilingH5Reader
 from scope_profiler.plotting_scripts import (
     _as_readers,
     _normalize_ranks,
     _unique_labels,
 )
+from scope_profiler.results import ProfilingResults
 
 SCHEMA_URL = "https://www.speedscope.app/file-format-schema.json"
 
@@ -194,7 +194,7 @@ def write_speedscope_file(filepath: str | Path, document: dict) -> Path:
 
 
 def export_speedscope(
-    profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
     filepath: str | Path,
     ranks: list[int] | int | None = None,
     include: list[str] | str | None = None,
@@ -209,8 +209,9 @@ def export_speedscope(
 
     Parameters
     ----------
-    profiling_data : ProfilingH5Reader | Sequence[ProfilingH5Reader]
-        Reader(s) for the merged HDF5 file(s) to export.
+    profiling_data : ProfilingResults | Sequence[ProfilingResults]
+        The run(s) to export: file readers, in-memory results from
+        ``ProfileManager.finalize(return_results=True)``, or a mix.
     filepath : str | Path
         Base output path, e.g. ``figures/profile.speedscope.json``. The input
         file's stem is appended when more than one file is exported.
@@ -226,7 +227,8 @@ def export_speedscope(
     """
     readers = _as_readers(profiling_data)
     if not readers:
-        raise ValueError("No profiling data provided.")
+        # Not this rank's job; rank 0 writes the files.
+        return []
 
     normalized_ranks = _normalize_ranks(ranks) if ranks is not None else [0]
 

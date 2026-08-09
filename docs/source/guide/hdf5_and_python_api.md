@@ -130,6 +130,55 @@ reader.print_summary()
 
 Under MPI only rank 0 writes the merged file, so guard the call accordingly.
 
+### Getting the results without touching disk
+
+`finalize(return_results=True)` hands back the run's data directly from the
+in-memory buffers, with no file to write and read back:
+
+```python
+results = ProfileManager.finalize(return_results=True)
+
+results.print_summary()
+df = results.to_dataframe()
+plot_gantt(results)
+```
+
+The returned `ProfilingResults` is exactly what `ProfilingH5Reader` is — the
+reader is that class loaded from a file — so every method on this page, every
+`plot_*` function and every exporter accepts it.
+
+This works with `flush_to_disk=False`, where no timing data is written at all.
+
+### Under MPI
+
+The gather is collective, so every rank must call
+`finalize(return_results=True)` — don't hide the call behind a rank guard. Rank
+0 then holds the whole run, mirroring the merged file; the other ranks get an
+empty result set.
+
+You do not need a rank guard for anything downstream either. Everything that
+produces output — `print_summary()`, the `plot_*` functions, the exporters —
+does nothing for those empty result sets, so the script above prints its table
+once and writes each figure once, from rank 0, whether you run it on 1 rank or
+1000:
+
+```bash
+python simulation.py
+mpirun -n 64 python simulation.py     # same script, same output, once
+```
+
+Analyses of your own need no guard as long as they iterate — `get_regions()`
+and `events()` simply come back empty off rank 0. When you do need the
+distinction (writing your own file, say), ask for it explicitly:
+
+```python
+if results.is_root:
+    my_report(results)
+```
+
+See `examples/ex_in_memory_results.py` for a complete script that runs
+unchanged serially and under `mpirun`.
+
 ## Building your own plots and analyses
 
 The built-in charts cover the common cases; when you want something else,

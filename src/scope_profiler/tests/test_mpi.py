@@ -28,7 +28,20 @@ def test_mpi():
             random_math(N)
         time.sleep(0.01)
 
-    ProfileManager.finalize()
+    # The gather behind return_results is collective, so every rank asks for
+    # it; only rank 0 gets the merged run back, like the output file.
+    results = ProfileManager.finalize(return_results=True)
+    if ProfileManager.get_config()._rank == 0:
+        from scope_profiler import ProfilingH5Reader
+
+        from_disk = ProfilingH5Reader(ProfileManager.get_config().file_path)
+        assert results.is_root
+        assert results.num_ranks == from_disk.num_ranks
+        assert results.summary() == from_disk.summary()
+    else:
+        # Empty and non-root, so the output calls above are no-ops here.
+        assert not results.is_root
+        assert results.region_names == []
 
 
 if __name__ == "__main__":

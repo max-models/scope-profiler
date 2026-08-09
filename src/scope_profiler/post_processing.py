@@ -61,8 +61,8 @@ def print_summary(
 
     Parameters
     ----------
-    reader : ProfilingH5Reader
-        File to summarize.
+    reader : ProfilingResults
+        The run to summarize.
     include, exclude : list of str or str, optional
         Regex patterns selecting which regions to report.
     ranks : list of int, optional

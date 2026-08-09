@@ -11,6 +11,7 @@ from types import FrameType
 from typing import TYPE_CHECKING, Callable, Dict
 
 import h5py
+import numpy as np
 
 from scope_profiler.profile_config import ProfilingConfig
 from scope_profiler.region_profiler import (
@@ -354,10 +355,97 @@ class ProfileManager:
             sys.setprofile(prev_profiler)
 
     @classmethod
+    def _snapshot_regions(cls) -> Dict[str, tuple]:
+        """Copy every region's buffered timestamps out of the live buffers.
+
+        Taken before ``finalize()`` writes anything, because writing rewinds
+        the buffers (see ``BaseProfileRegion.mark_written``) and the arrays are
+        then reused by any later call. The copies cover exactly the calls this
+        run would write to disk, so in-memory results and the output file agree.
+
+        Returns
+        -------
+        dict
+            Region name -> ``(start_times, end_times, num_calls)``, with the
+            timestamps in nanoseconds and ``num_calls`` None for regions whose
+            count is implied by their timestamps.
+        """
+        snapshot = {}
+        for name, region in cls.get_all_regions().items():
+            # Only this run's calls, matching the slice write_to_disk() and
+            # _write_num_calls() persist.
+            num_calls = region.num_calls - region._num_calls_written
+            if region.ptr == 0 and num_calls <= 0:
+                continue
+            snapshot[name] = (
+                np.array(region.start_times[: region.ptr]),
+                np.array(region.end_times[: region.ptr]),
+                # Recorded timestamps carry the count with them; a region that
+                # has none (count-only, LIKWID-only) needs it stated, which is
+                # exactly the split between datasets and attribute on disk.
+                None if region.ptr else num_calls,
+            )
+        return snapshot
+
+    @classmethod
+    def _build_results(cls, snapshot, likwid_results):
+        """Assemble a ProfilingResults from this rank's snapshot.
+
+        Under MPI the snapshots are gathered on rank 0, which gets the results
+        for the whole run - the same split as the merged output file, which
+        only rank 0 writes. The other ranks get an empty, non-root result set
+        rather than None, so that a parallel script can go on calling
+        print_summary(), the plot functions and the exporters without a rank
+        guard: those do nothing for a non-root result set.
+        """
+        from scope_profiler.mpi_region import MPIRegion
+        from scope_profiler.region import Region
+        from scope_profiler.results import ProfilingResults
+
+        config = cls.get_config()
+        comm = config.comm
+        payload = (snapshot, {result.tag: result for result in likwid_results})
+
+        if comm is None:
+            gathered = [payload]
+        else:
+            gathered = comm.gather(payload, root=0)
+            if config._rank != 0:
+                return ProfilingResults(
+                    {},
+                    metadata=config.metadata,
+                    num_ranks=config._size,
+                    file_path=config.file_path,
+                    is_root=False,
+                )
+
+        per_region: Dict[str, dict] = {}
+        likwid = {}
+        for rank, (rank_snapshot, rank_likwid) in enumerate(gathered):
+            if rank_likwid:
+                likwid[rank] = rank_likwid
+            for name, (starts, ends, num_calls) in rank_snapshot.items():
+                per_region.setdefault(name, {})[rank] = Region(
+                    starts, ends, num_calls=num_calls
+                )
+
+        return ProfilingResults(
+            {
+                name: MPIRegion(name=name, regions=regions)
+                for name, regions in per_region.items()
+            },
+            metadata=config.metadata,
+            num_ranks=config._size,
+            likwid=likwid,
+            file_path=config.file_path,
+        )
+
+    @classmethod
     def finalize(
         cls,
         verbose: bool = True,
-    ) -> None:
+        return_results: bool = False,
+    ):
         """
         Finalize profiling and merge results from all MPI ranks.
 
@@ -368,18 +456,50 @@ class ProfileManager:
         With ``use_likwid=True`` this is also where the LIKWID markers are
         closed and every marker region of the run is read back and stored in
         the output file under ``rank<r>/likwid/regions/<tag>``; see
-        :meth:`~scope_profiler.h5reader.ProfilingH5Reader.get_likwid_regions`
+        :meth:`~scope_profiler.results.ProfilingResults.get_likwid_regions`
         for reading it back.
 
         Parameters
         ----------
         verbose : bool, optional
             If True, prints profiling statistics for each region (default: True).
+        return_results : bool, optional
+            If True, return the run's data as a
+            :class:`~scope_profiler.results.ProfilingResults` - the same
+            post-processing API :class:`~scope_profiler.h5reader.ProfilingH5Reader`
+            provides, built straight from the in-memory buffers instead of by
+            reading the output file back::
+
+                results = ProfileManager.finalize(return_results=True)
+                results.print_summary()
+                df = results.to_dataframe()
+
+            This works with ``flush_to_disk=False``, where no file is written
+            at all. Under MPI the per-rank data is gathered on rank 0, which is
+            collective: every rank must pass the same value.
+
+        Returns
+        -------
+        ProfilingResults or None
+            The run's profiling data when ``return_results=True``, and None
+            otherwise. Under MPI rank 0 gets the whole run, like the merged
+            output file; the other ranks get an empty result set for which
+            ``print_summary()``, the ``plot_*`` functions and the exporters do
+            nothing, so the script above needs no rank guard. See
+            :attr:`~scope_profiler.results.ProfilingResults.is_root`.
         """
         config = cls.get_config()
 
         if not config.profiling_activated:
-            return
+            if return_results:
+                from scope_profiler.results import ProfilingResults
+
+                return ProfilingResults({}, file_path=config.file_path)
+            return None
+
+        # Snapshot before anything is written: writing rewinds the buffers.
+        snapshot = cls._snapshot_regions() if return_results else None
+        likwid_results = []
 
         comm = config.comm
         rank = config._rank
@@ -467,6 +587,10 @@ class ProfileManager:
             for region in cls.get_all_regions().values():
                 if isinstance(region, LineProfilerRegion):
                     region.print_stats()
+
+        if return_results:
+            return cls._build_results(snapshot, likwid_results)
+        return None
 
     @classmethod
     def read_results(cls) -> "ProfilingH5Reader":
