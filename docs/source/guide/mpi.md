@@ -24,16 +24,25 @@ pip install "scope-profiler[mpi]"
    `mpi4py` and initialized MPI itself; then the existing communicator is
    used.
 
-1. **Setup** --- `ProfilingConfig` reads `COMM_WORLD` to determine rank
-   and size. Rank 0 creates a shared temporary directory and broadcasts
-   the path to all ranks.
+1. **Setup** --- `ProfilingConfig` reads `COMM_WORLD` for rank and size.
+   That is a local query, not a collective: `setup()` issues no MPI call
+   of its own and creates no temporary directory.
 
-2. **Recording** --- each rank writes its own per-rank HDF5 file
-   (`rank_<N>.h5`) inside the shared temporary directory.
+2. **Recording** --- each rank accumulates its own timestamps in memory.
+   Nothing is written per rank, so no shared filesystem is involved.
 
-3. **Finalize** --- `ProfileManager.finalize()` calls `MPI.Barrier()`,
-   then rank 0 merges all per-rank files into a single output file with
-   the structure `rank<N>/regions/<name>/{start_times,end_times}`.
+3. **Finalize** --- `ProfileManager.finalize()` is collective. Each rank
+   other than 0 sends its recorded data to rank 0 over a private
+   duplicated communicator; rank 0 takes one rank at a time, writes it
+   into the single output file as
+   `rank<N>/regions/<name>/{start_times,end_times}`, and drops it before
+   taking the next. Its peak memory is therefore one rank's data plus the
+   open file, not the whole job's --- which is what makes this work at
+   thousands of ranks.
+
+   A rank that entered no region simply has no `rank<N>` group. And
+   because every rank must reach `finalize()`, one that dies first leaves
+   the job waiting rather than quietly dropping its data from the output.
 
 ## Example
 
@@ -44,8 +53,7 @@ are needed:
 # mpi_example.py
 from scope_profiler import ProfileManager
 
-ProfileManager.setup(
-)
+ProfileManager.setup()
 
 @ProfileManager.profile("compute")
 def compute():

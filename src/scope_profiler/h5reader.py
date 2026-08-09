@@ -111,10 +111,17 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
                 for key, value in f["metadata"].attrs.items()
             }
 
-        # Iterate over all rank groups
-        for rank_group_name, rank_group in f.items():
-            if rank_group_name == "metadata":
-                continue
+        # Iterate over the rank groups in rank order. h5py yields them in
+        # name order, which puts "rank10" before "rank2"; pooled statistics
+        # sum per-rank arrays in this order, so a stable numeric order is what
+        # makes the numbers reproducible and identical to the ones
+        # ProfileManager.finalize(return_results=True) computes in memory.
+        rank_group_names = sorted(
+            (name for name in f if name != "metadata"),
+            key=lambda name: int(name.replace("rank", "")),
+        )
+        for rank_group_name in rank_group_names:
+            rank_group = f[rank_group_name]
             num_ranks += 1
             if verbose:
                 print(f"{rank_group_name = }")
