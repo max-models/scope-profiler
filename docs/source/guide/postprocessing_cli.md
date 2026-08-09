@@ -241,6 +241,10 @@ alongside the figures. It holds the numbers behind the charts: per-file,
 per-region aggregates, the same statistics per rank, and the region names
 common to all input files.
 
+Each file's `label` --- the name it is given in chart legends here too --- is
+the one the run set with `ProfileManager.setup(label=...)`, falling back to the
+file's stem for runs that set none.
+
 ```json
 {
   "units": { "durations": "seconds" },

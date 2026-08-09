@@ -48,6 +48,7 @@ Derived fields use lower-case names:
 | Field | Description |
 | --- | --- |
 | `timestamp` | ISO-8601 time the run started |
+| `label` | the run's name, from `setup(label=...)`; absent when none was given |
 | `start_time_ns` | run start on the `perf_counter_ns` clock, the origin of the relative timeline |
 | `user`, `hostname` | who ran it, and where |
 | `platform`, `uname` | OS description, and the full `uname` tuple |

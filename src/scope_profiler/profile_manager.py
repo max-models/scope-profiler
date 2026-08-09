@@ -660,6 +660,7 @@ class ProfileManager:
         file_path: str = "profiling_data.h5",
         use_mpi: bool | None = None,
         start_time_ns: int | None = None,
+        label: str | None = None,
     ):
         """
         Initialize and configure the profiling system.
@@ -709,6 +710,17 @@ class ProfileManager:
 
             The value is stored in the output file as the ``start_time_ns``
             metadata field.
+        label : str or None, optional
+            Short name for this run (default: None, i.e. the output file's
+            stem). Post-processing uses it wherever a run has to be named --
+            chart legends, the summary heading, ``scope-profiler inspect``,
+            the JSON statistics -- which is what makes several runs
+            distinguishable when they are compared::
+
+                ProfileManager.setup(file_path="run_a.h5", label="128 ranks")
+
+            It is stored in the output file as the ``label`` metadata field,
+            so it survives into every later post-processing step.
         """
         ProfilingConfig().reset()
         config = ProfilingConfig(
@@ -722,6 +734,7 @@ class ProfileManager:
             file_path=file_path,
             use_mpi=use_mpi,
             start_time_ns=start_time_ns,
+            label=label,
         )
         cls.set_config(config=config)
 

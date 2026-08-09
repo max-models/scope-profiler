@@ -174,7 +174,7 @@ def export_prof(
 
     normalized_ranks = _normalize_ranks(ranks) if ranks is not None else [0]
 
-    labels = _unique_labels([reader.file_path.stem for reader in readers])
+    labels = _unique_labels([reader.display_label for reader in readers])
 
     prepared = []
     for label, reader in zip(labels, readers):

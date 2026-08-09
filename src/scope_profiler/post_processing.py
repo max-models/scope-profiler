@@ -76,7 +76,7 @@ def print_summary(
     rows = region_rows(reader, include=include, exclude=exclude, ranks=ranks, sort=sort)
     print_region_table(
         rows,
-        title=f"{reader.file_path}  ({reader.num_ranks} rank(s))",
+        title=reader.default_title(),
         stream=stream,
     )
     print_likwid_tables(

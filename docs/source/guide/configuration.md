@@ -17,6 +17,27 @@ configuration is global: every call to `profile()` or `profile_region()`
 | `flush_to_disk`       | `bool` | `True`                | Write the recorded timings to per-rank HDF5 files at `finalize()`. When `False`, results stay in memory. |
 | `buffer_limit`        | `int`  | `1024`                | Initial per-region buffer capacity. Buffers grow on demand, so this is a starting size, not a cap. |
 | `file_path`           | `str`  | `"profiling_data.h5"` | Output path for the merged HDF5 file written by `finalize()`.                                   |
+| `label`               | `str`  | `None`                | Short name for the run, used by post-processing wherever a run has to be named. See below.       |
+
+## Naming a run with `label`
+
+Post-processing names a run after its output file: `run_a.h5` becomes `run_a`
+in chart legends, summary headings and the JSON statistics. `label` overrides
+that with something you choose:
+
+```python
+ProfileManager.setup(file_path="run_a.h5", label="128 ranks")
+```
+
+The label is stored as metadata in the output file, so it survives into every
+later step --- `scope-profiler pproc`, `scope-profiler inspect`, the plotting
+functions and the exporters all pick it up with no extra flags. It is
+especially worth setting for scaling studies, where a legend reading
+`128 ranks` beats one reading `run_a`.
+
+Reading it back, `results.label` is the label or `None`, while
+`results.display_label` is the label or the file stem --- what post-processing
+actually prints.
 
 ## Profiling modes
 
