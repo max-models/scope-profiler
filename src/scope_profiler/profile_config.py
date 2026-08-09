@@ -174,6 +174,7 @@ class ProfilingConfig:
         file_path: str = "profiling_data.h5",
         use_mpi: bool | None = None,
         start_time_ns: int | None = None,
+        label: str | None = None,
     ):
         """Initialize the profiling configuration.
 
@@ -209,6 +210,11 @@ class ProfilingConfig:
             is persisted as the ``start_time_ns`` metadata field and becomes
             the origin of the relative timeline in
             :class:`~scope_profiler.results.ProfilingResults`.
+        label : str or None
+            Short name for this run, used by post-processing wherever a run
+            has to be named: chart legends, the summary heading, the JSON
+            statistics. Defaults to None, in which case the output file's stem
+            is used. Persisted as the ``label`` metadata field.
         """
 
         if self._initialized:
@@ -263,6 +269,11 @@ class ProfilingConfig:
         # Persisted so post-processing can express timestamps relative to the
         # start of the run rather than to the first region entry.
         self._metadata["start_time_ns"] = self._start_time_ns
+        # Only stored when set, so that "has a label" stays distinguishable
+        # from "was labelled with the empty string" downstream.
+        self._label = label or None
+        if self._label is not None:
+            self._metadata["label"] = self._label
 
         self._pylikwid = None
         # markerclose() must run exactly once: it writes the marker file and
@@ -441,6 +452,11 @@ class ProfilingConfig:
         when reading the results back.
         """
         return self._start_time_ns
+
+    @property
+    def label(self) -> str | None:
+        """Short name for this run, or None if none was given to ``setup()``."""
+        return self._label
 
     @property
     def metadata(self) -> dict:

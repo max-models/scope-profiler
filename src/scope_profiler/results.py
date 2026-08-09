@@ -5,8 +5,9 @@ from: :class:`~scope_profiler.h5reader.ProfilingH5Reader` builds one of these
 from a merged HDF5 file, while
 :meth:`ProfileManager.finalize(return_results=True)
 <scope_profiler.profile_manager.ProfileManager.finalize>` builds the same thing
-straight out of the in-memory buffers, without a round trip through disk. Everything downstream (summaries, dataframes, the plotting functions,
-the exporters) takes one of these and cannot tell the difference.
+straight out of the in-memory buffers, without a round trip through disk.
+Everything downstream (summaries, dataframes, the plotting functions, the
+exporters) takes one of these and cannot tell the difference.
 """
 
 import functools
@@ -383,8 +384,26 @@ class ProfilingResults:
             self, include=include, exclude=exclude, ranks=ranks, sort=sort
         )
         if title is None:
-            title = f"{self.file_path}  ({self.num_ranks} rank(s))"
+            title = self.default_title()
         print_region_table(rows, title=title, stream=stream)
+
+    def default_title(self) -> str:
+        """
+        Heading naming this run, for a summary table.
+
+        The label leads when the run has one, since that is the name the user
+        chose; the file path follows either way, because when several runs are
+        being compared it is what tells them apart on disk.
+
+        Returns
+        -------
+        str
+            e.g. ``"128 ranks - results/run_a.h5  (128 rank(s))"``.
+        """
+        title = f"{self.file_path}  ({self.num_ranks} rank(s))"
+        if self.label is not None:
+            title = f"{self.label} - {title}"
+        return title
 
     def __getitem__(self, region_name: str) -> MPIRegion:
         """Get a region by name; see :meth:`get_region`."""
@@ -415,6 +434,50 @@ class ProfilingResults:
             need not exist on disk.
         """
         return self._file_path
+
+    @property
+    def label(self) -> str | None:
+        """
+        The run's label, as given to ``ProfileManager.setup(label=...)``.
+
+        Returns
+        -------
+        str or None
+            The label, or None for a run that was not given one. Use
+            :attr:`display_label` to name the run in output regardless.
+        """
+        label = self._metadata.get("label")
+        return str(label) if label else None
+
+    @label.setter
+    def label(self, value: str | None) -> None:
+        """Rename this run for the report being produced.
+
+        What ``scope-profiler pproc --label`` does: the file on disk keeps the
+        label the run was given (if any), while everything downstream of here
+        uses the new one. Setting it to None or "" restores the fallback to the
+        file stem.
+        """
+        if value:
+            self._metadata["label"] = str(value)
+        else:
+            self._metadata.pop("label", None)
+
+    @property
+    def display_label(self) -> str:
+        """
+        What to call this run in charts, tables and exports.
+
+        The :attr:`label` when the run has one, and otherwise the stem of its
+        output file --- which is what post-processing named runs by before
+        labels existed, and remains the default.
+
+        Returns
+        -------
+        str
+            A non-empty name for the run.
+        """
+        return self.label or self._file_path.stem
 
     @property
     def is_root(self) -> bool:

@@ -76,7 +76,7 @@ def print_summary(
     rows = region_rows(reader, include=include, exclude=exclude, ranks=ranks, sort=sort)
     print_region_table(
         rows,
-        title=f"{reader.file_path}  ({reader.num_ranks} rank(s))",
+        title=reader.default_title(),
         stream=stream,
     )
     print_likwid_tables(
@@ -94,6 +94,18 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="+",
         type=str,
         help="Paths or glob patterns for profiling_data.h5 files",
+    )
+    parser.add_argument(
+        "--label",
+        action="append",
+        default=None,
+        metavar="LABEL",
+        help=(
+            "Name for a file in the outputs, overriding the label its run was "
+            "given with setup(label=...) (and the file stem for runs without "
+            "one). Repeat once per file, in the order the files are listed: "
+            "--label '128 ranks' --label '256 ranks'"
+        ),
     )
     parser.add_argument(
         "--show",
@@ -333,6 +345,20 @@ def main(argv: list[str] | None = None):
         args.ranks = sorted(set(ranks))
 
     readers = [ProfilingH5Reader(file_path) for file_path in args.files]
+
+    # Applied to the readers rather than passed down per plot: every output --
+    # chart legends and panel titles, the summary headings, the JSON
+    # statistics, the exported filenames -- names a run through
+    # ProfilingResults.display_label, so overriding it here covers all of them
+    # at once. The files themselves are not modified.
+    if args.label is not None:
+        if len(args.label) != len(readers):
+            parser.error(
+                f"--label given {len(args.label)} time(s) for "
+                f"{len(readers)} file(s); pass one per file, in order."
+            )
+        for reader, label in zip(readers, args.label):
+            reader.label = label
 
     if args.summary:
         # Before the time_trace check below: a count-only file still has a

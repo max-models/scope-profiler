@@ -172,7 +172,10 @@ def inspect_file(
         headline += f", {span:.6g} s wall clock"
 
     print("=" * 78, file=stream)
-    print(path, file=stream)
+    if reader.label is not None:
+        print(f"{reader.label} - {path}", file=stream)
+    else:
+        print(path, file=stream)
     print(headline, file=stream)
     print("=" * 78 + "\n", file=stream)
 

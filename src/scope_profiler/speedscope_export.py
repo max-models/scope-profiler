@@ -21,6 +21,7 @@ from pathlib import Path
 from scope_profiler.call_stack import build_call_stack
 from scope_profiler.plotting_scripts import (
     _as_readers,
+    _filename_slug,
     _normalize_ranks,
     _unique_labels,
 )
@@ -232,7 +233,7 @@ def export_speedscope(
 
     normalized_ranks = _normalize_ranks(ranks) if ranks is not None else [0]
 
-    labels = _unique_labels([reader.file_path.stem for reader in readers])
+    labels = _unique_labels([reader.display_label for reader in readers])
 
     prepared = []
     for label, reader in zip(labels, readers):
@@ -263,7 +264,7 @@ def export_speedscope(
     for label, named_calls in prepared:
         parts = [stem]
         if multiple_files:
-            parts.append(label)
+            parts.append(_filename_slug(label))
         out_path = base_path.with_name("_".join(parts) + suffix)
         document = build_speedscope_document(named_calls, name=label)
         written.append(write_speedscope_file(out_path, document))

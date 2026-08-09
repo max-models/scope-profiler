@@ -197,6 +197,25 @@ scope-profiler expand it rather than the shell:
 scope-profiler pproc "runs/run_*.h5" -o figures_scaling
 ```
 
+### Naming the runs
+
+Each run is named after its `label` --- set with
+`ProfileManager.setup(label=...)`, see {doc}`configuration` --- or, for runs
+that set none, after its file's stem. That name is what appears in chart
+legends and panel titles, the summary headings, `region_statistics.json` and
+the exported `.prof` / speedscope filenames.
+
+`--label` overrides it for one invocation, once per file, in the order the
+files are given:
+
+```bash
+scope-profiler pproc run_1.h5 run_2.h5 run_4.h5 -o figures_scaling \
+    --label "1 rank" --label "2 ranks" --label "4 ranks"
+```
+
+The files themselves are not modified. Labels are free text; where one is used
+in a filename, spaces and other awkward characters become underscores.
+
 ## Selecting which plots to generate
 
 By default all five plots are generated. `--plots` (short: `-p`) restricts
@@ -240,6 +259,10 @@ Whenever `-o/--output` is given, `region_statistics.json` is written
 alongside the figures. It holds the numbers behind the charts: per-file,
 per-region aggregates, the same statistics per rank, and the region names
 common to all input files.
+
+Each file's `label` --- the name it is given in chart legends here too --- is
+the one the run set with `ProfileManager.setup(label=...)`, falling back to the
+file's stem for runs that set none.
 
 ```json
 {

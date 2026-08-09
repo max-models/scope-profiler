@@ -7,6 +7,7 @@ backends using maxplotlib as the unified interface.
 import csv
 import json
 import os
+import re
 from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
@@ -239,6 +240,18 @@ def _as_readers(
     return [reader for reader in readers if reader.is_root]
 
 
+def _filename_slug(label: str) -> str:
+    """Make a label safe to paste into a filename.
+
+    Labels are free text and are used to name exported files, so a perfectly
+    reasonable one like ``"128 ranks"`` would otherwise produce
+    ``profile_128 ranks_rank0.prof``. Only the path is sanitized; the label
+    inside the exported document stays as the user wrote it.
+    """
+    slug = re.sub(r"[^\w.+-]+", "_", label).strip("_")
+    return slug or label
+
+
 def _unique_labels(labels: Sequence[str]) -> list[str]:
     label_counts: dict[str, int] = {}
     unique_labels: list[str] = []
@@ -401,7 +414,7 @@ def collect_region_statistics(
         }
 
     if labels is None:
-        labels = _unique_labels([reader.file_path.stem for reader in readers])
+        labels = _unique_labels([reader.display_label for reader in readers])
     else:
         labels = list(labels)
 
@@ -549,7 +562,7 @@ def plot_gantt(
         for region in regions:
             region.color = color_map[region.name]
 
-    labels = _unique_labels([reader.file_path.stem for reader, _, _, _ in prepared])
+    labels = _unique_labels([reader.display_label for reader, _, _, _ in prepared])
 
     if data_filepath:
         if data_format == "json":
@@ -737,7 +750,7 @@ def plot_flame(
         raise ValueError("No calls recorded for the requested ranks.")
 
     if data_filepath:
-        labels = _unique_labels([reader.file_path.stem for reader, _, _ in prepared])
+        labels = _unique_labels([reader.display_label for reader, _, _ in prepared])
         if data_format == "json":
             call_records = []
             colors = {}
@@ -779,7 +792,7 @@ def plot_flame(
         print(
             "Plotting flame graph for: "
             + ", ".join(
-                f"{reader.file_path.stem} (rank {rank})" for reader, rank, _ in prepared
+                f"{reader.display_label} (rank {rank})" for reader, rank, _ in prepared
             )
         )
 
@@ -827,7 +840,7 @@ def plot_flame(
         canvas.set_ylim(-0.6, max_depth + 1.0, row=row, col=col)
         canvas.set_xlabel("Time (seconds)", row=row, col=col)
         canvas.set_ylabel("Call depth", row=row, col=col)
-        canvas.set_title(f"{reader.file_path.stem} (rank {rank})", row=row, col=col)
+        canvas.set_title(f"{reader.display_label} (rank {rank})", row=row, col=col)
         canvas.set_grid(True, row=row, col=col)
 
     if not single_panel:
@@ -911,7 +924,7 @@ def plot_durations(
         )
 
     if labels is None:
-        labels = _unique_labels([reader.file_path.stem for reader in readers])
+        labels = _unique_labels([reader.display_label for reader in readers])
     else:
         labels = list(labels)
 
@@ -1130,7 +1143,7 @@ def plot_duration_timeseries(
     if not prepared:
         raise ValueError("No calls recorded for the requested ranks.")
 
-    labels = _unique_labels([reader.file_path.stem for reader, _ in prepared])
+    labels = _unique_labels([reader.display_label for reader, _ in prepared])
 
     if data_filepath:
         records = []
@@ -1209,7 +1222,7 @@ def plot_duration_timeseries(
         canvas.set_xlabel("Time (seconds)", row=row, col=col)
         canvas.set_ylabel("Duration per call (seconds)", row=row, col=col)
         canvas.set_title(
-            "Region duration over time" if single_panel else reader.file_path.stem,
+            "Region duration over time" if single_panel else reader.display_label,
             row=row,
             col=col,
         )
