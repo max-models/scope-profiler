@@ -151,7 +151,8 @@ def export_prof(
     Parameters
     ----------
     profiling_data : ProfilingResults | Sequence[ProfilingResults]
-        Reader(s) for the merged HDF5 file(s) to export.
+        The run(s) to export: file readers, in-memory results from
+        ``ProfileManager.finalize(return_results=True)``, or a mix.
     filepath : str | Path
         Base output path, e.g. ``figures/profile.prof``. A ``_rank<N>`` suffix
         is appended per rank (and the input file's stem too, when more than one

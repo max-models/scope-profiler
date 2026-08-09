@@ -210,7 +210,8 @@ def export_speedscope(
     Parameters
     ----------
     profiling_data : ProfilingResults | Sequence[ProfilingResults]
-        Reader(s) for the merged HDF5 file(s) to export.
+        The run(s) to export: file readers, in-memory results from
+        ``ProfileManager.finalize(return_results=True)``, or a mix.
     filepath : str | Path
         Base output path, e.g. ``figures/profile.speedscope.json``. The input
         file's stem is appended when more than one file is exported.

@@ -1,7 +1,7 @@
 """Shared per-region summary table.
 
 One renderer, used by ``ProfileManager.finalize()``,
-:meth:`ProfilingH5Reader.print_summary` and ``scope-profiler inspect``, so the
+:meth:`ProfilingResults.print_summary` and ``scope-profiler inspect``, so the
 three agree on columns, units and formatting.
 
 Everything here works off duck-typed reader/region objects, so this module has
@@ -82,8 +82,8 @@ def region_rows(
 
     Parameters
     ----------
-    reader : ProfilingH5Reader
-        Source of the regions.
+    reader : ProfilingResults
+        Source of the regions; a file reader or in-memory results alike.
     include, exclude : list of str or str, optional
         Regex patterns selecting which regions to summarize.
     ranks : list of int, optional
@@ -247,7 +247,7 @@ def likwid_tables(reader, include=None, exclude=None, ranks=None) -> list:
 
     Parameters
     ----------
-    reader : ProfilingH5Reader
+    reader : ProfilingResults
         Source of the LIKWID results.
     include, exclude : list of str or str, optional
         Regex patterns selecting which regions to report, matched as for the
