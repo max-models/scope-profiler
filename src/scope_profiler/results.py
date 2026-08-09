@@ -736,9 +736,8 @@ class ProfilingResults:
         Get the minimum start time across all regions and ranks.
 
         This is the origin of the timeline: subtract it from any timestamp to
-        get seconds since the first region entry. Regions without timing
-        (profiled with ``time_trace=False``) are ignored; the result is 0.0
-        if no region recorded any.
+        get seconds since the first region entry. Regions with no recorded
+        calls are ignored; the result is 0.0 if no region recorded any.
 
         Returns
         -------

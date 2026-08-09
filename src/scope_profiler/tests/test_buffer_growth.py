@@ -14,7 +14,7 @@ def _durations(region):
 @pytest.mark.parametrize("num_calls", [1, 33, 500])
 def test_buffer_grows_past_initial_capacity(num_calls):
     """The initial capacity is a starting size, not a limit."""
-    ProfileManager.setup(flush_to_disk=False, buffer_limit=4)
+    ProfileManager.setup(deactivate_file_output=True, buffer_limit=4)
 
     for _ in range(num_calls):
         with ProfileManager.profile_region("grows"):
@@ -93,10 +93,10 @@ def test_datasets_are_exactly_sized_and_contiguous(tmp_path):
         assert dataset.id.get_storage_size() == 5 * 8
 
 
-def test_no_write_when_flush_to_disk_is_false(tmp_path):
-    """flush_to_disk=False keeps everything in memory."""
+def test_no_write_when_file_output_is_deactivated(tmp_path):
+    """deactivate_file_output=True keeps everything in memory."""
     file_path = tmp_path / "in_memory.h5"
-    ProfileManager.setup(file_path=str(file_path), flush_to_disk=False)
+    ProfileManager.setup(file_path=str(file_path), deactivate_file_output=True)
 
     for _ in range(3):
         with ProfileManager.profile_region("in_memory"):
@@ -107,14 +107,15 @@ def test_no_write_when_flush_to_disk_is_false(tmp_path):
 
     ProfileManager.finalize(verbose=False)
 
-    with h5py.File(file_path, "r") as handle:
-        # The merged file exists with metadata, but carries no region data.
-        assert "rank0/regions" not in handle
+    # Not even the metadata file is created, and the buffers keep their data
+    # because nothing was written to rewind them.
+    assert not file_path.exists()
+    assert region.ptr == 3
 
 
 def test_append_grows_the_buffer():
     """The public append() helper grows rather than overflowing."""
-    ProfileManager.setup(flush_to_disk=False, buffer_limit=2)
+    ProfileManager.setup(deactivate_file_output=True, buffer_limit=2)
     region = ProfileManager.profile_region("appended")
 
     for index in range(10):

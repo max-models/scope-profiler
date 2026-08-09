@@ -18,9 +18,7 @@ from scope_profiler.region_profiler import (
     BaseProfileRegion,
     DisabledProfileRegion,
     FullProfileRegion,
-    LikwidOnlyProfileRegion,
     LineProfilerRegion,
-    NCallsOnlyProfileRegion,
     TimeOnlyProfileRegion,
 )
 
@@ -156,24 +154,20 @@ class ProfileManager:
         """
         Update the active region class based on current configuration settings.
 
-        Selects the appropriate ProfileRegion subclass based on profiling
-        options: time tracing, LIKWID hardware counters and line profiling.
-        ``flush_to_disk`` does not affect the choice -- recording is identical
-        either way, it only decides whether finalize() writes the data out.
+        Every active region records timestamps; the remaining options decide
+        what it records *on top* of them. ``deactivate_file_output`` does not
+        affect the choice -- recording is identical either way, it only
+        decides whether finalize() writes the data out.
         """
         cfg = cls._config
         if cfg.deactivate_profiling:
             cls._region_cls = DisabledProfileRegion
         elif cfg.use_line_profiler:
             cls._region_cls = LineProfilerRegion
-        elif cfg.time_trace and cfg.use_likwid:
-            cls._region_cls = FullProfileRegion
-        elif cfg.time_trace:
-            cls._region_cls = TimeOnlyProfileRegion
         elif cfg.use_likwid:
-            cls._region_cls = LikwidOnlyProfileRegion
+            cls._region_cls = FullProfileRegion
         else:
-            cls._region_cls = NCallsOnlyProfileRegion
+            cls._region_cls = TimeOnlyProfileRegion
 
     @classmethod
     def profile_region(cls, region_name, functions=None) -> BaseProfileRegion:
@@ -366,24 +360,17 @@ class ProfileManager:
         Returns
         -------
         dict
-            Region name -> ``(start_times, end_times, num_calls)``, with the
-            timestamps in nanoseconds and ``num_calls`` None for regions whose
-            count is implied by their timestamps.
+            Region name -> ``(start_times, end_times)``, in nanoseconds.
         """
         snapshot = {}
         for name, region in cls.get_all_regions().items():
-            # Only this run's calls, matching the slice write_to_disk() and
-            # _write_num_calls() persist.
-            num_calls = region.num_calls - region._num_calls_written
-            if region.ptr == 0 and num_calls <= 0:
+            # Only this run's calls, matching the slice write_to_disk()
+            # persists.
+            if region.ptr == 0:
                 continue
             snapshot[name] = (
                 np.array(region.start_times[: region.ptr]),
                 np.array(region.end_times[: region.ptr]),
-                # Recorded timestamps carry the count with them; a region that
-                # has none (count-only, LIKWID-only) needs it stated, which is
-                # exactly the split between datasets and attribute on disk.
-                None if region.ptr else num_calls,
             )
         return snapshot
 
@@ -424,10 +411,8 @@ class ProfileManager:
         for rank, (rank_snapshot, rank_likwid) in enumerate(gathered):
             if rank_likwid:
                 likwid[rank] = rank_likwid
-            for name, (starts, ends, num_calls) in rank_snapshot.items():
-                per_region.setdefault(name, {})[rank] = Region(
-                    starts, ends, num_calls=num_calls
-                )
+            for name, (starts, ends) in rank_snapshot.items():
+                per_region.setdefault(name, {})[rank] = Region(starts, ends)
 
         return ProfilingResults(
             {
@@ -474,9 +459,9 @@ class ProfileManager:
                 results.print_summary()
                 df = results.to_dataframe()
 
-            This works with ``flush_to_disk=False``, where no file is written
-            at all. Under MPI the per-rank data is gathered on rank 0, which is
-            collective: every rank must pass the same value.
+            This works with ``deactivate_file_output=True``, where no file is
+            written at all. Under MPI the per-rank data is gathered on rank 0,
+            which is collective: every rank must pass the same value.
 
         Returns
         -------
@@ -497,32 +482,33 @@ class ProfileManager:
                 return ProfilingResults({}, file_path=config.file_path)
             return None
 
-        # Snapshot before anything is written: writing rewinds the buffers.
-        snapshot = cls._snapshot_regions() if return_results else None
+        write_file = not config.deactivate_file_output
+        # With no file to read back, the summary has to come from memory, so
+        # the snapshot is taken whenever anything downstream needs the data.
+        # It has to happen before writing, which rewinds the buffers.
+        need_results = return_results or (verbose and not write_file)
+        snapshot = cls._snapshot_regions() if need_results else None
         likwid_results = []
 
         comm = config.comm
         rank = config._rank
         size = config._size
 
-        # 0. Discard any per-rank file left by an earlier finalize() on this
-        # config. Nothing else writes it, so its presence means a previous run
-        # in this process already finalized, and its regions would otherwise be
-        # merged into this run's output alongside the current ones.
-        stale_file = config._local_file_path
-        if os.path.exists(stale_file):
-            os.remove(stale_file)
+        if write_file:
+            # 0. Discard any per-rank file left by an earlier finalize() on
+            # this config. Nothing else writes it, so its presence means a
+            # previous run in this process already finalized, and its regions
+            # would otherwise be merged into this run's output alongside the
+            # current ones.
+            stale_file = config._local_file_path
+            if os.path.exists(stale_file):
+                os.remove(stale_file)
 
-        # 1. Write every region's buffered timestamps to its per-rank file.
-        # Regions that record no timestamps write only their call count, which
-        # is cheap and has nothing to do with timing buffers, so they write
-        # even when flush_to_disk is off. Otherwise their counts would be lost.
-        # Once written, a region is marked so finalize() acts as a run
-        # boundary: a second run in the same process (e.g. a restart) writes
-        # only its own events. Regions that were not written keep their
-        # buffers, because with flush_to_disk off those are the only copy.
-        for region in cls.get_all_regions().values():
-            if config.flush_to_disk or not region._records_time:
+            # 1. Write every region's buffered timestamps to its per-rank
+            # file. Once written, a region is marked so finalize() acts as a
+            # run boundary: a second run in the same process (e.g. a restart)
+            # writes only its own events.
+            for region in cls.get_all_regions().values():
                 region.write_to_disk()
                 region.mark_written()
 
@@ -535,7 +521,7 @@ class ProfileManager:
             from scope_profiler.likwid_data import write_likwid_results
 
             likwid_results = config.collect_likwid_results(cls.get_all_regions().keys())
-            if likwid_results:
+            if likwid_results and write_file:
                 with h5py.File(config._local_file_path, "a") as f:
                     write_likwid_results(
                         f, likwid_results, environment=config.likwid_environment()
@@ -546,7 +532,7 @@ class ProfileManager:
             comm.Barrier()
 
         # 4. Only rank 0 performs the merge
-        if rank == 0:
+        if write_file and rank == 0:
             merged_file_path = config.file_path
             with h5py.File(merged_file_path, "w") as fout:
                 # Global environment metadata, gathered from rank 0 only.
@@ -583,13 +569,26 @@ class ProfileManager:
                     title=f"{merged_file_path}  ({size} rank(s))"
                 )
 
+        # The gather inside _build_results is collective, so it has to be
+        # reached by every rank -- `need_results` depends only on arguments
+        # that are the same on all of them.
+        results = cls._build_results(snapshot, likwid_results) if need_results else None
+
+        # 6. Without an output file there is nothing to read back, so the same
+        # table is rendered from the in-memory results instead. Non-root ranks
+        # hold an empty result set, for which print_summary() does nothing.
+        if verbose and not write_file:
+            results.print_summary(
+                title=f"{results.display_label}  (in memory, {size} rank(s))"
+            )
+
         if config.use_line_profiler and verbose:
             for region in cls.get_all_regions().values():
                 if isinstance(region, LineProfilerRegion):
                     region.print_stats()
 
         if return_results:
-            return cls._build_results(snapshot, likwid_results)
+            return results
         return None
 
     @classmethod
@@ -651,15 +650,12 @@ class ProfileManager:
     def setup(
         cls,
         deactivate_profiling: bool = False,
+        deactivate_file_output: bool = False,
         use_likwid: bool = False,
         use_line_profiler: bool = False,
         recursive_profile: bool = False,
-        time_trace: bool = True,
-        flush_to_disk: bool = True,
         buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
-        use_mpi: bool | None = None,
-        start_time_ns: int | None = None,
         label: str | None = None,
     ):
         """
@@ -671,6 +667,16 @@ class ProfileManager:
             Turn profiling off entirely (default: False). Every region
             becomes a no-op, so the instrumentation can stay in the code at
             near-zero cost instead of being removed.
+        deactivate_file_output : bool, optional
+            Write no HDF5 file at all (default: False): no per-rank files, no
+            merged output, not even the run metadata. Use it with
+            ``finalize(return_results=True)`` to analyse a run entirely in
+            memory::
+
+                ProfileManager.setup(deactivate_file_output=True)
+                ...
+                results = ProfileManager.finalize(return_results=True)
+
         use_likwid : bool, optional
             Enable LIKWID hardware counter collection (default: False).
         use_line_profiler : bool, optional
@@ -679,11 +685,6 @@ class ProfileManager:
             Enable recursive profiling for all decorated functions by default
             (default: False). This can be overridden per decorator with
             ``@ProfileManager.profile(..., recursive=...)``.
-        time_trace : bool, optional
-            Enable timing trace collection (default: True).
-        flush_to_disk : bool, optional
-            Write the recorded data to disk at finalize() (default: True).
-            When False, results stay in memory for the process to read.
         buffer_limit : int, optional
             Initial number of profiling events preallocated per region
             (default: 1024). Buffers grow on demand, so this is a starting
@@ -691,27 +692,6 @@ class ProfileManager:
             repeated reallocation.
         file_path : str, optional
             Path to the output profiling data file (default: "profiling_data.h5").
-        use_mpi : bool or None, optional
-            Whether to use MPI collectives (default: None). None auto-detects:
-            MPI is used only when the process was launched by mpirun/mpiexec/
-            srun or an equivalent launcher, so a plain ``python script.py``
-            run never imports mpi4py or calls into MPI. True forces MPI on,
-            False forces it off.
-        start_time_ns : int or None, optional
-            The instant the run started, as a ``time.perf_counter_ns()``
-            value (default: the moment ``setup()`` is called). Post-processing
-            measures its relative timeline from here, so pass a value captured
-            earlier to account for work that happened before the profiler was
-            configured::
-
-                from time import perf_counter_ns
-
-                T0 = perf_counter_ns()      # first line of the program
-                ...                         # imports, input parsing, ...
-                ProfileManager.setup(start_time_ns=T0)
-
-            The value is stored in the output file as the ``start_time_ns``
-            metadata field.
         label : str or None, optional
             Short name for this run (default: None, i.e. the output file's
             stem). Post-processing uses it wherever a run has to be named --
@@ -723,19 +703,26 @@ class ProfileManager:
 
             It is stored in the output file as the ``label`` metadata field,
             so it survives into every later post-processing step.
+
+        Notes
+        -----
+        The run's start time is the moment ``setup()`` is called; it is stored
+        as the ``start_time_ns`` metadata field and is the origin of the
+        relative timeline in post-processing. MPI is not configurable either:
+        collectives are used exactly when the process was started by an MPI
+        launcher, so a plain ``python script.py`` never imports mpi4py. See
+        :mod:`scope_profiler.mpi_launch` for the detection and its
+        ``SCOPE_PROFILER_MPI`` override.
         """
         ProfilingConfig().reset()
         config = ProfilingConfig(
             deactivate_profiling=deactivate_profiling,
+            deactivate_file_output=deactivate_file_output,
             use_likwid=use_likwid,
             use_line_profiler=use_line_profiler,
             recursive_profile=recursive_profile,
-            time_trace=time_trace,
-            flush_to_disk=flush_to_disk,
             buffer_limit=buffer_limit,
             file_path=file_path,
-            use_mpi=use_mpi,
-            start_time_ns=start_time_ns,
             label=label,
         )
         cls.set_config(config=config)

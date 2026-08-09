@@ -361,8 +361,8 @@ def main(argv: list[str] | None = None):
             reader.label = label
 
     if args.summary:
-        # Before the time_trace check below: a count-only file still has a
-        # perfectly good summary table, and so does a LIKWID-only one.
+        # Before the timing check below: a file with nothing recorded still
+        # has a perfectly good (if empty) summary table.
         for index, reader in enumerate(readers):
             if index:
                 print()
@@ -378,19 +378,16 @@ def main(argv: list[str] | None = None):
         if not (args.show or args.output):
             return
 
-    # Files profiled with time_trace=False hold call counts but no timestamps,
-    # so every chart here would be empty. Report the counts and stop, rather
-    # than failing deep inside the plotting code.
+    # A file whose regions recorded no calls would produce empty charts.
+    # Report what is there and stop, rather than failing deep inside the
+    # plotting code.
     if not any(
         len(region[rank].durations)
         for reader in readers
         for region in reader.get_regions()
         for rank in region.regions
     ):
-        print(
-            "No timing data found — these files were profiled with "
-            "time_trace=False, which records call counts only.\n"
-        )
+        print("No timing data found — these files recorded no calls.\n")
         for reader in readers:
             print(f"{reader.file_path}:")
             for region in reader.get_regions():

@@ -28,17 +28,12 @@ import numpy as np
 import pytest
 
 from scope_profiler import ProfileManager
-from scope_profiler.region_profiler import (
-    DisabledProfileRegion,
-    NCallsOnlyProfileRegion,
-    TimeOnlyProfileRegion,
-)
+from scope_profiler.region_profiler import DisabledProfileRegion, TimeOnlyProfileRegion
 
 # Per-call budgets in nanoseconds, by profiling mode. Measured on an idle
-# laptop (2026): ~100 ns disabled, ~120 ns counting, ~780 ns with timestamps.
+# laptop (2026): ~100 ns disabled, ~780 ns with timestamps.
 BUDGET_NS = {
     "disabled": 2_000,
-    "ncalls": 2_000,
     "time": 6_000,
 }
 
@@ -54,8 +49,7 @@ REPEATS = 5
 
 MODES = {
     "disabled": (dict(deactivate_profiling=True), DisabledProfileRegion),
-    "ncalls": (dict(time_trace=False), NCallsOnlyProfileRegion),
-    "time": (dict(time_trace=True), TimeOnlyProfileRegion),
+    "time": (dict(), TimeOnlyProfileRegion),
 }
 
 
@@ -155,7 +149,7 @@ def configure(tmp_path):
     """
 
     def _configure(**kwargs):
-        kwargs.setdefault("flush_to_disk", False)
+        kwargs.setdefault("deactivate_file_output", True)
         kwargs.setdefault("buffer_limit", 1 << 20)
         kwargs.setdefault("file_path", str(tmp_path / "overhead.h5"))
         ProfileManager.setup(**kwargs)
@@ -250,7 +244,7 @@ def test_nested_regions_cost_scales_with_depth(configure):
     Nesting is the common shape in real code, and the per-scope pointer stack
     is the part that could quietly turn superlinear.
     """
-    configure(time_trace=True)
+    configure()
     outer = ProfileManager.profile_region("outer")
     middle = ProfileManager.profile_region("middle")
     inner = ProfileManager.profile_region("inner")
@@ -280,7 +274,7 @@ def test_buffer_growth_stays_amortized(configure):
     blow this budget long before it ran out of memory.
     """
     calls = 50_000
-    configure(time_trace=True, buffer_limit=8)
+    configure(buffer_limit=8)
     region = ProfileManager.profile_region("grows")
 
     def instrumented(iterations, region=region):
@@ -307,7 +301,7 @@ def test_buffer_growth_stays_amortized(configure):
 def test_recording_is_two_int64_per_call(configure):
     """Memory per recorded call is exactly one start and one end timestamp."""
     calls = 10_000
-    configure(time_trace=True, buffer_limit=1024)
+    configure(buffer_limit=1024)
     region = ProfileManager.profile_region("memory")
 
     for _ in range(calls):
@@ -350,43 +344,6 @@ def test_disabled_profiling_allocates_nothing_per_region(configure):
     assert region.num_calls == 0
 
 
-def test_counting_mode_is_cheaper_than_timestamping(configure, tmp_path):
-    """Dropping ``time_trace`` removes the timestamp cost from the hot path.
-
-    The modes exist so a user can trade detail for speed; this checks the
-    trade is real rather than nominal.
-    """
-
-    def measure(**settings):
-        ProfileManager.setup(
-            flush_to_disk=False,
-            buffer_limit=1 << 20,
-            file_path=str(tmp_path / "modes.h5"),
-            **settings,
-        )
-        region = ProfileManager.profile_region("bench")
-
-        def instrumented(iterations, region=region):
-            for _ in range(iterations):
-                with region:
-                    pass
-
-        return _overhead_ns(instrumented, _empty_loop)
-
-    counting = measure(time_trace=False)
-    timestamping = measure(time_trace=True)
-    print(
-        f"  {'timestamps cost over counting':<34s} "
-        f"{timestamping - counting:8.0f} ns   "
-        f"(counting {counting:.0f} ns, timestamping {timestamping:.0f} ns)"
-    )
-
-    assert counting < timestamping
-    # Both still have to clear their own budget.
-    assert counting < BUDGET_NS["ncalls"]
-    assert timestamping < BUDGET_NS["time"]
-
-
 def test_measured_duration_matches_wall_clock(configure):
     """A region reports the wall-clock time of its body, not the time to
     record it.
@@ -396,7 +353,7 @@ def test_measured_duration_matches_wall_clock(configure):
     """
     calls = 200
     busy_ns = 200_000  # ~0.2 ms of real work per call
-    configure(time_trace=True)
+    configure()
     region = ProfileManager.profile_region("busy")
 
     def spin(duration_ns):

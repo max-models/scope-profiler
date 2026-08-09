@@ -82,15 +82,13 @@ def launched_under_mpi() -> bool:
     return False
 
 
-def get_comm(use_mpi: bool | None = None):
+def get_comm():
     """Return ``MPI.COMM_WORLD``, or None when MPI must not be used.
 
-    Parameters
-    ----------
-    use_mpi : bool or None, optional
-        None (default) decides via :func:`launched_under_mpi`. True forces the
-        communicator (and fails loudly if mpi4py is missing); False disables
-        MPI unconditionally.
+    The decision is made entirely by :func:`launched_under_mpi`, so a plain
+    ``python script.py`` run never touches MPI. Override it with the
+    ``SCOPE_PROFILER_MPI`` environment variable when a launcher this module
+    does not recognize is in play.
 
     Returns
     -------
@@ -98,20 +96,12 @@ def get_comm(use_mpi: bool | None = None):
         The world communicator, or None if this is not an MPI run or mpi4py
         is unavailable.
     """
-    if use_mpi is False:
-        return None
-
-    if use_mpi is None and not launched_under_mpi():
+    if not launched_under_mpi():
         return None
 
     try:
         from mpi4py import MPI
     except ImportError:
-        if use_mpi:
-            raise ImportError(
-                "MPI profiling was requested (use_mpi=True) but mpi4py is not "
-                "installed."
-            )
         # Launched by mpirun without mpi4py available: fall back to treating
         # this rank as a standalone process rather than failing the run.
         return None

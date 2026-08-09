@@ -48,8 +48,8 @@ def _region_durations(region, ranks=None) -> np.ndarray:
 def region_row(region, ranks=None) -> dict:
     """Collect the summary statistics shown for one region.
 
-    Duration entries are ``None`` when the region recorded no timestamps
-    (``time_trace=False``), which the table renders as a dash.
+    Duration entries are ``None`` when the region has no recorded calls for
+    the selected ranks, which the table renders as a dash.
     """
     if ranks is None:
         per_rank = region.regions
@@ -101,7 +101,7 @@ def region_rows(
     # alphabetically rather than by whatever order the file happened to use.
     rows.sort(key=lambda row: row["name"])
     if sort != "name":
-        # None (no timing recorded) sorts last.
+        # None (nothing recorded for these ranks) sorts last.
         rows.sort(key=lambda row: (row[sort] is not None, row[sort] or 0), reverse=True)
     return rows
 
@@ -186,8 +186,7 @@ def print_region_table(rows, title=None, stream=None) -> None:
         )
     if any(row["total"] is None for row in rows):
         notes.append(
-            "Regions without timing were profiled with time_trace=False; "
-            "only their call counts were recorded."
+            "Regions shown without timing recorded no calls on the selected ranks."
         )
     for note in notes:
         print(f"\n  {note}", file=stream)

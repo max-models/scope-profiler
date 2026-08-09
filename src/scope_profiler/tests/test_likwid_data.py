@@ -474,7 +474,7 @@ def test_collection_falls_back_to_the_marker_file(monkeypatch, tmp_path):
 
     try:
         ProfileManager.setup(
-            use_likwid=True, use_mpi=False, file_path=str(tmp_path / "out.h5")
+            use_likwid=True, file_path=str(tmp_path / "out.h5")
         )
         results = ProfileManager.get_config().collect_likwid_results(["main"])
     finally:
@@ -750,7 +750,7 @@ def test_collection_only_happens_once(monkeypatch, tmp_path):
 
     try:
         ProfileManager.setup(
-            use_likwid=True, use_mpi=False, file_path=str(tmp_path / "out.h5")
+            use_likwid=True, file_path=str(tmp_path / "out.h5")
         )
         config = ProfileManager.get_config()
 
