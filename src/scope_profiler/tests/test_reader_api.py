@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 import scope_profiler
-from scope_profiler import MPIRegion, ProfilingH5Reader, Region
+from scope_profiler import MPIRegion, Region, read_h5
 
 NS = 1_000_000_000
 
@@ -90,7 +90,7 @@ def test_region_without_timing_is_safe():
 
 
 def test_mpi_region_aggregates_over_ranks(sample_file):
-    solve = ProfilingH5Reader(sample_file).get_region("solve")
+    solve = read_h5(sample_file).get_region("solve")
 
     assert isinstance(solve, MPIRegion)
     assert solve.ranks == [0, 1]
@@ -112,14 +112,14 @@ def test_mpi_region_aggregates_over_ranks(sample_file):
 
 
 def test_mpi_region_unknown_rank_lists_available(sample_file):
-    solve = ProfilingH5Reader(sample_file).get_region("solve")
+    solve = read_h5(sample_file).get_region("solve")
 
     with pytest.raises(KeyError, match=r"Available ranks: \[0, 1\]"):
         solve[7]
 
 
 def test_reader_mapping_interface(sample_file):
-    reader = ProfilingH5Reader(sample_file)
+    reader = read_h5(sample_file)
 
     assert reader.region_names == ["setup", "solve"]
     assert len(reader) == 2
@@ -132,14 +132,14 @@ def test_reader_mapping_interface(sample_file):
 
 
 def test_reader_unknown_region_lists_available(sample_file):
-    reader = ProfilingH5Reader(sample_file)
+    reader = read_h5(sample_file)
 
     with pytest.raises(KeyError, match="Available regions"):
         reader.get_region("nope")
 
 
 def test_reader_summary(sample_file):
-    reader = ProfilingH5Reader(sample_file)
+    reader = read_h5(sample_file)
 
     summary = reader.summary()
     assert [row["name"] for row in summary] == ["setup", "solve"]
@@ -152,7 +152,7 @@ def test_reader_summary(sample_file):
 
 
 def test_reader_print_summary(sample_file, capsys):
-    ProfilingH5Reader(sample_file).print_summary()
+    read_h5(sample_file).print_summary()
 
     out = capsys.readouterr().out
     assert "region" in out and "total [s]" in out
@@ -161,7 +161,7 @@ def test_reader_print_summary(sample_file, capsys):
 
 def test_reader_to_dataframe(sample_file):
     pd = pytest.importorskip("pandas")
-    reader = ProfilingH5Reader(sample_file)
+    reader = read_h5(sample_file)
 
     frame = reader.to_dataframe()
     assert isinstance(frame, pd.DataFrame)
@@ -179,7 +179,7 @@ def test_reader_handles_count_only_regions(tmp_path):
     path = tmp_path / "counts.h5"
     _write_sample_h5(path, {0: {"counted": None}})
 
-    reader = ProfilingH5Reader(path)
+    reader = read_h5(path)
     region = reader["counted"]
 
     assert region.num_calls == 3
@@ -191,7 +191,7 @@ def test_reader_handles_count_only_regions(tmp_path):
 
 def test_region_events(sample_file):
     """Region.events() gives one entry per call, optionally rebased."""
-    solve = ProfilingH5Reader(sample_file)["solve"][0]
+    solve = read_h5(sample_file)["solve"][0]
 
     assert solve.events() == [
         {"call_index": 0, "start": 2.0, "end": 4.0, "duration": 2.0},
@@ -204,7 +204,7 @@ def test_region_events(sample_file):
 
 
 def test_region_raw_nanosecond_arrays(sample_file):
-    solve = ProfilingH5Reader(sample_file)["solve"][0]
+    solve = read_h5(sample_file)["solve"][0]
 
     assert solve.start_times_ns.tolist() == [2 * NS, 5 * NS]
     assert solve.end_times_ns.tolist() == [4 * NS, 8 * NS]
@@ -212,7 +212,7 @@ def test_region_raw_nanosecond_arrays(sample_file):
 
 
 def test_mpi_region_events_span_ranks(sample_file):
-    solve = ProfilingH5Reader(sample_file)["solve"]
+    solve = read_h5(sample_file)["solve"]
 
     events = solve.events()
     assert len(events) == 4
@@ -230,7 +230,7 @@ def test_mpi_region_events_span_ranks(sample_file):
 
 
 def test_reader_events(sample_file):
-    reader = ProfilingH5Reader(sample_file)
+    reader = read_h5(sample_file)
 
     events = reader.events()
     assert len(events) == 6
@@ -251,7 +251,7 @@ def test_reader_events_are_rebased_on_first_entry(tmp_path):
     path = tmp_path / "offset.h5"
     _write_sample_h5(path, {0: {"solve": ([100 * NS, 130 * NS], [110 * NS, 140 * NS])}})
 
-    reader = ProfilingH5Reader(path)
+    reader = read_h5(path)
 
     assert [event["start"] for event in reader.events()] == pytest.approx([0.0, 30.0])
     assert [event["start"] for event in reader.events(relative=False)] == pytest.approx(
@@ -272,7 +272,7 @@ def test_reader_uses_registered_start_time_as_origin(tmp_path):
         metadata={"start_time_ns": 80 * NS},
     )
 
-    reader = ProfilingH5Reader(path)
+    reader = read_h5(path)
 
     assert reader.run_start_time == pytest.approx(80.0)
     assert reader.time_origin == pytest.approx(80.0)
@@ -297,7 +297,7 @@ def test_reader_origin_overrides_registered_start_time(tmp_path):
         {0: {"solve": ([100 * NS], [110 * NS])}},
         metadata={"start_time_ns": 80 * NS},
     )
-    reader = ProfilingH5Reader(path)
+    reader = read_h5(path)
 
     # Explicit origin wins over the registered start time...
     assert reader.events(origin=reader.minimum_start_time)[0]["start"] == 0.0
@@ -326,7 +326,7 @@ def test_reader_without_registered_start_time_falls_back(tmp_path, metadata):
         metadata=metadata,
     )
 
-    reader = ProfilingH5Reader(path)
+    reader = read_h5(path)
 
     assert reader.run_start_time is None
     # The timeline falls back to the first region entry, as before.
@@ -349,7 +349,7 @@ def test_startup_time_measures_the_gap_before_the_first_region(tmp_path):
         metadata={"start_time_ns": 80 * NS},
     )
 
-    assert ProfilingH5Reader(path).startup_time == pytest.approx(20.0)
+    assert read_h5(path).startup_time == pytest.approx(20.0)
 
 
 def test_reader_time_span_ignores_count_only_regions(tmp_path):
@@ -360,7 +360,7 @@ def test_reader_time_span_ignores_count_only_regions(tmp_path):
         {0: {"counted": None, "solve": ([100 * NS], [110 * NS])}},
     )
 
-    reader = ProfilingH5Reader(path)
+    reader = read_h5(path)
 
     assert reader.minimum_start_time == pytest.approx(100.0)
     assert reader.time_span == pytest.approx(10.0)
@@ -372,7 +372,7 @@ def test_reader_time_span_without_timing(tmp_path):
     path = tmp_path / "counts.h5"
     _write_sample_h5(path, {0: {"counted": None}})
 
-    reader = ProfilingH5Reader(path)
+    reader = read_h5(path)
 
     assert reader.minimum_start_time == 0.0
     assert reader.maximum_end_time == 0.0
@@ -382,7 +382,7 @@ def test_reader_time_span_without_timing(tmp_path):
 
 def test_reader_to_events_dataframe(sample_file):
     pd = pytest.importorskip("pandas")
-    reader = ProfilingH5Reader(sample_file)
+    reader = read_h5(sample_file)
 
     frame = reader.to_events_dataframe()
     assert isinstance(frame, pd.DataFrame)
@@ -404,7 +404,7 @@ def test_reader_to_events_dataframe_columns_when_empty(tmp_path):
     path = tmp_path / "counts.h5"
     _write_sample_h5(path, {0: {"counted": None}})
 
-    frame = ProfilingH5Reader(path).to_events_dataframe()
+    frame = read_h5(path).to_events_dataframe()
 
     assert frame.empty
     assert list(frame.columns) == [
@@ -430,7 +430,7 @@ def test_reader_call_stack(tmp_path):
             }
         },
     )
-    reader = ProfilingH5Reader(path)
+    reader = read_h5(path)
 
     calls = reader.call_stack(rank=0)
 
@@ -457,7 +457,7 @@ def test_reader_call_stack(tmp_path):
 
 def test_top_level_exports_and_lazy_plotting():
     """Post-processing types are importable from the package root."""
-    assert scope_profiler.ProfilingH5Reader is ProfilingH5Reader
+    assert scope_profiler.read_h5 is read_h5
     assert scope_profiler.Region is Region
     assert scope_profiler.MPIRegion is MPIRegion
 

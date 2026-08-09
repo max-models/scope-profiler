@@ -3,9 +3,8 @@ Post-processing straight from memory, serial or under MPI
 =========================================================
 
 ``ProfileManager.finalize(return_results=True)`` hands back the run's data as a
-``ProfilingResults`` --- the same post-processing API ``ProfilingH5Reader``
-gives you, but built from the in-memory buffers instead of by reading a file
-back. Here it is used with ``flush_to_disk=False``, so no timing data is
+``ProfilingResults`` --- the same post-processing API ``read_h5()`` gives you,
+but built from the in-memory buffers instead of by reading a file back. Here it is used with ``flush_to_disk=False``, so no timing data is
 written to disk at all (the output file is left holding just the run metadata)
 and the summary and figures are produced from memory.
 

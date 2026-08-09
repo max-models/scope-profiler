@@ -4,8 +4,7 @@ import h5py
 import numpy as np
 import pytest
 
-from scope_profiler import ProfileManager
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler import ProfileManager, read_h5
 
 
 def _durations(region):
@@ -45,7 +44,7 @@ def test_growth_preserves_earlier_measurements(tmp_path):
     assert np.all(np.diff(starts) > 0)
 
     ProfileManager.finalize(verbose=False)
-    stored = ProfilingH5Reader(file_path)["region"][0]
+    stored = read_h5(file_path)["region"][0]
     assert stored.num_calls == 50
     assert np.all(np.diff(stored.start_times) > 0)
 
@@ -70,7 +69,7 @@ def test_growth_during_recursion_keeps_slots_valid(tmp_path):
     assert np.all(_durations(region) > 0)
 
     ProfileManager.finalize(verbose=False)
-    stored = ProfilingH5Reader(file_path)["recursive"][0]
+    stored = read_h5(file_path)["recursive"][0]
     assert stored.num_calls == 21
     assert np.all(stored.durations > 0)
 

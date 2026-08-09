@@ -86,7 +86,7 @@ profiling_data.h5  (1 rank(s))
   TOTAL                     1100         ...
 ```
 
-The same table is available from `ProfilingH5Reader.print_summary()` and from
+The same table is available from `ProfilingResults.print_summary()` and from
 `scope-profiler inspect`; pass `verbose=False` to `finalize()` to suppress it.
 
 ## 4. Inspect the data
@@ -102,15 +102,15 @@ See {doc}`/guide/postprocessing_cli` for the other charts and exports it can
 produce. Or load the data programmatically:
 
 ```python
-from scope_profiler import ProfilingH5Reader
+from scope_profiler import read_h5
 
-reader = ProfilingH5Reader("profiling_data.h5")
+results = read_h5("profiling_data.h5")
 
 # The quickest look: a summary table of every region.
-reader.print_summary()
+results.print_summary()
 
 # Or region by region (durations are in seconds).
-for region in reader:
+for region in results:
     print(f"{region.name}: {region.num_calls} calls, "
           f"avg {region.average_duration:.4f} s")
 ```

@@ -5,7 +5,7 @@ from time import sleep
 
 import pytest
 
-from scope_profiler import ProfileManager, ProfilingH5Reader
+from scope_profiler import ProfileManager, read_h5
 from scope_profiler.plotting_scripts import collect_region_statistics
 
 
@@ -20,7 +20,7 @@ def _profile(out, label=None):
     with ProfileManager.profile_region("solve"):
         sleep(0.0001)
     ProfileManager.finalize(verbose=False)
-    return ProfilingH5Reader(str(out))
+    return read_h5(str(out))
 
 
 def test_label_round_trips_through_the_file(tmp_path):
@@ -114,7 +114,7 @@ def test_pproc_label_overrides_the_stored_one(tmp_path, capsys):
     assert (output_dir / "profile_128_ranks_rank0.prof").exists()
 
     # The file itself keeps what the run recorded.
-    assert ProfilingH5Reader(str(labelled)).label == "stored"
+    assert read_h5(str(labelled)).label == "stored"
 
 
 def test_pproc_label_count_must_match_the_files(tmp_path):

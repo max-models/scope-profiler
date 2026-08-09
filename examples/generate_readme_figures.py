@@ -18,8 +18,7 @@ import os
 import tempfile
 import time
 
-from scope_profiler import ProfileManager
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler import ProfileManager, read_h5
 from scope_profiler.plotting_scripts import plot_durations, plot_flame, plot_gantt
 
 
@@ -85,16 +84,16 @@ def main():
         run_workload()
         ProfileManager.finalize(verbose=False)
 
-        reader = ProfilingH5Reader(h5_path)
+        results = read_h5(h5_path)
 
         gantt_path = os.path.join(args.output, "gantt_plot.png")
         flame_path = os.path.join(args.output, "flame_plot.png")
         durations_path = os.path.join(args.output, "durations_plot.png")
 
-        plot_gantt(reader, filepath=gantt_path, show=args.show, verbose=False)
-        plot_flame(reader, filepath=flame_path, show=args.show, verbose=False)
+        plot_gantt(results, filepath=gantt_path, show=args.show, verbose=False)
+        plot_flame(results, filepath=flame_path, show=args.show, verbose=False)
         plot_durations(
-            reader,
+            results,
             filepath=durations_path,
             metrics="avg",
             show=args.show,

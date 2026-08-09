@@ -4,7 +4,7 @@ import h5py
 import numpy as np
 import pytest
 
-from scope_profiler import ProfilingH5Reader
+from scope_profiler import read_h5
 from scope_profiler.likwid_data import LikwidRegionResult, write_likwid_results
 from scope_profiler.post_processing import main as pproc_main
 from scope_profiler.summary import likwid_tables, print_likwid_table
@@ -50,7 +50,7 @@ def test_tables_put_regions_in_columns_and_counters_in_rows(tmp_path):
     """A run has few regions and many counters, so counters are the rows."""
     path = _write(tmp_path / "d.h5", {0: [_result("solve"), _result("io", base=2.0)]})
 
-    (table,) = likwid_tables(ProfilingH5Reader(path))
+    (table,) = likwid_tables(read_h5(path))
     assert table["rank"] == 0
     assert table["group"] == "CLOCK"
     # io has twice solve's runtime, so it leads: costliest region first, as in
@@ -78,7 +78,7 @@ def test_one_table_per_event_group(tmp_path):
         {0: [_result("solve", group="CLOCK"), _result("io", group="MEM_DP")]},
     )
 
-    tables = likwid_tables(ProfilingH5Reader(path))
+    tables = likwid_tables(read_h5(path))
     assert [(t["group"], t["columns"]) for t in tables] == [
         ("CLOCK", ["solve"]),
         ("MEM_DP", ["io"]),
@@ -89,7 +89,7 @@ def test_one_table_per_rank(tmp_path):
     """Each rank measured its own counters and gets its own table."""
     path = _write(tmp_path / "d.h5", {0: [_result("solve")], 1: [_result("solve")]})
 
-    tables = likwid_tables(ProfilingH5Reader(path))
+    tables = likwid_tables(read_h5(path))
     assert [t["rank"] for t in tables] == [0, 1]
 
 
@@ -97,7 +97,7 @@ def test_multithreaded_region_labels_columns_by_cpu(tmp_path):
     """Per-thread values are shown as such, not folded into a fake aggregate."""
     path = _write(tmp_path / "d.h5", {0: [_result("solve", nthreads=2, cpus=[4, 5])]})
 
-    (table,) = likwid_tables(ProfilingH5Reader(path))
+    (table,) = likwid_tables(read_h5(path))
     assert table["columns"] == ["solve@cpu4", "solve@cpu5"]
 
 
@@ -107,7 +107,7 @@ def test_filters_apply_to_the_counter_table(tmp_path):
         tmp_path / "d.h5",
         {0: [_result("solve"), _result("io")], 1: [_result("solve")]},
     )
-    reader = ProfilingH5Reader(path)
+    reader = read_h5(path)
 
     (table,) = likwid_tables(reader, include=["solve"], ranks=[0])
     assert table["columns"] == ["solve"]
@@ -124,7 +124,7 @@ def test_no_tables_without_likwid_data(tmp_path):
         grp.create_dataset("start_times", data=np.array([0], dtype=np.int64))
         grp.create_dataset("end_times", data=np.array([10**9], dtype=np.int64))
 
-    assert likwid_tables(ProfilingH5Reader(path)) == []
+    assert likwid_tables(read_h5(path)) == []
 
 
 def test_counters_render_as_integers_not_exponents(tmp_path, capsys):
@@ -133,7 +133,7 @@ def test_counters_render_as_integers_not_exponents(tmp_path, capsys):
     result.events = np.array([[69617470.0], [10.0], [20.0]])
     path = _write(tmp_path / "d.h5", {0: [result]})
 
-    (table,) = likwid_tables(ProfilingH5Reader(path))
+    (table,) = likwid_tables(read_h5(path))
     print_likwid_table(table)
     out = capsys.readouterr().out
     assert "69617470" in out

@@ -16,9 +16,10 @@ import h5py
 import numpy as np
 import pytest
 
-from scope_profiler import ProfileManager, ProfilingH5Reader
+from scope_profiler import ProfileManager
 from scope_profiler import likwid_data as likwid_data_module
 from scope_profiler import profile_config as profile_config_module
+from scope_profiler import read_h5
 from scope_profiler import region_profiler as region_profiler_module
 from scope_profiler.likwid_data import (
     LIKWID_GROUP,
@@ -73,7 +74,7 @@ def test_write_and_read_back_round_trip(tmp_path):
     original = _make_result()
     _write_merged_file(path, [original])
 
-    reader = ProfilingH5Reader(path)
+    reader = read_h5(path)
     assert reader.has_likwid
     assert reader.likwid_ranks == [0]
 
@@ -110,7 +111,7 @@ def test_reader_without_likwid_data(tmp_path):
         grp.create_dataset("start_times", data=np.array([0], dtype=np.int64))
         grp.create_dataset("end_times", data=np.array([10], dtype=np.int64))
 
-    reader = ProfilingH5Reader(path)
+    reader = read_h5(path)
     assert not reader.has_likwid
     assert reader.likwid_ranks == []
     assert reader.get_likwid_regions() == {}
@@ -127,7 +128,7 @@ def test_multiple_ranks(tmp_path):
             result.times = result.times + rank
             write_likwid_results(f.create_group(f"rank{rank}"), [result])
 
-    reader = ProfilingH5Reader(path)
+    reader = read_h5(path)
     assert reader.likwid_ranks == [0, 1]
     assert reader.get_likwid_region("solve", rank=1).times[0] == pytest.approx(1.1)
 
@@ -137,7 +138,7 @@ def test_tag_with_slash_is_escaped(tmp_path):
     path = tmp_path / "profiling_data.h5"
     _write_merged_file(path, [_make_result(tag="solve/inner")])
 
-    reader = ProfilingH5Reader(path)
+    reader = read_h5(path)
     # The true tag survives, even though the group name had to be escaped.
     assert reader.get_likwid_region("solve/inner").tag == "solve/inner"
 
@@ -150,7 +151,7 @@ def test_rewriting_replaces_previous_results(tmp_path):
         write_likwid_results(grp, [_make_result(tag="first")])
         write_likwid_results(grp, [_make_result(tag="second")])
 
-    reader = ProfilingH5Reader(path)
+    reader = read_h5(path)
     assert sorted(reader.get_likwid_regions(0)) == ["second"]
 
 
@@ -161,7 +162,7 @@ def test_likwid_to_dataframe(tmp_path):
     path = tmp_path / "profiling_data.h5"
     _write_merged_file(path, [_make_result(nthreads=2)])
 
-    df = ProfilingH5Reader(path).likwid_to_dataframe()
+    df = read_h5(path).likwid_to_dataframe()
     assert isinstance(df, pd.DataFrame)
     assert len(df) == 2
     assert list(df["region"]) == ["solve", "solve"]
@@ -176,7 +177,7 @@ def test_print_likwid_summary(tmp_path, capsys):
     path = tmp_path / "profiling_data.h5"
     _write_merged_file(path, [_make_result()])
 
-    ProfilingH5Reader(path).print_likwid_summary()
+    read_h5(path).print_likwid_summary()
     out = capsys.readouterr().out
     assert "solve" in out
     assert "CLOCK" in out
@@ -577,7 +578,7 @@ def test_dataframe_keeps_every_channel_of_a_repeated_event(tmp_path):
     path = tmp_path / "profiling_data.h5"
     _write_merged_file(path, [result])
 
-    df = ProfilingH5Reader(path).likwid_to_dataframe()
+    df = read_h5(path).likwid_to_dataframe()
     # Both channels survive, with their own values.
     assert df["CAS_COUNT_RD:MBOX0C0"].tolist() == [11.0]
     assert df["CAS_COUNT_RD:MBOX1C0"].tolist() == [22.0]
@@ -590,7 +591,7 @@ def test_counter_names_round_trip(tmp_path):
     path = tmp_path / "profiling_data.h5"
     _write_merged_file(path, [result])
 
-    assert ProfilingH5Reader(path).get_likwid_region("solve").counter_names == [
+    assert read_h5(path).get_likwid_region("solve").counter_names == [
         "FIXC0",
         "FIXC1",
     ]

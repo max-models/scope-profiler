@@ -13,7 +13,7 @@ this file usable as a smoke test on machines without LIKWID.
 
 import os
 
-from scope_profiler import ProfileManager, ProfilingH5Reader
+from scope_profiler import ProfileManager, read_h5
 
 H5_PATH = "profiling_data_likwid.h5"
 
@@ -40,7 +40,7 @@ def test_pylikwid():
 
     ProfileManager.finalize()
 
-    reader = ProfilingH5Reader(H5_PATH)
+    reader = read_h5(H5_PATH)
 
     # Timing data is recorded regardless of whether LIKWID is active.
     assert "main" in reader.region_names

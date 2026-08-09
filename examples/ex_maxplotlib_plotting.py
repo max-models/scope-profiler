@@ -17,8 +17,7 @@ Run this example after profiling some code:
 import tempfile
 from pathlib import Path
 
-from scope_profiler import ProfileManager
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler import ProfileManager, read_h5
 from scope_profiler.plotting_scripts import (
     plot_durations,
     plot_flame,
@@ -67,19 +66,19 @@ def main():
     create_sample_profile(profile_path)
 
     # Load the profile
-    reader = ProfilingH5Reader(profile_path)
+    results = read_h5(profile_path)
 
     # Example 1: Gantt chart with matplotlib
     print("\n2. Creating Gantt chart (matplotlib backend)...")
     gantt_matplotlib = "gantt_matplotlib.png"
-    plot_gantt(reader, filepath=gantt_matplotlib, backend="matplotlib", verbose=False)
+    plot_gantt(results, filepath=gantt_matplotlib, backend="matplotlib", verbose=False)
     print(f"   ✓ Saved to: {gantt_matplotlib}")
 
     # Example 2: Gantt chart with plotly (note: may have issues with some color formats)
     print("\n3. Creating Gantt chart (plotly backend)...")
     try:
         gantt_plotly = "gantt_plotly.html"
-        plot_gantt(reader, filepath=gantt_plotly, backend="plotly", verbose=False)
+        plot_gantt(results, filepath=gantt_plotly, backend="plotly", verbose=False)
         print(f"   ✓ Saved to: {gantt_plotly}")
         print(f"   Open {gantt_plotly} in a browser for interactive visualization!")
     except Exception as e:
@@ -89,13 +88,13 @@ def main():
     # Example 3: Flame chart with matplotlib
     print("\n4. Creating Flame chart (matplotlib backend)...")
     flame_matplotlib = "flame_matplotlib.png"
-    plot_flame(reader, filepath=flame_matplotlib, backend="matplotlib", verbose=False)
+    plot_flame(results, filepath=flame_matplotlib, backend="matplotlib", verbose=False)
     print(f"   ✓ Saved to: {flame_matplotlib}")
 
     # Example 4: Flame chart with plotly
     print("\n5. Creating Flame chart (plotly backend)...")
     flame_plotly = "flame_plotly.html"
-    plot_flame(reader, filepath=flame_plotly, backend="plotly", verbose=False)
+    plot_flame(results, filepath=flame_plotly, backend="plotly", verbose=False)
     print(f"   ✓ Saved to: {flame_plotly}")
     print(f"   Open {flame_plotly} in a browser for interactive visualization!")
 
@@ -105,11 +104,11 @@ def main():
     with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as f:
         profile_path2 = f.name
     create_sample_profile(profile_path2)
-    reader2 = ProfilingH5Reader(profile_path2)
+    results2 = read_h5(profile_path2)
 
     durations_matplotlib = "durations_matplotlib.png"
     plot_durations(
-        [reader, reader2],
+        [results, results2],
         labels=["Run 1", "Run 2"],
         metrics="avg",
         filepath=durations_matplotlib,
@@ -120,7 +119,7 @@ def main():
 
     durations_plotly = "durations_plotly.html"
     plot_durations(
-        [reader, reader2],
+        [results, results2],
         labels=["Run 1", "Run 2"],
         metrics="avg",
         filepath=durations_plotly,
@@ -133,7 +132,7 @@ def main():
     print("\n7. Creating speedup plot...")
     speedup_matplotlib = "speedup_matplotlib.png"
     plot_speedup(
-        [reader, reader2],
+        [results, results2],
         x_field="num_ranks",
         filepath=speedup_matplotlib,
         backend="matplotlib",
@@ -143,7 +142,7 @@ def main():
 
     speedup_plotly = "speedup_plotly.html"
     plot_speedup(
-        [reader, reader2],
+        [results, results2],
         x_field="num_ranks",
         filepath=speedup_plotly,
         backend="plotly",
@@ -154,11 +153,11 @@ def main():
     # Example 7: Export data to JSON for custom visualization
     print("\n8. Exporting plot data to JSON...")
     gantt_data = "gantt_data.json"
-    plot_gantt(reader, data_filepath=gantt_data, data_format="json", verbose=False)
+    plot_gantt(results, data_filepath=gantt_data, data_format="json", verbose=False)
     print(f"   ✓ Gantt data: {gantt_data}")
 
     flame_data = "flame_data.json"
-    plot_flame(reader, data_filepath=flame_data, data_format="json", verbose=False)
+    plot_flame(results, data_filepath=flame_data, data_format="json", verbose=False)
     print(f"   ✓ Flame data: {flame_data}")
 
     # Cleanup

@@ -1,8 +1,7 @@
 import os
 import time
 
-from scope_profiler import ProfileManager
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler import ProfileManager, read_h5
 from scope_profiler.plotting_scripts import plot_flame, plot_gantt
 
 ProfileManager.setup(

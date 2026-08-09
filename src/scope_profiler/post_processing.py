@@ -4,7 +4,7 @@ import argparse
 import glob
 import os
 
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler.h5reader import read_h5
 from scope_profiler.plotting_scripts import (
     DEFAULT_CMAP,
     plot_duration_timeseries,
@@ -344,7 +344,7 @@ def main(argv: list[str] | None = None):
             ranks.extend(parse_ranks(spec))
         args.ranks = sorted(set(ranks))
 
-    readers = [ProfilingH5Reader(file_path) for file_path in args.files]
+    readers = [read_h5(file_path) for file_path in args.files]
 
     # Applied to the readers rather than passed down per plot: every output --
     # chart legends and panel titles, the summary headings, the JSON

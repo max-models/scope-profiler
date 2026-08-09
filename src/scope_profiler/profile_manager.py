@@ -25,7 +25,7 @@ from scope_profiler.region_profiler import (
 )
 
 if TYPE_CHECKING:  # imported lazily in read_results() to keep imports cheap
-    from scope_profiler.h5reader import ProfilingH5Reader
+    from scope_profiler.results import ProfilingResults
 
 
 class ProfileManager:
@@ -466,9 +466,9 @@ class ProfileManager:
         return_results : bool, optional
             If True, return the run's data as a
             :class:`~scope_profiler.results.ProfilingResults` - the same
-            post-processing API :class:`~scope_profiler.h5reader.ProfilingH5Reader`
-            provides, built straight from the in-memory buffers instead of by
-            reading the output file back::
+            post-processing API :func:`~scope_profiler.h5reader.read_h5`
+            gives back, built straight from the in-memory buffers instead of
+            by reading the output file back::
 
                 results = ProfileManager.finalize(return_results=True)
                 results.print_summary()
@@ -573,13 +573,13 @@ class ProfileManager:
                         fout.copy(fin, f"rank{r}")
 
             # 5. Summarize the merged file, using the same table that
-            # `scope-profiler inspect` and ProfilingH5Reader.print_summary()
+            # `scope-profiler inspect` and ProfilingResults.print_summary()
             # render. Reading it back keeps the merge above a plain copy and
             # leaves one implementation of the statistics.
             if verbose:
-                from scope_profiler.h5reader import ProfilingH5Reader
+                from scope_profiler.h5reader import read_h5
 
-                ProfilingH5Reader(merged_file_path).print_summary(
+                read_h5(merged_file_path).print_summary(
                     title=f"{merged_file_path}  ({size} rank(s))"
                 )
 
@@ -593,7 +593,7 @@ class ProfileManager:
         return None
 
     @classmethod
-    def read_results(cls) -> "ProfilingH5Reader":
+    def read_results(cls) -> "ProfilingResults":
         """
         Open the merged profiling file this run wrote, for post-processing.
 
@@ -601,13 +601,13 @@ class ProfileManager:
         them::
 
             ProfileManager.finalize()
-            reader = ProfileManager.read_results()
-            reader.print_summary()
+            results = ProfileManager.read_results()
+            results.print_summary()
 
         Returns
         -------
-        ProfilingH5Reader
-            Reader for the file at ``config.file_path``.
+        ProfilingResults
+            The data in the file at ``config.file_path``.
 
         Raises
         ------
@@ -616,9 +616,9 @@ class ProfileManager:
             :meth:`finalize`, and only on rank 0 - guard the call with
             ``if ProfileManager.get_config()._rank == 0`` under MPI.
         """
-        from scope_profiler.h5reader import ProfilingH5Reader
+        from scope_profiler.h5reader import read_h5
 
-        return ProfilingH5Reader(cls.get_config().file_path)
+        return read_h5(cls.get_config().file_path)
 
     @classmethod
     def get_region(cls, region_name) -> BaseProfileRegion:

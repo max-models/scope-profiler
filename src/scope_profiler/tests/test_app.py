@@ -5,8 +5,7 @@ import h5py
 import pytest
 
 import scope_profiler.tests.examples as examples
-from scope_profiler import ProfileManager
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler import ProfileManager, ProfilingResults, read_h5
 from scope_profiler.region_profiler import (
     DisabledProfileRegion,
     FullProfileRegion,
@@ -377,8 +376,8 @@ def test_finalize_prints_the_shared_summary_table(tmp_path, capsys):
     ProfileManager.finalize()
     printed = capsys.readouterr().out
 
-    # Same header, columns and TOTAL row as ProfilingH5Reader.print_summary().
-    reader = ProfilingH5Reader(file_path)
+    # Same header, columns and TOTAL row as ProfilingResults.print_summary().
+    reader = read_h5(file_path)
     reader.print_summary(title=f"{file_path}  (1 rank(s))")
     assert printed == capsys.readouterr().out
 
@@ -399,12 +398,12 @@ def test_read_results_opens_the_finalized_file(tmp_path):
             sleep(0.001)
 
     ProfileManager.finalize(verbose=False)
-    reader = ProfileManager.read_results()
+    results = ProfileManager.read_results()
 
-    assert isinstance(reader, ProfilingH5Reader)
-    assert reader.file_path == file_path
-    assert reader["step"].num_calls == 3
-    assert len(reader.events(include="step")) == 3
+    assert isinstance(results, ProfilingResults)
+    assert results.file_path == file_path
+    assert results["step"].num_calls == 3
+    assert len(results.events(include="step")) == 3
 
 
 def test_setup_registers_the_run_start_time(tmp_path):
@@ -509,7 +508,7 @@ def test_finalize_writes_global_metadata(tmp_path):
         assert attrs["mpi_size"] == 1
         assert attrs["total_cores"] == attrs["mpi_size"] * attrs["omp_num_threads"]
 
-    reader = ProfilingH5Reader(file_path)
+    reader = read_h5(file_path)
     # The reader exposes the same fields, decoded into plain Python types
     # (list-valued attributes come back from h5py as numpy arrays).
     assert reader.metadata.keys() == attrs.keys()
@@ -545,7 +544,7 @@ def test_ncalls_only_persists_call_counts(tmp_path, flush_to_disk):
         # No timing was requested, so no timestamps are stored.
         assert "start_times" not in regions["ctx_region"]
 
-    reader = ProfilingH5Reader(file_path)
+    reader = read_h5(file_path)
     assert reader.get_region("ctx_region")[0].num_calls == 5
     assert reader.get_region("decorated_region")[0].num_calls == 3
     # Duration-derived stats stay well-defined despite the absence of timings.
@@ -564,7 +563,7 @@ def test_time_trace_region_reports_timestamp_count(tmp_path):
 
     ProfileManager.finalize(verbose=False)
 
-    region = ProfilingH5Reader(file_path).get_region("timed_region")[0]
+    region = read_h5(file_path).get_region("timed_region")[0]
     assert region.num_calls == 4
     assert len(region.durations) == 4
     assert region.min_duration > 0
