@@ -604,7 +604,7 @@ def _h5_safe(tag: str) -> str:
 
     ``/`` is the group separator in HDF5, so a tag containing one would silently
     create nested groups. The original tag is always kept in the ``tag``
-    attribute, which is what readers should use.
+    attribute, which is what code reading the file should use.
     """
     return tag.replace("/", "|")
 

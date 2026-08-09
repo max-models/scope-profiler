@@ -4,7 +4,7 @@ One renderer, used by ``ProfileManager.finalize()``,
 :meth:`ProfilingResults.print_summary` and ``scope-profiler inspect``, so the
 three agree on columns, units and formatting.
 
-Everything here works off duck-typed reader/region objects, so this module has
+Everything here works off duck-typed results/region objects, so this module has
 no scope-profiler imports and cannot introduce an import cycle.
 """
 
@@ -72,18 +72,18 @@ def region_row(region, ranks=None) -> dict:
 
 
 def region_rows(
-    reader,
+    results,
     include=None,
     exclude=None,
     ranks=None,
     sort: str = "total",
 ) -> list:
-    """Build the summary rows for every region a reader exposes.
+    """Build the summary rows for every region a result set exposes.
 
     Parameters
     ----------
-    reader : ProfilingResults
-        Source of the regions; a file reader or in-memory results alike.
+    results : ProfilingResults
+        Source of the regions; loaded from a file or built in memory alike.
     include, exclude : list of str or str, optional
         Regex patterns selecting which regions to summarize.
     ranks : list of int, optional
@@ -94,7 +94,7 @@ def region_rows(
     """
     rows = [
         region_row(region, ranks)
-        for region in reader.get_regions(include=include, exclude=exclude)
+        for region in results.get_regions(include=include, exclude=exclude)
     ]
 
     # Sort by name first so that the stable sort below breaks ties
@@ -232,7 +232,7 @@ def _dense(rows: dict, width: int) -> list:
     ]
 
 
-def likwid_tables(reader, include=None, exclude=None, ranks=None) -> list:
+def likwid_tables(results, include=None, exclude=None, ranks=None) -> list:
     """Build one LIKWID counter table per (rank, event group).
 
     Regions become columns and counters become rows: a run typically has a
@@ -246,7 +246,7 @@ def likwid_tables(reader, include=None, exclude=None, ranks=None) -> list:
 
     Parameters
     ----------
-    reader : ProfilingResults
+    results : ProfilingResults
         Source of the LIKWID results.
     include, exclude : list of str or str, optional
         Regex patterns selecting which regions to report, matched as for the
@@ -266,7 +266,7 @@ def likwid_tables(reader, include=None, exclude=None, ranks=None) -> list:
     # costliest first instead matches how the region table is sorted, so the
     # two tables read together.
     grouped = {}
-    for rank, regions in sorted(reader.get_likwid_regions().items()):
+    for rank, regions in sorted(results.get_likwid_regions().items()):
         if ranks is not None and rank not in ranks:
             continue
         for tag, result in regions.items():
@@ -404,11 +404,11 @@ def print_likwid_table(table, title=None, stream=None) -> None:
     print(file=stream)
 
 
-def print_likwid_tables(reader, include=None, exclude=None, ranks=None, stream=None):
-    """Print every LIKWID counter table a reader exposes.
+def print_likwid_tables(results, include=None, exclude=None, ranks=None, stream=None):
+    """Print every LIKWID counter table a result set exposes.
 
     A no-op for files recorded without LIKWID, so callers can invoke it
     unconditionally.
     """
-    for table in likwid_tables(reader, include=include, exclude=exclude, ranks=ranks):
+    for table in likwid_tables(results, include=include, exclude=exclude, ranks=ranks):
         print_likwid_table(table, stream=stream)

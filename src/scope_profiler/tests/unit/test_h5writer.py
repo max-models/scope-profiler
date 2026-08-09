@@ -99,7 +99,7 @@ def test_ranks_are_read_back_in_rank_order(tmp_path):
     """Pooled statistics sum per-rank arrays in order, so it must be stable.
 
     HDF5 iterates group names alphabetically, which puts "rank10" before
-    "rank2"; the reader has to sort numerically or a 11+ rank file pools its
+    "rank2"; the reader has to sort numerically or an 11+ rank file pools its
     durations in a different order than the run computed them in memory.
     """
     path = tmp_path / "many_ranks.h5"

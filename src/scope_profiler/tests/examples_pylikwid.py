@@ -38,13 +38,13 @@ def test_pylikwid():
 
     ProfileManager.finalize()
 
-    reader = read_h5(H5_PATH)
+    results = read_h5(H5_PATH)
 
     # Timing data is recorded regardless of whether LIKWID is active.
-    assert "main" in reader.region_names
-    assert "iteration" in reader.region_names
+    assert "main" in results.region_names
+    assert "iteration" in results.region_names
     # num_calls is summed over ranks, and every rank runs the same 10 iterations.
-    assert reader["iteration"].num_calls == 10 * reader.num_ranks
+    assert results["iteration"].num_calls == 10 * results.num_ranks
 
     under_likwid = bool(os.environ.get("LIKWID_FILEPATH"))
     if not under_likwid:
@@ -52,14 +52,14 @@ def test_pylikwid():
             "Not running under likwid-perfctr -m: LIKWID markers are no-ops, "
             "skipping the hardware counter assertions."
         )
-        assert not reader.has_likwid
+        assert not results.has_likwid
         return
 
-    assert reader.has_likwid, f"no LIKWID data in {H5_PATH}"
-    assert reader.likwid_ranks, "no rank recorded LIKWID data"
+    assert results.has_likwid, f"no LIKWID data in {H5_PATH}"
+    assert results.likwid_ranks, "no rank recorded LIKWID data"
 
-    for rank in reader.likwid_ranks:
-        regions = reader.get_likwid_regions(rank)
+    for rank in results.likwid_ranks:
+        regions = results.get_likwid_regions(rank)
         # Every profiled region should have become a LIKWID marker region.
         for name in ("main", "iteration", "busy"):
             assert (
@@ -79,10 +79,10 @@ def test_pylikwid():
 
         # Call counts come from LIKWID's own bookkeeping rather than from the
         # hardware, so they are exact even where the counters are not.
-        assert reader.get_likwid_region("busy", rank=rank).call_counts[0] == 1
-        assert reader.get_likwid_region("iteration", rank=rank).call_counts[0] == 10
+        assert results.get_likwid_region("busy", rank=rank).call_counts[0] == 1
+        assert results.get_likwid_region("iteration", rank=rank).call_counts[0] == 10
 
-    reader.print_likwid_summary()
+    results.print_likwid_summary()
 
     # Whether the counters hold real numbers is a property of the machine, not
     # of the profiler: a virtualized runner with an unreadable TSC, or one
@@ -91,13 +91,13 @@ def test_pylikwid():
     # is here to check.
     total = sum(
         float(result.events.sum())
-        for rank in reader.likwid_ranks
-        for result in reader.get_likwid_regions(rank).values()
+        for rank in results.likwid_ranks
+        for result in results.get_likwid_regions(rank).values()
     )
     sources = {
         result.source
-        for rank in reader.likwid_ranks
-        for result in reader.get_likwid_regions(rank).values()
+        for rank in results.likwid_ranks
+        for result in results.get_likwid_regions(rank).values()
     }
     if total > 0:
         print(f"\nLIKWID counters are non-zero (source: {', '.join(sorted(sources))})")
@@ -108,7 +108,7 @@ def test_pylikwid():
             f"counters disabled by SMT, ...). Source: {', '.join(sorted(sources))}"
         )
 
-    print(f"LIKWID data verified in {H5_PATH} for rank(s) {reader.likwid_ranks}")
+    print(f"LIKWID data verified in {H5_PATH} for rank(s) {results.likwid_ranks}")
 
 
 if __name__ == "__main__":
