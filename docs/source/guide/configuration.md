@@ -105,7 +105,7 @@ You can override this per function with
 
 When `deactivate_profiling=True`, every region is a `DisabledProfileRegion`
 whose `__enter__` / `__exit__` / `wrap` are trivial no-ops, adding only
-the cost of a Python function call (~45 ns).
+the cost of a Python function call (~0.1 µs).
 
 ## Re-configuring
 

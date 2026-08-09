@@ -97,6 +97,12 @@ class BaseProfileRegion:
         # `buffer_limit` is the *initial* capacity: `_grow` doubles it as
         # needed, so the number of calls a region can record is bounded only
         # by memory.
+        #
+        # The arrays are int64, so storing a timestamp converts the plain
+        # Python int from perf_counter_ns() on assignment. Do not wrap the
+        # clock reads in np.int64() to "match" the dtype: building the numpy
+        # scalar costs ~190 ns each, twice per call, and stores the same
+        # value. See tests/test_overhead.py for the budget this buys.
         self.ptr = 0
         self.buffer_limit = config.buffer_limit
         if self._records_time:
@@ -268,11 +274,11 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
                 self._grow()
             scope_ptr = self.ptr
             self.ptr += 1
-            start = np.int64(perf_counter_ns())
+            start = perf_counter_ns()
             try:
                 return func(*args, **kwargs)
             finally:
-                end = np.int64(perf_counter_ns())
+                end = perf_counter_ns()
                 self.start_times[scope_ptr] = start
                 self.end_times[scope_ptr] = end
 
@@ -285,14 +291,14 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
         scope_ptr = self.ptr
         self.ptr += 1
         self._scope_ptr_stack.append(scope_ptr)
-        self.start_times[scope_ptr] = np.int64(perf_counter_ns())
+        self.start_times[scope_ptr] = perf_counter_ns()
         self.num_calls += 1
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         """Record the end time at this scope's reserved slot."""
         scope_ptr = self._scope_ptr_stack.pop()
-        self.end_times[scope_ptr] = np.int64(perf_counter_ns())
+        self.end_times[scope_ptr] = perf_counter_ns()
 
 
 # Full region: time + LIKWID
@@ -325,13 +331,13 @@ class FullProfileRegion(BaseProfileRegion):
                 self._grow()
             scope_ptr = self.ptr
             self.ptr += 1
-            start = np.int64(perf_counter_ns())
+            start = perf_counter_ns()
             self.likwid_marker_start(self.region_name)
             try:
                 return func(*args, **kwargs)
             finally:
                 self.likwid_marker_stop(self.region_name)
-                end = np.int64(perf_counter_ns())
+                end = perf_counter_ns()
                 self.start_times[scope_ptr] = start
                 self.end_times[scope_ptr] = end
 
@@ -345,7 +351,7 @@ class FullProfileRegion(BaseProfileRegion):
         scope_ptr = self.ptr
         self.ptr += 1
         self._scope_ptr_stack.append(scope_ptr)
-        self.start_times[scope_ptr] = np.int64(perf_counter_ns())
+        self.start_times[scope_ptr] = perf_counter_ns()
         self.likwid_marker_start(self.region_name)
         return self
 
@@ -353,7 +359,7 @@ class FullProfileRegion(BaseProfileRegion):
         """Record the end time at this scope's slot and stop the LIKWID region."""
         self.likwid_marker_stop(self.region_name)
         scope_ptr = self._scope_ptr_stack.pop()
-        self.end_times[scope_ptr] = np.int64(perf_counter_ns())
+        self.end_times[scope_ptr] = perf_counter_ns()
 
 
 # Line profiler region: time + line_profiler
@@ -392,13 +398,13 @@ class LineProfilerRegion(BaseProfileRegion):
                 self._grow()
             scope_ptr = self.ptr
             self.ptr += 1
-            start = np.int64(perf_counter_ns())
+            start = perf_counter_ns()
             self._line_profiler.enable_by_count()
             try:
                 return func(*args, **kwargs)
             finally:
                 self._line_profiler.disable_by_count()
-                end = np.int64(perf_counter_ns())
+                end = perf_counter_ns()
                 self.start_times[scope_ptr] = start
                 self.end_times[scope_ptr] = end
 
@@ -412,7 +418,7 @@ class LineProfilerRegion(BaseProfileRegion):
         scope_ptr = self.ptr
         self.ptr += 1
         self._scope_ptr_stack.append(scope_ptr)
-        self.start_times[scope_ptr] = np.int64(perf_counter_ns())
+        self.start_times[scope_ptr] = perf_counter_ns()
         self._line_profiler.enable_by_count()
         return self
 
@@ -420,7 +426,7 @@ class LineProfilerRegion(BaseProfileRegion):
         """Disable the line profiler and record the end time at this scope's slot."""
         self._line_profiler.disable_by_count()
         scope_ptr = self._scope_ptr_stack.pop()
-        self.end_times[scope_ptr] = np.int64(perf_counter_ns())
+        self.end_times[scope_ptr] = perf_counter_ns()
 
     def add_function(self, func) -> None:
         """Register a function for line-by-line profiling."""
