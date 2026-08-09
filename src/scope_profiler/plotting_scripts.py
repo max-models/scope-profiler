@@ -7,6 +7,7 @@ backends using maxplotlib as the unified interface.
 import csv
 import json
 import os
+import re
 from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
@@ -237,6 +238,18 @@ def _as_readers(
     if not readers:
         raise ValueError("No profiling data provided.")
     return [reader for reader in readers if reader.is_root]
+
+
+def _filename_slug(label: str) -> str:
+    """Make a label safe to paste into a filename.
+
+    Labels are free text and are used to name exported files, so a perfectly
+    reasonable one like ``"128 ranks"`` would otherwise produce
+    ``profile_128 ranks_rank0.prof``. Only the path is sanitized; the label
+    inside the exported document stays as the user wrote it.
+    """
+    slug = re.sub(r"[^\w.+-]+", "_", label).strip("_")
+    return slug or label
 
 
 def _unique_labels(labels: Sequence[str]) -> list[str]:

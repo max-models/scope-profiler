@@ -1,5 +1,6 @@
 """The optional run label: setup(label=...) and how post-processing uses it."""
 
+import json
 from time import sleep
 
 import pytest
@@ -73,6 +74,66 @@ def test_label_leads_the_summary_heading(tmp_path, capsys):
     heading = capsys.readouterr().out.splitlines()[0]
     assert heading.startswith("128 ranks - ")
     assert "run.h5" in heading, "the path still identifies the file on disk"
+
+
+def test_pproc_label_overrides_the_stored_one(tmp_path, capsys):
+    """`scope-profiler pproc --label` renames runs for one report."""
+    from scope_profiler.post_processing import main
+
+    labelled = tmp_path / "a.h5"
+    plain = tmp_path / "b.h5"
+    _profile(labelled, label="stored")
+    _profile(plain)
+    output_dir = tmp_path / "figures"
+
+    main(
+        [
+            str(labelled),
+            str(plain),
+            "-o",
+            str(output_dir),
+            "--summary",
+            "--label",
+            "128 ranks",
+            "--label",
+            "256 ranks",
+            "--export-prof",
+        ]
+    )
+
+    out = capsys.readouterr().out
+    assert "128 ranks - " in out and "256 ranks - " in out
+    assert "stored - " not in out
+
+    payload = json.loads(
+        (output_dir / "region_statistics.json").read_text(encoding="utf-8")
+    )
+    assert [f["label"] for f in payload["files"]] == ["128 ranks", "256 ranks"]
+
+    # The label goes into exported filenames too, with the spaces made safe.
+    assert (output_dir / "profile_128_ranks_rank0.prof").exists()
+
+    # The file itself keeps what the run recorded.
+    assert ProfilingH5Reader(str(labelled)).label == "stored"
+
+
+def test_pproc_label_count_must_match_the_files(tmp_path):
+    """Silently pairing them off by position would mislabel a whole report."""
+    from scope_profiler.post_processing import main
+
+    _profile(tmp_path / "a.h5")
+    _profile(tmp_path / "b.h5")
+
+    with pytest.raises(SystemExit):
+        main(
+            [
+                str(tmp_path / "a.h5"),
+                str(tmp_path / "b.h5"),
+                "--summary",
+                "--label",
+                "only-one",
+            ]
+        )
 
 
 def test_empty_label_is_treated_as_no_label(tmp_path):

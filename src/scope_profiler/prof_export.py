@@ -21,6 +21,7 @@ from pathlib import Path
 from scope_profiler.call_stack import build_call_stack
 from scope_profiler.plotting_scripts import (
     _as_readers,
+    _filename_slug,
     _normalize_ranks,
     _unique_labels,
 )
@@ -199,7 +200,7 @@ def export_prof(
     for label, rank, calls in prepared:
         parts = [base_path.stem]
         if multiple_files:
-            parts.append(label)
+            parts.append(_filename_slug(label))
         parts.append(f"rank{rank}")
         out_path = base_path.with_name("_".join(parts) + suffix)
         stats = build_pstats_dict(calls, root_name=f"<{label} rank {rank}>")
