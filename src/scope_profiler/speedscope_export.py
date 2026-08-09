@@ -9,7 +9,7 @@ file keeps. Drop the file on https://www.speedscope.app to view it.
 Regions carry no call graph of their own, so the caller/callee relations are
 reconstructed from timestamp containment - the same reconstruction the flame
 chart and the ``.prof`` export use
-(:func:`~scope_profiler.plotting_scripts._build_call_stack_intervals`).
+(:func:`~scope_profiler.call_stack.build_call_stack`).
 """
 
 from __future__ import annotations
@@ -18,13 +18,14 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler.call_stack import build_call_stack
 from scope_profiler.plotting_scripts import (
     _as_readers,
-    _build_call_stack_intervals,
+    _filename_slug,
     _normalize_ranks,
     _unique_labels,
 )
+from scope_profiler.results import ProfilingResults
 
 SCHEMA_URL = "https://www.speedscope.app/file-format-schema.json"
 
@@ -77,7 +78,7 @@ def build_speedscope_profile(
     ----------
     calls : list[dict]
         Calls as returned by
-        :func:`~scope_profiler.plotting_scripts._build_call_stack_intervals`:
+        :func:`~scope_profiler.call_stack.build_call_stack`:
         each entry has ``name``, ``start`` and ``end`` in seconds, and
         ``parent`` (an index into this list, or ``None`` for a top-level call).
     name : str
@@ -194,7 +195,7 @@ def write_speedscope_file(filepath: str | Path, document: dict) -> Path:
 
 
 def export_speedscope(
-    profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
     filepath: str | Path,
     ranks: list[int] | int | None = None,
     include: list[str] | str | None = None,
@@ -209,8 +210,9 @@ def export_speedscope(
 
     Parameters
     ----------
-    profiling_data : ProfilingH5Reader | Sequence[ProfilingH5Reader]
-        Reader(s) for the merged HDF5 file(s) to export.
+    profiling_data : ProfilingResults | Sequence[ProfilingResults]
+        The run(s) to export: file readers, in-memory results from
+        ``ProfileManager.finalize(return_results=True)``, or a mix.
     filepath : str | Path
         Base output path, e.g. ``figures/profile.speedscope.json``. The input
         file's stem is appended when more than one file is exported.
@@ -226,11 +228,12 @@ def export_speedscope(
     """
     readers = _as_readers(profiling_data)
     if not readers:
-        raise ValueError("No profiling data provided.")
+        # Not this rank's job; rank 0 writes the files.
+        return []
 
     normalized_ranks = _normalize_ranks(ranks) if ranks is not None else [0]
 
-    labels = _unique_labels([reader.file_path.stem for reader in readers])
+    labels = _unique_labels([reader.display_label for reader in readers])
 
     prepared = []
     for label, reader in zip(labels, readers):
@@ -241,7 +244,7 @@ def export_speedscope(
         for rank in normalized_ranks:
             if rank < 0 or rank >= reader.num_ranks:
                 raise ValueError(f"Invalid rank requested: {rank}")
-            calls = _build_call_stack_intervals(regions, rank)
+            calls = build_call_stack(regions, rank)
             if calls:
                 named_calls.append((f"rank {rank}", calls))
         if named_calls:
@@ -261,7 +264,7 @@ def export_speedscope(
     for label, named_calls in prepared:
         parts = [stem]
         if multiple_files:
-            parts.append(label)
+            parts.append(_filename_slug(label))
         out_path = base_path.with_name("_".join(parts) + suffix)
         document = build_speedscope_document(named_calls, name=label)
         written.append(write_speedscope_file(out_path, document))

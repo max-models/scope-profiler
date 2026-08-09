@@ -6,8 +6,7 @@ import socket
 
 import h5py
 
-from scope_profiler import ProfileManager
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler import ProfileManager, read_h5
 from scope_profiler.metadata import (
     _ENVIRONMENT_VARIABLES,
     _MAX_VALUE_CHARS,
@@ -141,7 +140,7 @@ def test_metadata_round_trips_through_hdf5(tmp_path, monkeypatch):
         pass
     ProfileManager.finalize(verbose=False)
 
-    metadata = ProfilingH5Reader(file_path).metadata
+    metadata = read_h5(file_path).metadata
 
     assert metadata["SLURM_JOB_ID"] == "1234567"
     assert metadata["SLURMD_NODENAME"] == "node0123"
@@ -172,4 +171,4 @@ def test_empty_modules_round_trip(tmp_path, monkeypatch):
     with h5py.File(file_path, "r") as handle:
         assert handle["metadata"].attrs["modules"].shape == (0,)
 
-    assert ProfilingH5Reader(file_path).metadata["modules"] == []
+    assert read_h5(file_path).metadata["modules"] == []

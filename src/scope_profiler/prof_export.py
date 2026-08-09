@@ -8,7 +8,7 @@ enough for :mod:`pstats`, ``snakeviz`` and friends to read the data.
 
 Regions carry no call graph of their own, so the caller/callee relations are
 reconstructed from timestamp containment - the same reconstruction the flame
-chart uses (:func:`~scope_profiler.plotting_scripts._build_call_stack_intervals`).
+chart uses (:func:`~scope_profiler.call_stack.build_call_stack`).
 """
 
 from __future__ import annotations
@@ -18,13 +18,14 @@ from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
 
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler.call_stack import build_call_stack
 from scope_profiler.plotting_scripts import (
     _as_readers,
-    _build_call_stack_intervals,
+    _filename_slug,
     _normalize_ranks,
     _unique_labels,
 )
+from scope_profiler.results import ProfilingResults
 
 # pstats keys are (filename, lineno, funcname) triples, and
 # ``pstats.func_std_string`` renders a key starting with ("~", 0) as the bare
@@ -59,7 +60,7 @@ def build_pstats_dict(
     ----------
     calls : list[dict]
         Calls as returned by
-        :func:`~scope_profiler.plotting_scripts._build_call_stack_intervals`:
+        :func:`~scope_profiler.call_stack.build_call_stack`:
         each entry has ``name``, ``start`` and ``end`` in seconds, and
         ``parent`` (an index into this list, or ``None`` for a top-level call).
     root_name : str, optional
@@ -139,7 +140,7 @@ def write_prof_file(
 
 
 def export_prof(
-    profiling_data: ProfilingH5Reader | Sequence[ProfilingH5Reader],
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
     filepath: str | Path,
     ranks: list[int] | int | None = None,
     include: list[str] | str | None = None,
@@ -150,8 +151,9 @@ def export_prof(
 
     Parameters
     ----------
-    profiling_data : ProfilingH5Reader | Sequence[ProfilingH5Reader]
-        Reader(s) for the merged HDF5 file(s) to export.
+    profiling_data : ProfilingResults | Sequence[ProfilingResults]
+        The run(s) to export: file readers, in-memory results from
+        ``ProfileManager.finalize(return_results=True)``, or a mix.
     filepath : str | Path
         Base output path, e.g. ``figures/profile.prof``. A ``_rank<N>`` suffix
         is appended per rank (and the input file's stem too, when more than one
@@ -168,11 +170,12 @@ def export_prof(
     """
     readers = _as_readers(profiling_data)
     if not readers:
-        raise ValueError("No profiling data provided.")
+        # Not this rank's job; rank 0 writes the files.
+        return []
 
     normalized_ranks = _normalize_ranks(ranks) if ranks is not None else [0]
 
-    labels = _unique_labels([reader.file_path.stem for reader in readers])
+    labels = _unique_labels([reader.display_label for reader in readers])
 
     prepared = []
     for label, reader in zip(labels, readers):
@@ -182,7 +185,7 @@ def export_prof(
         for rank in normalized_ranks:
             if rank < 0 or rank >= reader.num_ranks:
                 raise ValueError(f"Invalid rank requested: {rank}")
-            calls = _build_call_stack_intervals(regions, rank)
+            calls = build_call_stack(regions, rank)
             if calls:
                 prepared.append((label, rank, calls))
 
@@ -197,7 +200,7 @@ def export_prof(
     for label, rank, calls in prepared:
         parts = [base_path.stem]
         if multiple_files:
-            parts.append(label)
+            parts.append(_filename_slug(label))
         parts.append(f"rank{rank}")
         out_path = base_path.with_name("_".join(parts) + suffix)
         stats = build_pstats_dict(calls, root_name=f"<{label} rank {rank}>")

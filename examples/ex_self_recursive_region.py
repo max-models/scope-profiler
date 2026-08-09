@@ -2,13 +2,10 @@ import os
 import time
 
 from scope_profiler import ProfileManager
-from scope_profiler.h5reader import ProfilingH5Reader
-from scope_profiler.plotting_scripts import plot_flame
+from scope_profiler.plotting_scripts import plot_flame, plot_gantt
 
 ProfileManager.setup(
     use_likwid=False,
-    time_trace=True,
-    flush_to_disk=True,
     file_path="profiling_data.h5",
 )
 
@@ -22,10 +19,13 @@ def fibonacci(n):
 
 
 fibonacci(6)
-ProfileManager.finalize()
+results = ProfileManager.finalize(return_results=True)
+results.print_summary()
+df = results.to_dataframe()
+
 
 output_dir = "figures"
 os.makedirs(output_dir, exist_ok=True)
 flame_path = os.path.join(output_dir, "self_recursive_flame_plot.png")
-plot_flame(ProfilingH5Reader("profiling_data.h5"), filepath=flame_path)
-print(f"Flame graph written to {flame_path}")
+plot_flame(results, filepath=flame_path, show=False)
+plot_gantt(results, show=False)

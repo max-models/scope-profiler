@@ -4,8 +4,6 @@ def test_readme():
     # Setup global profiling configuration
     ProfileManager.setup(
         use_likwid=False,
-        time_trace=True,
-        flush_to_disk=True,
     )
 
     # Profile the main() function with a decorator

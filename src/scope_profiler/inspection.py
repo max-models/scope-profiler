@@ -14,7 +14,8 @@ from pathlib import Path
 
 import numpy as np
 
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler.h5reader import read_h5
+from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import SORT_KEYS, print_region_table, region_rows
 
 # Metadata is printed in these groups, in this order, so the fields that
@@ -23,6 +24,7 @@ from scope_profiler.summary import SORT_KEYS, print_region_table, region_rows
 # metadata fields never silently disappear from the output.
 _RUN_FIELDS = (
     "timestamp",
+    "start_time_ns",
     "user",
     "hostname",
     "working_directory",
@@ -48,17 +50,10 @@ _ELLIPSIS = " […]"
 
 
 def _time_span(reader) -> float | None:
-    """Wall-clock seconds between the first region entry and the last exit."""
-    starts = []
-    ends = []
-    for region in reader.get_regions():
-        for data in region.regions.values():
-            if data.durations.size:
-                starts.append(float(np.min(data.start_times)))
-                ends.append(float(np.max(data.end_times)))
-    if not starts:
+    """Wall-clock seconds of the run, or None when nothing was timed."""
+    if not any(region.has_timing for region in reader.get_regions()):
         return None
-    return max(ends) - min(starts)
+    return reader.time_span
 
 
 def _clip(value: str, full: bool) -> str:
@@ -164,7 +159,7 @@ def inspect_file(
         Where to write (default: stdout).
     """
     stream = sys.stdout if stream is None else stream
-    reader = ProfilingH5Reader(file_path)
+    reader = read_h5(file_path)
 
     path = Path(reader.file_path)
     size_mb = path.stat().st_size / 1024**2
@@ -177,7 +172,10 @@ def inspect_file(
         headline += f", {span:.6g} s wall clock"
 
     print("=" * 78, file=stream)
-    print(path, file=stream)
+    if reader.label is not None:
+        print(f"{reader.label} - {path}", file=stream)
+    else:
+        print(path, file=stream)
     print(headline, file=stream)
     print("=" * 78 + "\n", file=stream)
 
@@ -209,13 +207,13 @@ def _json_safe(value):
 
 
 def collect_file_metadata(
-    profiling_data: ProfilingH5Reader | str | Path | Sequence,
+    profiling_data: ProfilingResults | str | Path | Sequence,
 ) -> dict:
     """Collect the run metadata of one or more profiling files.
 
     Parameters
     ----------
-    profiling_data : ProfilingH5Reader, path, or sequence of either
+    profiling_data : ProfilingResults, path, or sequence of either
         Files to read the metadata from.
 
     Returns
@@ -226,14 +224,12 @@ def collect_file_metadata(
         :func:`~scope_profiler.plotting_scripts.collect_region_statistics`, so
         a single document can describe several runs.
     """
-    if isinstance(profiling_data, (ProfilingH5Reader, str, Path)):
+    if isinstance(profiling_data, (ProfilingResults, str, Path)):
         profiling_data = [profiling_data]
 
     files = []
     for item in profiling_data:
-        reader = (
-            item if isinstance(item, ProfilingH5Reader) else ProfilingH5Reader(item)
-        )
+        reader = item if isinstance(item, ProfilingResults) else read_h5(item)
         files.append(
             {
                 "file_path": str(Path(reader.file_path).resolve()),
@@ -248,14 +244,14 @@ def collect_file_metadata(
 
 
 def write_metadata_json(
-    profiling_data: ProfilingH5Reader | str | Path | Sequence,
+    profiling_data: ProfilingResults | str | Path | Sequence,
     filepath: str | Path,
 ) -> dict:
     """Write the run metadata of one or more profiling files to JSON.
 
     Parameters
     ----------
-    profiling_data : ProfilingH5Reader, path, or sequence of either
+    profiling_data : ProfilingResults, path, or sequence of either
         Files to read the metadata from.
     filepath : str or Path
         Destination JSON file. Parent directories are created as needed.

@@ -45,8 +45,6 @@ are needed:
 from scope_profiler import ProfileManager
 
 ProfileManager.setup(
-    time_trace=True,
-    flush_to_disk=True,
 )
 
 @ProfileManager.profile("compute")
@@ -87,10 +85,10 @@ scope-profiler pproc profiling_data.h5 --show --ranks 0-3
 From Python:
 
 ```python
-from scope_profiler import ProfilingH5Reader
+from scope_profiler import read_h5
 
-reader = ProfilingH5Reader("profiling_data.h5")
-region = reader["compute"]
+results = read_h5("profiling_data.h5")
+region = results["compute"]
 
 # Aggregated over every rank (durations in seconds)
 print(region.num_calls, region.total_duration, region.average_duration)
@@ -114,18 +112,13 @@ code changes are needed --- the API is identical.
 ## Overriding the detection
 
 If a launcher is not recognized (or you want to profile an MPI-enabled
-build as if it were serial), the decision can be forced:
-
-```python
-ProfileManager.setup(use_mpi=True)   # always use MPI.COMM_WORLD
-ProfileManager.setup(use_mpi=False)  # never touch MPI
-```
-
-or from the environment, without touching the code:
+build as if it were serial), force the decision from the environment:
 
 ```bash
-SCOPE_PROFILER_MPI=1 ./my_launcher python my_script.py
+SCOPE_PROFILER_MPI=1 ./my_launcher python my_script.py   # always use MPI.COMM_WORLD
+SCOPE_PROFILER_MPI=0 mpirun -n 4 python my_script.py     # never touch MPI
 ```
 
-`use_mpi=True` raises `ImportError` if `mpi4py` is missing, since the
-request cannot be honoured.
+This is deliberately not a `setup()` parameter: the choice belongs to how the
+job is launched, not to the code being profiled. With `SCOPE_PROFILER_MPI=1`
+and no `mpi4py` installed, the run falls back to single-rank mode.

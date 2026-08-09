@@ -157,6 +157,8 @@ usage: scope-profiler pproc [-h] [--show] [-o OUTPUT]
                             [--backend {matplotlib,plotly}] [--export-data]
                             [--export-data-format {csv,json}] [--export-prof]
                             [--export-speedscope] [--skip-plot-images]
+                            [--summary]
+                            [--summary-sort {total,calls,avg,max,name}]
                             files [files ...]
 ```
 
@@ -185,6 +187,8 @@ usage: scope-profiler pproc [-h] [--show] [-o OUTPUT]
 | `--skip-plot-images` | Do not render the plot images, only the requested exports |
 | `--export-prof`   | Also write one `profile_rank<N>.prof` per exported rank in the cProfile/pstats format, for `snakeviz` and `python -m pstats` (requires `-o/--output`) |
 | `--export-speedscope` | Also write `profile.speedscope.json`, one profile per exported rank, for [speedscope](https://www.speedscope.app) (requires `-o/--output`) |
+| `--summary`       | Print the per-region statistics table, plus a separate LIKWID hardware counter table per rank and event group when the run recorded any. On its own it produces no plots |
+| `--summary-sort`  | Order the `--summary` region table: `total` (default), `calls`, `avg`, `max` or `name` |
 
 When `-o/--output` is supplied, the CLI saves:
 1. `gantt_plot.png`
@@ -236,8 +240,7 @@ reconstructed from timestamp containment, exactly as the flame chart does. So:
 - A region called from several places is merged into one entry, as pstats is
   keyed by function rather than by call path; recursion is reported as
   `2/1`-style call counts, like `cProfile`.
-- Files profiled with `time_trace=False` have no timestamps and cannot be
-  exported, and LIKWID counters have no place in the `.prof` format.
+- LIKWID counters have no place in the `.prof` format and are left out.
 
 ### Exporting to speedscope
 
@@ -267,8 +270,7 @@ The call graph is reconstructed from timestamp containment, as for `.prof`,
 with one extra consequence: speedscope replays the events as a stack machine,
 so a region that starts inside another but ends after it is clipped to its
 parent instead of overhanging it. The same caveats otherwise apply — regions
-called from several places, recursion, and `time_trace=False` files behave as
-described above.
+called from several places and recursion behave as described above.
 
 ### Examples
 

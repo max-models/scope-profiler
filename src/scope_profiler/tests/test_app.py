@@ -1,37 +1,30 @@
 import socket
-from time import sleep
+from time import perf_counter_ns, sleep
 
 import h5py
 import pytest
 
 import scope_profiler.tests.examples as examples
-from scope_profiler import ProfileManager
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler import ProfileManager, ProfilingResults, read_h5
 from scope_profiler.region_profiler import (
     DisabledProfileRegion,
     FullProfileRegion,
-    LikwidOnlyProfileRegion,
     LineProfilerRegion,
-    NCallsOnlyProfileRegion,
     TimeOnlyProfileRegion,
 )
 
 
-@pytest.mark.parametrize("time_trace", [True, False])
 @pytest.mark.parametrize("use_likwid", [False])
 @pytest.mark.parametrize("num_loops", [10, 50, 100])
-@pytest.mark.parametrize("profiling_activated", [True, False])
+@pytest.mark.parametrize("deactivate_profiling", [False, True])
 def test_profile_manager(
-    time_trace: bool,
     use_likwid: bool,
     num_loops: int,
-    profiling_activated: bool,
+    deactivate_profiling: bool,
 ):
     ProfileManager.setup(
         use_likwid=use_likwid,
-        time_trace=time_trace,
-        profiling_activated=profiling_activated,
-        flush_to_disk=True,
+        deactivate_profiling=deactivate_profiling,
     )
 
     examples.loop(
@@ -64,30 +57,30 @@ def test_profile_manager(
     regions = ProfileManager.get_all_regions()
 
     print(
-        f"{profiling_activated = } {time_trace = } {ProfileManager._config.profiling_activated = }"
+        f"{deactivate_profiling = } "
+        f"{ProfileManager._config.deactivate_profiling = }"
     )
 
-    if profiling_activated:
-        assert regions["loop1"].num_calls == num_loops
-        assert regions["loop2"].num_calls == num_loops * 2
-        assert regions["test_decorator_labeled"].num_calls == num_loops
-        assert regions["test_decorator_unlabeled"].num_calls == num_loops
-        assert regions["main"].num_calls == 1
-    else:
+    if deactivate_profiling:
         assert regions["loop1"].num_calls == 0
         assert regions["loop2"].num_calls == 0
         assert regions["test_decorator_labeled"].num_calls == 0
         assert regions["test_decorator_unlabeled"].num_calls == 0
         assert regions["main"].num_calls == 0
+    else:
+        assert regions["loop1"].num_calls == num_loops
+        assert regions["loop2"].num_calls == num_loops * 2
+        assert regions["test_decorator_labeled"].num_calls == num_loops
+        assert regions["test_decorator_unlabeled"].num_calls == num_loops
+        assert regions["main"].num_calls == 1
 
 
 def test_all_region_types():
     # Disabled region
     ProfileManager.setup(
         use_likwid=False,
-        time_trace=False,
-        profiling_activated=False,
-        flush_to_disk=False,
+        deactivate_profiling=True,
+        deactivate_file_output=True,
     )
 
     with ProfileManager.profile_region("disabled_region"):
@@ -97,24 +90,13 @@ def test_all_region_types():
     assert isinstance(region, DisabledProfileRegion)
     assert region.num_calls == 0
 
-    # NCallsOnly region
+    # Time-only region: the default once profiling is on
     ProfileManager.setup(
         use_likwid=False,
-        time_trace=False,
-        profiling_activated=True,
-        flush_to_disk=False,
+        deactivate_profiling=False,
+        deactivate_file_output=True,
     )
-
-    with ProfileManager.profile_region("ncalls_region"):
-        pass
-
-    region = ProfileManager.get_region("ncalls_region")
-    assert isinstance(region, NCallsOnlyProfileRegion)
-    assert region.num_calls == 1
-    assert region.get_durations_numpy().size == 0
-
-    # Time-only region
-    ProfileManager._region_cls = TimeOnlyProfileRegion
+    assert ProfileManager._region_cls is TimeOnlyProfileRegion
     with ProfileManager.profile_region("time_only_region"):
         sleep(0.001)
 
@@ -124,17 +106,6 @@ def test_all_region_types():
     assert region.ptr == 1
     durations = region.get_durations_numpy()
     assert durations[0] > 0
-
-    # LIKWID-only region (mocked if pylikwid not installed)
-    try:
-        ProfileManager._region_cls = LikwidOnlyProfileRegion
-        with ProfileManager.profile_region("likwid_only"):
-            pass
-        region = ProfileManager.get_region("likwid_only")
-        assert isinstance(region, LikwidOnlyProfileRegion)
-        assert region.num_calls == 1
-    except ModuleNotFoundError:
-        print("pylikwid not installed, skipping LIKWID-only test")
 
     # Full region (time + LIKWID)
     try:
@@ -158,8 +129,6 @@ def test_line_profiler_decorator():
     pytest.importorskip("line_profiler")
     ProfileManager.setup(
         use_line_profiler=True,
-        time_trace=True,
-        flush_to_disk=True,
     )
 
     @ProfileManager.profile("lp_func")
@@ -191,8 +160,6 @@ def test_line_profiler_context_manager():
     pytest.importorskip("line_profiler")
     ProfileManager.setup(
         use_line_profiler=True,
-        time_trace=True,
-        flush_to_disk=True,
     )
 
     def work(n=500):
@@ -239,8 +206,7 @@ def test_frame_region_name_without_co_qualname():
 def test_recursive_decorator_profiles_nested_calls():
     ProfileManager.setup(
         use_likwid=False,
-        time_trace=False,
-        flush_to_disk=False,
+        deactivate_file_output=True,
     )
 
     def helper_leaf(x):
@@ -275,8 +241,7 @@ def test_self_recursive_region_decorator():
     """A single region re-entered by recursion must not corrupt its buffer."""
     ProfileManager.setup(
         use_likwid=False,
-        time_trace=True,
-        flush_to_disk=False,
+        deactivate_file_output=True,
     )
 
     @ProfileManager.profile("fib_decorator")
@@ -300,8 +265,7 @@ def test_self_recursive_region_context_manager():
     """A single region re-entered by recursion must not corrupt its buffer."""
     ProfileManager.setup(
         use_likwid=False,
-        time_trace=True,
-        flush_to_disk=False,
+        deactivate_file_output=True,
     )
 
     def fib(n):
@@ -324,8 +288,7 @@ def test_self_recursive_region_context_manager():
 def test_recursive_profile_setup_default_and_override():
     ProfileManager.setup(
         use_likwid=False,
-        time_trace=False,
-        flush_to_disk=False,
+        deactivate_file_output=True,
         recursive_profile=True,
     )
 
@@ -377,8 +340,8 @@ def test_finalize_prints_the_shared_summary_table(tmp_path, capsys):
     ProfileManager.finalize()
     printed = capsys.readouterr().out
 
-    # Same header, columns and TOTAL row as ProfilingH5Reader.print_summary().
-    reader = ProfilingH5Reader(file_path)
+    # Same header, columns and TOTAL row as ProfilingResults.print_summary().
+    reader = read_h5(file_path)
     reader.print_summary(title=f"{file_path}  (1 rank(s))")
     assert printed == capsys.readouterr().out
 
@@ -387,6 +350,58 @@ def test_finalize_prints_the_shared_summary_table(tmp_path, capsys):
     assert "TOTAL" in printed
     # The old per-region block format is gone.
     assert "Total Calls" not in printed
+
+
+def test_read_results_opens_the_finalized_file(tmp_path):
+    """Results can be post-processed in the script that produced them."""
+    file_path = tmp_path / "results.h5"
+    ProfileManager.setup(file_path=str(file_path))
+
+    for _ in range(3):
+        with ProfileManager.profile_region("step"):
+            sleep(0.001)
+
+    ProfileManager.finalize(verbose=False)
+    results = ProfileManager.read_results()
+
+    assert isinstance(results, ProfilingResults)
+    assert results.file_path == file_path
+    assert results["step"].num_calls == 3
+    assert len(results.events(include="step")) == 3
+
+
+def test_setup_registers_the_run_start_time(tmp_path):
+    """The run's start time is persisted and becomes the timeline origin."""
+    file_path = tmp_path / "start_time.h5"
+    before = perf_counter_ns()
+    ProfileManager.setup(file_path=str(file_path))
+    after = perf_counter_ns()
+
+    sleep(0.01)  # un-instrumented work, invisible to the regions
+    with ProfileManager.profile_region("step"):
+        sleep(0.001)
+
+    ProfileManager.finalize(verbose=False)
+    reader = ProfileManager.read_results()
+
+    recorded = reader.metadata["start_time_ns"]
+    assert before <= recorded <= after
+    assert reader.run_start_time == pytest.approx(recorded / 1e9)
+    assert reader.time_origin == reader.run_start_time
+
+    # The sleep before the first region is now visible as a startup gap.
+    startup = reader.minimum_start_time - reader.run_start_time
+    assert startup >= 0.01
+    assert reader.events()[0]["start"] == pytest.approx(startup)
+
+
+def test_read_results_before_finalize_raises(tmp_path):
+    ProfileManager.setup(file_path=str(tmp_path / "missing.h5"))
+
+    with pytest.raises(FileNotFoundError):
+        ProfileManager.read_results()
+
+    ProfileManager.finalize(verbose=False)
 
 
 def test_finalize_quiet(tmp_path, capsys):
@@ -438,7 +453,7 @@ def test_finalize_writes_global_metadata(tmp_path):
         assert attrs["mpi_size"] == 1
         assert attrs["total_cores"] == attrs["mpi_size"] * attrs["omp_num_threads"]
 
-    reader = ProfilingH5Reader(file_path)
+    reader = read_h5(file_path)
     # The reader exposes the same fields, decoded into plain Python types
     # (list-valued attributes come back from h5py as numpy arrays).
     assert reader.metadata.keys() == attrs.keys()
@@ -446,44 +461,26 @@ def test_finalize_writes_global_metadata(tmp_path):
     assert isinstance(reader.metadata["modules"], list)
 
 
-@pytest.mark.parametrize("flush_to_disk", [True, False])
-def test_ncalls_only_persists_call_counts(tmp_path, flush_to_disk):
-    """time_trace=False must persist call counts, not just hold them in memory."""
-    file_path = tmp_path / f"profiling_ncalls_{flush_to_disk}.h5"
-    ProfileManager.setup(
-        time_trace=False, flush_to_disk=flush_to_disk, file_path=str(file_path)
-    )
+def test_deactivate_file_output_writes_nothing(tmp_path):
+    """With file output off, not even the metadata file appears on disk."""
+    file_path = tmp_path / "never_written.h5"
+    ProfileManager.setup(deactivate_file_output=True, file_path=str(file_path))
 
     for _ in range(5):
         with ProfileManager.profile_region("ctx_region"):
-            pass
+            sleep(0.001)
 
-    @ProfileManager.profile("decorated_region")
-    def decorated():
-        pass
+    results = ProfileManager.finalize(verbose=False, return_results=True)
 
-    for _ in range(3):
-        decorated()
-
-    ProfileManager.finalize(verbose=False)
-
-    with h5py.File(file_path, "r") as f:
-        regions = f["rank0"]["regions"]
-        assert regions["ctx_region"].attrs["num_calls"] == 5
-        assert regions["decorated_region"].attrs["num_calls"] == 3
-        # No timing was requested, so no timestamps are stored.
-        assert "start_times" not in regions["ctx_region"]
-
-    reader = ProfilingH5Reader(file_path)
-    assert reader.get_region("ctx_region")[0].num_calls == 5
-    assert reader.get_region("decorated_region")[0].num_calls == 3
-    # Duration-derived stats stay well-defined despite the absence of timings.
-    assert reader.get_region("ctx_region")[0].total_duration == 0.0
-    assert len(reader.get_region("ctx_region")[0].durations) == 0
+    assert not file_path.exists()
+    assert list(tmp_path.iterdir()) == []
+    # The run is still fully available in memory.
+    assert results.get_region("ctx_region")[0].num_calls == 5
+    assert results.get_region("ctx_region")[0].total_duration > 0
 
 
-def test_time_trace_region_reports_timestamp_count(tmp_path):
-    """Regions that do record timing keep deriving num_calls from timestamps."""
+def test_region_reports_timestamp_count(tmp_path):
+    """num_calls is derived from the recorded timestamps."""
     file_path = tmp_path / "profiling_timed.h5"
     ProfileManager.setup(file_path=str(file_path))
 
@@ -493,7 +490,7 @@ def test_time_trace_region_reports_timestamp_count(tmp_path):
 
     ProfileManager.finalize(verbose=False)
 
-    region = ProfilingH5Reader(file_path).get_region("timed_region")[0]
+    region = read_h5(file_path).get_region("timed_region")[0]
     assert region.num_calls == 4
     assert len(region.durations) == 4
     assert region.min_duration > 0

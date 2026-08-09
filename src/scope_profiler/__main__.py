@@ -10,8 +10,10 @@ Three subcommands:
   own code is instrumented (the standard library and installed packages are
   skipped) to keep overhead low; pass ``--all`` to trace everything.
 - ``scope-profiler pproc file.h5 [...]`` -- reads merged HDF5 profiling
-  output and renders Gantt/flame/duration/speedup charts. See
-  ``scope_profiler.post_processing`` for its full set of options.
+  output and renders Gantt/flame/duration/speedup charts, or prints the
+  numbers instead with ``--summary`` (which also tabulates LIKWID hardware
+  counters when the run recorded any). See ``scope_profiler.post_processing``
+  for its full set of options.
 - ``scope-profiler inspect file.h5 [...]`` -- prints the run metadata and a
   per-region statistics table for merged HDF5 profiling output, without
   producing any plots. See ``scope_profiler.inspection``.
@@ -77,8 +79,6 @@ def _run(argv):
         recursive_profile=True,
         use_likwid=False,
         use_line_profiler=False,
-        time_trace=True,
-        flush_to_disk=True,
         buffer_limit=args.buffer_limit,
         file_path=args.outfile,
     )

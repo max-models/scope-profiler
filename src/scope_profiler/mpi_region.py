@@ -71,6 +71,48 @@ class MPIRegion:
             "std_duration": self.std_duration,
         }
 
+    def events(
+        self, ranks: List[int] | int | None = None, origin: float = 0.0
+    ) -> List[Dict[str, Any]]:
+        """
+        Return one dict per recorded call, on every rank.
+
+        This is the long-form view custom plots and dataframes want: each
+        entry is a single call rather than a per-region aggregate.
+
+        Parameters
+        ----------
+        ranks : list of int or int, optional
+            Restrict to these ranks (default: all ranks that recorded the
+            region). Ranks without data for this region are skipped.
+        origin : float, optional
+            Seconds subtracted from every timestamp, so passing
+            ``reader.minimum_start_time`` yields a timeline starting at zero
+            (default: 0.0, i.e. raw timestamps).
+
+        Returns
+        -------
+        list of dict
+            Entries with keys ``name``, ``rank``, ``call_index``, ``start``,
+            ``end`` and ``duration``, in seconds, ordered by rank and then by
+            call order.
+        """
+        if ranks is None:
+            selected = self.ranks
+        elif isinstance(ranks, int):
+            selected = [ranks]
+        else:
+            selected = list(ranks)
+
+        events = []
+        for rank in selected:
+            region = self._regions.get(rank)
+            if region is None:
+                continue
+            for event in region.events(origin=origin):
+                events.append({"name": self.name, "rank": rank, **event})
+        return events
+
     @property
     def durations(self) -> np.ndarray:
         """
@@ -230,9 +272,15 @@ class MPIRegion:
         Returns
         -------
         float
-            The earliest start time among all ranks, in seconds.
+            The earliest start time among all ranks, in seconds, or 0.0 if no
+            rank recorded timing.
         """
-        return min(region.first_start_time for region in self._regions.values())
+        starts = [
+            region.first_start_time
+            for region in self._regions.values()
+            if region.has_timing
+        ]
+        return min(starts) if starts else 0.0
 
     @property
     def last_end_time(self) -> float:
@@ -242,9 +290,15 @@ class MPIRegion:
         Returns
         -------
         float
-            The latest end time among all ranks, in seconds.
+            The latest end time among all ranks, in seconds, or 0.0 if no rank
+            recorded timing.
         """
-        return max(region.last_end_time for region in self._regions.values())
+        ends = [
+            region.last_end_time
+            for region in self._regions.values()
+            if region.has_timing
+        ]
+        return max(ends) if ends else 0.0
 
     def __getitem__(self, rank: int) -> Region:
         """

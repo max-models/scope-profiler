@@ -59,6 +59,37 @@ Outputs saved to:
 Without `-o/--output` nothing is written; use `--show` to open the charts
 interactively instead. The two can be combined.
 
+## Text summary
+
+`--summary` prints the numbers instead of drawing them, which is often all
+you need over ssh:
+
+```bash
+scope-profiler pproc run_2.h5 --summary
+```
+
+```text
+run_2.h5  (2 rank(s))
+  region        ranks  calls  total [s]   avg [s]    min [s]   max [s]    std [s]
+  -------------------------------------------------------------------------------
+  main              1      1    0.16637   0.16637    0.16637   0.16637          0
+  matmul            1      3   0.125949  0.041983  0.0083437  0.109189  0.0475221
+  memory_bound      1      1   0.035121  0.035121   0.035121  0.035121          0
+  -------------------------------------------------------------------------------
+  TOTAL                    5    0.32744
+```
+
+This is the same table `ProfileManager.finalize()` and
+{doc}`scope-profiler inspect <../cli>` render. `--summary-sort` reorders it
+(`total`, `calls`, `avg`, `max` or `name`), and `--include`/`--exclude`/
+`--ranks` narrow it as they do for the charts.
+
+On its own `--summary` produces no plots --- the summary is the whole job.
+Combine it with `--show` or `-o/--output` to get both.
+
+If the run recorded LIKWID hardware counters, they follow as a separate table
+per rank and event group; see {doc}`likwid`.
+
 ## Gantt chart
 
 `gantt_plot.png` places one lane per (region, rank) pair, with a bar for every
@@ -166,6 +197,25 @@ scope-profiler expand it rather than the shell:
 scope-profiler pproc "runs/run_*.h5" -o figures_scaling
 ```
 
+### Naming the runs
+
+Each run is named after its `label` --- set with
+`ProfileManager.setup(label=...)`, see {doc}`configuration` --- or, for runs
+that set none, after its file's stem. That name is what appears in chart
+legends and panel titles, the summary headings, `region_statistics.json` and
+the exported `.prof` / speedscope filenames.
+
+`--label` overrides it for one invocation, once per file, in the order the
+files are given:
+
+```bash
+scope-profiler pproc run_1.h5 run_2.h5 run_4.h5 -o figures_scaling \
+    --label "1 rank" --label "2 ranks" --label "4 ranks"
+```
+
+The files themselves are not modified. Labels are free text; where one is used
+in a filename, spaces and other awkward characters become underscores.
+
 ## Selecting which plots to generate
 
 By default all five plots are generated. `--plots` (short: `-p`) restricts
@@ -209,6 +259,10 @@ Whenever `-o/--output` is given, `region_statistics.json` is written
 alongside the figures. It holds the numbers behind the charts: per-file,
 per-region aggregates, the same statistics per rank, and the region names
 common to all input files.
+
+Each file's `label` --- the name it is given in chart legends here too --- is
+the one the run set with `ProfileManager.setup(label=...)`, falling back to the
+file's stem for runs that set none.
 
 ```json
 {
@@ -310,17 +364,13 @@ partially overlapping regions and recursion.
 
 ## Files without timing data
 
-A file profiled with `time_trace=False` records call counts but no
-timestamps, so there is nothing to plot. Rather than failing inside the
-plotting code, `pproc` reports the counts and stops:
+A run that entered no region records nothing to plot. Rather than failing
+inside the plotting code, `pproc` reports what is there and stops:
 
 ```text
-No timing data found — these files were profiled with time_trace=False,
-which records call counts only.
+No timing data found — these files recorded no calls.
 
-ncalls_only.h5:
-  setup: 1 calls
-  timestep: 3 calls
+empty_run.h5:
 ```
 
 ## Reproducing the figures on this page

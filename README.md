@@ -8,7 +8,8 @@ It allows you to:
 - Collect timing data via context-managed profiling regions.
 - Use a clean decorator syntax to profile functions.
 - Optionally record time traces in HDF5 files.
-- Automatically initialize and close LIKWID markers only when needed.
+- Automatically initialize and close LIKWID markers only when needed, and store
+  the resulting hardware counters and derived metrics in the same HDF5 file.
 - Print aggregated summaries of all profiling regions.
 
 ## Install
@@ -30,8 +31,6 @@ from scope_profiler import ProfileManager
 ProfileManager.setup(
     use_likwid=False,
     recursive_profile=False,
-    time_trace=True,
-    flush_to_disk=True,
 )
 
 # Profile the main() function with a decorator
@@ -66,7 +65,7 @@ profiling_data.h5  (1 rank(s))
 ```
 
 `finalize()` prints the same table as `scope-profiler inspect` and
-`ProfilingH5Reader.print_summary()`. Pass `verbose=False` to suppress it.
+`ProfilingResults.print_summary()`. Pass `verbose=False` to suppress it.
 
 ## Inspecting a profiling file
 
@@ -157,11 +156,11 @@ against a bare function call:
 
 ![Profiling overhead by region type](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/benchmark_overhead.png)
 
-The two modes most relevant to HPC — **NCallsOnly** and **TimeOnly** — add
-roughly **0.09 µs** and **0.75 µs** per instrumented call respectively.
+The default **TimeOnly** mode — nanosecond timestamps for every call — adds
+roughly **0.75 µs** per instrumented call.
 
 Profiling can also be fully deactivated at setup time
-(`profiling_activated=False`) to reduce the overhead to ~0.03 µs — barely
+(`deactivate_profiling=True`) to reduce the overhead to ~0.03 µs — barely
 above a bare function call — making it safe to leave instrumentation in
 production code and toggle it on only when needed.
 
@@ -263,22 +262,22 @@ invocation, each with correct, non-overlapping timing data.
 
 ## Analysing results in Python
 
-`ProfilingH5Reader` loads a merged profiling file and behaves like an ordered
-mapping of region name to region. Every duration and timestamp it reports is in
-**seconds**:
+`read_h5()` loads a merged profiling file into a `ProfilingResults`, which
+behaves like an ordered mapping of region name to region. Every duration and
+timestamp it reports is in **seconds**:
 
 ```python
-from scope_profiler import ProfilingH5Reader
+from scope_profiler import read_h5
 
-reader = ProfilingH5Reader("profiling_data.h5")
-reader.print_summary()
+results = read_h5("profiling_data.h5")
+results.print_summary()
 
 # region       calls     total [s]       avg [s]       min [s]       max [s]
 # ---------------------------------------------------------------------------
 # setup            1       0.02401       0.02401       0.02401       0.02401
 # timestep         5      0.062835      0.012567     0.0087755     0.0187844
 
-solve = reader["solve"]           # an MPIRegion: the region across all ranks
+solve = results["solve"]          # an MPIRegion: the region across all ranks
 solve.num_calls                   # summed over ranks
 solve.total_duration              # seconds
 solve.average_durations()         # {rank: seconds}, for load imbalance
@@ -290,18 +289,61 @@ returns it as a pandas DataFrame (one row per region, or per region and rank
 with `per_rank=True`):
 
 ```python
-frame = reader.to_dataframe().sort_values("total_duration", ascending=False)
-per_rank = reader.to_dataframe(per_rank=True)
+frame = results.to_dataframe().sort_values("total_duration", ascending=False)
+per_rank = results.to_dataframe(per_rank=True)
 ```
 
 `include` / `exclude` regexes select regions in `get_regions()`, `summary()`,
 `to_dataframe()` and every `plot_*` function.
 
+### Building your own plots
+
+For custom analysis, work from the individual calls instead of the
+aggregates. `events()` returns one entry per recorded call, and
+`to_events_dataframe()` returns the same as a pandas DataFrame. Timestamps
+start at zero (the first region entry in the file), so they plot directly:
+
+```python
+events = results.to_events_dataframe()
+# columns: name, rank, call_index, start, end, duration   (seconds)
+
+events.query("name == 'solve'")["duration"].hist(bins=50)
+events.pivot_table(index="rank", columns="name", values="duration", aggfunc="sum")
+```
+
+Timestamps are measured from the start of the run, which `setup()` records.
+`results.run_start_time` is that instant, and `results.startup_time` the gap to
+the first profiled region — time the instrumentation never saw:
+
+```python
+print(f"{results.startup_time:.3f} s before the first region was entered")
+```
+
+Files written without a start time (anything from before this existed) still
+read fine: `run_start_time` is then `None`, `startup_time` is `0.0`, and the
+relative timeline falls back to the first region entry as before.
+
+`results.minimum_start_time`, `results.maximum_end_time` and `results.time_span`
+bound the profiled window, and `results.call_stack(rank=0)` hands back the
+nesting the flame graph draws — one dict per call with `depth` and `parent` —
+so you can render your own nested view:
+
+```python
+for call in results.call_stack(rank=0):
+    print(f"{'  ' * call['depth']}{call['name']}: {call['duration']:.6f} s")
+```
+
+To post-process in the same script that recorded the data, use
+`ProfileManager.read_results()` after `finalize()` — it opens the file the
+current configuration wrote (on rank 0 under MPI).
+
 The [tutorial notebooks](tutorials/) cover this in depth:
 [getting started](tutorials/01_getting_started.ipynb),
 [post-processing](tutorials/02_postprocessing.ipynb),
-[visualization](tutorials/03_visualization.ipynb) and
-[profiling modes](tutorials/04_profiling_modes.ipynb).
+[visualization](tutorials/03_visualization.ipynb),
+[profiling modes](tutorials/04_profiling_modes.ipynb),
+[custom analysis](tutorials/05_custom_analysis.ipynb) and
+[building your own plots](tutorials/06_custom_plots.ipynb).
 
 ## Flame graphs
 
@@ -323,10 +365,10 @@ scope-profiler pproc profiling_data.h5 --show -o figures
 Or programmatically:
 
 ```python
-from scope_profiler import ProfilingH5Reader, plot_flame
+from scope_profiler import read_h5, plot_flame
 
-reader = ProfilingH5Reader("profiling_data.h5")
-plot_flame(reader, filepath="flame_plot.png")
+results = read_h5("profiling_data.h5")
+plot_flame(results, filepath="flame_plot.png")
 ```
 
 Gantt and flame charts (and `plot_speedup`) always color the same region the
@@ -350,9 +392,9 @@ later without the original HDF5 file. `data_format` selects `"csv"` (default)
 or `"json"`:
 
 ```python
-plot_gantt(reader, filepath="gantt_plot.png", data_filepath="gantt_data.csv")
+plot_gantt(results, filepath="gantt_plot.png", data_filepath="gantt_data.csv")
 plot_gantt(
-    reader,
+    results,
     filepath="gantt_plot.png",
     data_filepath="gantt_data.json",
     data_format="json",

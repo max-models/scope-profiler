@@ -1,6 +1,6 @@
 """Data container for a single profiling region loaded from HDF5."""
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import numpy as np
 
@@ -18,7 +18,6 @@ class Region:
         self,
         start_times: np.ndarray,
         end_times: np.ndarray,
-        num_calls: int | None = None,
     ) -> None:
         """
         Initialize a Region with timing information for multiple calls.
@@ -29,15 +28,11 @@ class Region:
             Start times of all calls in nanoseconds.
         end_times : np.ndarray
             End times of all calls in nanoseconds.
-        num_calls : int, optional
-            Explicit call count. Defaults to the number of recorded timestamps.
-            Regions profiled with ``time_trace=False`` record a count but no
-            timestamps, so the two differ there.
         """
         self._start_times = start_times
         self._end_times = end_times
         self._durations = end_times - start_times
-        self._num_calls = len(self._durations) if num_calls is None else int(num_calls)
+        self._num_calls = len(self._durations)
 
     def get_summary(self) -> Dict[str, Any]:
         """
@@ -59,10 +54,54 @@ class Region:
             "std_duration": self.std_duration,
         }
 
+    def events(self, origin: float = 0.0) -> List[Dict[str, Any]]:
+        """
+        Return one dict per recorded call.
+
+        Parameters
+        ----------
+        origin : float, optional
+            Seconds subtracted from every timestamp, so passing
+            ``reader.minimum_start_time`` yields a timeline starting at zero
+            (default: 0.0, i.e. raw timestamps).
+
+        Returns
+        -------
+        list of dict
+            One entry per call with keys ``call_index``, ``start``, ``end``
+            and ``duration``, in seconds and in recorded order.
+        """
+        starts = self.start_times - origin
+        ends = self.end_times - origin
+        return [
+            {
+                "call_index": index,
+                "start": float(start),
+                "end": float(end),
+                "duration": float(end - start),
+            }
+            for index, (start, end) in enumerate(zip(starts, ends))
+        ]
+
     @property
     def has_timing(self) -> bool:
-        """Whether timestamps were recorded (False with ``time_trace=False``)."""
+        """Whether this region recorded any calls at all."""
         return len(self._durations) > 0
+
+    @property
+    def start_times_ns(self) -> np.ndarray:
+        """Start times of all calls in nanoseconds, exactly as stored."""
+        return self._start_times
+
+    @property
+    def end_times_ns(self) -> np.ndarray:
+        """End times of all calls in nanoseconds, exactly as stored."""
+        return self._end_times
+
+    @property
+    def durations_ns(self) -> np.ndarray:
+        """Duration of all calls in nanoseconds, as integers."""
+        return self._durations
 
     @property
     def start_times(self) -> np.ndarray:
@@ -95,11 +134,7 @@ class Region:
 
     @property
     def num_calls(self) -> int:
-        """Number of recorded calls.
-
-        Equals the number of recorded timestamps unless the region was profiled
-        with ``time_trace=False``, where only the count is recorded.
-        """
+        """Number of recorded calls."""
         return self._num_calls
 
     @property

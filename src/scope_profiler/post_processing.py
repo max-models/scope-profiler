@@ -4,7 +4,7 @@ import argparse
 import glob
 import os
 
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler.h5reader import read_h5
 from scope_profiler.plotting_scripts import (
     DEFAULT_CMAP,
     plot_duration_timeseries,
@@ -16,6 +16,12 @@ from scope_profiler.plotting_scripts import (
 )
 from scope_profiler.prof_export import export_prof
 from scope_profiler.speedscope_export import export_speedscope
+from scope_profiler.summary import (
+    SORT_KEYS,
+    print_likwid_tables,
+    print_region_table,
+    region_rows,
+)
 
 
 def parse_ranks(spec: str, verbose: bool = False) -> list[int]:
@@ -38,6 +44,46 @@ def parse_ranks(spec: str, verbose: bool = False) -> list[int]:
     return ranks
 
 
+def print_summary(
+    reader,
+    include=None,
+    exclude=None,
+    ranks=None,
+    sort: str = "total",
+    stream=None,
+) -> None:
+    """Print one file's region statistics, and its LIKWID counters if any.
+
+    The region table is the same one ``ProfileManager.finalize()`` and
+    ``scope-profiler inspect`` render. LIKWID results, when the run recorded
+    them, follow as one additional table per rank and event group; files
+    without LIKWID data simply end after the region table.
+
+    Parameters
+    ----------
+    reader : ProfilingResults
+        The run to summarize.
+    include, exclude : list of str or str, optional
+        Regex patterns selecting which regions to report.
+    ranks : list of int, optional
+        Restrict the statistics to these ranks (default: all).
+    sort : str, optional
+        Region table ordering; one of
+        :data:`~scope_profiler.summary.SORT_KEYS`.
+    stream : file-like, optional
+        Where to write (default: stdout).
+    """
+    rows = region_rows(reader, include=include, exclude=exclude, ranks=ranks, sort=sort)
+    print_region_table(
+        rows,
+        title=reader.default_title(),
+        stream=stream,
+    )
+    print_likwid_tables(
+        reader, include=include, exclude=exclude, ranks=ranks, stream=stream
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="scope-profiler pproc",
@@ -48,6 +94,18 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="+",
         type=str,
         help="Paths or glob patterns for profiling_data.h5 files",
+    )
+    parser.add_argument(
+        "--label",
+        action="append",
+        default=None,
+        metavar="LABEL",
+        help=(
+            "Name for a file in the outputs, overriding the label its run was "
+            "given with setup(label=...) (and the file stem for runs without "
+            "one). Repeat once per file, in the order the files are listed: "
+            "--label '128 ranks' --label '256 ranks'"
+        ),
     )
     parser.add_argument(
         "--show",
@@ -209,6 +267,23 @@ def build_parser() -> argparse.ArgumentParser:
             "the exported data. Requires one of those export options."
         ),
     )
+    parser.add_argument(
+        "--summary",
+        action="store_true",
+        help=(
+            "Print the per-region statistics table for each file, plus a "
+            "separate LIKWID hardware counter table per rank and event group "
+            "when the run recorded any. Honours --include/--exclude/--ranks. "
+            "On its own this prints the summary and produces no plots; "
+            "combine it with --show or -o/--output to get both."
+        ),
+    )
+    parser.add_argument(
+        "--summary-sort",
+        choices=SORT_KEYS,
+        default="total",
+        help="Order the --summary region table by this column (default: total)",
+    )
     return parser
 
 
@@ -269,21 +344,50 @@ def main(argv: list[str] | None = None):
             ranks.extend(parse_ranks(spec))
         args.ranks = sorted(set(ranks))
 
-    readers = [ProfilingH5Reader(file_path) for file_path in args.files]
+    readers = [read_h5(file_path) for file_path in args.files]
 
-    # Files profiled with time_trace=False hold call counts but no timestamps,
-    # so every chart here would be empty. Report the counts and stop, rather
-    # than failing deep inside the plotting code.
+    # Applied to the readers rather than passed down per plot: every output --
+    # chart legends and panel titles, the summary headings, the JSON
+    # statistics, the exported filenames -- names a run through
+    # ProfilingResults.display_label, so overriding it here covers all of them
+    # at once. The files themselves are not modified.
+    if args.label is not None:
+        if len(args.label) != len(readers):
+            parser.error(
+                f"--label given {len(args.label)} time(s) for "
+                f"{len(readers)} file(s); pass one per file, in order."
+            )
+        for reader, label in zip(readers, args.label):
+            reader.label = label
+
+    if args.summary:
+        # Before the timing check below: a file with nothing recorded still
+        # has a perfectly good (if empty) summary table.
+        for index, reader in enumerate(readers):
+            if index:
+                print()
+            print_summary(
+                reader,
+                include=args.include,
+                exclude=args.exclude,
+                ranks=args.ranks,
+                sort=args.summary_sort,
+            )
+        # Asking only for a summary means the summary is the whole job;
+        # rendering charts nobody requested would just cost time.
+        if not (args.show or args.output):
+            return
+
+    # A file whose regions recorded no calls would produce empty charts.
+    # Report what is there and stop, rather than failing deep inside the
+    # plotting code.
     if not any(
         len(region[rank].durations)
         for reader in readers
         for region in reader.get_regions()
         for rank in region.regions
     ):
-        print(
-            "No timing data found — these files were profiled with "
-            "time_trace=False, which records call counts only.\n"
-        )
+        print("No timing data found — these files recorded no calls.\n")
         for reader in readers:
             print(f"{reader.file_path}:")
             for region in reader.get_regions():

@@ -1,13 +1,14 @@
 """Shared per-region summary table.
 
 One renderer, used by ``ProfileManager.finalize()``,
-:meth:`ProfilingH5Reader.print_summary` and ``scope-profiler inspect``, so the
+:meth:`ProfilingResults.print_summary` and ``scope-profiler inspect``, so the
 three agree on columns, units and formatting.
 
 Everything here works off duck-typed reader/region objects, so this module has
 no scope-profiler imports and cannot introduce an import cycle.
 """
 
+import re
 import sys
 
 import numpy as np
@@ -47,8 +48,8 @@ def _region_durations(region, ranks=None) -> np.ndarray:
 def region_row(region, ranks=None) -> dict:
     """Collect the summary statistics shown for one region.
 
-    Duration entries are ``None`` when the region recorded no timestamps
-    (``time_trace=False``), which the table renders as a dash.
+    Duration entries are ``None`` when the region has no recorded calls for
+    the selected ranks, which the table renders as a dash.
     """
     if ranks is None:
         per_rank = region.regions
@@ -81,8 +82,8 @@ def region_rows(
 
     Parameters
     ----------
-    reader : ProfilingH5Reader
-        Source of the regions.
+    reader : ProfilingResults
+        Source of the regions; a file reader or in-memory results alike.
     include, exclude : list of str or str, optional
         Regex patterns selecting which regions to summarize.
     ranks : list of int, optional
@@ -100,7 +101,7 @@ def region_rows(
     # alphabetically rather than by whatever order the file happened to use.
     rows.sort(key=lambda row: row["name"])
     if sort != "name":
-        # None (no timing recorded) sorts last.
+        # None (nothing recorded for these ranks) sorts last.
         rows.sort(key=lambda row: (row[sort] is not None, row[sort] or 0), reverse=True)
     return rows
 
@@ -185,8 +186,7 @@ def print_region_table(rows, title=None, stream=None) -> None:
         )
     if any(row["total"] is None for row in rows):
         notes.append(
-            "Regions without timing were profiled with time_trace=False; "
-            "only their call counts were recorded."
+            "Regions shown without timing recorded no calls on the selected ranks."
         )
     for note in notes:
         print(f"\n  {note}", file=stream)
@@ -194,3 +194,221 @@ def print_region_table(rows, title=None, stream=None) -> None:
     # Trailing blank line so whatever follows (line-profiler stats, a second
     # file's table) is not pressed against the last row.
     print(file=stream)
+
+
+# --------------------------------------------------------------------------
+# LIKWID hardware counter table
+# --------------------------------------------------------------------------
+
+
+def _name_selected(name: str, include=None, exclude=None) -> bool:
+    """Apply the same include/exclude regex rules the region table uses."""
+    if isinstance(include, str):
+        include = [include]
+    if isinstance(exclude, str):
+        exclude = [exclude]
+    if include is not None and not any(re.match(p, name) for p in include):
+        return False
+    if exclude is not None and any(re.match(p, name) for p in exclude):
+        return False
+    return True
+
+
+def _set_cell(rows: dict, name: str, column: int, value) -> None:
+    """Record one cell of the counter table, keyed by row name and column."""
+    rows.setdefault(name, {})[column] = value
+
+
+def _dense(rows: dict, width: int) -> list:
+    """Turn the sparse ``{name: {column: value}}`` mapping into ordered rows.
+
+    Insertion order is preserved, so counters keep the order LIKWID reports
+    them in. Cells never filled (a region measured with a different event set)
+    come back as ``None`` and render as a dash.
+    """
+    return [
+        (name, [cells.get(column) for column in range(width)])
+        for name, cells in rows.items()
+    ]
+
+
+def likwid_tables(reader, include=None, exclude=None, ranks=None) -> list:
+    """Build one LIKWID counter table per (rank, event group).
+
+    Regions become columns and counters become rows: a run typically has a
+    handful of regions but a few dozen counters, so this orientation stays
+    readable where the transpose would not. Splitting per event group keeps
+    every column of a table comparable, since a group fixes which events and
+    metrics exist.
+
+    Columns are ordered by descending LIKWID runtime (ties alphabetically), so
+    the costliest regions lead, as in the region table.
+
+    Parameters
+    ----------
+    reader : ProfilingResults
+        Source of the LIKWID results.
+    include, exclude : list of str or str, optional
+        Regex patterns selecting which regions to report, matched as for the
+        region table.
+    ranks : list of int, optional
+        Restrict to these ranks (default: all).
+
+    Returns
+    -------
+    list of dict
+        One entry per table, each with ``rank``, ``group``, ``columns`` (the
+        region labels) and ``sections`` (``(title, rows)`` pairs, where a row
+        is ``(name, values)``). Empty when the file holds no LIKWID data.
+    """
+    # Collect first, so the columns of each table can be ordered before any
+    # cell is placed. HDF5 hands regions back alphabetically; showing the
+    # costliest first instead matches how the region table is sorted, so the
+    # two tables read together.
+    grouped = {}
+    for rank, regions in sorted(reader.get_likwid_regions().items()):
+        if ranks is not None and rank not in ranks:
+            continue
+        for tag, result in regions.items():
+            if not _name_selected(tag, include, exclude):
+                continue
+            grouped.setdefault((rank, result.group_name), []).append((tag, result))
+
+    for entries in grouped.values():
+        entries.sort(
+            key=lambda item: (
+                -float(np.max(item[1].times)) if len(item[1].times) else 0.0,
+                item[0],
+            )
+        )
+
+    tables = {}
+    for key, entries in grouped.items():
+        rank, group_name = key
+        for tag, result in entries:
+            table = tables.setdefault(
+                key,
+                {
+                    "rank": rank,
+                    "group": group_name,
+                    "columns": [],
+                    "info": {},
+                    "events": {},
+                    "metrics": {},
+                },
+            )
+
+            nthreads = len(result.times)
+            for thread in range(nthreads):
+                cpu = result.cpus[thread] if thread < len(result.cpus) else thread
+                # One column per region, unless the region really did span
+                # several hardware threads -- then name the CPU, rather than
+                # inventing an aggregate LIKWID never reported.
+                label = tag if nthreads == 1 else f"{tag}@cpu{cpu}"
+                table["columns"].append(label)
+                column = len(table["columns"]) - 1
+
+                _set_cell(
+                    table["info"], "call count", column, result.call_counts[thread]
+                )
+                _set_cell(table["info"], "runtime [s]", column, result.times[thread])
+                # event_labels, not event_names: groups such as MEM_DP program
+                # one event per memory channel, so the bare names repeat.
+                for name, values in zip(result.event_labels, result.events):
+                    _set_cell(table["events"], name, column, values[thread])
+                for name, values in zip(result.metric_names, result.metrics):
+                    _set_cell(table["metrics"], name, column, values[thread])
+
+    built = []
+    for (rank, group), table in sorted(tables.items()):
+        width = len(table["columns"])
+        built.append(
+            {
+                "rank": rank,
+                "group": group,
+                "columns": table["columns"],
+                "sections": [
+                    ("", _dense(table["info"], width)),
+                    ("Events", _dense(table["events"], width)),
+                    ("Metrics", _dense(table["metrics"], width)),
+                ],
+            }
+        )
+    return built
+
+
+def _format_counter(value) -> str:
+    """Format a counter or metric value for the table.
+
+    Raw event counts are large integers and read far better as such than in
+    the exponent notation ``%g`` would pick; derived metrics keep six
+    significant digits.
+    """
+    if value is None:
+        return "-"
+    value = float(value)
+    if value.is_integer() and abs(value) < 1e15:
+        return f"{int(value):d}"
+    return f"{value:.6g}"
+
+
+def print_likwid_table(table, title=None, stream=None) -> None:
+    """Print one LIKWID counter table from :func:`likwid_tables`."""
+    stream = sys.stdout if stream is None else stream
+
+    columns = table["columns"]
+    if not columns:
+        return
+
+    if title is None:
+        title = f"LIKWID counters (rank {table['rank']}"
+        title += f", group {table['group']})" if table["group"] else ")"
+
+    sections = [(heading, rows) for heading, rows in table["sections"] if rows]
+    all_rows = [row for _, rows in sections for row in rows]
+
+    name_width = max(
+        [len(name) for name, _ in all_rows]
+        + [len(heading) for heading, _ in sections]
+        + [len("counter")]
+    )
+    cell_widths = [
+        max(
+            len(label),
+            max((len(_format_counter(values[i])) for _, values in all_rows), default=0),
+        )
+        for i, label in enumerate(columns)
+    ]
+
+    def render(name, cells):
+        out = [f"{name:<{name_width}}"]
+        out += [f"{cell:>{cell_widths[i]}}" for i, cell in enumerate(cells)]
+        return "  ".join(out).rstrip()
+
+    header_line = render("counter", list(columns))
+    rule = "-" * len(header_line)
+
+    print(title, file=stream)
+    print(f"  {header_line}", file=stream)
+    print(f"  {rule}", file=stream)
+    for index, (heading, rows) in enumerate(sections):
+        if index:
+            print(f"  {rule}", file=stream)
+        if heading:
+            print(f"  {heading}", file=stream)
+        for name, values in rows:
+            print(
+                f"  {render(name, [_format_counter(v) for v in values])}", file=stream
+            )
+    print(f"  {rule}", file=stream)
+    print(file=stream)
+
+
+def print_likwid_tables(reader, include=None, exclude=None, ranks=None, stream=None):
+    """Print every LIKWID counter table a reader exposes.
+
+    A no-op for files recorded without LIKWID, so callers can invoke it
+    unconditionally.
+    """
+    for table in likwid_tables(reader, include=include, exclude=exclude, ranks=ranks):
+        print_likwid_table(table, stream=stream)

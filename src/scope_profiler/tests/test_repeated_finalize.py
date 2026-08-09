@@ -2,8 +2,7 @@
 
 from time import sleep
 
-from scope_profiler import ProfileManager
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler import ProfileManager, read_h5
 
 
 def _run(label: str, num_calls: int) -> None:
@@ -15,19 +14,19 @@ def _run(label: str, num_calls: int) -> None:
 def test_second_finalize_without_setup(tmp_path):
     """A second run must finalize cleanly and report only its own events."""
     out = tmp_path / "profiling_data.h5"
-    ProfileManager.setup(file_path=str(out), flush_to_disk=True)
+    ProfileManager.setup(file_path=str(out))
 
     _run("step", 3)
     ProfileManager.finalize(verbose=False)
 
-    region = ProfilingH5Reader(str(out)).get_region("step")
+    region = read_h5(str(out)).get_region("step")
     assert region.num_calls == 3
 
     # Second run, reusing the config and the region objects of the first.
     _run("step", 5)
     ProfileManager.finalize(verbose=False)
 
-    region = ProfilingH5Reader(str(out)).get_region("step")
+    region = read_h5(str(out)).get_region("step")
     assert region.num_calls == 5, "second run inherited the first run's events"
     assert len(region.durations) == 5
 
@@ -35,42 +34,42 @@ def test_second_finalize_without_setup(tmp_path):
 def test_stale_regions_do_not_leak_into_the_second_run(tmp_path):
     """A region used only in the first run must not reappear in the second."""
     out = tmp_path / "profiling_data.h5"
-    ProfileManager.setup(file_path=str(out), flush_to_disk=True)
+    ProfileManager.setup(file_path=str(out))
 
     _run("first_only", 2)
     ProfileManager.finalize(verbose=False)
-    assert "first_only" in ProfilingH5Reader(str(out)).region_names
+    assert "first_only" in read_h5(str(out)).region_names
 
     _run("second_only", 2)
     ProfileManager.finalize(verbose=False)
 
-    names = ProfilingH5Reader(str(out)).region_names
+    names = read_h5(str(out)).region_names
     assert "second_only" in names
     assert "first_only" not in names
 
 
-def test_call_counts_are_per_run_without_timing(tmp_path):
-    """Call-count-only regions also report per-run numbers, not running totals."""
+def test_in_memory_counter_keeps_running_across_runs(tmp_path):
+    """The file holds each run's calls; the region counter keeps the total."""
     out = tmp_path / "profiling_data.h5"
-    ProfileManager.setup(file_path=str(out), time_trace=False)
+    ProfileManager.setup(file_path=str(out))
 
     _run("step", 3)
     ProfileManager.finalize(verbose=False)
-    assert ProfilingH5Reader(str(out)).get_region("step").num_calls == 3
+    assert read_h5(str(out)).get_region("step").num_calls == 3
 
     _run("step", 5)
     ProfileManager.finalize(verbose=False)
-    assert ProfilingH5Reader(str(out)).get_region("step").num_calls == 5
+    assert read_h5(str(out)).get_region("step").num_calls == 5
 
     # In memory the counter keeps running for the lifetime of the process.
     assert ProfileManager.get_region("step").num_calls == 8
 
 
-def test_finalize_keeps_buffers_when_not_flushing(tmp_path):
-    """With flush_to_disk off the buffers are the only copy, so they survive."""
+def test_finalize_keeps_buffers_without_file_output(tmp_path):
+    """With file output off the buffers are the only copy, so they survive."""
     ProfileManager.setup(
         file_path=str(tmp_path / "profiling_data.h5"),
-        flush_to_disk=False,
+        deactivate_file_output=True,
     )
 
     _run("step", 4)
@@ -83,10 +82,7 @@ def test_finalize_keeps_buffers_when_not_flushing(tmp_path):
 
 def test_finalize_inside_an_open_region(tmp_path):
     """A region still open at finalize() keeps its reserved slot."""
-    ProfileManager.setup(
-        file_path=str(tmp_path / "profiling_data.h5"),
-        flush_to_disk=True,
-    )
+    ProfileManager.setup(file_path=str(tmp_path / "profiling_data.h5"))
 
     with ProfileManager.profile_region("outer"):
         ProfileManager.finalize(verbose=False)

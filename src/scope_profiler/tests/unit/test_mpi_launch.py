@@ -70,9 +70,11 @@ def test_imported_but_uninitialized_mpi_is_not_used(clean_env):
     assert launched_under_mpi() is False
 
 
-def test_use_mpi_false_never_imports_mpi4py(clean_env):
+def test_env_override_disables_mpi(clean_env):
+    """SCOPE_PROFILER_MPI is the only way to overrule launcher detection."""
     clean_env.setenv("OMPI_COMM_WORLD_RANK", "0")
-    assert get_comm(use_mpi=False) is None
+    clean_env.setenv("SCOPE_PROFILER_MPI", "0")
+    assert get_comm() is None
 
 
 def test_serial_setup_does_not_import_mpi4py(clean_env, tmp_path):

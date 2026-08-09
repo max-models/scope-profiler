@@ -1,7 +1,7 @@
 # HDF5 output & post-processing from Python
 
-When `flush_to_disk=True` (the default), scope-profiler writes timing
-data into HDF5 files and merges them on `finalize()`.
+Unless `deactivate_file_output=True`, scope-profiler writes timing data into
+per-rank HDF5 files and merges them on `finalize()`.
 
 This page covers the file layout and the Python API for reading and plotting
 it. The same charts are available from the command line without writing any
@@ -33,6 +33,9 @@ profiling_data.h5
   For serial runs there is only `rank0`.
 - Timestamps are stored as **int64 nanoseconds** from
   `time.perf_counter_ns()`.
+- Runs with `use_likwid=True` additionally get a `rank<N>/likwid/` group
+  holding the hardware counters and derived metrics of every marker region.
+  See {doc}`likwid`.
 
 ## Run metadata
 
@@ -45,6 +48,8 @@ Derived fields use lower-case names:
 | Field | Description |
 | --- | --- |
 | `timestamp` | ISO-8601 time the run started |
+| `label` | the run's name, from `setup(label=...)`; absent when none was given |
+| `start_time_ns` | run start on the `perf_counter_ns` clock, the origin of the relative timeline |
 | `user`, `hostname` | who ran it, and where |
 | `platform`, `uname` | OS description, and the full `uname` tuple |
 | `chip_information` | CPU model (from `/proc/cpuinfo` or `sysctl`) |
@@ -65,9 +70,9 @@ present only when set:
   can be traced back to its job
 
 ```python
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler import read_h5
 
-metadata = ProfilingH5Reader("profiling_data.h5").metadata
+metadata = read_h5("profiling_data.h5").metadata
 
 print(metadata["chip_information"])   # 'AMD EPYC 9654 96-Core Processor'
 print(metadata["modules"])            # ['profile/base', 'gcc/12.3.0', ...]
@@ -81,18 +86,18 @@ Metadata is collected on every rank but only rank 0's copy is stored, so it
 describes the run as a whole. Per-task values such as `SLURM_PROCID` reflect
 rank 0.
 
-## Reading data with `ProfilingH5Reader`
+## Reading data with `read_h5`
 
 ```python
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler import read_h5
 
-reader = ProfilingH5Reader("profiling_data.h5")
+results = read_h5("profiling_data.h5")
 
 # Number of MPI ranks in the file
-print(reader.num_ranks)
+print(results.num_ranks)
 
 # Get all regions (sorted by first start time)
-for region in reader.get_regions():
+for region in results.get_regions():
     r0 = region[0]  # Region data for rank 0
     print(f"{region.name}: {r0.num_calls} calls, "
           f"avg {r0.average_duration:.6f} s")
@@ -107,11 +112,184 @@ Durations and timestamps on `Region` and `MPIRegion` are reported in
 
 ```python
 # Only regions whose name starts with "solver"
-reader.get_regions(include="solver.*")
+results.get_regions(include="solver.*")
 
 # Everything except IO regions
-reader.get_regions(exclude="io.*")
+results.get_regions(exclude="io.*")
 ```
+
+### Post-processing in the script that produced the data
+
+`ProfileManager.read_results()` opens the file the current configuration just
+wrote, so a run can analyse itself without repeating the path:
+
+```python
+ProfileManager.finalize()
+results = ProfileManager.read_results()
+results.print_summary()
+```
+
+Under MPI only rank 0 writes the merged file, so guard the call accordingly.
+
+### Getting the results without touching disk
+
+`finalize(return_results=True)` hands back the run's data directly from the
+in-memory buffers, with no file to write and read back:
+
+```python
+results = ProfileManager.finalize(return_results=True)
+
+results.print_summary()
+df = results.to_dataframe()
+plot_gantt(results)
+```
+
+`finalize()` returns the very same `ProfilingResults` type that `read_h5()`
+gives back — the only difference is where the data came from — so every method
+on this page, every `plot_*` function and every exporter accepts it.
+
+This works with `deactivate_file_output=True`, where no file is written at all.
+
+### Under MPI
+
+The gather is collective, so every rank must call
+`finalize(return_results=True)` — don't hide the call behind a rank guard. Rank
+0 then holds the whole run, mirroring the merged file; the other ranks get an
+empty result set.
+
+You do not need a rank guard for anything downstream either. Everything that
+produces output — `print_summary()`, the `plot_*` functions, the exporters —
+does nothing for those empty result sets, so the script above prints its table
+once and writes each figure once, from rank 0, whether you run it on 1 rank or
+1000:
+
+```bash
+python simulation.py
+mpirun -n 64 python simulation.py     # same script, same output, once
+```
+
+Analyses of your own need no guard as long as they iterate — `get_regions()`
+and `events()` simply come back empty off rank 0. When you do need the
+distinction (writing your own file, say), ask for it explicitly:
+
+```python
+if results.is_root:
+    my_report(results)
+```
+
+See `examples/ex_in_memory_results.py` for a complete script that runs
+unchanged serially and under `mpirun`.
+
+## Building your own plots and analyses
+
+The built-in charts cover the common cases; when you want something else,
+work from the raw calls rather than the aggregates.
+
+### One row per call
+
+`events()` returns the long-form ("tidy") view: one entry per recorded call,
+with `name`, `rank`, `call_index`, `start`, `end` and `duration` in seconds.
+Timestamps are measured from the first region entry in the file, so the
+timeline starts at zero and is directly plottable — pass `relative=False` for
+the raw monotonic-clock values.
+
+```python
+import matplotlib.pyplot as plt
+
+results = read_h5("profiling_data.h5")
+
+for event in results.events(include="solver.*", ranks=0):
+    plt.barh(event["name"], event["duration"], left=event["start"])
+```
+
+`to_events_dataframe()` returns the same data as a pandas DataFrame, which is
+usually the shortest path to a custom chart:
+
+```python
+events = results.to_events_dataframe()
+
+# Which region has the most variable calls?
+events.groupby("name")["duration"].std().sort_values(ascending=False)
+
+# Per-rank load imbalance in one line
+events.pivot_table(index="rank", columns="name", values="duration", aggfunc="sum")
+
+# Distribution of a single region's call durations
+events.query("name == 'solve'")["duration"].hist(bins=50)
+```
+
+The same filters apply as everywhere else: `include`/`exclude` regexes and
+`ranks`.
+
+Individual `Region` and `MPIRegion` objects expose the same view for a single
+region (`results["solve"].events()`), and `Region` also offers the stored
+integer nanoseconds via `start_times_ns`, `end_times_ns` and `durations_ns`
+for anyone who wants to avoid the float conversion.
+
+### Useful timeline anchors
+
+`results.minimum_start_time`, `results.maximum_end_time` and `results.time_span`
+bound the profiled window in seconds — handy for normalising axes or
+computing what fraction of the run a region accounts for:
+
+```python
+frame = results.to_dataframe()
+frame["fraction_of_run"] = frame["total_duration"] / results.time_span
+```
+
+`results.run_start_time` is when the run itself started, as registered by
+`ProfileManager.setup()`, and `results.startup_time` is the gap from there to
+the first region — the time the instrumentation never saw:
+
+```python
+print(f"{results.startup_time:.3f} s elapsed before the first region was entered")
+```
+
+### Which zero the timeline uses
+
+`events()` and `call_stack()` measure from `results.time_origin`: the
+registered start time when the file has one, and the first region entry
+otherwise. Two ways to override it:
+
+```python
+results.events(relative=False)                        # raw clock timestamps
+results.events(origin=results.minimum_start_time)      # zero on the first region
+```
+
+The `plot_*` functions are the exception: they frame the x axis on the first
+region entry, so that a long gap between `setup()` and the first region does
+not fill a chart with empty space. The second line above reproduces exactly
+what a chart's axis shows.
+
+Files that carry no start time — anything written before `setup()` began
+recording one — need no special handling anywhere: `run_start_time` is `None`,
+`time_origin` falls back to the first region entry, `startup_time` is `0.0`,
+and every `ProfilingResults` method, export and chart behaves exactly as it
+did before.
+
+### Walking the reconstructed call stack
+
+`call_stack()` recovers the nesting the flame graph draws, as plain dicts you
+can render however you like. Each call carries its `depth` and the index of
+its `parent` in the returned list:
+
+```python
+from scope_profiler import call_stack_children, call_stack_roots
+
+calls = results.call_stack(rank=0)
+
+for call in calls:
+    print(f"{'  ' * call['depth']}{call['name']}: {call['duration']:.6f} s")
+
+# Or walk it as a tree
+children = call_stack_children(calls)
+for root in call_stack_roots(calls):
+    print(calls[root]["name"], "has", len(children[root]), "direct children")
+```
+
+Calls are identified by position rather than by name, because a region that
+is called repeatedly — or recursively — contributes several entries under one
+name.
 
 ```{note}
 Everything below has a command-line equivalent that needs no code:
@@ -123,13 +301,13 @@ walkthrough with example figures, and {doc}`/cli` for the flag reference.
 ## Gantt chart from Python
 
 ```python
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler import read_h5
 from scope_profiler.plotting_scripts import plot_gantt
 
-reader = ProfilingH5Reader("profiling_data.h5")
+results = read_h5("profiling_data.h5")
 
 plot_gantt(
-    profiling_data=reader,
+    profiling_data=results,
     include=["solver.*", "rhs.*"],
     exclude=["io"],
     ranks=[0, 1],
@@ -145,16 +323,16 @@ are provided, each file gets its own stacked subplot in the exported chart.
 ## Comparison bar charts from Python
 
 ```python
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler import read_h5
 from scope_profiler.plotting_scripts import plot_durations
 
-readers = [
-    ProfilingH5Reader("run_a.h5"),
-    ProfilingH5Reader("run_b.h5"),
+runs = [
+    read_h5("run_a.h5"),
+    read_h5("run_b.h5"),
 ]
 
 saved_paths = plot_durations(
-    readers,
+    runs,
     filepath="durations.png",
     show=True,
 )
@@ -167,7 +345,7 @@ duration per call. Use the `metrics` argument to select a subset:
 
 ```python
 plot_durations(
-    readers,
+    runs,
     metrics=["avg", "total"],
     filepath="durations.png",
     show=True,
@@ -184,7 +362,7 @@ wrote (empty if `filepath` is `None`).
 ```python
 from scope_profiler.plotting_scripts import plot_flame
 
-plot_flame(reader, ranks=[0], filepath="flame.png", show=True)
+plot_flame(results, ranks=[0], filepath="flame.png", show=True)
 ```
 
 The call stack is reconstructed from timestamp containment: a region whose
@@ -196,7 +374,7 @@ the flame graph draws one panel per rank, defaulting to rank 0 only.
 ```python
 from scope_profiler.plotting_scripts import plot_duration_timeseries
 
-plot_duration_timeseries(reader, filepath="duration_timeseries.png", show=True)
+plot_duration_timeseries(results, filepath="duration_timeseries.png", show=True)
 ```
 
 One line per region tracks the mean duration of each call over wall-clock
@@ -211,8 +389,8 @@ from scope_profiler.plotting_scripts import (
     write_region_statistics_json,
 )
 
-stats = collect_region_statistics(readers)                    # dict, nothing written
-stats = write_region_statistics_json(readers, "stats.json")   # same dict, and a file
+stats = collect_region_statistics(runs)                    # dict, nothing written
+stats = write_region_statistics_json(runs, "stats.json")   # same dict, and a file
 ```
 
 Both return per-file, per-region aggregates (`count`, `average`, `min`,
@@ -223,17 +401,17 @@ and the region names common to all inputs. This is the same document
 ## Speedup graph from Python
 
 ```python
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler import read_h5
 from scope_profiler.plotting_scripts import plot_speedup
 
-readers = [
-    ProfilingH5Reader("run_1.h5"),
-    ProfilingH5Reader("run_2.h5"),
-    ProfilingH5Reader("run_4.h5"),
+runs = [
+    read_h5("run_1.h5"),
+    read_h5("run_2.h5"),
+    read_h5("run_4.h5"),
 ]
 
 plot_speedup(
-    readers,
+    runs,
     filepath="speedup.png",
     show=True,
 )

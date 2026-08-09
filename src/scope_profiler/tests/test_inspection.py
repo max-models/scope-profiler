@@ -6,8 +6,8 @@ import h5py
 import numpy as np
 import pytest
 
+from scope_profiler import read_h5
 from scope_profiler.__main__ import main as cli_main
-from scope_profiler.h5reader import ProfilingH5Reader
 from scope_profiler.inspection import collect_file_metadata, inspect_file
 from scope_profiler.inspection import main as inspect_main
 from scope_profiler.inspection import write_metadata_json
@@ -28,9 +28,6 @@ def _write_sample_h5(path, rank_regions, metadata=None):
             regions_group = h5file.create_group(f"rank{rank}").create_group("regions")
             for region_name, payload in regions.items():
                 region_group = regions_group.create_group(region_name)
-                if payload is None:
-                    region_group.attrs["num_calls"] = 3
-                    continue
                 starts, ends = payload
                 region_group.create_dataset(
                     "start_times", data=np.asarray(starts, dtype=np.int64)
@@ -179,19 +176,6 @@ def test_section_switches(sample_file, capsys):
     assert "Metadata" not in out and "Regions" in out
 
 
-def test_count_only_regions(tmp_path, capsys):
-    """Regions from time_trace=False runs report calls but no durations."""
-    path = tmp_path / "counts.h5"
-    _write_sample_h5(path, {0: {"counted": None}}, metadata={"user": "max"})
-
-    inspect_file(path)
-    out = capsys.readouterr().out
-    line = next(line for line in out.splitlines() if "counted" in line)
-
-    assert line.split()[1:] == ["1", "3", "-", "-", "-", "-", "-"]
-    assert "time_trace=False" in out
-
-
 def test_file_without_regions_or_metadata(tmp_path, capsys):
     path = tmp_path / "empty.h5"
     _write_sample_h5(path, {})
@@ -258,7 +242,7 @@ def test_write_metadata_json_accepts_readers_and_sequences(sample_file, tmp_path
     _write_sample_h5(second, {0: {"setup": ([0], [1 * NS])}}, metadata={"user": "max"})
 
     payload = write_metadata_json(
-        [ProfilingH5Reader(sample_file), second], tmp_path / "both.json"
+        [read_h5(sample_file), second], tmp_path / "both.json"
     )
 
     assert len(payload["files"]) == 2

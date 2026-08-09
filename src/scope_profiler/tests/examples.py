@@ -30,8 +30,6 @@ def fibonacci_context_manager(n, region_name="fibonacci_ctx"):
 if __name__ == "__main__":
     ProfileManager.setup(
         use_likwid=False,
-        time_trace=True,
-        flush_to_disk=True,
     )
 
     num_loops = 10

@@ -1,0 +1,895 @@
+"""Post-processing API over a set of profiling regions.
+
+This is the analysis layer, deliberately independent of where the data came
+from: :meth:`ProfilingResults.from_h5` builds one of these from a merged HDF5
+file, while :meth:`ProfileManager.finalize(return_results=True)
+<scope_profiler.profile_manager.ProfileManager.finalize>` builds the same thing
+straight out of the in-memory buffers, without a round trip through disk. Both
+give back the same type, and everything downstream (summaries, dataframes, the
+plotting functions, the exporters) cannot tell them apart.
+"""
+
+import functools
+import re
+from pathlib import Path
+from typing import Dict, Iterator, List
+
+import numpy as np
+
+from scope_profiler.likwid_data import LikwidRegionResult
+from scope_profiler.mpi_region import MPIRegion
+from scope_profiler.region import NS_PER_SECOND
+
+
+class ProfilingResults:
+    """
+    The profiling data of one run, as an ordered mapping of region name to
+    :class:`~scope_profiler.mpi_region.MPIRegion`::
+
+        results = ProfileManager.finalize(return_results=True)
+        for region in results:
+            print(region.name, region.total_duration)
+
+        solve = results["solve"]        # same as results.get_region("solve")
+        solve[0].average_duration       # rank 0, in seconds
+
+    The same object comes back from a merged output file, via
+    :meth:`from_h5` (or its module-level twin
+    :func:`~scope_profiler.h5reader.read_h5`)::
+
+        results = ProfilingResults.from_h5("profiling_data.h5")
+
+    All durations are reported in seconds.
+    """
+
+    def __init__(
+        self,
+        regions: Dict[str, MPIRegion],
+        metadata: dict | None = None,
+        num_ranks: int | None = None,
+        likwid: Dict[int, Dict[str, LikwidRegionResult]] | None = None,
+        file_path: str | Path = "",
+        is_root: bool = True,
+    ) -> None:
+        """
+        Assemble a result set from already-loaded regions.
+
+        Parameters
+        ----------
+        regions : dict
+            Region name -> :class:`~scope_profiler.mpi_region.MPIRegion`, in
+            order of appearance.
+        metadata : dict, optional
+            Environment metadata for the run (see :attr:`metadata`).
+        num_ranks : int, optional
+            Number of ranks the run used (default: the number of distinct
+            ranks appearing in ``regions``).
+        likwid : dict, optional
+            Rank -> {tag: :class:`~scope_profiler.likwid_data.LikwidRegionResult`}.
+        file_path : str or Path, optional
+            The run's output file. Used for labelling and error messages; it
+            need not exist for in-memory results.
+        is_root : bool, optional
+            Whether this rank holds the run's data (default: True). See
+            :attr:`is_root`.
+        """
+        self._is_root = is_root
+        self._region_dict = dict(regions)
+        self._metadata = dict(metadata or {})
+        self._likwid = dict(likwid or {})
+        self._file_path = Path(file_path)
+        if num_ranks is None:
+            ranks = {rank for region in self._region_dict.values() for rank in region}
+            num_ranks = len(ranks)
+        self._num_ranks = num_ranks
+
+        # Recorded by setup(); absent in files written before it existed, and
+        # in any file whose run did not reach finalize(). Everything
+        # downstream falls back to the first region entry, so an unreadable
+        # value is ignored rather than fatal: a file is worth reading for its
+        # timings even if this field is not.
+        self._run_start_time: float | None = None
+        start_time_ns = self._metadata.get("start_time_ns")
+        if start_time_ns is not None:
+            try:
+                self._run_start_time = float(start_time_ns) / NS_PER_SECOND
+            except (TypeError, ValueError):
+                self._run_start_time = None
+
+    @classmethod
+    def from_h5(
+        cls, file_path: str | Path, verbose: bool = False
+    ) -> "ProfilingResults":
+        """
+        Load a merged profiling file written by
+        :meth:`ProfileManager.finalize
+        <scope_profiler.profile_manager.ProfileManager.finalize>`::
+
+            results = ProfilingResults.from_h5("profiling_data.h5")
+            results.print_summary()
+
+        :func:`scope_profiler.read_h5` is the same thing under a shorter name.
+
+        Parameters
+        ----------
+        file_path : str | Path
+            Path to the merged HDF5 file containing profiling data.
+        verbose : bool, optional
+            Print each rank group as it is read (default: False).
+
+        Returns
+        -------
+        ProfilingResults
+            The run's profiling data, of whichever class this was called on.
+
+        Raises
+        ------
+        FileNotFoundError
+            If the specified HDF5 file does not exist.
+        """
+        # Imported here so the analysis layer does not pull in h5py, and to
+        # keep the dependency one-way: h5reader imports this module.
+        from scope_profiler.h5reader import load_h5
+
+        return cls(**load_h5(file_path, verbose=verbose))
+
+    def get_region(self, region_name: str) -> MPIRegion:
+        """
+        Retrieve profiling data for a specific region.
+
+        Parameters
+        ----------
+        region_name : str
+            Name of the region to retrieve.
+
+        Returns
+        -------
+        Region
+            Region object containing profiling data for all ranks.
+
+        Raises
+        ------
+        KeyError
+            If the specified region name does not exist.
+        """
+        try:
+            return self._region_dict[region_name]
+        except KeyError:
+            raise KeyError(
+                f"No region named {region_name!r} in {self.file_path}. "
+                f"Available regions: {self.region_names}"
+            ) from None
+
+    @property
+    def region_names(self) -> List[str]:
+        """Names of all regions, in order of appearance."""
+        return list(self._region_dict)
+
+    def summary(
+        self,
+        include: list[str] | str | None = None,
+        exclude: list[str] | str | None = None,
+    ) -> List[dict]:
+        """
+        Summarize every region, aggregated over ranks.
+
+        Parameters
+        ----------
+        include, exclude : list of str or str, optional
+            Regex patterns selecting which regions to summarize, matched as in
+            :meth:`get_regions`.
+
+        Returns
+        -------
+        List[dict]
+            One dict per region (see
+            :meth:`~scope_profiler.mpi_region.MPIRegion.get_summary`), ordered
+            by first start time. Durations are in seconds.
+        """
+        return [
+            region.get_summary()
+            for region in self.get_regions(include=include, exclude=exclude)
+        ]
+
+    def to_dataframe(
+        self,
+        include: list[str] | str | None = None,
+        exclude: list[str] | str | None = None,
+        per_rank: bool = False,
+    ):
+        """
+        Return the region summaries as a pandas DataFrame.
+
+        Parameters
+        ----------
+        include, exclude : list of str or str, optional
+            Regex patterns selecting which regions to include, matched as in
+            :meth:`get_regions`.
+        per_rank : bool, optional
+            If True, emit one row per (region, rank) with a ``rank`` column
+            instead of one aggregated row per region (default: False).
+
+        Returns
+        -------
+        pandas.DataFrame
+            Region statistics, with durations in seconds.
+
+        Raises
+        ------
+        ImportError
+            If pandas is not installed.
+        """
+        try:
+            import pandas as pd
+        except ImportError as exc:
+            raise ImportError(
+                "to_dataframe() requires pandas. Install scope-profiler[pproc] "
+                "or pandas directly."
+            ) from exc
+
+        regions = self.get_regions(include=include, exclude=exclude)
+        if not per_rank:
+            return pd.DataFrame(region.get_summary() for region in regions)
+
+        rows = []
+        for region in regions:
+            for rank in region.ranks:
+                rows.append(
+                    {"name": region.name, "rank": rank, **region[rank].get_summary()}
+                )
+        return pd.DataFrame(rows)
+
+    def events(
+        self,
+        include: list[str] | str | None = None,
+        exclude: list[str] | str | None = None,
+        ranks: list[int] | int | None = None,
+        relative: bool = True,
+        origin: float | None = None,
+    ) -> List[dict]:
+        """
+        Return one dict per recorded call, across all regions and ranks.
+
+        This is the long-form ("tidy") view to build custom plots from: one
+        row per call rather than one per region.
+
+        Parameters
+        ----------
+        include, exclude : list of str or str, optional
+            Regex patterns selecting which regions to include, matched as in
+            :meth:`get_regions`.
+        ranks : list of int or int, optional
+            Restrict to these ranks (default: all).
+        relative : bool, optional
+            If True (default), timestamps are measured from
+            :attr:`time_origin` — the start time registered by
+            ``ProfileManager.setup()``, or the first region entry for runs
+            without one — so the timeline starts at zero. If False, the raw
+            monotonic-clock timestamps are returned; those are only comparable
+            within a single run.
+        origin : float, optional
+            Measure from this timestamp instead, in seconds on the recording
+            clock. Overrides ``relative``; pass
+            ``origin=results.minimum_start_time`` to zero the timeline on the
+            first region entry regardless of what the run registered.
+
+        Returns
+        -------
+        List[dict]
+            Entries with keys ``name``, ``rank``, ``call_index``, ``start``,
+            ``end`` and ``duration``, in seconds, ordered by region (as in
+            :meth:`get_regions`) then rank then call order.
+
+        Examples
+        --------
+        >>> for event in results.events(include="solve"):  # doctest: +SKIP
+        ...     print(event["rank"], event["start"], event["duration"])
+        """
+        if origin is None:
+            origin = self.time_origin if relative else 0.0
+        events = []
+        for region in self.get_regions(include=include, exclude=exclude):
+            events.extend(region.events(ranks=ranks, origin=origin))
+        return events
+
+    def to_events_dataframe(
+        self,
+        include: list[str] | str | None = None,
+        exclude: list[str] | str | None = None,
+        ranks: list[int] | int | None = None,
+        relative: bool = True,
+        origin: float | None = None,
+    ):
+        """
+        Return every recorded call as a pandas DataFrame (one row per call).
+
+        Parameters
+        ----------
+        include, exclude, ranks, relative, origin
+            As in :meth:`events`.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Columns ``name``, ``rank``, ``call_index``, ``start``, ``end``,
+            ``duration``, with times in seconds.
+
+        Raises
+        ------
+        ImportError
+            If pandas is not installed.
+        """
+        try:
+            import pandas as pd
+        except ImportError as exc:
+            raise ImportError(
+                "to_events_dataframe() requires pandas. Install "
+                "scope-profiler[pproc] or pandas directly."
+            ) from exc
+
+        columns = ["name", "rank", "call_index", "start", "end", "duration"]
+        events = self.events(
+            include=include,
+            exclude=exclude,
+            ranks=ranks,
+            relative=relative,
+            origin=origin,
+        )
+        return pd.DataFrame(events, columns=columns)
+
+    def call_stack(
+        self,
+        rank: int = 0,
+        include: list[str] | str | None = None,
+        exclude: list[str] | str | None = None,
+        relative: bool = True,
+        origin: float | None = None,
+    ) -> List[dict]:
+        """
+        Reconstruct the nested call stack for one rank.
+
+        Regions record no call graph, so nesting is recovered from timestamp
+        containment - the same reconstruction the flame chart, the ``.prof``
+        export and the speedscope export use.
+
+        Parameters
+        ----------
+        rank : int, optional
+            Rank whose calls to reconstruct (default: 0).
+        include, exclude : list of str or str, optional
+            Regex patterns selecting which regions to include, matched as in
+            :meth:`get_regions`.
+        relative : bool, optional
+            If True (default), timestamps start at zero; see :meth:`events`.
+        origin : float, optional
+            Measure from this timestamp instead; see :meth:`events`.
+
+        Returns
+        -------
+        List[dict]
+            One entry per call, parents before children, with keys ``name``,
+            ``start``, ``end``, ``duration``, ``depth`` and ``parent`` (the
+            index of the enclosing call in this list, or None). See
+            :func:`~scope_profiler.call_stack.build_call_stack`.
+        """
+        from scope_profiler.call_stack import build_call_stack
+
+        if origin is None:
+            origin = self.time_origin if relative else 0.0
+        return build_call_stack(
+            self.get_regions(include=include, exclude=exclude),
+            rank=rank,
+            origin=origin,
+        )
+
+    def print_summary(
+        self,
+        include: list[str] | str | None = None,
+        exclude: list[str] | str | None = None,
+        ranks: list[int] | None = None,
+        sort: str = "total",
+        title: str | None = None,
+        stream=None,
+    ) -> None:
+        """
+        Print a region summary table, aggregated over ranks.
+
+        Renders the same table as ``scope-profiler inspect`` and the summary
+        printed by ``ProfileManager.finalize()``.
+
+        Parameters
+        ----------
+        include, exclude : list of str or str, optional
+            Regex patterns selecting which regions to print, matched as in
+            :meth:`get_regions`.
+        ranks : list of int, optional
+            Restrict the statistics to these ranks (default: all).
+        sort : str, optional
+            Column to order by: ``total`` (default), ``calls``, ``avg``,
+            ``max`` or ``name``.
+        title : str, optional
+            Heading above the table (default: the file path and rank count).
+        stream : file-like, optional
+            Where to write (default: stdout).
+
+        Notes
+        -----
+        Does nothing on a non-root rank (see :attr:`is_root`), so a parallel
+        script can call it unguarded and print the table once.
+        """
+        from scope_profiler.summary import print_region_table, region_rows
+
+        if not self._is_root:
+            return
+
+        rows = region_rows(
+            self, include=include, exclude=exclude, ranks=ranks, sort=sort
+        )
+        if title is None:
+            title = self.default_title()
+        print_region_table(rows, title=title, stream=stream)
+
+    def default_title(self) -> str:
+        """
+        Heading naming this run, for a summary table.
+
+        The label leads when the run has one, since that is the name the user
+        chose; the file path follows either way, because when several runs are
+        being compared it is what tells them apart on disk.
+
+        Returns
+        -------
+        str
+            e.g. ``"128 ranks - results/run_a.h5  (128 rank(s))"``.
+        """
+        title = f"{self.file_path}  ({self.num_ranks} rank(s))"
+        if self.label is not None:
+            title = f"{self.label} - {title}"
+        return title
+
+    def __getitem__(self, region_name: str) -> MPIRegion:
+        """Get a region by name; see :meth:`get_region`."""
+        return self.get_region(region_name)
+
+    def __contains__(self, region_name: str) -> bool:
+        """Whether a region with this name exists."""
+        return region_name in self._region_dict
+
+    def __iter__(self) -> Iterator[MPIRegion]:
+        """Iterate over all regions, in order of appearance."""
+        return iter(self._region_dict.values())
+
+    def __len__(self) -> int:
+        """Number of regions."""
+        return len(self._region_dict)
+
+    @property
+    def file_path(self) -> Path:
+        """
+        The run's output file.
+
+        Returns
+        -------
+        Path
+            The file path as a pathlib.Path object. For results taken straight
+            from memory this is the path ``setup()`` was configured with, which
+            need not exist on disk.
+        """
+        return self._file_path
+
+    @property
+    def label(self) -> str | None:
+        """
+        The run's label, as given to ``ProfileManager.setup(label=...)``.
+
+        Returns
+        -------
+        str or None
+            The label, or None for a run that was not given one. Use
+            :attr:`display_label` to name the run in output regardless.
+        """
+        label = self._metadata.get("label")
+        return str(label) if label else None
+
+    @label.setter
+    def label(self, value: str | None) -> None:
+        """Rename this run for the report being produced.
+
+        What ``scope-profiler pproc --label`` does: the file on disk keeps the
+        label the run was given (if any), while everything downstream of here
+        uses the new one. Setting it to None or "" restores the fallback to the
+        file stem.
+        """
+        if value:
+            self._metadata["label"] = str(value)
+        else:
+            self._metadata.pop("label", None)
+
+    @property
+    def display_label(self) -> str:
+        """
+        What to call this run in charts, tables and exports.
+
+        The :attr:`label` when the run has one, and otherwise the stem of its
+        output file --- which is what post-processing named runs by before
+        labels existed, and remains the default.
+
+        Returns
+        -------
+        str
+            A non-empty name for the run.
+        """
+        return self.label or self._file_path.stem
+
+    @property
+    def is_root(self) -> bool:
+        """
+        Whether this rank holds the run's data.
+
+        Always True for a file that was read back, and for serial runs. Under
+        MPI, ``finalize(return_results=True)`` gathers everything on rank 0, so
+        only rank 0's results are the root ones; the others come back empty and
+        with this False.
+
+        Everything that produces output - :meth:`print_summary`, the ``plot_*``
+        functions, the exporters - does nothing for non-root results. That is
+        what lets a parallel script call them unguarded and still write each
+        figure exactly once, from rank 0. Read it when a script needs to make
+        the same distinction for output of its own.
+
+        Returns
+        -------
+        bool
+            True unless this is a non-root rank's share of an MPI run.
+        """
+        return self._is_root
+
+    @property
+    def metadata(self) -> dict:
+        """
+        Get environment metadata for the run (gathered from rank 0).
+
+        Returns
+        -------
+        dict
+            Metadata dict (hostname, OpenMP thread count, platform, versions,
+            etc.), or an empty dict if the run recorded none.
+        """
+        return self._metadata
+
+    @property
+    def num_ranks(self) -> int:
+        """
+        Get the number of ranks recorded in the profiling data.
+
+        Returns
+        -------
+        int
+            Number of ranks.
+        """
+        return self._num_ranks
+
+    @property
+    def has_likwid(self) -> bool:
+        """Whether the run recorded LIKWID hardware counter results."""
+        return any(self._likwid.values())
+
+    @property
+    def likwid_ranks(self) -> List[int]:
+        """Ranks that recorded LIKWID results, in ascending order."""
+        return sorted(rank for rank, regions in self._likwid.items() if regions)
+
+    def get_likwid_regions(self, rank: int | None = None) -> dict:
+        """
+        Get the LIKWID marker results of the run.
+
+        Parameters
+        ----------
+        rank : int, optional
+            Return only this rank's regions. By default every rank is
+            included, keyed by rank.
+
+        Returns
+        -------
+        dict
+            With ``rank`` given, a mapping of region tag to
+            :class:`~scope_profiler.likwid_data.LikwidRegionResult`; otherwise a
+            mapping of rank to such a dict. Empty when the run did not use
+            LIKWID.
+
+        Examples
+        --------
+        ::
+
+            reader = read_h5("profiling_data.h5")
+            for rank, regions in reader.get_likwid_regions().items():
+                for tag, result in regions.items():
+                    for name, values in zip(result.metric_names, result.metrics):
+                        print(rank, tag, name, values)
+        """
+        if rank is None:
+            return dict(self._likwid)
+        return self._likwid.get(rank, {})
+
+    def get_likwid_region(self, tag: str, rank: int = 0) -> LikwidRegionResult:
+        """
+        Get one region's LIKWID results for a single rank.
+
+        Parameters
+        ----------
+        tag : str
+            LIKWID marker region tag (the profiled region's name).
+        rank : int, optional
+            Rank to read from (default: 0).
+
+        Returns
+        -------
+        LikwidRegionResult
+            The region's counters, event names and derived metrics.
+
+        Raises
+        ------
+        KeyError
+            If the rank recorded no LIKWID data or has no such region.
+        """
+        regions = self._likwid.get(rank, {})
+        try:
+            return regions[tag]
+        except KeyError:
+            raise KeyError(
+                f"No LIKWID region {tag!r} for rank {rank} in {self.file_path}. "
+                f"Available regions: {sorted(regions)}"
+            ) from None
+
+    def likwid_to_dataframe(self):
+        """
+        Return every LIKWID event and metric as a tidy pandas DataFrame.
+
+        One row per (rank, region, hardware thread), with a column per event
+        and per derived metric, plus the region's LIKWID runtime and call
+        count. Regions measured with different event groups simply leave the
+        other group's columns empty.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Empty if there is no LIKWID data.
+
+        Raises
+        ------
+        ImportError
+            If pandas is not installed.
+        """
+        try:
+            import pandas as pd
+        except ImportError as exc:
+            raise ImportError(
+                "likwid_to_dataframe() requires pandas. Install "
+                "scope-profiler[pproc] or pandas directly."
+            ) from exc
+
+        rows = []
+        for rank in self.likwid_ranks:
+            for tag, result in self._likwid[rank].items():
+                for thread in range(len(result.times)):
+                    row = {
+                        "rank": rank,
+                        "region": tag,
+                        "thread": thread,
+                        "cpu": (
+                            result.cpus[thread] if thread < len(result.cpus) else np.nan
+                        ),
+                        "group": result.group_name,
+                        "time": result.times[thread],
+                        "call_count": result.call_counts[thread],
+                    }
+                    # event_labels, not event_names: a group like MEM_DP
+                    # repeats an event across memory channels, and keying by
+                    # the bare name would keep only the last channel.
+                    for name, values in zip(result.event_labels, result.events):
+                        row[name] = values[thread]
+                    for name, values in zip(result.metric_names, result.metrics):
+                        row[name] = values[thread]
+                    rows.append(row)
+        return pd.DataFrame(rows)
+
+    def print_likwid_summary(self, stream=None) -> None:
+        """
+        Print every LIKWID region's events and derived metrics.
+
+        Parameters
+        ----------
+        stream : file-like, optional
+            Destination (default: stdout).
+        """
+        print_ = print if stream is None else functools.partial(print, file=stream)
+
+        if not self.has_likwid:
+            print_(f"No LIKWID data in {self.file_path}")
+            return
+
+        for rank in self.likwid_ranks:
+            for tag, result in self._likwid[rank].items():
+                header = f"rank {rank}  region {tag!r}"
+                if result.group_name:
+                    header += f"  group {result.group_name}"
+                print_(header)
+                for thread, cpu in enumerate(result.cpus or range(len(result.times))):
+                    print_(
+                        f"  cpu {cpu}: {result.call_counts[thread]} call(s), "
+                        f"{result.times[thread]:.6f} s"
+                    )
+                    # Labels rather than raw names, so repeated events show
+                    # which counter (memory channel, ...) they came from.
+                    width = max(
+                        [len(n) for n in result.event_labels + result.metric_names]
+                        + [30]
+                    )
+                    for name, values in zip(result.event_labels, result.events):
+                        print_(f"    {name:<{width}s} {values[thread]:>18.4f}")
+                    for name, values in zip(result.metric_names, result.metrics):
+                        print_(f"    {name:<{width}s} {values[thread]:>18.4f}")
+
+    @property
+    def minimum_start_time(self) -> float:
+        """
+        Get the minimum start time across all regions and ranks.
+
+        This is the origin of the timeline: subtract it from any timestamp to
+        get seconds since the first region entry. Regions with no recorded
+        calls are ignored; the result is 0.0 if no region recorded any.
+
+        Returns
+        -------
+        float
+            Minimum start time in seconds.
+        """
+        starts = [
+            region.first_start_time
+            for region in self.get_regions()
+            if region.has_timing
+        ]
+        return min(starts) if starts else 0.0
+
+    @property
+    def run_start_time(self) -> float | None:
+        """
+        When the run started, in seconds on the recording clock.
+
+        This is the ``start_time_ns`` metadata field, written by
+        ``ProfileManager.setup()`` — by default the moment setup() was called,
+        or an earlier instant if one was passed to it.
+
+        Returns
+        -------
+        float or None
+            The registered start time, or None for runs without one (older
+            files, or runs that never called setup()). Use
+            :attr:`startup_time` for the elapsed time before the first region,
+            which stays defined either way.
+        """
+        return self._run_start_time
+
+    @property
+    def time_origin(self) -> float:
+        """
+        Zero point of the relative timeline, in seconds.
+
+        The registered :attr:`run_start_time` when there is one, and otherwise
+        the first region entry (:attr:`minimum_start_time`). This is what
+        :meth:`events` and :meth:`call_stack` measure from.
+
+        Note the ``plot_*`` functions instead frame their x axis on the first
+        region entry, so that a long gap between ``setup()`` and the first
+        region does not fill a chart with empty space. Pass
+        ``origin=results.minimum_start_time`` to :meth:`events` to reproduce
+        the numbers on a chart's axis.
+
+        Returns
+        -------
+        float
+            Origin timestamp on the recording clock.
+        """
+        if self._run_start_time is not None:
+            return self._run_start_time
+        return self.minimum_start_time
+
+    @property
+    def startup_time(self) -> float:
+        """
+        Seconds between the start of the run and the first profiled region.
+
+        Time the instrumentation never saw: imports, reading input, building
+        a mesh. Zero when there is no registered start time
+        (:attr:`run_start_time` is None), since the run is then only known
+        from its first region onwards.
+
+        Returns
+        -------
+        float
+            Elapsed time before the first region entry, in seconds.
+        """
+        return self.minimum_start_time - self.time_origin
+
+    @property
+    def maximum_end_time(self) -> float:
+        """
+        Get the maximum end time across all regions and ranks.
+
+        Returns
+        -------
+        float
+            Maximum end time in seconds, or 0.0 if no region recorded timing.
+        """
+        ends = [
+            region.last_end_time for region in self.get_regions() if region.has_timing
+        ]
+        return max(ends) if ends else 0.0
+
+    @property
+    def time_span(self) -> float:
+        """
+        Wall-clock seconds between the first region entry and the last exit.
+
+        Returns
+        -------
+        float
+            Duration of the profiled window in seconds, or 0.0 if no region
+            recorded timing.
+        """
+        if not any(region.has_timing for region in self.get_regions()):
+            return 0.0
+        return self.maximum_end_time - self.minimum_start_time
+
+    def get_regions(
+        self,
+        include: list[str] | str | None = None,
+        exclude: list[str] | str | None = None,
+    ) -> List[MPIRegion]:
+        """Get a list of all regions in order of appearance.
+
+        Returns
+        -------
+        List[Region]
+            List of Region objects.
+        """
+
+        if isinstance(include, str):
+            include = [include]
+        if isinstance(exclude, str):
+            exclude = [exclude]
+
+        regions = []
+
+        # Collect regions based on include/exclude filters
+        for region_name, region in self._region_dict.items():
+            # Match with regex patterns if provided
+            if include is not None:
+                if not any([re.match(pattern, region_name) for pattern in include]):
+                    continue
+            if exclude is not None:
+                if any([re.match(pattern, region_name) for pattern in exclude]):
+                    continue
+
+            regions.append(region)
+
+        # Sort regions based on first start time across all ranks
+        regions.sort(
+            key=lambda r: min(region.first_start_time for region in r.regions.values())
+        )
+
+        return regions
+
+    def __repr__(self) -> str:
+        """
+        Return a string representation of all regions and their profiling statistics.
+
+        Returns
+        -------
+        str
+            Formatted string containing profiling data for all regions.
+        """
+        return (
+            f"<{type(self).__name__} {self.file_path.name!r}: "
+            f"{len(self._region_dict)} region(s), {self._num_ranks} rank(s)>"
+        )

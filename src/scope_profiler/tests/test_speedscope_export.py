@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler import read_h5
 from scope_profiler.post_processing import main
 from scope_profiler.speedscope_export import (
     build_speedscope_document,
@@ -119,7 +119,7 @@ def test_export_writes_one_profile_per_rank(tmp_path):
     _write_sample_h5(h5_file, {rank: _nested_file_data()[0] for rank in (0, 1)})
 
     written = export_speedscope(
-        ProfilingH5Reader(h5_file),
+        read_h5(h5_file),
         tmp_path / "profile.speedscope.json",
         ranks=[0, 1],
         verbose=False,
@@ -152,7 +152,7 @@ def test_export_defaults_to_rank_zero_and_splits_per_file(tmp_path):
     _write_sample_h5(file_one, {rank: _nested_file_data()[0] for rank in (0, 1)})
     _write_sample_h5(file_two, {rank: _nested_file_data()[0] for rank in (0, 1)})
 
-    readers = [ProfilingH5Reader(file_one), ProfilingH5Reader(file_two)]
+    readers = [read_h5(file_one), read_h5(file_two)]
     written = export_speedscope(
         readers, tmp_path / "profile.speedscope.json", verbose=False
     )
@@ -172,7 +172,7 @@ def test_export_rejects_unknown_rank(tmp_path):
 
     with pytest.raises(ValueError, match="Invalid rank"):
         export_speedscope(
-            ProfilingH5Reader(h5_file),
+            read_h5(h5_file),
             tmp_path / "profile.speedscope.json",
             ranks=[3],
             verbose=False,
