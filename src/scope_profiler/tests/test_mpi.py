@@ -32,9 +32,9 @@ def test_mpi():
     # it; only rank 0 gets the merged run back, like the output file.
     results = ProfileManager.finalize(return_results=True)
     if ProfileManager.get_config()._rank == 0:
-        from scope_profiler import ProfilingH5Reader
+        from scope_profiler import read_h5
 
-        from_disk = ProfilingH5Reader(ProfileManager.get_config().file_path)
+        from_disk = read_h5(ProfileManager.get_config().file_path)
         assert results.is_root
         assert results.num_ranks == from_disk.num_ranks
         assert results.summary() == from_disk.summary()

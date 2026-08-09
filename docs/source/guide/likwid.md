@@ -161,7 +161,7 @@ counter appended (`CAS_COUNT_RD:MBOX0C0`, ...). `event_names` and
 `counter_names` hold the raw pair if you need them.
 
 ```python
-result = reader.get_likwid_region("solve")
+result = results.get_likwid_region("solve")
 dict(zip(result.event_labels, result.events[:, 0]))   # safe
 dict(zip(result.event_names, result.events[:, 0]))    # loses all but one channel
 ```
@@ -169,14 +169,14 @@ dict(zip(result.event_names, result.events[:, 0]))    # loses all but one channe
 ## Reading the counters back
 
 ```python
-from scope_profiler import ProfilingH5Reader
+from scope_profiler import read_h5
 
-reader = ProfilingH5Reader("profiling_data.h5")
-reader.has_likwid          # False for a run without counters
-reader.likwid_ranks        # ranks that recorded counters
+results = read_h5("profiling_data.h5")
+results.has_likwid          # False for a run without counters
+results.likwid_ranks        # ranks that recorded counters
 
 # Everything, keyed by rank then region tag
-for rank, regions in reader.get_likwid_regions().items():
+for rank, regions in results.get_likwid_regions().items():
     for tag, result in regions.items():
         print(rank, tag, result.group_name, result.call_counts[0])
         for name, values in zip(result.event_names, result.events):
@@ -185,7 +185,7 @@ for rank, regions in reader.get_likwid_regions().items():
             print("  ", name, values[0])
 
 # One region on one rank
-solve = reader.get_likwid_region("solve", rank=0)
+solve = results.get_likwid_region("solve", rank=0)
 solve.metric_names         # ['Runtime (RDTSC) [s]', 'Clock [MHz]', 'CPI', ...]
 solve.metrics[2, 0]        # CPI on the first hardware thread
 ```
@@ -195,7 +195,7 @@ returns a tidy pandas table with one row per (rank, region, hardware thread)
 and one column per event and metric:
 
 ```python
-df = reader.likwid_to_dataframe()
+df = results.likwid_to_dataframe()
 df.groupby("region")["CPI"].mean()
 ```
 

@@ -11,7 +11,7 @@ in any order and in any environment.
 1. **Getting started** --- configuring the profiler, marking regions with a
    context manager and a decorator, finalizing, and a first look at the output
    file.
-2. **Post-processing** --- the analysis API in depth: the reader as a mapping of
+2. **Post-processing** --- the analysis API in depth: `ProfilingResults` as a mapping of
    regions, `MPIRegion` vs `Region`, summaries, DataFrames, filtering, metadata
    and JSON export.
 3. **Visualizing results** --- Gantt, flame, duration and speedup charts, plus

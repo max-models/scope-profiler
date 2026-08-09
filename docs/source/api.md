@@ -88,8 +88,8 @@ Everything in this section is importable from the package root:
 
 ```python
 from scope_profiler import (
-    ProfilingH5Reader,
     build_call_stack,
+    read_h5,
     plot_flame,
     plot_gantt,
     write_region_statistics_json,
@@ -101,9 +101,10 @@ stores nanoseconds.
 
 ### ProfilingResults
 
-The post-processing API itself. `ProfilingH5Reader` is this class loaded from
-a file, and `ProfileManager.finalize(return_results=True)` returns one built
-straight from memory.
+The post-processing API itself, and the only type the analysis layer has.
+`ProfilingResults.from_h5()` builds one from a merged file, and
+`ProfileManager.finalize(return_results=True)` builds the same thing straight
+from memory.
 
 ```{eval-rst}
 .. autoclass:: scope_profiler.results.ProfilingResults
@@ -111,13 +112,13 @@ straight from memory.
    :undoc-members:
 ```
 
-### ProfilingH5Reader
+### read_h5
+
+The module-level spelling of `ProfilingResults.from_h5()`; the two are
+interchangeable.
 
 ```{eval-rst}
-.. autoclass:: scope_profiler.h5reader.ProfilingH5Reader
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. autofunction:: scope_profiler.h5reader.read_h5
 ```
 
 ### Region
@@ -139,7 +140,7 @@ straight from memory.
 ### Call stack reconstruction
 
 Regions record no call graph, so nesting is recovered from timestamp
-containment. `ProfilingH5Reader.call_stack()` is the usual entry point; the
+containment. `ProfilingResults.call_stack()` is the usual entry point; the
 functions below operate on its result and let you walk the reconstructed tree
 when building your own nested visualisation.
 

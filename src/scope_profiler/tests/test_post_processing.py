@@ -4,8 +4,8 @@ import h5py
 import numpy as np
 import pytest
 
+from scope_profiler import read_h5
 from scope_profiler.call_stack import build_call_stack
-from scope_profiler.h5reader import ProfilingH5Reader
 from scope_profiler.plotting_scripts import (
     _duration_timeseries,
     plot_duration_timeseries,
@@ -61,7 +61,7 @@ def test_plot_durations_comparison(tmp_path):
     _write_sample_h5(file_one, _sample_file_data(2, 10, 20))
     _write_sample_h5(file_two, _sample_file_data(2, 20, 40))
 
-    readers = [ProfilingH5Reader(file_one), ProfilingH5Reader(file_two)]
+    readers = [read_h5(file_one), read_h5(file_two)]
 
     saved_paths = plot_durations(
         readers,
@@ -89,7 +89,7 @@ def test_duration_timeseries_bands_span_ranks(tmp_path):
             1: {"solve": ([0, 100], [20, 140])},
         },
     )
-    reader = ProfilingH5Reader(file_path)
+    reader = read_h5(file_path)
 
     series = _duration_timeseries(reader.get_region("solve"), None, 0.0)
 
@@ -109,7 +109,7 @@ def test_duration_timeseries_handles_ragged_call_counts(tmp_path):
             1: {"solve": ([0], [20])},
         },
     )
-    reader = ProfilingH5Reader(file_path)
+    reader = read_h5(file_path)
 
     series = _duration_timeseries(reader.get_region("solve"), None, 0.0)
 
@@ -128,7 +128,7 @@ def test_duration_timeseries_respects_rank_selection(tmp_path):
             1: {"solve": ([0], [50])},
         },
     )
-    reader = ProfilingH5Reader(file_path)
+    reader = read_h5(file_path)
 
     series = _duration_timeseries(reader.get_region("solve"), [0], 0.0)
 
@@ -142,7 +142,7 @@ def test_plot_duration_timeseries_export_data_json(tmp_path):
     data_file = tmp_path / "duration_timeseries_data.json"
 
     _write_sample_h5(file_path, _sample_file_data(2, 10, 20))
-    reader = ProfilingH5Reader(file_path)
+    reader = read_h5(file_path)
 
     plot_duration_timeseries(
         reader,
@@ -171,7 +171,7 @@ def test_plot_gantt_combined(tmp_path):
     _write_sample_h5(file_one, _sample_file_data(2, 10, 20))
     _write_sample_h5(file_two, _sample_file_data(2, 20, 40))
 
-    readers = [ProfilingH5Reader(file_one), ProfilingH5Reader(file_two)]
+    readers = [read_h5(file_one), read_h5(file_two)]
 
     plot_gantt(readers, filepath=out_file, show=False, verbose=False)
 
@@ -219,7 +219,7 @@ def test_plot_gantt_puts_every_call_of_a_region_on_one_lane(tmp_path, monkeypatc
     )
     monkeypatch.setattr(plotting_scripts, "_render", lambda *a, **kw: None)
 
-    plot_gantt(ProfilingH5Reader(h5_path), show=False, verbose=False)
+    plot_gantt(read_h5(h5_path), show=False, verbose=False)
 
     # One lane per (region, rank), and solve's three calls share their lane.
     assert canvas.lanes == [
@@ -244,7 +244,7 @@ def test_build_call_stack_reconstructs_nesting(tmp_path):
     }
     file_path = tmp_path / "run.h5"
     _write_sample_h5(file_path, rank_regions)
-    reader = ProfilingH5Reader(file_path)
+    reader = read_h5(file_path)
     calls = build_call_stack(reader.get_regions(), rank=0)
 
     # Region.start_times converts stored nanoseconds to seconds.
@@ -269,7 +269,7 @@ def test_plot_flame_reconstructs_recursive_calls(tmp_path):
         }
     }
     _write_sample_h5(file_path, rank_regions)
-    reader = ProfilingH5Reader(file_path)
+    reader = read_h5(file_path)
 
     plot_flame(reader, filepath=out_file, show=False, verbose=False)
 
@@ -293,9 +293,9 @@ def test_plot_speedup(tmp_path):
     _write_sample_h5(file_four, _sample_file_data(4, 25, 50))
 
     readers = [
-        ProfilingH5Reader(file_one),
-        ProfilingH5Reader(file_two),
-        ProfilingH5Reader(file_four),
+        read_h5(file_one),
+        read_h5(file_two),
+        read_h5(file_four),
     ]
 
     plot_speedup(readers, filepath=out_file, show=False, verbose=False)
@@ -321,9 +321,9 @@ def test_plot_speedup_x_field_omp_num_threads(tmp_path):
         file_2, _sample_file_data(1, 50, 100), metadata={"omp_num_threads": 2}
     )
     readers = [
-        ProfilingH5Reader(file_4),
-        ProfilingH5Reader(file_1),
-        ProfilingH5Reader(file_2),
+        read_h5(file_4),
+        read_h5(file_1),
+        read_h5(file_2),
     ]
 
     data_file = tmp_path / "speedup_data.csv"
@@ -358,7 +358,7 @@ def test_plot_speedup_x_field_total_cores(tmp_path):
         _sample_file_data(2, 25, 50),
         metadata={"omp_num_threads": 2},
     )
-    readers = [ProfilingH5Reader(file_small), ProfilingH5Reader(file_big)]
+    readers = [read_h5(file_small), read_h5(file_big)]
 
     data_file = tmp_path / "speedup_data.csv"
     plot_speedup(
@@ -393,7 +393,7 @@ def test_plot_speedup_categorical_field_preserves_cli_order_and_skips_ideal_line
         _sample_file_data(1, 100, 200),
         metadata={"build_variant": "a_variant"},
     )
-    readers = [ProfilingH5Reader(file_b), ProfilingH5Reader(file_a)]
+    readers = [read_h5(file_b), read_h5(file_a)]
 
     captured = {}
     original_close = plt.close
@@ -425,7 +425,7 @@ def test_plot_speedup_unknown_metadata_field_raises(tmp_path):
     file_b = tmp_path / "b.h5"
     _write_sample_h5(file_a, _sample_file_data(1, 10, 20))
     _write_sample_h5(file_b, _sample_file_data(2, 5, 10))
-    readers = [ProfilingH5Reader(file_a), ProfilingH5Reader(file_b)]
+    readers = [read_h5(file_a), read_h5(file_b)]
 
     with pytest.raises(ValueError, match="not found"):
         plot_speedup(readers, x_field="nonexistent_field", show=False, verbose=False)
@@ -507,7 +507,7 @@ def test_plot_gantt_export_data_json(tmp_path):
     data_file = tmp_path / "gantt_data.json"
 
     _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
-    reader = ProfilingH5Reader(file_path)
+    reader = read_h5(file_path)
 
     plot_gantt(
         reader,
@@ -530,7 +530,7 @@ def test_plot_flame_export_data_json(tmp_path):
 
     rank_regions = {0: {"fib": ([0, 10, 60], [100, 90, 80])}}
     _write_sample_h5(file_path, rank_regions)
-    reader = ProfilingH5Reader(file_path)
+    reader = read_h5(file_path)
 
     plot_flame(
         reader,
@@ -553,7 +553,7 @@ def test_plot_durations_export_data_json(tmp_path):
 
     _write_sample_h5(file_one, _sample_file_data(2, 10, 20))
     _write_sample_h5(file_two, _sample_file_data(2, 20, 40))
-    readers = [ProfilingH5Reader(file_one), ProfilingH5Reader(file_two)]
+    readers = [read_h5(file_one), read_h5(file_two)]
 
     plot_durations(
         readers,
@@ -579,7 +579,7 @@ def test_plot_speedup_export_data_json(tmp_path):
 
     _write_sample_h5(file_one, _sample_file_data(1, 100, 200))
     _write_sample_h5(file_two, _sample_file_data(2, 50, 100))
-    readers = [ProfilingH5Reader(file_one), ProfilingH5Reader(file_two)]
+    readers = [read_h5(file_one), read_h5(file_two)]
 
     plot_speedup(
         readers,

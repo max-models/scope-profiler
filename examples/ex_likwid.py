@@ -14,7 +14,7 @@ in the HDF5 file next to the timing data.
 
 import numpy as np
 
-from scope_profiler import ProfileManager, ProfilingH5Reader
+from scope_profiler import ProfileManager, read_h5
 
 H5_PATH = "likwid_profiling_data.h5"
 
@@ -47,9 +47,9 @@ def main() -> None:
 
     # Everything below reads the finished file, the same way any downstream
     # analysis would.
-    reader = ProfilingH5Reader(H5_PATH)
+    results = read_h5(H5_PATH)
 
-    if not reader.has_likwid:
+    if not results.has_likwid:
         print(
             "No LIKWID counters in the output -- run this under "
             "`likwid-perfctr -C 0 -g CLOCK -m python examples/ex_likwid.py`."
@@ -57,10 +57,10 @@ def main() -> None:
         return
 
     print(f"\nLIKWID regions in {H5_PATH}:")
-    reader.print_likwid_summary()
+    results.print_likwid_summary()
 
     # The structured view: one LikwidRegionResult per (rank, region).
-    for rank, regions in reader.get_likwid_regions().items():
+    for rank, regions in results.get_likwid_regions().items():
         for tag, result in regions.items():
             print(f"\nrank {rank} / {tag}  (group {result.group_name!r})")
             print(f"  hardware threads : {result.cpus}")
@@ -75,7 +75,7 @@ def main() -> None:
 
     # ... or as a tidy table, one row per (rank, region, hardware thread).
     try:
-        df = reader.likwid_to_dataframe()
+        df = results.likwid_to_dataframe()
     except ImportError:
         print("\n(install scope-profiler[pproc] for the DataFrame view)")
     else:

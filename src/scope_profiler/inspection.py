@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler.h5reader import read_h5
 from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import SORT_KEYS, print_region_table, region_rows
 
@@ -159,7 +159,7 @@ def inspect_file(
         Where to write (default: stdout).
     """
     stream = sys.stdout if stream is None else stream
-    reader = ProfilingH5Reader(file_path)
+    reader = read_h5(file_path)
 
     path = Path(reader.file_path)
     size_mb = path.stat().st_size / 1024**2
@@ -229,7 +229,7 @@ def collect_file_metadata(
 
     files = []
     for item in profiling_data:
-        reader = item if isinstance(item, ProfilingResults) else ProfilingH5Reader(item)
+        reader = item if isinstance(item, ProfilingResults) else read_h5(item)
         files.append(
             {
                 "file_path": str(Path(reader.file_path).resolve()),

@@ -87,10 +87,10 @@ scope-profiler pproc profiling_data.h5 --show --ranks 0-3
 From Python:
 
 ```python
-from scope_profiler import ProfilingH5Reader
+from scope_profiler import read_h5
 
-reader = ProfilingH5Reader("profiling_data.h5")
-region = reader["compute"]
+results = read_h5("profiling_data.h5")
+region = results["compute"]
 
 # Aggregated over every rank (durations in seconds)
 print(region.num_calls, region.total_duration, region.average_duration)

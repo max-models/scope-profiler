@@ -1,13 +1,12 @@
 """Post-processing API over a set of profiling regions.
 
 This is the analysis layer, deliberately independent of where the data came
-from: :class:`~scope_profiler.h5reader.ProfilingH5Reader` builds one of these
-from a merged HDF5 file, while
-:meth:`ProfileManager.finalize(return_results=True)
+from: :meth:`ProfilingResults.from_h5` builds one of these from a merged HDF5
+file, while :meth:`ProfileManager.finalize(return_results=True)
 <scope_profiler.profile_manager.ProfileManager.finalize>` builds the same thing
-straight out of the in-memory buffers, without a round trip through disk.
-Everything downstream (summaries, dataframes, the plotting functions, the
-exporters) takes one of these and cannot tell the difference.
+straight out of the in-memory buffers, without a round trip through disk. Both
+give back the same type, and everything downstream (summaries, dataframes, the
+plotting functions, the exporters) cannot tell them apart.
 """
 
 import functools
@@ -33,6 +32,12 @@ class ProfilingResults:
 
         solve = results["solve"]        # same as results.get_region("solve")
         solve[0].average_duration       # rank 0, in seconds
+
+    The same object comes back from a merged output file, via
+    :meth:`from_h5` (or its module-level twin
+    :func:`~scope_profiler.h5reader.read_h5`)::
+
+        results = ProfilingResults.from_h5("profiling_data.h5")
 
     All durations are reported in seconds.
     """
@@ -90,6 +95,43 @@ class ProfilingResults:
                 self._run_start_time = float(start_time_ns) / NS_PER_SECOND
             except (TypeError, ValueError):
                 self._run_start_time = None
+
+    @classmethod
+    def from_h5(
+        cls, file_path: str | Path, verbose: bool = False
+    ) -> "ProfilingResults":
+        """
+        Load a merged profiling file written by
+        :meth:`ProfileManager.finalize
+        <scope_profiler.profile_manager.ProfileManager.finalize>`::
+
+            results = ProfilingResults.from_h5("profiling_data.h5")
+            results.print_summary()
+
+        :func:`scope_profiler.read_h5` is the same thing under a shorter name.
+
+        Parameters
+        ----------
+        file_path : str | Path
+            Path to the merged HDF5 file containing profiling data.
+        verbose : bool, optional
+            Print each rank group as it is read (default: False).
+
+        Returns
+        -------
+        ProfilingResults
+            The run's profiling data, of whichever class this was called on.
+
+        Raises
+        ------
+        FileNotFoundError
+            If the specified HDF5 file does not exist.
+        """
+        # Imported here so the analysis layer does not pull in h5py, and to
+        # keep the dependency one-way: h5reader imports this module.
+        from scope_profiler.h5reader import load_h5
+
+        return cls(**load_h5(file_path, verbose=verbose))
 
     def get_region(self, region_name: str) -> MPIRegion:
         """
@@ -559,7 +601,7 @@ class ProfilingResults:
         --------
         ::
 
-            reader = ProfilingH5Reader("profiling_data.h5")
+            reader = read_h5("profiling_data.h5")
             for rank, regions in reader.get_likwid_regions().items():
                 for tag, result in regions.items():
                     for name, values in zip(result.metric_names, result.metrics):

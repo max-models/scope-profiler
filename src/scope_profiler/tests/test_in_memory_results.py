@@ -4,8 +4,7 @@ from time import sleep
 
 import pytest
 
-from scope_profiler import ProfileManager, ProfilingResults
-from scope_profiler.h5reader import ProfilingH5Reader
+from scope_profiler import ProfileManager, ProfilingResults, read_h5
 
 
 def _run(label: str, num_calls: int) -> None:
@@ -29,7 +28,7 @@ def test_returned_results_match_the_written_file(tmp_path):
     _run("inner", 3)
 
     results = ProfileManager.finalize(verbose=False, return_results=True)
-    from_disk = ProfilingH5Reader(str(out))
+    from_disk = read_h5(str(out))
 
     assert isinstance(results, ProfilingResults)
     assert sorted(results.region_names) == sorted(from_disk.region_names)
@@ -64,7 +63,7 @@ def test_count_only_regions_are_included(tmp_path):
     results = ProfileManager.finalize(verbose=False, return_results=True)
 
     assert results["counted"].num_calls == 3
-    assert results.summary() == ProfilingH5Reader(str(out)).summary()
+    assert results.summary() == read_h5(str(out)).summary()
 
 
 def test_second_finalize_returns_only_its_own_events(tmp_path):
