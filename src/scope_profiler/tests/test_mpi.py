@@ -35,10 +35,13 @@ def test_mpi():
         from scope_profiler import ProfilingH5Reader
 
         from_disk = ProfilingH5Reader(ProfileManager.get_config().file_path)
+        assert results.is_root
         assert results.num_ranks == from_disk.num_ranks
         assert results.summary() == from_disk.summary()
     else:
-        assert results is None
+        # Empty and non-root, so the output calls above are no-ops here.
+        assert not results.is_root
+        assert results.region_names == []
 
 
 if __name__ == "__main__":

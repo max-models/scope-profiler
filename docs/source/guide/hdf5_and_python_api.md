@@ -148,9 +148,36 @@ reader is that class loaded from a file — so every method on this page, every
 `plot_*` function and every exporter accepts it.
 
 This works with `flush_to_disk=False`, where no timing data is written at all.
-Under MPI the per-rank data is gathered on rank 0, which is collective: every
-rank must pass `return_results=True`, and only rank 0 gets the results back
-(the others get `None`), mirroring the merged file.
+
+### Under MPI
+
+The gather is collective, so every rank must call
+`finalize(return_results=True)` — don't hide the call behind a rank guard. Rank
+0 then holds the whole run, mirroring the merged file; the other ranks get an
+empty result set.
+
+You do not need a rank guard for anything downstream either. Everything that
+produces output — `print_summary()`, the `plot_*` functions, the exporters —
+does nothing for those empty result sets, so the script above prints its table
+once and writes each figure once, from rank 0, whether you run it on 1 rank or
+1000:
+
+```bash
+python simulation.py
+mpirun -n 64 python simulation.py     # same script, same output, once
+```
+
+Analyses of your own need no guard as long as they iterate — `get_regions()`
+and `events()` simply come back empty off rank 0. When you do need the
+distinction (writing your own file, say), ask for it explicitly:
+
+```python
+if results.is_root:
+    my_report(results)
+```
+
+See `examples/ex_in_memory_results.py` for a complete script that runs
+unchanged serially and under `mpirun`.
 
 ## Building your own plots and analyses
 

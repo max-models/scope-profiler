@@ -3,9 +3,9 @@
 This is the analysis layer, deliberately independent of where the data came
 from: :class:`~scope_profiler.h5reader.ProfilingH5Reader` builds one of these
 from a merged HDF5 file, while
-:meth:`~scope_profiler.profile_manager.ProfileManager.get_results` builds the
-same thing straight out of the in-memory buffers, without a round trip through
-disk. Everything downstream (summaries, dataframes, the plotting functions,
+:meth:`ProfileManager.finalize(return_results=True)
+<scope_profiler.profile_manager.ProfileManager.finalize>` builds the same thing
+straight out of the in-memory buffers, without a round trip through disk. Everything downstream (summaries, dataframes, the plotting functions,
 the exporters) takes one of these and cannot tell the difference.
 """
 
@@ -43,6 +43,7 @@ class ProfilingResults:
         num_ranks: int | None = None,
         likwid: Dict[int, Dict[str, LikwidRegionResult]] | None = None,
         file_path: str | Path = "",
+        is_root: bool = True,
     ) -> None:
         """
         Assemble a result set from already-loaded regions.
@@ -62,7 +63,11 @@ class ProfilingResults:
         file_path : str or Path, optional
             The run's output file. Used for labelling and error messages; it
             need not exist for in-memory results.
+        is_root : bool, optional
+            Whether this rank holds the run's data (default: True). See
+            :attr:`is_root`.
         """
+        self._is_root = is_root
         self._region_dict = dict(regions)
         self._metadata = dict(metadata or {})
         self._likwid = dict(likwid or {})
@@ -363,8 +368,16 @@ class ProfilingResults:
             Heading above the table (default: the file path and rank count).
         stream : file-like, optional
             Where to write (default: stdout).
+
+        Notes
+        -----
+        Does nothing on a non-root rank (see :attr:`is_root`), so a parallel
+        script can call it unguarded and print the table once.
         """
         from scope_profiler.summary import print_region_table, region_rows
+
+        if not self._is_root:
+            return
 
         rows = region_rows(
             self, include=include, exclude=exclude, ranks=ranks, sort=sort
@@ -402,6 +415,29 @@ class ProfilingResults:
             need not exist on disk.
         """
         return self._file_path
+
+    @property
+    def is_root(self) -> bool:
+        """
+        Whether this rank holds the run's data.
+
+        Always True for a file that was read back, and for serial runs. Under
+        MPI, ``finalize(return_results=True)`` gathers everything on rank 0, so
+        only rank 0's results are the root ones; the others come back empty and
+        with this False.
+
+        Everything that produces output - :meth:`print_summary`, the ``plot_*``
+        functions, the exporters - does nothing for non-root results. That is
+        what lets a parallel script call them unguarded and still write each
+        figure exactly once, from rank 0. Read it when a script needs to make
+        the same distinction for output of its own.
+
+        Returns
+        -------
+        bool
+            True unless this is a non-root rank's share of an MPI run.
+        """
+        return self._is_root
 
     @property
     def metadata(self) -> dict:

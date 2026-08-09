@@ -222,9 +222,21 @@ def _region_color_map(region_names, cmap: str = DEFAULT_CMAP) -> dict:
 def _as_readers(
     profiling_data: ProfilingResults | Sequence[ProfilingResults],
 ) -> list[ProfilingResults]:
+    """Normalize the input, dropping result sets this rank must not draw.
+
+    Under MPI only rank 0 holds the run's data; every other rank gets an empty,
+    non-root result set from ``finalize(return_results=True)``. Dropping those
+    here is what lets a parallel script call the plot functions and exporters
+    unguarded and still produce exactly one set of figures. An empty list back
+    therefore means "not this rank's job" - callers return quietly - while an
+    empty input is a mistake and raises.
+    """
     if isinstance(profiling_data, ProfilingResults):
-        return [profiling_data]
-    return list(profiling_data)
+        profiling_data = [profiling_data]
+    readers = list(profiling_data)
+    if not readers:
+        raise ValueError("No profiling data provided.")
+    return [reader for reader in readers if reader.is_root]
 
 
 def _unique_labels(labels: Sequence[str]) -> list[str]:
@@ -375,6 +387,18 @@ def collect_region_statistics(
     """Collect aggregate region-duration statistics for one or more profiling files."""
     readers = _as_readers(profiling_data)
     selected_ranks = _normalize_ranks(ranks)
+    if not readers:
+        # Not this rank's data; rank 0 holds it all.
+        return {
+            "units": {"durations": "seconds"},
+            "filters": {
+                "include": include,
+                "exclude": exclude,
+                "ranks": selected_ranks,
+            },
+            "common_regions": [],
+            "files": [],
+        }
 
     if labels is None:
         labels = _unique_labels([reader.file_path.stem for reader in readers])
@@ -442,6 +466,9 @@ def write_region_statistics_json(
         exclude=exclude,
         labels=labels,
     )
+    if not payload["files"]:
+        # Non-root rank (see ProfilingResults.is_root): rank 0 writes the file.
+        return payload
     output_path = Path(filepath)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -501,7 +528,8 @@ def plot_gantt(
     Canvas = _get_canvas()
     readers = _as_readers(profiling_data)
     if not readers:
-        raise ValueError("No profiling data provided.")
+        # Not this rank's job; rank 0 draws it.
+        return
 
     prepared = []
     for reader in readers:
@@ -677,7 +705,8 @@ def plot_flame(
     Canvas = _get_canvas()
     readers = _as_readers(profiling_data)
     if not readers:
-        raise ValueError("No profiling data provided.")
+        # Not this rank's job; rank 0 draws it.
+        return
 
     normalized_ranks = _normalize_ranks(ranks) if ranks is not None else [0]
 
@@ -862,6 +891,9 @@ def plot_durations(
     """
     Canvas = _get_canvas()
     readers = _as_readers(profiling_data)
+    if not readers:
+        # Not this rank's job; rank 0 draws it.
+        return []
     ranks = _normalize_ranks(ranks)
 
     if metrics is None:
@@ -1064,7 +1096,8 @@ def plot_duration_timeseries(
     Canvas = _get_canvas()
     readers = _as_readers(profiling_data)
     if not readers:
-        raise ValueError("No profiling data provided.")
+        # Not this rank's job; rank 0 draws it.
+        return
 
     normalized_ranks = _normalize_ranks(ranks)
 
@@ -1212,6 +1245,9 @@ def plot_speedup(
     """
     Canvas = _get_canvas()
     readers = _as_readers(profiling_data)
+    if not readers:
+        # Not this rank's job; rank 0 draws it.
+        return
     if len(readers) < 2:
         raise ValueError("Speedup plot requires at least two profiling files.")
 

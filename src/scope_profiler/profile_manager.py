@@ -391,9 +391,12 @@ class ProfileManager:
     def _build_results(cls, snapshot, likwid_results):
         """Assemble a ProfilingResults from this rank's snapshot.
 
-        Under MPI the snapshots are gathered on rank 0, which returns the
-        results for the whole run while the other ranks return None - the same
-        split as the merged output file, which only rank 0 writes.
+        Under MPI the snapshots are gathered on rank 0, which gets the results
+        for the whole run - the same split as the merged output file, which
+        only rank 0 writes. The other ranks get an empty, non-root result set
+        rather than None, so that a parallel script can go on calling
+        print_summary(), the plot functions and the exporters without a rank
+        guard: those do nothing for a non-root result set.
         """
         from scope_profiler.mpi_region import MPIRegion
         from scope_profiler.region import Region
@@ -408,7 +411,13 @@ class ProfileManager:
         else:
             gathered = comm.gather(payload, root=0)
             if config._rank != 0:
-                return None
+                return ProfilingResults(
+                    {},
+                    metadata=config.metadata,
+                    num_ranks=config._size,
+                    file_path=config.file_path,
+                    is_root=False,
+                )
 
         per_region: Dict[str, dict] = {}
         likwid = {}
@@ -472,9 +481,12 @@ class ProfileManager:
         Returns
         -------
         ProfilingResults or None
-            The run's profiling data when ``return_results=True`` - on rank 0
-            only, like the merged output file; other ranks get None. None when
-            ``return_results`` is False.
+            The run's profiling data when ``return_results=True``, and None
+            otherwise. Under MPI rank 0 gets the whole run, like the merged
+            output file; the other ranks get an empty result set for which
+            ``print_summary()``, the ``plot_*`` functions and the exporters do
+            nothing, so the script above needs no rank guard. See
+            :attr:`~scope_profiler.results.ProfilingResults.is_root`.
         """
         config = cls.get_config()
 

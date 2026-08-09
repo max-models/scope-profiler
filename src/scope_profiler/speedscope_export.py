@@ -227,7 +227,8 @@ def export_speedscope(
     """
     readers = _as_readers(profiling_data)
     if not readers:
-        raise ValueError("No profiling data provided.")
+        # Not this rank's job; rank 0 writes the files.
+        return []
 
     normalized_ranks = _normalize_ranks(ranks) if ranks is not None else [0]
 

@@ -94,6 +94,43 @@ def test_disabled_profiling_returns_empty_results(tmp_path):
     assert results.summary() == []
 
 
+def test_non_root_results_make_the_output_paths_no_ops(tmp_path, capsys):
+    """What lets an MPI script skip the rank guards; see ProfilingResults.is_root."""
+    from scope_profiler import (
+        ProfilingResults,
+        export_prof,
+        export_speedscope,
+        plot_gantt,
+        write_region_statistics_json,
+    )
+
+    non_root = ProfilingResults({}, file_path=str(tmp_path / "profiling_data.h5"))
+    non_root._is_root = False
+
+    non_root.print_summary()
+    assert capsys.readouterr().out == ""
+
+    figure = tmp_path / "gantt.png"
+    plot_gantt(non_root, filepath=str(figure))
+    assert not figure.exists()
+
+    assert export_prof(non_root, tmp_path / "out.prof") == []
+    assert export_speedscope(non_root, tmp_path / "out.speedscope.json") == []
+    assert list(tmp_path.iterdir()) == []
+
+    stats = tmp_path / "stats.json"
+    write_region_statistics_json(non_root, stats)
+    assert not stats.exists()
+
+
+def test_empty_input_still_raises(tmp_path):
+    """Nothing to draw is a mistake; a non-root rank is not."""
+    from scope_profiler import plot_gantt
+
+    with pytest.raises(ValueError, match="No profiling data provided"):
+        plot_gantt([])
+
+
 def test_finalize_returns_none_by_default(tmp_path):
     """The default stays a plain None, as before."""
     ProfileManager.setup(file_path=str(tmp_path / "profiling_data.h5"))
