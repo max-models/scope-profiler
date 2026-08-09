@@ -44,7 +44,7 @@ roughly **0.75 µs** per instrumented call. In practice:
   the overhead unmeasurable.
 
 The profiler can also be **fully deactivated** at startup
-(`profiling_activated=False`) without removing any instrumentation from
+(`deactivate_profiling=True`) without removing any instrumentation from
 the source code. In this mode the overhead drops to ~0.03 µs — barely
 above the cost of a bare function call.
 

@@ -75,19 +75,19 @@ def main():
     configs = [
         (
             "Disabled",
-            dict(profiling_activated=False),
+            dict(deactivate_profiling=True),
         ),
         (
             "NCallsOnly",
-            dict(profiling_activated=True, time_trace=False),
+            dict(deactivate_profiling=False, time_trace=False),
         ),
         (
             "TimeOnly",
-            dict(profiling_activated=True, time_trace=True),
+            dict(deactivate_profiling=False, time_trace=True),
         ),
         (
             "LineProfiler",
-            dict(profiling_activated=True, use_line_profiler=True),
+            dict(deactivate_profiling=False, use_line_profiler=True),
         ),
     ]
 

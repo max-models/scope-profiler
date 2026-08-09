@@ -19,17 +19,17 @@ from scope_profiler.region_profiler import (
 @pytest.mark.parametrize("time_trace", [True, False])
 @pytest.mark.parametrize("use_likwid", [False])
 @pytest.mark.parametrize("num_loops", [10, 50, 100])
-@pytest.mark.parametrize("profiling_activated", [True, False])
+@pytest.mark.parametrize("deactivate_profiling", [False, True])
 def test_profile_manager(
     time_trace: bool,
     use_likwid: bool,
     num_loops: int,
-    profiling_activated: bool,
+    deactivate_profiling: bool,
 ):
     ProfileManager.setup(
         use_likwid=use_likwid,
         time_trace=time_trace,
-        profiling_activated=profiling_activated,
+        deactivate_profiling=deactivate_profiling,
         flush_to_disk=True,
     )
 
@@ -63,21 +63,22 @@ def test_profile_manager(
     regions = ProfileManager.get_all_regions()
 
     print(
-        f"{profiling_activated = } {time_trace = } {ProfileManager._config.profiling_activated = }"
+        f"{deactivate_profiling = } {time_trace = } "
+        f"{ProfileManager._config.deactivate_profiling = }"
     )
 
-    if profiling_activated:
-        assert regions["loop1"].num_calls == num_loops
-        assert regions["loop2"].num_calls == num_loops * 2
-        assert regions["test_decorator_labeled"].num_calls == num_loops
-        assert regions["test_decorator_unlabeled"].num_calls == num_loops
-        assert regions["main"].num_calls == 1
-    else:
+    if deactivate_profiling:
         assert regions["loop1"].num_calls == 0
         assert regions["loop2"].num_calls == 0
         assert regions["test_decorator_labeled"].num_calls == 0
         assert regions["test_decorator_unlabeled"].num_calls == 0
         assert regions["main"].num_calls == 0
+    else:
+        assert regions["loop1"].num_calls == num_loops
+        assert regions["loop2"].num_calls == num_loops * 2
+        assert regions["test_decorator_labeled"].num_calls == num_loops
+        assert regions["test_decorator_unlabeled"].num_calls == num_loops
+        assert regions["main"].num_calls == 1
 
 
 def test_all_region_types():
@@ -85,7 +86,7 @@ def test_all_region_types():
     ProfileManager.setup(
         use_likwid=False,
         time_trace=False,
-        profiling_activated=False,
+        deactivate_profiling=True,
         flush_to_disk=False,
     )
 
@@ -100,7 +101,7 @@ def test_all_region_types():
     ProfileManager.setup(
         use_likwid=False,
         time_trace=False,
-        profiling_activated=True,
+        deactivate_profiling=False,
         flush_to_disk=False,
     )
 

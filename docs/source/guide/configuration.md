@@ -9,7 +9,7 @@ configuration is global: every call to `profile()` or `profile_region()`
 
 | Parameter             | Type   | Default               | Description                                                                                     |
 | --------------------- | ------ | --------------------- | ----------------------------------------------------------------------------------------------- |
-| `profiling_activated` | `bool` | `True`                | Master switch. When `False`, all regions become no-ops with near-zero cost.                     |
+| `deactivate_profiling`| `bool` | `False`               | Master switch. When `True`, all regions become no-ops with near-zero cost.                      |
 | `use_likwid`          | `bool` | `False`               | Wrap regions with LIKWID marker API calls for hardware counter collection. Requires `pylikwid`. |
 | `use_line_profiler`   | `bool` | `False`               | Enable line-by-line profiling via `line_profiler`. See {doc}`line_profiler`.                    |
 | `recursive_profile`   | `bool` | `False`               | Enable recursive nested-call profiling for all decorated functions by default.                    |
@@ -72,7 +72,7 @@ import os
 from scope_profiler import ProfileManager
 
 ProfileManager.setup(
-    profiling_activated=os.environ.get("ENABLE_PROFILING", "0") == "1",
+    deactivate_profiling=os.environ.get("DISABLE_PROFILING", "0") == "1",
 )
 ```
 
@@ -93,7 +93,7 @@ You can override this per function with
 `@ProfileManager.profile(..., recursive=False)` or
 `@ProfileManager.profile(..., recursive=True)`.
 
-When `profiling_activated=False`, every region is a `DisabledProfileRegion`
+When `deactivate_profiling=True`, every region is a `DisabledProfileRegion`
 whose `__enter__` / `__exit__` / `wrap` are trivial no-ops, adding only
 the cost of a Python function call (~45 ns).
 

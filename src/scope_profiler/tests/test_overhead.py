@@ -53,7 +53,7 @@ ITERATIONS = 20_000
 REPEATS = 5
 
 MODES = {
-    "disabled": (dict(profiling_activated=False), DisabledProfileRegion),
+    "disabled": (dict(deactivate_profiling=True), DisabledProfileRegion),
     "ncalls": (dict(time_trace=False), NCallsOnlyProfileRegion),
     "time": (dict(time_trace=True), TimeOnlyProfileRegion),
 }
@@ -329,7 +329,7 @@ def test_recording_is_two_int64_per_call(configure):
 
 def test_disabled_profiling_allocates_nothing_per_region(configure):
     """With profiling off there are no buffers and no wrapper at all."""
-    configure(profiling_activated=False)
+    configure(deactivate_profiling=True)
     region = ProfileManager.profile_region("off")
 
     assert isinstance(region, DisabledProfileRegion)

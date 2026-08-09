@@ -164,7 +164,7 @@ class ProfilingConfig:
 
     def __init__(
         self,
-        profiling_activated: bool = True,
+        deactivate_profiling: bool = False,
         use_likwid: bool = False,
         use_line_profiler: bool = False,
         recursive_profile: bool = False,
@@ -180,8 +180,9 @@ class ProfilingConfig:
 
         Parameters
         ----------
-        profiling_activated : bool
-            Whether profiling features are enabled.
+        deactivate_profiling : bool
+            Turn profiling off entirely. Every region becomes a no-op, so
+            instrumentation can stay in the code at near-zero cost.
         use_likwid : bool
             Enable LIKWID marker API if available.
         use_line_profiler : bool
@@ -232,7 +233,7 @@ class ProfilingConfig:
         # issue any collective, so the communicator stays None unless this
         # process really is part of an MPI job.
         self._comm = get_comm(use_mpi)
-        self._profiling_activated = profiling_activated
+        self._deactivate_profiling = deactivate_profiling
         self._use_likwid = use_likwid
         self._use_line_profiler = use_line_profiler
         self._recursive_profile = recursive_profile
@@ -399,9 +400,9 @@ class ProfilingConfig:
         return self._comm
 
     @property
-    def profiling_activated(self) -> bool:
-        """Return whether profiling is globally enabled."""
-        return self._profiling_activated
+    def deactivate_profiling(self) -> bool:
+        """Return whether profiling is globally turned off."""
+        return self._deactivate_profiling
 
     @property
     def buffer_limit(self) -> int:

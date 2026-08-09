@@ -162,7 +162,7 @@ class ProfileManager:
         either way, it only decides whether finalize() writes the data out.
         """
         cfg = cls._config
-        if not cfg.profiling_activated:
+        if cfg.deactivate_profiling:
             cls._region_cls = DisabledProfileRegion
         elif cfg.use_line_profiler:
             cls._region_cls = LineProfilerRegion
@@ -490,7 +490,7 @@ class ProfileManager:
         """
         config = cls.get_config()
 
-        if not config.profiling_activated:
+        if config.deactivate_profiling:
             if return_results:
                 from scope_profiler.results import ProfilingResults
 
@@ -650,7 +650,7 @@ class ProfileManager:
     @classmethod
     def setup(
         cls,
-        profiling_activated: bool = True,
+        deactivate_profiling: bool = False,
         use_likwid: bool = False,
         use_line_profiler: bool = False,
         recursive_profile: bool = False,
@@ -667,8 +667,10 @@ class ProfileManager:
 
         Parameters
         ----------
-        profiling_activated : bool, optional
-            Enable or disable profiling (default: True).
+        deactivate_profiling : bool, optional
+            Turn profiling off entirely (default: False). Every region
+            becomes a no-op, so the instrumentation can stay in the code at
+            near-zero cost instead of being removed.
         use_likwid : bool, optional
             Enable LIKWID hardware counter collection (default: False).
         use_line_profiler : bool, optional
@@ -724,7 +726,7 @@ class ProfileManager:
         """
         ProfilingConfig().reset()
         config = ProfilingConfig(
-            profiling_activated=profiling_activated,
+            deactivate_profiling=deactivate_profiling,
             use_likwid=use_likwid,
             use_line_profiler=use_line_profiler,
             recursive_profile=recursive_profile,

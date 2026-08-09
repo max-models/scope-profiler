@@ -162,7 +162,7 @@ The two modes most relevant to HPC — **NCallsOnly** and **TimeOnly** — add
 roughly **0.09 µs** and **0.75 µs** per instrumented call respectively.
 
 Profiling can also be fully deactivated at setup time
-(`profiling_activated=False`) to reduce the overhead to ~0.03 µs — barely
+(`deactivate_profiling=True`) to reduce the overhead to ~0.03 µs — barely
 above a bare function call — making it safe to leave instrumentation in
 production code and toggle it on only when needed.
 

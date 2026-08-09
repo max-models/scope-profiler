@@ -84,7 +84,7 @@ def test_second_finalize_returns_only_its_own_events(tmp_path):
 
 def test_disabled_profiling_returns_empty_results(tmp_path):
     """Nothing recorded, but still a usable object rather than None."""
-    ProfileManager.setup(profiling_activated=False)
+    ProfileManager.setup(deactivate_profiling=True)
 
     results = ProfileManager.finalize(verbose=False, return_results=True)
 
