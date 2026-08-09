@@ -144,7 +144,7 @@ def _plain_call_loop(iterations, func=_noop):
 def configure(tmp_path):
     """Configure the profiler for one measurement, then reset global state.
 
-    ``flush_to_disk=False`` keeps the run out of the filesystem entirely: this
+    ``deactivate_file_output=True`` keeps the run off the filesystem: this
     module measures the instrumentation, not the writer.
     """
 

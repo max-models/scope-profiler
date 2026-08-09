@@ -28,9 +28,6 @@ def _write_sample_h5(path, rank_regions, metadata=None):
             regions_group = h5file.create_group(f"rank{rank}").create_group("regions")
             for region_name, payload in regions.items():
                 region_group = regions_group.create_group(region_name)
-                if payload is None:
-                    region_group.attrs["num_calls"] = 3
-                    continue
                 starts, ends = payload
                 region_group.create_dataset(
                     "start_times", data=np.asarray(starts, dtype=np.int64)

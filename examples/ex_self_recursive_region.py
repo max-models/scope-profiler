@@ -6,8 +6,6 @@ from scope_profiler.plotting_scripts import plot_flame, plot_gantt
 
 ProfileManager.setup(
     use_likwid=False,
-    time_trace=True,
-    flush_to_disk=True,
     file_path="profiling_data.h5",
 )
 

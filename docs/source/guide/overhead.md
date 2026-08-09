@@ -22,13 +22,11 @@ python examples/benchmark_overhead.py --show   # display interactively
 
 ## Results summary
 
-| Region type             | Overhead / call |
-| ----------------------- | --------------: |
-| **Disabled**            |       ~0.03 µs  |
-| **NCallsOnly**          |       ~0.09 µs  |
-| **TimeOnly (no flush)** |       ~0.74 µs  |
-| **TimeOnly (flush)**    |       ~0.76 µs  |
-| **LineProfiler**        |       ~41 µs    |
+| Region type      | Overhead / call |
+| ---------------- | --------------: |
+| **Disabled**     |       ~0.03 µs  |
+| **TimeOnly**     |       ~0.75 µs  |
+| **LineProfiler** |       ~41 µs    |
 
 _(Numbers measured on an Apple M-series CPU; absolute values will vary,
 but the relative ordering is stable.)_

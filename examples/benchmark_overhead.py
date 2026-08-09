@@ -70,20 +70,17 @@ def main():
     baseline_per_call = baseline_ns / NUM_CALLS
 
     # ---- Profiling configurations to benchmark ----
-    # `flush_to_disk` is not varied here: recording is identical either way and
-    # the data is written once at finalize(), so it has no per-call cost.
+    # `deactivate_file_output` is not varied here: recording is identical
+    # either way and the data is written once at finalize(), so it has no
+    # per-call cost.
     configs = [
         (
             "Disabled",
             dict(deactivate_profiling=True),
         ),
         (
-            "NCallsOnly",
-            dict(deactivate_profiling=False, time_trace=False),
-        ),
-        (
             "TimeOnly",
-            dict(deactivate_profiling=False, time_trace=True),
+            dict(deactivate_profiling=False),
         ),
         (
             "LineProfiler",

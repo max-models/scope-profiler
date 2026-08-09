@@ -201,10 +201,10 @@ df.groupby("region")["CPI"].mean()
 
 ## Profiling modes
 
-`use_likwid` combines with `time_trace`; see {doc}`configuration` for the full
-dispatch table. `time_trace=True, use_likwid=True` (the default once LIKWID is
-on) records timestamps *and* counters; `time_trace=False, use_likwid=True`
-records counters only.
+`use_likwid=True` selects `FullProfileRegion`, which records timestamps *and*
+counters; see {doc}`configuration` for the full dispatch table. There is no
+counters-only mode --- timestamps are cheap next to the marker calls, and
+having them makes the counters far easier to interpret.
 
 ## Full example
 

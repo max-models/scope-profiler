@@ -30,8 +30,6 @@ def matmul(n: int) -> float:
 def main() -> None:
     ProfileManager.setup(
         use_likwid=True,
-        time_trace=True,
-        flush_to_disk=True,
         file_path=H5_PATH,
     )
 

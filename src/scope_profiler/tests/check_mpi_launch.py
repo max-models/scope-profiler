@@ -26,7 +26,7 @@ OUTPUT_FILE = "mpi_launch_check.h5"
 
 def check(mode: str, expected_size: int) -> None:
     """Profile a trivial region and verify the MPI behaviour for ``mode``."""
-    ProfileManager.setup(time_trace=True, flush_to_disk=True, file_path=OUTPUT_FILE)
+    ProfileManager.setup(file_path=OUTPUT_FILE)
     config = ProfileManager.get_config()
 
     with ProfileManager.profile_region("check"):

@@ -22,8 +22,6 @@ def test_pylikwid():
     """Profile a few regions with LIKWID enabled and verify the output file."""
     ProfileManager.setup(
         use_likwid=True,
-        time_trace=True,
-        flush_to_disk=True,
         file_path=H5_PATH,
     )
 

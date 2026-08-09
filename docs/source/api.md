@@ -42,26 +42,10 @@ construct one directly for advanced use cases.
    :undoc-members:
 ```
 
-### NCallsOnlyProfileRegion
-
-```{eval-rst}
-.. autoclass:: scope_profiler.region_profiler.NCallsOnlyProfileRegion
-   :members:
-   :undoc-members:
-```
-
 ### TimeOnlyProfileRegion
 
 ```{eval-rst}
 .. autoclass:: scope_profiler.region_profiler.TimeOnlyProfileRegion
-   :members:
-   :undoc-members:
-```
-
-### LikwidOnlyProfileRegion
-
-```{eval-rst}
-.. autoclass:: scope_profiler.region_profiler.LikwidOnlyProfileRegion
    :members:
    :undoc-members:
 ```

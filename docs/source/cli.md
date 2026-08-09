@@ -240,8 +240,7 @@ reconstructed from timestamp containment, exactly as the flame chart does. So:
 - A region called from several places is merged into one entry, as pstats is
   keyed by function rather than by call path; recursion is reported as
   `2/1`-style call counts, like `cProfile`.
-- Files profiled with `time_trace=False` have no timestamps and cannot be
-  exported, and LIKWID counters have no place in the `.prof` format.
+- LIKWID counters have no place in the `.prof` format and are left out.
 
 ### Exporting to speedscope
 
@@ -271,8 +270,7 @@ The call graph is reconstructed from timestamp containment, as for `.prof`,
 with one extra consequence: speedscope replays the events as a stack machine,
 so a region that starts inside another but ends after it is clipped to its
 parent instead of overhanging it. The same caveats otherwise apply — regions
-called from several places, recursion, and `time_trace=False` files behave as
-described above.
+called from several places and recursion behave as described above.
 
 ### Examples
 
