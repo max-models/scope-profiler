@@ -481,6 +481,18 @@ class ProfileManager:
         ones read back from the file. It also keeps this loop free of any
         mpi4py import, so the whole thing can be exercised with a stand-in
         communicator.
+
+        The messages go over the run's own communicator, tagged with
+        ``_PAYLOAD_TAG``, rather than over a private duplicate of it. A
+        duplicate would be tidier -- it could not be intercepted by an
+        application posting ``recv(ANY_SOURCE, ANY_TAG)`` -- but ``MPI_Comm_dup``
+        is a collective that allocates a new context id, and by this point
+        every rank may have forked a child process: ``use_likwid=True`` reads
+        the counters back in a subprocess (see
+        ``collect_marker_results_isolated``). Open MPI does not support forking
+        from a rank using its shared-memory transport, and the duplicate
+        reliably segfaulted there. Point-to-point traffic survives it, as the
+        barrier this replaced always did.
         """
         from scope_profiler.h5writer import ProfilingWriter
 
@@ -488,48 +500,33 @@ class ProfileManager:
         comm = config.comm
 
         if comm is not None and config._rank != 0:
-            # A duplicated communicator gives these messages a private context,
-            # so they can never be matched by an unrelated receive in the
-            # application being profiled. Dup() is collective, which is why it
-            # sits on both sides of this branch.
-            private = comm.Dup()
-            try:
-                private.send(payload, dest=0, tag=_PAYLOAD_TAG)
-            finally:
-                private.Free()
+            comm.send(payload, dest=0, tag=_PAYLOAD_TAG)
             del payload
             return cls._empty_results() if need_results else None
 
         accumulator = cls._ResultAccumulator(config) if need_results else None
-        private = comm.Dup() if comm is not None else None
+        writer = (
+            ProfilingWriter(config.file_path, config.metadata) if write_file else None
+        )
         try:
-            writer = (
-                ProfilingWriter(config.file_path, config.metadata)
-                if write_file
-                else None
-            )
-            try:
-                for source in range(config._size):
-                    # Rank 0's own data needs no message.
-                    incoming = (
-                        payload
-                        if source == 0
-                        else private.recv(source=source, tag=_PAYLOAD_TAG)
-                    )
-                    if writer is not None:
-                        writer.write_rank(source, incoming)
-                    if accumulator is not None:
-                        accumulator.add(source, incoming)
-                    # Drop it before taking the next, so only one rank's data
-                    # is held at a time.
-                    del incoming
-                del payload
-            finally:
+            for source in range(config._size):
+                # Rank 0's own data needs no message.
+                incoming = (
+                    payload
+                    if source == 0
+                    else comm.recv(source=source, tag=_PAYLOAD_TAG)
+                )
                 if writer is not None:
-                    writer.close()
+                    writer.write_rank(source, incoming)
+                if accumulator is not None:
+                    accumulator.add(source, incoming)
+                # Drop it before taking the next, so only one rank's data is
+                # held at a time.
+                del incoming
+            del payload
         finally:
-            if private is not None:
-                private.Free()
+            if writer is not None:
+                writer.close()
 
         return accumulator.build() if accumulator is not None else None
 

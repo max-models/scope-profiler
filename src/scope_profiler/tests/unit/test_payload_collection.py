@@ -33,21 +33,12 @@ class FakeComm:
         self._payloads = payloads or {}
         self.recv_order: list = []
         self.sent: list = []
-        self.dups = 0
-        self.frees = 0
 
     def Get_rank(self) -> int:
         return self.rank
 
     def Get_size(self) -> int:
         return self.size
-
-    def Dup(self) -> "FakeComm":
-        self.dups += 1
-        return self
-
-    def Free(self) -> None:
-        self.frees += 1
 
     def send(self, payload, dest, tag=0) -> None:
         self.sent.append((dest, payload))
@@ -85,7 +76,6 @@ def test_rank0_receives_every_other_rank_in_rank_order(configured, tmp_path):
     # Every remote rank is received exactly once, in rank order: pooled
     # statistics depend on it, and so does agreement with the file.
     assert comm.recv_order == [1, 2, 3]
-    assert comm.dups == 1 and comm.frees == 1
 
     assert list(results["solve"].regions) == [0, 1, 2, 3]
     assert results["solve"].num_calls == 4
@@ -124,7 +114,6 @@ def test_non_root_sends_once_and_gets_empty_results(configured):
     )
 
     assert [dest for dest, _ in comm.sent] == [0]
-    assert comm.dups == 1 and comm.frees == 1
     assert not results.is_root
     assert results.region_names == []
     # A non-root rank writes nothing at all.
@@ -145,8 +134,8 @@ def test_results_without_a_file_still_stream(configured):
     assert not os.path.exists(configured.file_path)
 
 
-def test_the_private_communicator_is_freed_even_on_error(configured, monkeypatch):
-    """A write failure must not leak the duplicated communicator."""
+def test_the_output_file_is_closed_even_on_error(configured, monkeypatch):
+    """A write failure must not leave the output file open."""
     comm = FakeComm(rank=0, size=2, payloads={1: payload(NS)})
     configured._comm = comm
     configured._rank, configured._size = 0, 2
@@ -162,4 +151,35 @@ def test_the_private_communicator_is_freed_even_on_error(configured, monkeypatch
         ProfileManager._collect_payloads(
             payload(NS), write_file=True, need_results=False
         )
-    assert comm.frees == 1
+    # Reopening proves the handle was released rather than left dangling.
+    with h5py.File(configured.file_path, "r") as handle:
+        assert "metadata" in handle
+
+
+def test_no_collective_is_used_for_the_transport(configured):
+    """Only point-to-point calls, so a forked rank cannot crash on a collective.
+
+    ``use_likwid=True`` reads its counters back in a subprocess, and Open MPI
+    does not support forking from a rank on its shared-memory transport --
+    ``MPI_Comm_dup`` afterwards segfaults. A stand-in communicator that offers
+    nothing but send/recv proves this path never needs more than that.
+    """
+
+    class PointToPointOnly(FakeComm):
+        def Dup(self):
+            raise AssertionError("the transport must not duplicate the communicator")
+
+        def Barrier(self):
+            raise AssertionError("the transport must not use a collective")
+
+        def gather(self, *args, **kwargs):
+            raise AssertionError("the transport must not use a collective")
+
+    comm = PointToPointOnly(rank=0, size=2, payloads={1: payload(NS)})
+    configured._comm = comm
+    configured._rank, configured._size = 0, 2
+
+    results = ProfileManager._collect_payloads(
+        payload(NS), write_file=True, need_results=True
+    )
+    assert results["solve"].num_calls == 2
