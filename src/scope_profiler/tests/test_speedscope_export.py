@@ -189,7 +189,8 @@ def test_cli_export_speedscope_without_plots(tmp_path, capsys):
             str(h5_file),
             "-o",
             str(out_dir),
-            "--export-speedscope",
+            "--export",
+            "speedscope",
             "--skip-plot-images",
         ]
     )
@@ -213,7 +214,7 @@ def test_cli_export_speedscope_alongside_plots(tmp_path):
     _write_sample_h5(h5_file, _nested_file_data())
     out_dir = tmp_path / "figures"
 
-    main([str(h5_file), "-o", str(out_dir), "--export-speedscope", "--ranks", "0"])
+    main([str(h5_file), "-o", str(out_dir), "--export", "speedscope", "--ranks", "0"])
 
     assert (out_dir / "profile.speedscope.json").exists()
     assert (out_dir / "flame_plot.png").exists()
@@ -224,4 +225,4 @@ def test_cli_export_speedscope_requires_output(tmp_path):
     _write_sample_h5(h5_file, _nested_file_data())
 
     with pytest.raises(SystemExit):
-        main([str(h5_file), "--export-speedscope"])
+        main([str(h5_file), "--export", "speedscope"])

@@ -448,34 +448,35 @@ The JSON payload additionally includes a `colors` map (region or file label
 to `#rrggbb`) matching the colors used in the matplotlib plot, so a
 JavaScript charting library like Plotly can reproduce the same look.
 
-`scope-profiler pproc --export-data` does the same for every plot in one
-run, writing `gantt_data`, `flame_data`, `durations_data`, and (for multiple
-input files) `speedup_data` alongside the PNGs. Pass `--export-data-format
-json` to get `.json` files instead of the default `.csv`:
+`scope-profiler pproc --export data` does the same for every selected plot in
+one run, writing `gantt_data`, `flame_data`, `durations_data`, and (for
+multiple input files) `speedup_data` alongside the PNGs. Pass
+`--export-data-format json` to get `.json` files instead of the default
+`.csv`:
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures --export-data
-scope-profiler pproc profiling_data.h5 -o figures --export-data --export-data-format json
+scope-profiler pproc profiling_data.h5 -o figures --export data
+scope-profiler pproc profiling_data.h5 -o figures --export data --export-data-format json
 ```
 
-Pass `--skip-plot-images` (requires `--export-data`) to skip rendering the
-PNGs entirely and only write the exported data plus `region_statistics.json`
-— useful when a website renders charts client-side (e.g. with Plotly)
-straight from the JSON:
+Pass `--skip-plot-images` (requires `--export`) to skip rendering the PNGs
+entirely and only write the exported data plus `region_statistics.json` —
+useful when a website renders charts client-side (e.g. with Plotly) straight
+from the JSON:
 
 ```bash
 scope-profiler pproc profiling_data.h5 -o figures \
-  --export-data --export-data-format json --skip-plot-images
+  --export data --export-data-format json --skip-plot-images
 ```
 
 ### Viewing a run in snakeviz
 
-`--export-prof` writes the profile in the `.prof` format of the standard
+`--export prof` writes the profile in the `.prof` format of the standard
 library's `cProfile`, so a run can be explored with
 [snakeviz](https://jiffyclub.github.io/snakeviz/) or `python -m pstats`:
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures --export-prof --skip-plot-images
+scope-profiler pproc profiling_data.h5 -o figures --export prof --skip-plot-images
 snakeviz figures/profile_rank0.prof
 ```
 
@@ -486,12 +487,12 @@ written per exported rank, since `.prof` has no notion of ranks — see
 
 ### Viewing a run in speedscope
 
-`--export-speedscope` writes the run as a
+`--export speedscope` writes the run as a
 [speedscope](https://www.speedscope.app) JSON file. Unlike `.prof`, it keeps
 every individual call, so the timeline shows the run as it happened:
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures --export-speedscope --skip-plot-images
+scope-profiler pproc profiling_data.h5 -o figures --export speedscope --skip-plot-images
 npx speedscope figures/profile.speedscope.json  # or drop the file on speedscope.app
 ```
 

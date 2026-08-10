@@ -32,6 +32,7 @@ import argparse
 import os
 import sys
 
+from scope_profiler import __version__
 from scope_profiler.profile_manager import ProfileManager
 
 
@@ -207,6 +208,11 @@ def main(argv=None):
         prog="scope-profiler",
         description="Profile scripts and post-process the resulting HDF5 output.",
     )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser(
         "run",
@@ -241,8 +247,8 @@ def main(argv=None):
     if not argv:
         parser.print_help()
         raise SystemExit(1)
-    if argv[0] in ("-h", "--help"):
-        parser.parse_args(argv)  # prints help and exits(0)
+    if argv[0] in ("-h", "--help", "--version"):
+        parser.parse_args(argv)  # prints help/version and exits(0)
         return
 
     command, *rest = argv

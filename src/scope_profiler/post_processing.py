@@ -134,7 +134,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         help="Paths or glob patterns for profiling_data.h5 files",
     )
-    parser.add_argument(
+
+    selecting = parser.add_argument_group(
+        "Selecting data",
+        "Which files, regions and ranks feed every plot, the summary and every export below.",
+    )
+    selecting.add_argument(
         "--label",
         action="append",
         default=None,
@@ -146,12 +151,53 @@ def build_parser() -> argparse.ArgumentParser:
             "--label '128 ranks' --label '256 ranks'"
         ),
     )
-    parser.add_argument(
+    selecting.add_argument(
+        "--include",
+        "-i",
+        nargs="*",
+        type=str,
+        default=None,
+        help="Region names to include (optional; regex patterns)",
+    )
+    selecting.add_argument(
+        "--exclude",
+        "-e",
+        nargs="*",
+        type=str,
+        default=None,
+        help="Region names to exclude (optional; regex patterns)",
+    )
+    selecting.add_argument(
+        "--ranks",
+        "-r",
+        nargs="*",
+        type=str,
+        default=None,
+        help=(
+            "Ranks to include (optional; default: all). Supports "
+            "comma-separated values and ranges (e.g. 1-3,5)."
+        ),
+    )
+
+    plots = parser.add_argument_group(
+        "Choosing and rendering plots",
+        "What to draw, and where.",
+    )
+    plots.add_argument(
+        "--plots",
+        "-p",
+        nargs="*",
+        type=str,
+        choices=list(_PLOT_CATALOG),
+        default=None,
+        help=_plots_help(),
+    )
+    plots.add_argument(
         "--show",
         action="store_true",
         help="Show plots interactively (default: do not show plots)",
     )
-    parser.add_argument(
+    plots.add_argument(
         "-o",
         "--output",
         type=str,
@@ -161,134 +207,7 @@ def build_parser() -> argparse.ArgumentParser:
             "region_statistics.json."
         ),
     )
-    parser.add_argument(
-        "--include",
-        "-i",
-        nargs="*",
-        type=str,
-        default=None,
-        help="List of region names to include in the outputs (optional)",
-    )
-    parser.add_argument(
-        "--exclude",
-        "-e",
-        nargs="*",
-        type=str,
-        default=None,
-        help="List of region names to exclude from the outputs (optional)",
-    )
-    parser.add_argument(
-        "--ranks",
-        "-r",
-        nargs="*",
-        type=str,
-        default=None,
-        help=(
-            "List of ranks to include in the outputs (optional). "
-            "Supports comma-separated values and ranges (e.g., 1-3,5)."
-        ),
-    )
-    parser.add_argument(
-        "--plots",
-        "-p",
-        nargs="*",
-        type=str,
-        choices=list(_PLOT_CATALOG),
-        default=None,
-        help=_plots_help(),
-    )
-    parser.add_argument(
-        "--metrics",
-        "-m",
-        nargs="*",
-        type=str,
-        choices=["avg", "min", "max", "total"],
-        default=["total"],
-        help=(
-            "Which duration statistics to include in the durations bar plot "
-            "(default: total). "
-            "Example: --metrics avg min max total"
-        ),
-    )
-    parser.add_argument(
-        "--sort-by",
-        choices=["name", "avg", "min", "max", "total"],
-        default=None,
-        help=(
-            "Order the durations/likwid bar plots by this statistic, "
-            "descending ('name' sorts alphabetically instead). Default: keep "
-            "regions in the order they first appeared."
-        ),
-    )
-    parser.add_argument(
-        "--top-n",
-        type=int,
-        default=None,
-        help=(
-            "Keep only the top N regions (after --sort-by, or by descending "
-            "total duration if --sort-by is not given) in the durations and "
-            "likwid bar plots. Useful when a run has many regions."
-        ),
-    )
-    parser.add_argument(
-        "--log-scale",
-        action="store_true",
-        help=(
-            "Use a logarithmic y-axis on the durations, timeseries, "
-            "histogram, imbalance and likwid plots."
-        ),
-    )
-    parser.add_argument(
-        "--bins",
-        type=int,
-        default=30,
-        help="Number of bins for the duration histogram plot (default: 30).",
-    )
-    parser.add_argument(
-        "--imbalance-metric",
-        choices=["avg", "min", "max", "total"],
-        default="total",
-        help=(
-            "Per-call duration statistic plotted per rank by the imbalance "
-            "plot (default: total, i.e. total time a rank spent in the "
-            "region)."
-        ),
-    )
-    parser.add_argument(
-        "--likwid-metric",
-        type=str,
-        default=None,
-        help=(
-            "Name of the LIKWID derived metric or raw event to plot (e.g. "
-            "'CPI', 'MFlops/s'). Required when 'likwid' is in --plots. Run "
-            "with --summary on a LIKWID-enabled file to see the available "
-            "names, or inspect ProfilingResults.get_likwid_regions()."
-        ),
-    )
-    parser.add_argument(
-        "--x-field",
-        type=str,
-        default="num_ranks",
-        help=(
-            "What to plot on the x-axis of the speedup plot (default: "
-            "'num_ranks'). One of 'num_ranks', 'omp_num_threads', "
-            "'total_cores' (num_ranks * omp_num_threads) — these are ordered "
-            "numerically with an ideal-scaling line — or any other metadata "
-            "field name, in which case files are kept in the order given on "
-            "the command line and no ideal-scaling line is drawn."
-        ),
-    )
-    parser.add_argument(
-        "--cmap",
-        type=str,
-        default=DEFAULT_CMAP,
-        help=(
-            "Name of the matplotlib colormap used to color regions/files in "
-            f"all plots (default: {DEFAULT_CMAP!r}). See "
-            "https://matplotlib.org/stable/users/explain/colors/colormaps.html"
-        ),
-    )
-    parser.add_argument(
+    plots.add_argument(
         "--backend",
         choices=["matplotlib", "plotly"],
         default="matplotlib",
@@ -298,75 +217,169 @@ def build_parser() -> argparse.ArgumentParser:
             "files instead, and makes --show open them in a browser."
         ),
     )
-    parser.add_argument(
-        "--export-data",
-        action="store_true",
+    plots.add_argument(
+        "--cmap",
+        type=str,
+        default=DEFAULT_CMAP,
         help=(
-            "Also write the exact data behind each selected plot as a data "
-            "file, one <name>_data file per plot selected by --plots (see "
-            "--export-data-format for the file extension/content), so charts "
-            "can be reconstructed later without the original HDF5 files. "
-            "Requires -o/--output."
+            "Name of the matplotlib colormap used to color regions/files in "
+            f"all plots (default: {DEFAULT_CMAP!r}). See "
+            "https://matplotlib.org/stable/users/explain/colors/colormaps.html"
         ),
     )
-    parser.add_argument(
+
+    tuning = parser.add_argument_group(
+        "Tuning individual plots",
+        "Each option only affects the plot(s) named in its own description; "
+        "picking a plot that ignores an option is harmless.",
+    )
+    tuning.add_argument(
+        "--duration-metrics",
+        nargs="*",
+        type=str,
+        choices=["avg", "min", "max", "total"],
+        default=["total"],
+        metavar="{avg,min,max,total}",
+        help=(
+            "[durations] Which duration statistics to draw as bar-chart "
+            "columns (default: total). Example: --duration-metrics avg max"
+        ),
+    )
+    tuning.add_argument(
+        "--sort-by",
+        choices=["name", "avg", "min", "max", "total"],
+        default=None,
+        help=(
+            "[durations, likwid] Order the bar chart's regions by this "
+            "statistic, descending ('name' sorts alphabetically instead). "
+            "Default: keep regions in the order they first appeared."
+        ),
+    )
+    tuning.add_argument(
+        "--top-n",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "[durations, likwid] Keep only the top N regions (ranked by "
+            "--sort-by, or by descending total duration if --sort-by is not "
+            "given). Useful when a run has many regions."
+        ),
+    )
+    tuning.add_argument(
+        "--log-scale",
+        action="store_true",
+        help=(
+            "[durations, timeseries, histogram, imbalance, likwid] Use a "
+            "logarithmic y-axis."
+        ),
+    )
+    tuning.add_argument(
+        "--histogram-bins",
+        type=int,
+        default=30,
+        metavar="N",
+        help="[histogram] Number of duration bins (default: 30).",
+    )
+    tuning.add_argument(
+        "--imbalance-metric",
+        choices=["avg", "min", "max", "total"],
+        default="total",
+        help=(
+            "[imbalance] Per-call duration statistic plotted per rank "
+            "(default: total, i.e. total time a rank spent in the region)."
+        ),
+    )
+    tuning.add_argument(
+        "--likwid-metric",
+        type=str,
+        default=None,
+        metavar="NAME",
+        help=(
+            "[likwid] Name of the LIKWID derived metric or raw event to "
+            "plot, e.g. 'CPI', 'MFlops/s'. Required when 'likwid' is in "
+            "--plots. Run with --summary on a LIKWID-enabled file to see "
+            "the available names, or inspect "
+            "ProfilingResults.get_likwid_regions()."
+        ),
+    )
+    tuning.add_argument(
+        "--speedup-x-field",
+        type=str,
+        default="num_ranks",
+        metavar="FIELD",
+        help=(
+            "[speedup] What to plot on the x-axis (default: 'num_ranks'). "
+            "One of 'num_ranks', 'omp_num_threads', 'total_cores' "
+            "(num_ranks * omp_num_threads) — these are ordered numerically "
+            "with an ideal-scaling line — or any other metadata field name, "
+            "in which case files are kept in the order given on the command "
+            "line and no ideal-scaling line is drawn."
+        ),
+    )
+
+    exporting = parser.add_argument_group(
+        "Exporting extra data",
+        "Machine-readable outputs alongside the plot images. All require -o/--output.",
+    )
+    exporting.add_argument(
+        "--export",
+        nargs="*",
+        type=str,
+        choices=["data", "prof", "speedscope"],
+        default=[],
+        metavar="{data,prof,speedscope}",
+        help=(
+            "'data': the exact numbers behind each plot selected by "
+            "--plots, as one <name>_data file per plot (see "
+            "--export-data-format). 'prof': one profile_rank<N>.prof per "
+            "exported rank, cProfile/pstats format (browse with `snakeviz "
+            "profile_rank0.prof`). 'speedscope': one profile.speedscope.json "
+            "covering every exported rank (browse at "
+            "https://www.speedscope.app). 'prof'/'speedscope' reconstruct "
+            "the call graph from region nesting and only cover the ranks "
+            "selected by --ranks (default: rank 0). "
+            "Example: --export data prof"
+        ),
+    )
+    exporting.add_argument(
         "--export-data-format",
         choices=["csv", "json"],
         default="csv",
         help=(
-            "File format used by --export-data (default: csv). 'json' also "
+            "File format for --export data (default: csv). 'json' also "
             "includes a 'colors' map matching the colors used in each plot, "
             "so the chart can be re-rendered (e.g. with Plotly) with "
             "consistent colors."
         ),
     )
-    parser.add_argument(
-        "--export-prof",
-        action="store_true",
-        help=(
-            "Also write one profile_rank<N>.prof file per exported rank in the "
-            "cProfile/pstats format, so the run can be browsed with external "
-            "tools (`snakeviz profile_rank0.prof`, `python -m pstats ...`). "
-            "The call graph is reconstructed from region nesting; only ranks "
-            "selected with --ranks are exported (default: rank 0). Requires "
-            "-o/--output."
-        ),
-    )
-    parser.add_argument(
-        "--export-speedscope",
-        action="store_true",
-        help=(
-            "Also write a profile.speedscope.json file holding one profile per "
-            "exported rank, viewable at https://www.speedscope.app (or with "
-            "`npx speedscope profile.speedscope.json`). Unlike --export-prof "
-            "this keeps every individual call, so the timeline shows the run "
-            "as it happened. The call graph is reconstructed from region "
-            "nesting; only ranks selected with --ranks are exported (default: "
-            "rank 0). Requires -o/--output."
-        ),
-    )
-    parser.add_argument(
+    exporting.add_argument(
         "--skip-plot-images",
         action="store_true",
         help=(
-            "Do not render/save the PNG plot images, only the outputs from "
-            "--export-data/--export-prof/--export-speedscope. Useful when "
-            "charts are rendered entirely client-side (e.g. with Plotly) from "
-            "the exported data. Requires one of those export options."
+            "Do not render/save the plot images themselves, only the "
+            "--export outputs. Useful when charts are rendered entirely "
+            "client-side (e.g. with Plotly) from exported data. Requires "
+            "--export to select at least one output."
         ),
     )
-    parser.add_argument(
+
+    summary = parser.add_argument_group(
+        "Text summary",
+        "An alternative to plots: per-region statistics printed to the terminal.",
+    )
+    summary.add_argument(
         "--summary",
         action="store_true",
         help=(
             "Print the per-region statistics table for each file, plus a "
             "separate LIKWID hardware counter table per rank and event group "
-            "when the run recorded any. Honours --include/--exclude/--ranks. "
-            "On its own this prints the summary and produces no plots; "
-            "combine it with --show or -o/--output to get both."
+            "when the run recorded any. On its own this prints the summary "
+            "and produces no plots; combine it with --show or -o/--output to "
+            "get both."
         ),
     )
-    parser.add_argument(
+    summary.add_argument(
         "--summary-sort",
         choices=SORT_KEYS,
         default="total",
@@ -407,20 +420,16 @@ def main(argv: list[str] | None = None):
     args = parser.parse_args(argv)
     args.files = expand_file_patterns(args.files, parser)
 
-    if args.export_data and not args.output:
-        parser.error("--export-data requires -o/--output.")
+    want_export_data = "data" in args.export
+    want_export_prof = "prof" in args.export
+    want_export_speedscope = "speedscope" in args.export
 
-    if args.export_prof and not args.output:
-        parser.error("--export-prof requires -o/--output.")
+    if args.export and not args.output:
+        parser.error("--export requires -o/--output.")
 
-    if args.export_speedscope and not args.output:
-        parser.error("--export-speedscope requires -o/--output.")
-
-    exports_requested = args.export_data or args.export_prof or args.export_speedscope
-    if args.skip_plot_images and not exports_requested:
+    if args.skip_plot_images and not args.export:
         parser.error(
-            "--skip-plot-images requires --export-data, --export-prof or "
-            "--export-speedscope."
+            "--skip-plot-images requires --export to select at least one output."
         )
 
     selected_plots: set[str] = (
@@ -534,7 +543,7 @@ def main(argv: list[str] | None = None):
             if "likwid" in selected_plots:
                 likwid_path = os.path.join(args.output, f"likwid_plot.{ext}")
         statistics_path = os.path.join(args.output, "region_statistics.json")
-        if args.export_data:
+        if want_export_data:
             data_ext = args.export_data_format
             if "gantt" in selected_plots:
                 gantt_data_path = os.path.join(args.output, f"gantt_data.{data_ext}")
@@ -562,17 +571,17 @@ def main(argv: list[str] | None = None):
                 )
             if "likwid" in selected_plots:
                 likwid_data_path = os.path.join(args.output, f"likwid_data.{data_ext}")
-        if args.export_prof:
+        if want_export_prof:
             prof_path = os.path.join(args.output, "profile.prof")
-        if args.export_speedscope:
+        if want_export_speedscope:
             speedscope_path = os.path.join(args.output, "profile.speedscope.json")
 
     # --skip-plot-images still needs the plotting functions to produce the
-    # --export-data files, but an export-only run should not touch the
+    # --export data files, but an export-only run should not touch the
     # plotting backend at all.
-    render_plots = not args.skip_plot_images or args.export_data
+    render_plots = not args.skip_plot_images or want_export_data
 
-    if args.export_prof:
+    if want_export_prof:
         prof_paths = export_prof(
             profiling_data=runs,
             filepath=prof_path,
@@ -582,7 +591,7 @@ def main(argv: list[str] | None = None):
             verbose=False,
         )
 
-    if args.export_speedscope:
+    if want_export_speedscope:
         speedscope_paths = export_speedscope(
             profiling_data=runs,
             filepath=speedscope_path,
@@ -629,7 +638,7 @@ def main(argv: list[str] | None = None):
                 include=args.include,
                 exclude=args.exclude,
                 ranks=args.ranks,
-                metrics=args.metrics,
+                metrics=args.duration_metrics,
                 sort_by=args.sort_by,
                 top_n=args.top_n,
                 cmap=args.cmap,
@@ -662,7 +671,7 @@ def main(argv: list[str] | None = None):
                 include=args.include,
                 exclude=args.exclude,
                 ranks=args.ranks,
-                bins=args.bins,
+                bins=args.histogram_bins,
                 cmap=args.cmap,
                 log_scale=args.log_scale,
                 data_filepath=histogram_data_path,
@@ -705,7 +714,7 @@ def main(argv: list[str] | None = None):
         if len(runs) > 1 and "speedup" in selected_plots:
             plot_speedup(
                 profiling_data=runs,
-                x_field=args.x_field,
+                x_field=args.speedup_x_field,
                 ranks=args.ranks,
                 filepath=speedup_path,
                 show=args.show,
