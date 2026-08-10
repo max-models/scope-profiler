@@ -7,10 +7,13 @@ import os
 from scope_profiler.h5reader import read_h5
 from scope_profiler.plotting_scripts import (
     DEFAULT_CMAP,
+    plot_duration_histogram,
     plot_duration_timeseries,
     plot_durations,
     plot_flame,
     plot_gantt,
+    plot_imbalance,
+    plot_likwid,
     plot_speedup,
     write_region_statistics_json,
 )
@@ -22,6 +25,40 @@ from scope_profiler.summary import (
     print_region_table,
     region_rows,
 )
+
+# Single source of truth for --plots: name -> (one-line description, is a
+# default plot). Everything else derives from this -- the argparse choices,
+# the --plots help text, and the default set used when --plots is omitted --
+# so the three can never drift out of sync.
+_PLOT_CATALOG: dict[str, tuple[str, bool]] = {
+    "gantt": ("per-rank timeline of every call", True),
+    "flame": ("reconstructed call-stack flame graph", True),
+    "durations": ("bar chart of duration statistics per region", True),
+    "timeseries": ("duration per call over wall-clock time", True),
+    "speedup": ("scaling across multiple files (2+ files only)", True),
+    "histogram": ("call-duration distribution per region", False),
+    "imbalance": ("per-rank duration comparison, to spot stragglers", False),
+    "likwid": ("one LIKWID hardware-counter metric (needs --likwid-metric)", False),
+}
+_DEFAULT_PLOTS = frozenset(
+    name for name, (_, is_default) in _PLOT_CATALOG.items() if is_default
+)
+
+
+def _plots_help() -> str:
+    """Build the --plots help text from :data:`_PLOT_CATALOG`."""
+    lines = [f"{name}: {desc}" for name, (desc, _) in _PLOT_CATALOG.items()]
+    default_names = ", ".join(sorted(_DEFAULT_PLOTS))
+    opt_in_names = ", ".join(
+        name for name in _PLOT_CATALOG if name not in _DEFAULT_PLOTS
+    )
+    return (
+        "Which plots to generate. "
+        + " | ".join(lines)
+        + f". Default (no --plots given): {default_names}. "
+        f"Opt-in only, pass explicitly to get them: {opt_in_names}. "
+        "Example: --plots gantt durations"
+    )
 
 
 def parse_ranks(spec: str, verbose: bool = False) -> list[int]:
@@ -119,10 +156,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         type=str,
         help=(
-            "Directory where outputs are saved "
-            "(gantt_plot.png, flame_plot.png, durations_plot.png, "
-            "duration_timeseries_plot.png, optional speedup_plot.png, "
-            "and region_statistics.json)"
+            "Directory where outputs are saved: one <name>_plot.png (or "
+            ".html for --backend plotly) per plot selected by --plots, plus "
+            "region_statistics.json."
         ),
     )
     parser.add_argument(
@@ -157,13 +193,9 @@ def build_parser() -> argparse.ArgumentParser:
         "-p",
         nargs="*",
         type=str,
-        choices=["gantt", "flame", "durations", "timeseries", "speedup"],
+        choices=list(_PLOT_CATALOG),
         default=None,
-        help=(
-            "Which plots to generate (default: all). "
-            "Choices: gantt, flame, durations, timeseries, speedup. "
-            "Example: --plots gantt durations"
-        ),
+        help=_plots_help(),
     )
     parser.add_argument(
         "--metrics",
@@ -176,6 +208,61 @@ def build_parser() -> argparse.ArgumentParser:
             "Which duration statistics to include in the durations bar plot "
             "(default: total). "
             "Example: --metrics avg min max total"
+        ),
+    )
+    parser.add_argument(
+        "--sort-by",
+        choices=["name", "avg", "min", "max", "total"],
+        default=None,
+        help=(
+            "Order the durations/likwid bar plots by this statistic, "
+            "descending ('name' sorts alphabetically instead). Default: keep "
+            "regions in the order they first appeared."
+        ),
+    )
+    parser.add_argument(
+        "--top-n",
+        type=int,
+        default=None,
+        help=(
+            "Keep only the top N regions (after --sort-by, or by descending "
+            "total duration if --sort-by is not given) in the durations and "
+            "likwid bar plots. Useful when a run has many regions."
+        ),
+    )
+    parser.add_argument(
+        "--log-scale",
+        action="store_true",
+        help=(
+            "Use a logarithmic y-axis on the durations, timeseries, "
+            "histogram, imbalance and likwid plots."
+        ),
+    )
+    parser.add_argument(
+        "--bins",
+        type=int,
+        default=30,
+        help="Number of bins for the duration histogram plot (default: 30).",
+    )
+    parser.add_argument(
+        "--imbalance-metric",
+        choices=["avg", "min", "max", "total"],
+        default="total",
+        help=(
+            "Per-call duration statistic plotted per rank by the imbalance "
+            "plot (default: total, i.e. total time a rank spent in the "
+            "region)."
+        ),
+    )
+    parser.add_argument(
+        "--likwid-metric",
+        type=str,
+        default=None,
+        help=(
+            "Name of the LIKWID derived metric or raw event to plot (e.g. "
+            "'CPI', 'MFlops/s'). Required when 'likwid' is in --plots. Run "
+            "with --summary on a LIKWID-enabled file to see the available "
+            "names, or inspect ProfilingResults.get_likwid_regions()."
         ),
     )
     parser.add_argument(
@@ -215,12 +302,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--export-data",
         action="store_true",
         help=(
-            "Also write the exact data behind each plot as a data file "
-            "(gantt_data, flame_data, durations_data, "
-            "duration_timeseries_data, optional speedup_data; "
-            "see --export-data-format for the file extension/content), so "
-            "charts can be reconstructed later without the original HDF5 "
-            "files. Requires -o/--output."
+            "Also write the exact data behind each selected plot as a data "
+            "file, one <name>_data file per plot selected by --plots (see "
+            "--export-data-format for the file extension/content), so charts "
+            "can be reconstructed later without the original HDF5 files. "
+            "Requires -o/--output."
         ),
     )
     parser.add_argument(
@@ -337,8 +423,12 @@ def main(argv: list[str] | None = None):
             "--export-speedscope."
         )
 
-    _ALL_PLOTS = {"gantt", "flame", "durations", "timeseries", "speedup"}
-    selected_plots: set[str] = set(args.plots) if args.plots is not None else _ALL_PLOTS
+    selected_plots: set[str] = (
+        set(args.plots) if args.plots is not None else set(_DEFAULT_PLOTS)
+    )
+
+    if "likwid" in selected_plots and not args.likwid_metric:
+        parser.error("--plots likwid requires --likwid-metric.")
 
     if args.ranks:
         ranks = []
@@ -402,12 +492,18 @@ def main(argv: list[str] | None = None):
     durations_path = None
     timeseries_path = None
     speedup_path = None
+    histogram_path = None
+    imbalance_path = None
+    likwid_path = None
     statistics_path = None
     gantt_data_path = None
     flame_data_path = None
     durations_data_path = None
     timeseries_data_path = None
     speedup_data_path = None
+    histogram_data_path = None
+    imbalance_data_path = None
+    likwid_data_path = None
     prof_path = None
     prof_paths: list = []
     speedscope_path = None
@@ -431,6 +527,12 @@ def main(argv: list[str] | None = None):
                 )
             if len(runs) > 1 and "speedup" in selected_plots:
                 speedup_path = os.path.join(args.output, f"speedup_plot.{ext}")
+            if "histogram" in selected_plots:
+                histogram_path = os.path.join(args.output, f"histogram_plot.{ext}")
+            if "imbalance" in selected_plots:
+                imbalance_path = os.path.join(args.output, f"imbalance_plot.{ext}")
+            if "likwid" in selected_plots:
+                likwid_path = os.path.join(args.output, f"likwid_plot.{ext}")
         statistics_path = os.path.join(args.output, "region_statistics.json")
         if args.export_data:
             data_ext = args.export_data_format
@@ -450,6 +552,16 @@ def main(argv: list[str] | None = None):
                 speedup_data_path = os.path.join(
                     args.output, f"speedup_data.{data_ext}"
                 )
+            if "histogram" in selected_plots:
+                histogram_data_path = os.path.join(
+                    args.output, f"histogram_data.{data_ext}"
+                )
+            if "imbalance" in selected_plots:
+                imbalance_data_path = os.path.join(
+                    args.output, f"imbalance_data.{data_ext}"
+                )
+            if "likwid" in selected_plots:
+                likwid_data_path = os.path.join(args.output, f"likwid_data.{data_ext}")
         if args.export_prof:
             prof_path = os.path.join(args.output, "profile.prof")
         if args.export_speedscope:
@@ -518,7 +630,10 @@ def main(argv: list[str] | None = None):
                 exclude=args.exclude,
                 ranks=args.ranks,
                 metrics=args.metrics,
+                sort_by=args.sort_by,
+                top_n=args.top_n,
                 cmap=args.cmap,
+                log_scale=args.log_scale,
                 data_filepath=durations_data_path,
                 data_format=args.export_data_format,
                 backend=args.backend,
@@ -533,7 +648,56 @@ def main(argv: list[str] | None = None):
                 exclude=args.exclude,
                 ranks=args.ranks,
                 cmap=args.cmap,
+                log_scale=args.log_scale,
                 data_filepath=timeseries_data_path,
+                data_format=args.export_data_format,
+                backend=args.backend,
+            )
+
+        if "histogram" in selected_plots:
+            plot_duration_histogram(
+                profiling_data=runs,
+                filepath=histogram_path,
+                show=args.show,
+                include=args.include,
+                exclude=args.exclude,
+                ranks=args.ranks,
+                bins=args.bins,
+                cmap=args.cmap,
+                log_scale=args.log_scale,
+                data_filepath=histogram_data_path,
+                data_format=args.export_data_format,
+                backend=args.backend,
+            )
+
+        if "imbalance" in selected_plots:
+            plot_imbalance(
+                profiling_data=runs,
+                metric=args.imbalance_metric,
+                filepath=imbalance_path,
+                show=args.show,
+                include=args.include,
+                exclude=args.exclude,
+                ranks=args.ranks,
+                cmap=args.cmap,
+                log_scale=args.log_scale,
+                data_filepath=imbalance_data_path,
+                data_format=args.export_data_format,
+                backend=args.backend,
+            )
+
+        if "likwid" in selected_plots:
+            plot_likwid(
+                profiling_data=runs,
+                metric=args.likwid_metric,
+                filepath=likwid_path,
+                show=args.show,
+                include=args.include,
+                exclude=args.exclude,
+                ranks=args.ranks,
+                cmap=args.cmap,
+                log_scale=args.log_scale,
+                data_filepath=likwid_data_path,
                 data_format=args.export_data_format,
                 backend=args.backend,
             )
@@ -571,12 +735,18 @@ def main(argv: list[str] | None = None):
                 *durations_paths,
                 timeseries_path,
                 speedup_path,
+                histogram_path,
+                imbalance_path,
+                likwid_path,
                 statistics_path,
                 gantt_data_path,
                 flame_data_path,
                 durations_data_path,
                 timeseries_data_path,
                 speedup_data_path,
+                histogram_data_path,
+                imbalance_data_path,
+                likwid_data_path,
                 *prof_paths,
                 *speedscope_paths,
             )
