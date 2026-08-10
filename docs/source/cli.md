@@ -141,6 +141,60 @@ payload = write_metadata_json("profiling_data.h5", "metadata.json")
 payload = collect_file_metadata(["run_1.h5", "run_2.h5"])  # no file written
 ```
 
+## `scope-profiler diff`
+
+Compare region statistics between two merged HDF5 profiling files, region by
+region, so a regression (or an improvement) between two runs -- two commits,
+two configs, two job sizes -- shows up as a single table.
+
+```text
+usage: scope-profiler diff [-h] [--include INCLUDE [INCLUDE ...]]
+                           [--exclude EXCLUDE [EXCLUDE ...]]
+                           [--ranks RANKS [RANKS ...]]
+                           [--metric {total,avg,min,max,calls}]
+                           [--sort {delta,pct,name}] [--threshold PCT]
+                           file_a file_b
+```
+
+| Flag              | Description                                                              |
+| ----------------- | ------------------------------------------------------------------------- |
+| `--include`       | Only compare regions matching these regex patterns                       |
+| `--exclude`       | Skip regions matching these regex patterns                               |
+| `--ranks`         | Restrict the statistics to these ranks, e.g. `0 2` or `0-3`              |
+| `--metric`        | Statistic to compare: `total` (default), `avg`, `min`, `max` or `calls`  |
+| `--sort`          | Order regions by descending `|delta|` (default), descending `|delta %|`, or `name` |
+| `--threshold`     | Only show regions whose absolute percent change is at least this many percent |
+
+```bash
+scope-profiler diff baseline.h5 candidate.h5
+scope-profiler diff baseline.h5 candidate.h5 --metric avg --threshold 5
+```
+
+Example output:
+
+```text
+==============================================================================
+a: baseline - baseline.h5  (2 rank(s))
+b: candidate - candidate.h5  (2 rank(s))
+==============================================================================
+
+Regions (3)
+  region     total [s] (a)  total [s] (b)  delta  delta [%]
+  -----------------------------------------------------------
+  solve            0.0991         0.1487  +0.05        +50%
+  teardown              -         0.0123  +0.01           -
+  setup            0.0473         0.0473  +0.00          +0%
+  -----------------------------------------------------------
+  Only in b: teardown
+```
+
+A region present in only one file still gets a `delta` (treating the missing
+side as 0 calls), but a percent change is only reported when the file it is
+missing from is `b` -- dropping out from a nonzero baseline in `a` is a
+well-defined -100%, while a region appearing fresh in `b` has no baseline to
+divide by, and is listed under "Only in b" instead. `--threshold` never drops
+those regions, since there is nothing to compare against.
+
 ## `scope-profiler pproc`
 
 Post-process one or more HDF5 profiling files, generate plots, and export
