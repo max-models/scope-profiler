@@ -44,6 +44,8 @@ from typing import Iterable, List
 
 import numpy as np
 
+from scope_profiler.mpi_launch import LAUNCHER_ENV_VARS
+
 # Environment set by `likwid-perfctr -m` / `likwid-mpirun -marker` for each
 # process it launches. LIKWID_THREADS/LIKWID_EVENTS describe the measurement,
 # LIKWID_FILEPATH is where markerclose() dumps the results.
@@ -515,6 +517,35 @@ def _result_from_json(payload: dict) -> LikwidRegionResult:
     )
 
 
+def _child_environment() -> dict:
+    """Environment for the isolated collector, with MPI switched off.
+
+    Two things have to be arranged for the child:
+
+    * it must import the same ``scope_profiler`` (and find ``pylikwid``) as
+      this process, however this process was started; and
+    * it must not touch MPI. The child is forked from a live rank and
+      inherits the launcher's per-rank variables, so importing
+      ``scope_profiler`` would otherwise call ``MPI_Init`` in it --- a second
+      process attaching to the rank's shared-memory transport, which then
+      tears the segment down when it exits. The parent's next MPI call
+      segfaults inside the progress engine. Open MPI does not support forking
+      from a rank at all; this keeps the child out of MPI entirely, which is
+      what makes it safe.
+    """
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [path for path in sys.path if path] + [env.get("PYTHONPATH", "")]
+    ).strip(os.pathsep)
+
+    # The explicit override, plus the launcher variables it overrides -- so
+    # that anything else the child imports also sees a non-MPI process.
+    env["SCOPE_PROFILER_MPI"] = "0"
+    for var in LAUNCHER_ENV_VARS:
+        env.pop(var, None)
+    return env
+
+
 def collect_marker_results_isolated(timeout: float = 120.0):
     """Run the perfmon read-back in a child process and return its results.
 
@@ -545,12 +576,7 @@ def collect_marker_results_isolated(timeout: float = 120.0):
     os.close(handle)
 
     try:
-        env = dict(os.environ)
-        # The child must import the same scope_profiler (and find pylikwid)
-        # as this process, however this process was started.
-        env["PYTHONPATH"] = os.pathsep.join(
-            [path for path in sys.path if path] + [env.get("PYTHONPATH", "")]
-        ).strip(os.pathsep)
+        env = _child_environment()
 
         subprocess.run(
             [sys.executable, "-m", "scope_profiler.likwid_data", out_path],
