@@ -26,7 +26,10 @@ pip install "scope-profiler[mpi]"
 
 1. **Setup** --- `ProfilingConfig` reads `COMM_WORLD` for rank and size.
    That is a local query, not a collective: `setup()` issues no MPI call
-   of its own and creates no temporary directory.
+   of its own and creates no temporary directory. Nothing happens before
+   then: importing scope-profiler touches MPI not at all, so a process
+   that merely imports the library --- a child forked from a rank, say ---
+   never joins the job.
 
 2. **Recording** --- each rank accumulates its own timestamps in memory.
    Nothing is written per rank, so no shared filesystem is involved.

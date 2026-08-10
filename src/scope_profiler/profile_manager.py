@@ -53,7 +53,13 @@ class ProfileManager:
     """
 
     _regions = {}
-    _config = ProfilingConfig()
+    # Resolved on first use, never at import. Building a ProfilingConfig reads
+    # the communicator, which imports mpi4py (i.e. calls MPI_Init) whenever the
+    # process looks like an MPI rank -- so constructing one here would mean
+    # that merely importing scope_profiler joins the MPI job. That bites any
+    # child process of a rank that happens to import the library, including
+    # the one LIKWID's counter read-back forks. See get_config().
+    _config: ProfilingConfig | None = None
     _region_cls = DisabledProfileRegion
     _decorators: Dict[str, list] = {}  # name -> [(func, _bound), ...]
     _decorated_codes = set()
@@ -219,7 +225,7 @@ class ProfileManager:
         # runs per call event under recursive profiling.
         region = cls._regions.get(region_name)
         if region is None:
-            region = cls._region_cls(region_name, config=cls._config)
+            region = cls._region_cls(region_name, config=cls.get_config())
             cls._regions[region_name] = region
         if functions is not None:
             for func in functions:
@@ -807,7 +813,7 @@ class ProfileManager:
         :mod:`scope_profiler.mpi_launch` for the detection and its
         ``SCOPE_PROFILER_MPI`` override.
         """
-        ProfilingConfig().reset()
+        ProfilingConfig.reset()
         config = ProfilingConfig(
             deactivate_profiling=deactivate_profiling,
             deactivate_file_output=deactivate_file_output,
@@ -844,13 +850,26 @@ class ProfileManager:
     @classmethod
     def get_config(cls) -> ProfilingConfig:
         """
-        Get the current profiling configuration.
+        Get the current profiling configuration, creating a default one if
+        ``setup()`` has not been called.
+
+        This is the only place a configuration comes into being outside
+        ``setup()``, and it is deliberately lazy: constructing one resolves the
+        MPI communicator, which imports mpi4py and therefore calls
+        ``MPI_Init`` in any process the launcher marked as a rank. Doing that
+        at import time would mean ``import scope_profiler`` silently joins the
+        MPI job -- fatal in a process forked from a rank, which is exactly
+        what the LIKWID counter read-back does.
 
         Returns
         -------
         ProfilingConfig
             The current profiling configuration.
         """
+        if cls._config is None:
+            cls._config = ProfilingConfig()
+            # Direct attribute read below, not get_config(): _config is set.
+            cls._update_region_cls()
         return cls._config
 
     @classmethod
@@ -863,14 +882,19 @@ class ProfileManager:
     @classmethod
     def _reset_config(cls) -> None:
         """
-        Reset the profiling configuration to its default state.
+        Drop the profiling configuration.
+
+        The next ``get_config()`` builds a fresh default one; nothing is
+        constructed here, so a reset cannot pull MPI in either.
         """
-        ProfilingConfig().reset()
-        cls._config = ProfilingConfig()
+        ProfilingConfig.reset()
+        cls._config = None
 
     @classmethod
     def _reset(cls) -> None:
         cls._reset_regions()
         cls._reset_config()
-        cls._update_region_cls()
+        # Back to the state a fresh import leaves behind: no configuration,
+        # and regions disabled until setup() or get_config() says otherwise.
+        cls._region_cls = DisabledProfileRegion
         cls._decorators.clear()
