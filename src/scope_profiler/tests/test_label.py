@@ -99,7 +99,8 @@ def test_pproc_label_overrides_the_stored_one(tmp_path, capsys):
             "128 ranks",
             "--label",
             "256 ranks",
-            "--export-prof",
+            "--export",
+            "prof",
         ]
     )
 

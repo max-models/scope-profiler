@@ -776,7 +776,7 @@ def test_post_processing_cli_new_plots_and_options(tmp_path):
             "--top-n",
             "1",
             "--log-scale",
-            "--bins",
+            "--histogram-bins",
             "5",
             "--imbalance-metric",
             "avg",
@@ -826,7 +826,8 @@ def test_post_processing_cli_export_data_format_json(tmp_path):
             str(file_two),
             "-o",
             str(output_dir),
-            "--export-data",
+            "--export",
+            "data",
             "--export-data-format",
             "json",
         ]
@@ -858,7 +859,8 @@ def test_post_processing_cli_skip_plot_images(tmp_path):
             str(file_two),
             "-o",
             str(output_dir),
-            "--export-data",
+            "--export",
+            "data",
             "--export-data-format",
             "json",
             "--skip-plot-images",
@@ -877,7 +879,7 @@ def test_post_processing_cli_skip_plot_images(tmp_path):
     assert list(output_dir.glob("*.png")) == []
 
 
-def test_post_processing_cli_skip_plot_images_requires_export_data(tmp_path):
+def test_post_processing_cli_skip_plot_images_requires_export(tmp_path):
     file_one = tmp_path / "run_1.h5"
     output_dir = tmp_path / "figures"
     _write_sample_h5(file_one, _sample_file_data(1, 100, 200))

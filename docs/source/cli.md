@@ -202,19 +202,26 @@ aggregate region statistics to JSON. See
 {doc}`/guide/postprocessing_cli` for a walkthrough with example figures.
 
 ```text
-usage: scope-profiler pproc [-h] [--show] [-o OUTPUT]
-                            [--include [INCLUDE ...]]
+usage: scope-profiler pproc [-h] [--label LABEL] [--include [INCLUDE ...]]
                             [--exclude [EXCLUDE ...]] [--ranks [RANKS ...]]
-                            [-p [{gantt,flame,durations,timeseries,speedup} ...]]
-                            [--metrics [{avg,min,max,total} ...]]
-                            [--x-field X_FIELD] [--cmap CMAP]
-                            [--backend {matplotlib,plotly}] [--export-data]
-                            [--export-data-format {csv,json}] [--export-prof]
-                            [--export-speedscope] [--skip-plot-images]
-                            [--summary]
+                            [--plots [{gantt,flame,durations,timeseries,speedup,histogram,imbalance,likwid} ...]]
+                            [--show] [-o OUTPUT]
+                            [--backend {matplotlib,plotly}] [--cmap CMAP]
+                            [--duration-metrics [{avg,min,max,total} ...]]
+                            [--sort-by {name,avg,min,max,total}] [--top-n N]
+                            [--log-scale] [--histogram-bins N]
+                            [--imbalance-metric {avg,min,max,total}]
+                            [--likwid-metric NAME] [--speedup-x-field FIELD]
+                            [--export [{data,prof,speedscope} ...]]
+                            [--export-data-format {csv,json}]
+                            [--skip-plot-images] [--summary]
                             [--summary-sort {total,calls,avg,max,name}]
                             files [files ...]
 ```
+
+The full `--help` output groups these under "Selecting data", "Choosing and
+rendering plots", "Tuning individual plots", "Exporting extra data" and "Text
+summary" — the same grouping used below.
 
 ### Positional arguments
 
@@ -222,59 +229,86 @@ usage: scope-profiler pproc [-h] [--show] [-o OUTPUT]
 | -------- | ------------------------------------ |
 | `files`  | Path(s) to `profiling_data.h5` files |
 
-### Optional arguments
+### Selecting data
 
 | Flag              | Description                                      |
 | ----------------- | ------------------------------------------------ |
-| `--show`          | Display the plot interactively (default: off)    |
-| `-o`, `--output`  | Directory to save generated outputs              |
+| `--label`          | Override a file's display label in the outputs (repeat once per file, in order) |
 | `-i`, `--include` | Region names to include (regex patterns)         |
 | `-e`, `--exclude` | Region names to exclude (regex patterns)         |
 | `-r`, `--ranks`   | Ranks to include; supports ranges (e.g. `0-3,5`) |
-| `-p`, `--plots`   | Which plots to generate: any of `gantt`, `flame`, `durations`, `timeseries`, `speedup` (default: all five) |
-| `-m`, `--metrics` | Duration statistics to plot: any of `avg`, `min`, `max`, `total` (default: `total`) |
-| `--x-field`       | X-axis of the speedup plot: `num_ranks` (default), `omp_num_threads`, `total_cores`, or any other metadata field |
-| `--cmap`          | Matplotlib colormap used to color regions/files in all plots (default: `tab20`) |
+
+### Choosing and rendering plots
+
+| Flag              | Description                                      |
+| ----------------- | ------------------------------------------------ |
+| `-p`, `--plots`   | Which plots to generate. Default: `gantt`, `flame`, `durations`, `timeseries`, `speedup`. Opt-in only (pass explicitly): `histogram`, `imbalance`, `likwid` |
+| `--show`          | Display the plot interactively (default: off)    |
+| `-o`, `--output`  | Directory to save generated outputs              |
 | `--backend`       | Renderer: `matplotlib` (default, writes `.png`) or `plotly` (writes interactive `.html`) |
-| `--export-data`   | Also write the exact data behind each plot as CSV (requires `-o/--output`) |
-| `--export-data-format` | Format used by `--export-data`: `csv` (default) or `json` (adds a `colors` map) |
-| `--skip-plot-images` | Do not render the plot images, only the requested exports |
-| `--export-prof`   | Also write one `profile_rank<N>.prof` per exported rank in the cProfile/pstats format, for `snakeviz` and `python -m pstats` (requires `-o/--output`) |
-| `--export-speedscope` | Also write `profile.speedscope.json`, one profile per exported rank, for [speedscope](https://www.speedscope.app) (requires `-o/--output`) |
+| `--cmap`          | Matplotlib colormap used to color regions/files in all plots (default: `tab20`) |
+
+### Tuning individual plots
+
+Each option only affects the plot(s) named below; passing one alongside a
+plot that ignores it is harmless.
+
+| Flag                 | Plot(s)    | Description                                      |
+| -------------------- | ---------- | ------------------------------------------------- |
+| `--duration-metrics` | durations  | Duration statistics to draw as bar columns: any of `avg`, `min`, `max`, `total` (default: `total`) |
+| `--sort-by`           | durations, likwid | Order the bar chart's regions by this statistic, descending (`name` sorts alphabetically). Default: order of first appearance |
+| `--top-n`             | durations, likwid | Keep only the top N regions after `--sort-by` |
+| `--log-scale`         | durations, timeseries, histogram, imbalance, likwid | Logarithmic y-axis |
+| `--histogram-bins`    | histogram  | Number of duration bins (default: 30) |
+| `--imbalance-metric`  | imbalance  | Per-call duration statistic plotted per rank: any of `avg`, `min`, `max`, `total` (default: `total`) |
+| `--likwid-metric`     | likwid     | Name of the LIKWID derived metric or raw event to plot, e.g. `CPI`, `MFlops/s`. Required when `likwid` is in `--plots` |
+| `--speedup-x-field`   | speedup    | X-axis: `num_ranks` (default), `omp_num_threads`, `total_cores`, or any other metadata field |
+
+### Exporting extra data
+
+All of these require `-o/--output`.
+
+| Flag              | Description                                      |
+| ----------------- | ------------------------------------------------ |
+| `--export`        | Extra outputs, any of `data`, `prof`, `speedscope` (default: none). See below |
+| `--export-data-format` | Format used by `--export data`: `csv` (default) or `json` (adds a `colors` map) |
+| `--skip-plot-images` | Do not render the plot images, only the `--export` outputs. Requires `--export` to select at least one output |
+
+### Text summary
+
+| Flag              | Description                                      |
+| ----------------- | ------------------------------------------------ |
 | `--summary`       | Print the per-region statistics table, plus a separate LIKWID hardware counter table per rank and event group when the run recorded any. On its own it produces no plots |
 | `--summary-sort`  | Order the `--summary` region table: `total` (default), `calls`, `avg`, `max` or `name` |
 
-When `-o/--output` is supplied, the CLI saves:
-1. `gantt_plot.png`
-2. `flame_plot.png`
-3. `durations_plot.png` (one file when a single metric; one
-   `durations_plot_<metric>.png` per metric when several are requested, e.g.
-   `durations_plot_avg.png`, `durations_plot_total.png`)
-4. `duration_timeseries_plot.png`
-5. `speedup_plot.png` (only when multiple files are passed)
-6. `region_statistics.json`
+When `-o/--output` is supplied, the CLI saves one `<name>_plot.png` per plot
+selected by `--plots` (`durations_plot.png` becomes one
+`durations_plot_<metric>.png` per metric when `--duration-metrics` requests
+several, e.g. `durations_plot_avg.png`, `durations_plot_total.png`), plus
+`region_statistics.json`. `speedup` is skipped unless multiple files are
+passed. With `--backend plotly` the plots are written as `.html` instead of
+`.png`.
 
-Use `--plots` to skip charts that are not needed.
-With `--backend plotly` the plots are written as `.html` instead of `.png`.
-
-Adding `--export-data` also writes the raw data behind each chart as CSV,
-so plots can be reconstructed later without the original HDF5 files:
+Adding `--export data` also writes the raw data behind each selected chart as
+CSV, so plots can be reconstructed later without the original HDF5 files:
 `gantt_data.csv` (file, rank, region, start/end seconds), `flame_data.csv`
 (file, rank, region, depth, start/end seconds), `durations_data.csv` (file,
 region, metric, value), `duration_timeseries_data.csv` (file, region, call
 index, time, mean/min/max duration, rank count), and `speedup_data.csv`
-(region, rank count, speedup; only when multiple files are passed).
+(region, rank count, speedup; only when multiple files are passed), plus one
+`<name>_data` file for each of `histogram`, `imbalance` and `likwid` when
+selected.
 
 For multiple files, the JSON includes per-file region statistics and the set of
 common regions across all inputs.
 
 ### Exporting to `.prof` for snakeviz
 
-`--export-prof` writes the profile in the format `cProfile` uses, so regions
+`--export prof` writes the profile in the format `cProfile` uses, so regions
 can be browsed with any pstats-based viewer:
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures --export-prof --skip-plot-images
+scope-profiler pproc profiling_data.h5 -o figures --export prof --skip-plot-images
 snakeviz figures/profile_rank0.prof
 ```
 
@@ -298,14 +332,16 @@ reconstructed from timestamp containment, exactly as the flame chart does. So:
 
 ### Exporting to speedscope
 
-`--export-speedscope` writes a [speedscope](https://www.speedscope.app) JSON
+`--export speedscope` writes a [speedscope](https://www.speedscope.app) JSON
 file. Where `.prof` keeps aggregates per region, speedscope keeps every
 individual call, so the timeline shows the run as it actually happened —
 closest in spirit to the Gantt and flame charts, but interactive:
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures --export-speedscope --skip-plot-images
+scope-profiler pproc profiling_data.h5 -o figures --export speedscope --skip-plot-images
 ```
+
+Both formats can be written in the same run, e.g. `--export prof speedscope`.
 
 Then open `figures/profile.speedscope.json` at <https://www.speedscope.app>
 (the file never leaves the browser), or run `npx speedscope
@@ -367,7 +403,7 @@ can be combined: `0,2,4-7` expands to ranks 0, 2, 4, 5, 6, 7.
 **Only export average and total duration plots:**
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures/ --metrics avg total
+scope-profiler pproc profiling_data.h5 -o figures/ --duration-metrics avg total
 ```
 
 **Only generate the duration bar chart and speedup plot:**
