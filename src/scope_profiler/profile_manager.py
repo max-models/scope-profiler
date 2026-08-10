@@ -449,7 +449,7 @@ class ProfileManager:
             )
 
     @classmethod
-    def _merge_fortran_snapshot(cls, snapshot: dict, traces, config) -> dict:
+    def _merge_native_snapshot(cls, snapshot: dict, traces, config) -> dict:
         """Add this rank's Fortran regions to its snapshot.
 
         Only the trace whose rank matches this one is taken, so under MPI every
@@ -462,7 +462,7 @@ class ProfileManager:
             silently double-count a Python wrapper and the native region
             inside it.
         """
-        from scope_profiler.fortran_trace import find_traces, read_trace
+        from scope_profiler.native_trace import find_traces, read_trace
 
         merged = dict(snapshot)
         for path in find_traces(traces):
@@ -593,7 +593,7 @@ class ProfileManager:
         cls,
         verbose: bool = True,
         return_results: bool = False,
-        fortran_traces=None,
+        native_traces=None,
     ):
         """
         Finalize profiling and write the run's data to a single output file.
@@ -633,14 +633,14 @@ class ProfileManager:
             written at all. Under MPI the per-rank data is gathered on rank 0,
             which is collective: every rank must pass the same value.
 
-        fortran_traces : path or sequence of paths, optional
+        native_traces : path or sequence of paths, optional
             Trace files (or directories of them) written by the Fortran region
             API in this same process, to fold into this run's output. Each
             rank picks up the trace matching its own rank, so a mixed-language
             MPI run still produces one file::
 
                 kernels.stop_profiling()            # Fortran sp_finalize()
-                ProfileManager.finalize(fortran_traces=".")
+                ProfileManager.finalize(native_traces=".")
 
             Call the Fortran side's ``sp_finalize()`` first: its trace has to
             exist by the time this reads it. A region name recorded on both
@@ -704,8 +704,8 @@ class ProfileManager:
         # the transport below needs no special case: by the time anything is
         # written or gathered, a mixed-language run looks like a single-
         # language one.
-        if fortran_traces is not None and need_payload:
-            snapshot = cls._merge_fortran_snapshot(snapshot, fortran_traces, config)
+        if native_traces is not None and need_payload:
+            snapshot = cls._merge_native_snapshot(snapshot, native_traces, config)
 
         payload = RankPayload(
             regions=snapshot,

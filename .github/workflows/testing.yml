@@ -101,6 +101,19 @@ jobs:
           make -C examples/fortran run-standalone BUILD_DIR=$PWD/example_build
           make -C examples/fortran run-mixed
 
+      # The C API shares the trace format with the Fortran one, and its clock
+      # selection differs per platform -- so build and run it on Linux too.
+      - name: Test C API (build, run, import)
+        run: |
+          cc --version
+          make -C src/scope_profiler/c run BUILD_DIR=$PWD/c_build
+          scope-profiler inspect c_build/profiling_data.h5
+
+      - name: Test C examples
+        run: |
+          make -C examples/c run-standalone BUILD_DIR=$PWD/c_example_build
+          make -C examples/c run-mixed
+
       # mpi4py is installed at this point (via the dev extra), so the only
       # difference between these runs is the launcher: MPI must be used when
       # started by mpirun and never touched otherwise.

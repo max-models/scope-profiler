@@ -17,11 +17,11 @@ Four subcommands:
 - ``scope-profiler inspect file.h5 [...]`` -- prints the run metadata and a
   per-region statistics table for merged HDF5 profiling output, without
   producing any plots. See ``scope_profiler.inspection``.
-- ``scope-profiler import-fortran traces/ -o out.h5`` -- converts the trace
+- ``scope-profiler import-native traces/ -o out.h5`` -- converts the trace
   files written by the Fortran region API
   (``scope_profiler/fortran/scope_profiler.f90``)
   into the usual HDF5 output, so a Fortran run post-processes exactly like a
-  Python one. See ``scope_profiler.fortran_trace``.
+  Python one. See ``scope_profiler.native_trace``.
 """
 
 import argparse
@@ -113,11 +113,11 @@ def _inspect(argv):
 
 
 def _import_fortran(argv):
-    """Handle ``scope-profiler import-fortran``: Fortran traces -> HDF5."""
-    from scope_profiler.fortran_trace import TRACE_SUFFIX, convert_traces
+    """Handle ``scope-profiler import-native``: Fortran traces -> HDF5."""
+    from scope_profiler.native_trace import TRACE_SUFFIX, convert_traces
 
     parser = argparse.ArgumentParser(
-        prog="scope-profiler import-fortran",
+        prog="scope-profiler import-native",
         description=(
             "Convert the trace files written by the Fortran region API into a "
             "standard scope-profiler HDF5 file."
@@ -157,8 +157,8 @@ def _import_fortran(argv):
     if args.merge is None:
         path = convert_traces(args.inputs, args.output, label=args.label)
     else:
-        from scope_profiler.fortran_trace import load_traces, write_results
         from scope_profiler.h5reader import read_h5
+        from scope_profiler.native_trace import load_traces, write_results
         from scope_profiler.results import merge_results
 
         path = write_results(
@@ -183,7 +183,7 @@ _COMMANDS = {
     "run": _run,
     "pproc": _pproc,
     "inspect": _inspect,
-    "import-fortran": _import_fortran,
+    "import-native": _import_fortran,
 }
 
 
@@ -214,10 +214,10 @@ def main(argv=None):
         "(see `scope-profiler inspect --help`)",
     )
     subparsers.add_parser(
-        "import-fortran",
+        "import-native",
         add_help=False,
         help="Convert Fortran API trace files into HDF5 "
-        "(see `scope-profiler import-fortran --help`)",
+        "(see `scope-profiler import-native --help`)",
     )
 
     if not argv:

@@ -12,7 +12,7 @@ The pieces:
 - ``kernels.start_profiling(prefix, rank)`` starts the Fortran side, and
   ``kernels.stop_profiling()`` writes its trace. That has to happen **before**
   ``ProfileManager.finalize()``, which reads it.
-- ``finalize(fortran_traces=...)`` folds the trace into this run's own output,
+- ``finalize(native_traces=...)`` folds the trace into this run's own output,
   so one ``profiling_data.h5`` holds everything.
 - Region names are prefixed ``python:`` and ``fortran:``. A name recorded by
   both sides is refused rather than silently double-counted.
@@ -87,7 +87,7 @@ def main():
     # Write the Fortran trace *before* finalizing, then fold it in.
     kernels.stop_profiling()
     results = ProfileManager.finalize(
-        verbose=False, return_results=True, fortran_traces=HERE
+        verbose=False, return_results=True, native_traces=HERE
     )
 
     results.print_summary(title=f"one profile, two languages ({size} rank(s))")

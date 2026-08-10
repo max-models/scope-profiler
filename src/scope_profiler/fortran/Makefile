@@ -35,7 +35,7 @@ $(EXAMPLE): $(EXAMPLE_SRC) $(MODULE_OBJ)
 
 run: $(EXAMPLE)
 	cd $(BUILD_DIR) && ./example
-	scope-profiler import-fortran $(BUILD_DIR) -o $(BUILD_DIR)/profiling_data.h5
+	scope-profiler import-native $(BUILD_DIR) -o $(BUILD_DIR)/profiling_data.h5
 
 clean:
 	rm -rf $(BUILD_DIR)
