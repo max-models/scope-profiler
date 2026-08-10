@@ -26,6 +26,40 @@ from scope_profiler.summary import (
     region_rows,
 )
 
+# Single source of truth for --plots: name -> (one-line description, is a
+# default plot). Everything else derives from this -- the argparse choices,
+# the --plots help text, and the default set used when --plots is omitted --
+# so the three can never drift out of sync.
+_PLOT_CATALOG: dict[str, tuple[str, bool]] = {
+    "gantt": ("per-rank timeline of every call", True),
+    "flame": ("reconstructed call-stack flame graph", True),
+    "durations": ("bar chart of duration statistics per region", True),
+    "timeseries": ("duration per call over wall-clock time", True),
+    "speedup": ("scaling across multiple files (2+ files only)", True),
+    "histogram": ("call-duration distribution per region", False),
+    "imbalance": ("per-rank duration comparison, to spot stragglers", False),
+    "likwid": ("one LIKWID hardware-counter metric (needs --likwid-metric)", False),
+}
+_DEFAULT_PLOTS = frozenset(
+    name for name, (_, is_default) in _PLOT_CATALOG.items() if is_default
+)
+
+
+def _plots_help() -> str:
+    """Build the --plots help text from :data:`_PLOT_CATALOG`."""
+    lines = [f"{name}: {desc}" for name, (desc, _) in _PLOT_CATALOG.items()]
+    default_names = ", ".join(sorted(_DEFAULT_PLOTS))
+    opt_in_names = ", ".join(
+        name for name in _PLOT_CATALOG if name not in _DEFAULT_PLOTS
+    )
+    return (
+        "Which plots to generate. "
+        + " | ".join(lines)
+        + f". Default (no --plots given): {default_names}. "
+        f"Opt-in only, pass explicitly to get them: {opt_in_names}. "
+        "Example: --plots gantt durations"
+    )
+
 
 def parse_ranks(spec: str, verbose: bool = False) -> list[int]:
     """Parse a rank specification string into a list of integers.
@@ -122,11 +156,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         type=str,
         help=(
-            "Directory where outputs are saved "
-            "(gantt_plot.png, flame_plot.png, durations_plot.png, "
-            "duration_timeseries_plot.png, histogram_plot.png, "
-            "imbalance_plot.png, optional speedup_plot.png, optional "
-            "likwid_plot.png, and region_statistics.json)"
+            "Directory where outputs are saved: one <name>_plot.png (or "
+            ".html for --backend plotly) per plot selected by --plots, plus "
+            "region_statistics.json."
         ),
     )
     parser.add_argument(
@@ -161,24 +193,9 @@ def build_parser() -> argparse.ArgumentParser:
         "-p",
         nargs="*",
         type=str,
-        choices=[
-            "gantt",
-            "flame",
-            "durations",
-            "timeseries",
-            "speedup",
-            "histogram",
-            "imbalance",
-            "likwid",
-        ],
+        choices=list(_PLOT_CATALOG),
         default=None,
-        help=(
-            "Which plots to generate (default: all except 'likwid', which "
-            "only runs when explicitly requested since it needs "
-            "--likwid-metric). Choices: gantt, flame, durations, timeseries, "
-            "speedup, histogram, imbalance, likwid. "
-            "Example: --plots gantt durations"
-        ),
+        help=_plots_help(),
     )
     parser.add_argument(
         "--metrics",
@@ -285,13 +302,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--export-data",
         action="store_true",
         help=(
-            "Also write the exact data behind each plot as a data file "
-            "(gantt_data, flame_data, durations_data, "
-            "duration_timeseries_data, histogram_data, imbalance_data, "
-            "optional speedup_data, optional likwid_data; "
-            "see --export-data-format for the file extension/content), so "
-            "charts can be reconstructed later without the original HDF5 "
-            "files. Requires -o/--output."
+            "Also write the exact data behind each selected plot as a data "
+            "file, one <name>_data file per plot selected by --plots (see "
+            "--export-data-format for the file extension/content), so charts "
+            "can be reconstructed later without the original HDF5 files. "
+            "Requires -o/--output."
         ),
     )
     parser.add_argument(
@@ -408,19 +423,9 @@ def main(argv: list[str] | None = None):
             "--export-speedscope."
         )
 
-    # 'likwid' is excluded from the implicit default: unlike every other plot
-    # it needs --likwid-metric to know what to draw, so it only runs when the
-    # user asks for it explicitly.
-    _ALL_PLOTS = {
-        "gantt",
-        "flame",
-        "durations",
-        "timeseries",
-        "speedup",
-        "histogram",
-        "imbalance",
-    }
-    selected_plots: set[str] = set(args.plots) if args.plots is not None else _ALL_PLOTS
+    selected_plots: set[str] = (
+        set(args.plots) if args.plots is not None else set(_DEFAULT_PLOTS)
+    )
 
     if "likwid" in selected_plots and not args.likwid_metric:
         parser.error("--plots likwid requires --likwid-metric.")
