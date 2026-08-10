@@ -32,8 +32,8 @@ pip install "scope-profiler[mpi]"
    Nothing is written per rank, so no shared filesystem is involved.
 
 3. **Finalize** --- `ProfileManager.finalize()` is collective. Each rank
-   other than 0 sends its recorded data to rank 0 over a private
-   duplicated communicator; rank 0 takes one rank at a time, writes it
+   other than 0 sends its recorded data to rank 0 as a single tagged
+   point-to-point message; rank 0 takes one rank at a time, writes it
    into the single output file as
    `rank<N>/regions/<name>/{start_times,end_times}`, and drops it before
    taking the next. Its peak memory is therefore one rank's data plus the
@@ -43,6 +43,12 @@ pip install "scope-profiler[mpi]"
    A rank that entered no region simply has no `rank<N>` group. And
    because every rank must reach `finalize()`, one that dies first leaves
    the job waiting rather than quietly dropping its data from the output.
+
+   The transport deliberately uses no MPI collective at all --- not even
+   `MPI_Comm_dup`. With `use_likwid=True` every rank reads its counters
+   back in a subprocess, and Open MPI does not support forking from a rank
+   using its shared-memory transport; a collective afterwards can segfault,
+   while point-to-point traffic survives.
 
 ## Example
 
