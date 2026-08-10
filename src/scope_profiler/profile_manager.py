@@ -449,6 +449,38 @@ class ProfileManager:
             )
 
     @classmethod
+    def _merge_fortran_snapshot(cls, snapshot: dict, traces, config) -> dict:
+        """Add this rank's Fortran regions to its snapshot.
+
+        Only the trace whose rank matches this one is taken, so under MPI every
+        rank folds in its own and the merge downstream is unchanged.
+
+        Raises
+        ------
+        ValueError
+            If a region name was recorded on both sides: merging them would
+            silently double-count a Python wrapper and the native region
+            inside it.
+        """
+        from scope_profiler.fortran_trace import find_traces, read_trace
+
+        merged = dict(snapshot)
+        for path in find_traces(traces):
+            rank, regions = read_trace(path)
+            if rank != config._rank:
+                continue
+            for name, arrays in regions.items():
+                if name in merged:
+                    raise ValueError(
+                        f"region {name!r} was recorded by both the Python API "
+                        f"and the Fortran trace {path}; merging them would "
+                        f"double-count it. Give the regions distinct names (a "
+                        f"'fortran:' prefix, say)."
+                    )
+                merged[name] = arrays
+        return merged
+
+    @classmethod
     def _collect_payloads(cls, payload, write_file: bool, need_results: bool):
         """Move every rank's payload to rank 0 and consume it there.
 
@@ -561,6 +593,7 @@ class ProfileManager:
         cls,
         verbose: bool = True,
         return_results: bool = False,
+        fortran_traces=None,
     ):
         """
         Finalize profiling and write the run's data to a single output file.
@@ -599,6 +632,19 @@ class ProfileManager:
             This works with ``deactivate_file_output=True``, where no file is
             written at all. Under MPI the per-rank data is gathered on rank 0,
             which is collective: every rank must pass the same value.
+
+        fortran_traces : path or sequence of paths, optional
+            Trace files (or directories of them) written by the Fortran region
+            API in this same process, to fold into this run's output. Each
+            rank picks up the trace matching its own rank, so a mixed-language
+            MPI run still produces one file::
+
+                kernels.stop_profiling()            # Fortran sp_finalize()
+                ProfileManager.finalize(fortran_traces=".")
+
+            Call the Fortran side's ``sp_finalize()`` first: its trace has to
+            exist by the time this reads it. A region name recorded on both
+            sides raises, rather than silently double-counting.
 
         Returns
         -------
@@ -652,6 +698,14 @@ class ProfileManager:
             likwid_results = config.collect_likwid_results(cls.get_all_regions().keys())
             if likwid_results:
                 likwid_environment = config.likwid_environment()
+
+        # 3. Fold in the regions a Fortran (or other native) part of this
+        # process recorded for itself. Each rank picks up its own trace, so
+        # the transport below needs no special case: by the time anything is
+        # written or gathered, a mixed-language run looks like a single-
+        # language one.
+        if fortran_traces is not None and need_payload:
+            snapshot = cls._merge_fortran_snapshot(snapshot, fortran_traces, config)
 
         payload = RankPayload(
             regions=snapshot,

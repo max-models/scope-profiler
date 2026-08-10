@@ -105,6 +105,18 @@ interchangeable.
 .. autofunction:: scope_profiler.h5reader.read_h5
 ```
 
+### Fortran traces
+
+Reading what the Fortran region API writes; see {doc}`guide/fortran`.
+
+```{eval-rst}
+.. autofunction:: scope_profiler.fortran_trace.load_traces
+.. autofunction:: scope_profiler.fortran_trace.convert_traces
+.. autofunction:: scope_profiler.fortran_trace.read_trace
+.. autofunction:: scope_profiler.fortran_trace.find_traces
+.. autofunction:: scope_profiler.fortran_trace.module_source_path
+```
+
 ### Region
 
 ```{eval-rst}
