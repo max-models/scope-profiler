@@ -140,6 +140,13 @@ def _import_fortran(argv):
         help="name for the run in summaries, charts and exports",
     )
     parser.add_argument(
+        "--merge",
+        metavar="PROFILE.h5",
+        default=None,
+        help="an existing profile to combine the traces with, for a run whose "
+        "Python side was profiled separately; region names must not clash",
+    )
+    parser.add_argument(
         "-q",
         "--quiet",
         action="store_true",
@@ -147,7 +154,23 @@ def _import_fortran(argv):
     )
     args = parser.parse_args(argv)
 
-    path = convert_traces(args.inputs, args.output, label=args.label)
+    if args.merge is None:
+        path = convert_traces(args.inputs, args.output, label=args.label)
+    else:
+        from scope_profiler.fortran_trace import load_traces, write_results
+        from scope_profiler.h5reader import read_h5
+        from scope_profiler.results import merge_results
+
+        path = write_results(
+            merge_results(
+                read_h5(args.merge),
+                load_traces(args.inputs),
+                label=args.label,
+                file_path=args.output,
+            ),
+            args.output,
+        )
+
     if not args.quiet:
         from scope_profiler.h5reader import read_h5
 

@@ -26,6 +26,13 @@ dependencies = [
   "numpy",
 ]
 
+optional-dependencies.fortran = [
+  # f2py's build backend, for building Fortran kernels into an extension
+  # module. The Fortran API itself needs only a compiler.
+  "meson",
+  "ninja",
+]
+
 optional-dependencies.likwid = [
   "pylikwid",
 ]
@@ -51,7 +58,7 @@ optional-dependencies.dev = [
   "black[jupyter]",
   "isort",
   "ruff",
-  "scope-profiler[docs,line-profiler,mpi,pproc,test]",
+  "scope-profiler[docs,fortran,line-profiler,mpi,pproc,test]",
 ]
 # https://medium.com/@pratikdomadiya123/build-project-documentation-quickly-with-the-sphinx-python-2a9732b66594
 optional-dependencies.docs = [

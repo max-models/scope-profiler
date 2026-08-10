@@ -113,6 +113,76 @@ That means Fortran and Python regions recorded in the same process tree share
 an epoch: a Python driver's timestamps and its Fortran kernels' timestamps are
 directly comparable, and can be read on one timeline.
 
+## Python calling Fortran
+
+The case this is really for: a Python driver over Fortran kernels, where both
+sides mark regions and you want **one** profile. Because the two APIs read the
+same clock, their timestamps are directly comparable — the Fortran regions nest
+inside the Python region that called them, and `call_stack()` sees a single
+tree spanning both languages.
+
+Build the kernels however you already do (f2py, ctypes, Cython, a hand-written
+extension), compiling `scope_profiler.f90` in alongside them:
+
+```bash
+python -m numpy.f2py -c scope_profiler.f90 kernels.f90 -m kernels
+```
+
+Then let `finalize()` fold the Fortran trace in:
+
+```python
+import kernels
+from scope_profiler import ProfileManager
+
+ProfileManager.setup(file_path="profiling_data.h5")
+kernels.kernels.start_profiling("trace", rank)   # the Fortran sp_init
+
+for step in range(nsteps):
+    with ProfileManager.profile_region("python:step"):
+        kernels.kernels.solve(n)                 # records its own regions
+
+kernels.kernels.stop_profiling()                 # sp_finalize writes the trace
+ProfileManager.finalize(fortran_traces=".")      # ...and it lands in the h5
+```
+
+```text
+  region               ranks  calls    total [s]      avg [s]
+  ------------------------------------------------------------
+  python:step              1      3   0.00148475  0.000494917
+  python:call_fortran      1      3   0.00147529  0.000491764
+  fortran:factorize        1      3  0.000860209  0.000286736
+  fortran:assemble         1      3  0.000593416  0.000197805
+```
+
+Two rules:
+
+- **Call the Fortran `sp_finalize()` first.** Its trace has to exist by the
+  time `finalize()` reads it.
+- **Give the two sides distinct region names.** A name recorded by both raises,
+  rather than silently double-counting a wrapper and the region inside it. A
+  `python:` / `fortran:` prefix is the simplest convention.
+
+Under MPI each rank folds in the trace matching its own rank, so pass the rank
+to `sp_init` and nothing else changes — the usual single output file comes out
+the other end.
+
+### Combining afterwards
+
+If the two halves were profiled separately, merge them after the fact:
+
+```bash
+scope-profiler import-fortran traces/ --merge python_only.h5 -o combined.h5
+```
+
+or in Python:
+
+```python
+from scope_profiler import merge_results, read_h5
+from scope_profiler.fortran_trace import load_traces
+
+combined = merge_results(read_h5("python_only.h5"), load_traces("traces/"))
+```
+
 ## The trace format
 
 `sp_finalize()` writes `<prefix>_rank<NNNNN>.spt`, a small binary file:

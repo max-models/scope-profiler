@@ -192,8 +192,10 @@ scope-profiler import-fortran . -o profiling_data.h5   # then pproc/inspect as u
 
 It is plain Fortran 2008 in one file: no preprocessor flags, no HDF5, no MPI,
 nothing to link beyond libc. Timestamps come from the same clock as Python's
-`time.perf_counter_ns()`, so Fortran and Python regions from one process tree
-land on a single timeline. See the
+`time.perf_counter_ns()`, so a Python driver and the Fortran kernels it calls
+land on a single timeline — `ProfileManager.finalize(fortran_traces=".")` folds
+them into one profile, with the Fortran regions nested inside the Python ones
+that called them. See the
 [Fortran guide](https://scope-profiler.readthedocs.io/en/latest/guide/fortran.html).
 
 ## Recursive profiling of nested calls

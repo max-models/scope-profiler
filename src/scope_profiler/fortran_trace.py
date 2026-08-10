@@ -275,14 +275,38 @@ def convert_traces(inputs, output_path, label: str | None = None):
     Path
         The file that was written.
     """
+    output_path = Path(output_path)
+    return write_results(
+        load_traces(inputs, label=label or output_path.stem), output_path
+    )
+
+
+def write_results(results, output_path):
+    """Write any :class:`ProfilingResults` out as a standard HDF5 file.
+
+    Goes through :class:`~scope_profiler.h5writer.ProfilingWriter`, so the
+    result has exactly the layout a Python run produces -- which is what lets
+    an imported (or merged) run be read back by
+    :func:`~scope_profiler.read_h5` and fed to every plot and exporter.
+
+    Parameters
+    ----------
+    results : ProfilingResults
+        The run to write.
+    output_path : str or Path
+        HDF5 file to create.
+
+    Returns
+    -------
+    Path
+        The file that was written.
+    """
     from scope_profiler.h5writer import ProfilingWriter
     from scope_profiler.profile_manager import RankPayload
 
     output_path = Path(output_path)
-    results = load_traces(inputs, label=label or output_path.stem)
 
-    # Rebuild per-rank payloads so the file is written by the same writer, and
-    # therefore has exactly the same layout, as a Python run's output.
+    # Regroup by rank: the writer emits one group per rank, as finalize() does.
     by_rank: dict = {}
     for region in results.get_regions():
         for rank, data in region.regions.items():
@@ -291,10 +315,15 @@ def convert_traces(inputs, output_path, label: str | None = None):
                 data.end_times_ns,
             )
 
+    likwid = results.get_likwid_regions()
     with ProfilingWriter(output_path, results.metadata) as writer:
-        for rank in sorted(by_rank):
+        for rank in sorted(set(by_rank) | set(likwid)):
             writer.write_rank(
                 rank,
-                RankPayload(regions=by_rank[rank], likwid={}, likwid_environment={}),
+                RankPayload(
+                    regions=by_rank.get(rank, {}),
+                    likwid=likwid.get(rank, {}),
+                    likwid_environment={},
+                ),
             )
     return output_path
