@@ -63,6 +63,7 @@ guide/postprocessing_cli
 guide/mpi
 guide/likwid
 guide/line_profiler
+guide/fortran
 guide/overhead
 ```
 

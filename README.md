@@ -168,6 +168,34 @@ The **LineProfiler** mode is intentionally heavier (~50 µs/call) because
 `line_profiler` traces every source line. It is designed for targeted
 debugging of individual functions, not for always-on use in hot loops.
 
+## Profiling Fortran code
+
+A Fortran module with the same region model ships with the package, so a
+Fortran program — or the Fortran kernels under a Python driver — can be
+profiled into the same output:
+
+```fortran
+use scope_profiler
+integer :: solve
+
+call sp_init("profile", rank=my_rank)
+solve = sp_region("solve")
+call sp_begin(solve)
+call solve_system()
+call sp_end(solve)
+call sp_finalize()
+```
+
+```bash
+scope-profiler import-fortran . -o profiling_data.h5   # then pproc/inspect as usual
+```
+
+It is plain Fortran 2008 in one file: no preprocessor flags, no HDF5, no MPI,
+nothing to link beyond libc. Timestamps come from the same clock as Python's
+`time.perf_counter_ns()`, so Fortran and Python regions from one process tree
+land on a single timeline. See the
+[Fortran guide](https://scope-profiler.readthedocs.io/en/latest/guide/fortran.html).
+
 ## Recursive profiling of nested calls
 
 You can profile nested Python calls from one decorated entrypoint:

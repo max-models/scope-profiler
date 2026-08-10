@@ -84,6 +84,16 @@ jobs:
           python3 src/scope_profiler/tests/examples.py
           scope-profiler pproc profiling_data.h5 --show -o figures
 
+      # The Fortran tests in the suite above already compile and run the
+      # module (gfortran ships on the runners). This adds the path a user
+      # actually takes: the shipped Makefile, then the importer, on a
+      # platform whose clock ids differ from macOS's.
+      - name: Test Fortran API (build, run, import)
+        run: |
+          gfortran --version
+          make -C src/scope_profiler/fortran run BUILD_DIR=$PWD/fortran_build
+          scope-profiler inspect fortran_build/profiling_data.h5
+
       # mpi4py is installed at this point (via the dev extra), so the only
       # difference between these runs is the launcher: MPI must be used when
       # started by mpirun and never touched otherwise.
