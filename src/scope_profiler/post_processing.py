@@ -7,10 +7,13 @@ import os
 from scope_profiler.h5reader import read_h5
 from scope_profiler.plotting_scripts import (
     DEFAULT_CMAP,
+    plot_duration_histogram,
     plot_duration_timeseries,
     plot_durations,
     plot_flame,
     plot_gantt,
+    plot_imbalance,
+    plot_likwid,
     plot_speedup,
     write_region_statistics_json,
 )
@@ -121,8 +124,9 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Directory where outputs are saved "
             "(gantt_plot.png, flame_plot.png, durations_plot.png, "
-            "duration_timeseries_plot.png, optional speedup_plot.png, "
-            "and region_statistics.json)"
+            "duration_timeseries_plot.png, histogram_plot.png, "
+            "imbalance_plot.png, optional speedup_plot.png, optional "
+            "likwid_plot.png, and region_statistics.json)"
         ),
     )
     parser.add_argument(
@@ -157,11 +161,22 @@ def build_parser() -> argparse.ArgumentParser:
         "-p",
         nargs="*",
         type=str,
-        choices=["gantt", "flame", "durations", "timeseries", "speedup"],
+        choices=[
+            "gantt",
+            "flame",
+            "durations",
+            "timeseries",
+            "speedup",
+            "histogram",
+            "imbalance",
+            "likwid",
+        ],
         default=None,
         help=(
-            "Which plots to generate (default: all). "
-            "Choices: gantt, flame, durations, timeseries, speedup. "
+            "Which plots to generate (default: all except 'likwid', which "
+            "only runs when explicitly requested since it needs "
+            "--likwid-metric). Choices: gantt, flame, durations, timeseries, "
+            "speedup, histogram, imbalance, likwid. "
             "Example: --plots gantt durations"
         ),
     )
@@ -176,6 +191,61 @@ def build_parser() -> argparse.ArgumentParser:
             "Which duration statistics to include in the durations bar plot "
             "(default: total). "
             "Example: --metrics avg min max total"
+        ),
+    )
+    parser.add_argument(
+        "--sort-by",
+        choices=["name", "avg", "min", "max", "total"],
+        default=None,
+        help=(
+            "Order the durations/likwid bar plots by this statistic, "
+            "descending ('name' sorts alphabetically instead). Default: keep "
+            "regions in the order they first appeared."
+        ),
+    )
+    parser.add_argument(
+        "--top-n",
+        type=int,
+        default=None,
+        help=(
+            "Keep only the top N regions (after --sort-by, or by descending "
+            "total duration if --sort-by is not given) in the durations and "
+            "likwid bar plots. Useful when a run has many regions."
+        ),
+    )
+    parser.add_argument(
+        "--log-scale",
+        action="store_true",
+        help=(
+            "Use a logarithmic y-axis on the durations, timeseries, "
+            "histogram, imbalance and likwid plots."
+        ),
+    )
+    parser.add_argument(
+        "--bins",
+        type=int,
+        default=30,
+        help="Number of bins for the duration histogram plot (default: 30).",
+    )
+    parser.add_argument(
+        "--imbalance-metric",
+        choices=["avg", "min", "max", "total"],
+        default="total",
+        help=(
+            "Per-call duration statistic plotted per rank by the imbalance "
+            "plot (default: total, i.e. total time a rank spent in the "
+            "region)."
+        ),
+    )
+    parser.add_argument(
+        "--likwid-metric",
+        type=str,
+        default=None,
+        help=(
+            "Name of the LIKWID derived metric or raw event to plot (e.g. "
+            "'CPI', 'MFlops/s'). Required when 'likwid' is in --plots. Run "
+            "with --summary on a LIKWID-enabled file to see the available "
+            "names, or inspect ProfilingResults.get_likwid_regions()."
         ),
     )
     parser.add_argument(
@@ -217,7 +287,8 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Also write the exact data behind each plot as a data file "
             "(gantt_data, flame_data, durations_data, "
-            "duration_timeseries_data, optional speedup_data; "
+            "duration_timeseries_data, histogram_data, imbalance_data, "
+            "optional speedup_data, optional likwid_data; "
             "see --export-data-format for the file extension/content), so "
             "charts can be reconstructed later without the original HDF5 "
             "files. Requires -o/--output."
@@ -337,8 +408,22 @@ def main(argv: list[str] | None = None):
             "--export-speedscope."
         )
 
-    _ALL_PLOTS = {"gantt", "flame", "durations", "timeseries", "speedup"}
+    # 'likwid' is excluded from the implicit default: unlike every other plot
+    # it needs --likwid-metric to know what to draw, so it only runs when the
+    # user asks for it explicitly.
+    _ALL_PLOTS = {
+        "gantt",
+        "flame",
+        "durations",
+        "timeseries",
+        "speedup",
+        "histogram",
+        "imbalance",
+    }
     selected_plots: set[str] = set(args.plots) if args.plots is not None else _ALL_PLOTS
+
+    if "likwid" in selected_plots and not args.likwid_metric:
+        parser.error("--plots likwid requires --likwid-metric.")
 
     if args.ranks:
         ranks = []
@@ -402,12 +487,18 @@ def main(argv: list[str] | None = None):
     durations_path = None
     timeseries_path = None
     speedup_path = None
+    histogram_path = None
+    imbalance_path = None
+    likwid_path = None
     statistics_path = None
     gantt_data_path = None
     flame_data_path = None
     durations_data_path = None
     timeseries_data_path = None
     speedup_data_path = None
+    histogram_data_path = None
+    imbalance_data_path = None
+    likwid_data_path = None
     prof_path = None
     prof_paths: list = []
     speedscope_path = None
@@ -431,6 +522,12 @@ def main(argv: list[str] | None = None):
                 )
             if len(runs) > 1 and "speedup" in selected_plots:
                 speedup_path = os.path.join(args.output, f"speedup_plot.{ext}")
+            if "histogram" in selected_plots:
+                histogram_path = os.path.join(args.output, f"histogram_plot.{ext}")
+            if "imbalance" in selected_plots:
+                imbalance_path = os.path.join(args.output, f"imbalance_plot.{ext}")
+            if "likwid" in selected_plots:
+                likwid_path = os.path.join(args.output, f"likwid_plot.{ext}")
         statistics_path = os.path.join(args.output, "region_statistics.json")
         if args.export_data:
             data_ext = args.export_data_format
@@ -450,6 +547,16 @@ def main(argv: list[str] | None = None):
                 speedup_data_path = os.path.join(
                     args.output, f"speedup_data.{data_ext}"
                 )
+            if "histogram" in selected_plots:
+                histogram_data_path = os.path.join(
+                    args.output, f"histogram_data.{data_ext}"
+                )
+            if "imbalance" in selected_plots:
+                imbalance_data_path = os.path.join(
+                    args.output, f"imbalance_data.{data_ext}"
+                )
+            if "likwid" in selected_plots:
+                likwid_data_path = os.path.join(args.output, f"likwid_data.{data_ext}")
         if args.export_prof:
             prof_path = os.path.join(args.output, "profile.prof")
         if args.export_speedscope:
@@ -518,7 +625,10 @@ def main(argv: list[str] | None = None):
                 exclude=args.exclude,
                 ranks=args.ranks,
                 metrics=args.metrics,
+                sort_by=args.sort_by,
+                top_n=args.top_n,
                 cmap=args.cmap,
+                log_scale=args.log_scale,
                 data_filepath=durations_data_path,
                 data_format=args.export_data_format,
                 backend=args.backend,
@@ -533,7 +643,56 @@ def main(argv: list[str] | None = None):
                 exclude=args.exclude,
                 ranks=args.ranks,
                 cmap=args.cmap,
+                log_scale=args.log_scale,
                 data_filepath=timeseries_data_path,
+                data_format=args.export_data_format,
+                backend=args.backend,
+            )
+
+        if "histogram" in selected_plots:
+            plot_duration_histogram(
+                profiling_data=runs,
+                filepath=histogram_path,
+                show=args.show,
+                include=args.include,
+                exclude=args.exclude,
+                ranks=args.ranks,
+                bins=args.bins,
+                cmap=args.cmap,
+                log_scale=args.log_scale,
+                data_filepath=histogram_data_path,
+                data_format=args.export_data_format,
+                backend=args.backend,
+            )
+
+        if "imbalance" in selected_plots:
+            plot_imbalance(
+                profiling_data=runs,
+                metric=args.imbalance_metric,
+                filepath=imbalance_path,
+                show=args.show,
+                include=args.include,
+                exclude=args.exclude,
+                ranks=args.ranks,
+                cmap=args.cmap,
+                log_scale=args.log_scale,
+                data_filepath=imbalance_data_path,
+                data_format=args.export_data_format,
+                backend=args.backend,
+            )
+
+        if "likwid" in selected_plots:
+            plot_likwid(
+                profiling_data=runs,
+                metric=args.likwid_metric,
+                filepath=likwid_path,
+                show=args.show,
+                include=args.include,
+                exclude=args.exclude,
+                ranks=args.ranks,
+                cmap=args.cmap,
+                log_scale=args.log_scale,
+                data_filepath=likwid_data_path,
                 data_format=args.export_data_format,
                 backend=args.backend,
             )
@@ -571,12 +730,18 @@ def main(argv: list[str] | None = None):
                 *durations_paths,
                 timeseries_path,
                 speedup_path,
+                histogram_path,
+                imbalance_path,
+                likwid_path,
                 statistics_path,
                 gantt_data_path,
                 flame_data_path,
                 durations_data_path,
                 timeseries_data_path,
                 speedup_data_path,
+                histogram_data_path,
+                imbalance_data_path,
+                likwid_data_path,
                 *prof_paths,
                 *speedscope_paths,
             )

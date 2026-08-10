@@ -6,15 +6,21 @@ import pytest
 
 from scope_profiler import read_h5
 from scope_profiler.call_stack import build_call_stack
+from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.plotting_scripts import (
     _duration_timeseries,
+    available_likwid_metrics,
+    plot_duration_histogram,
     plot_duration_timeseries,
     plot_durations,
     plot_flame,
     plot_gantt,
+    plot_imbalance,
+    plot_likwid,
     plot_speedup,
 )
 from scope_profiler.post_processing import main
+from scope_profiler.results import ProfilingResults
 
 
 def _write_sample_h5(path, rank_regions, metadata=None):
@@ -570,6 +576,217 @@ def test_plot_durations_export_data_json(tmp_path):
     assert set(payload["colors"]) == {"run_one", "run_two"}
     assert all(color.startswith("#") for color in payload["colors"].values())
     assert {bar["metric"] for bar in payload["bars"]} == {"avg", "min", "max", "total"}
+
+
+def test_plot_durations_sort_by_and_top_n(tmp_path):
+    file_path = tmp_path / "run.h5"
+    # "solve" totals more than "setup" for every rank, so descending sort by
+    # total puts it first regardless of region-declaration order.
+    _write_sample_h5(
+        file_path,
+        {
+            0: {"setup": ([0], [10]), "solve": ([20], [220])},
+            1: {"setup": ([0], [10]), "solve": ([20], [220])},
+        },
+    )
+    results = read_h5(file_path)
+    data_file = tmp_path / "durations_data.json"
+
+    plot_durations(
+        results,
+        filepath=tmp_path / "durations_plot.png",
+        show=False,
+        verbose=False,
+        metrics=["total"],
+        sort_by="total",
+        top_n=1,
+        data_filepath=data_file,
+        data_format="json",
+    )
+
+    payload = json.loads(data_file.read_text(encoding="utf-8"))
+    assert {bar["region"] for bar in payload["bars"]} == {"solve"}
+
+
+def test_plot_durations_log_scale_renders(tmp_path):
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(file_path, _sample_file_data(2, 10, 20))
+    results = read_h5(file_path)
+    out_file = tmp_path / "durations_plot.png"
+
+    plot_durations(
+        results,
+        filepath=out_file,
+        show=False,
+        verbose=False,
+        metrics=["total"],
+        log_scale=True,
+    )
+
+    assert out_file.stat().st_size > 0
+
+
+def test_plot_duration_histogram_export_data_json(tmp_path):
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(
+        file_path,
+        {
+            0: {"solve": ([0, 100, 200], [10, 130, 260])},
+            1: {"solve": ([0, 100], [15, 135])},
+        },
+    )
+    results = read_h5(file_path)
+    data_file = tmp_path / "histogram_data.json"
+
+    plot_duration_histogram(
+        results,
+        filepath=tmp_path / "histogram_plot.png",
+        show=False,
+        verbose=False,
+        bins=5,
+        data_filepath=data_file,
+        data_format="json",
+    )
+
+    assert (tmp_path / "histogram_plot.png").stat().st_size > 0
+    payload = json.loads(data_file.read_text(encoding="utf-8"))
+    assert {b["region"] for b in payload["bins"]} == {"solve"}
+    # Every recorded call lands in exactly one bin.
+    assert sum(b["count"] for b in payload["bins"]) == 5
+
+
+def test_plot_imbalance_export_data_json(tmp_path):
+    file_path = tmp_path / "run.h5"
+    # Rank 1 is twice as slow as rank 0 in "solve" -- an obvious imbalance.
+    _write_sample_h5(
+        file_path,
+        {
+            0: {"solve": ([0], [10])},
+            1: {"solve": ([0], [20])},
+        },
+    )
+    results = read_h5(file_path)
+    data_file = tmp_path / "imbalance_data.json"
+
+    plot_imbalance(
+        results,
+        metric="total",
+        filepath=tmp_path / "imbalance_plot.png",
+        show=False,
+        verbose=False,
+        data_filepath=data_file,
+        data_format="json",
+    )
+
+    assert (tmp_path / "imbalance_plot.png").stat().st_size > 0
+    payload = json.loads(data_file.read_text(encoding="utf-8"))
+    points = {point["rank"]: point["value_seconds"] for point in payload["points"]}
+    assert points[0] == pytest.approx(_seconds([10])[0])
+    assert points[1] == pytest.approx(_seconds([20])[0])
+    mean_values = {point["mean_over_ranks_seconds"] for point in payload["points"]}
+    assert len(mean_values) == 1
+    assert mean_values.pop() == pytest.approx(_seconds([15])[0])
+
+
+def _likwid_results(rank_values: dict[int, float]) -> ProfilingResults:
+    """Build a ProfilingResults with one LIKWID region ("solve") per rank."""
+    likwid = {
+        rank: {
+            "solve": LikwidRegionResult(
+                tag="solve",
+                group_name="FLOPS_DP",
+                cpus=[rank],
+                times=np.array([1.0]),
+                call_counts=np.array([1]),
+                metric_names=["MFlops/s"],
+                metrics=np.array([[value]]),
+            )
+        }
+        for rank, value in rank_values.items()
+    }
+    return ProfilingResults(
+        regions={},
+        num_ranks=len(rank_values),
+        likwid=likwid,
+        file_path="synthetic.h5",
+    )
+
+
+def test_available_likwid_metrics_lists_metrics_and_events():
+    results = _likwid_results({0: 500.0, 1: 550.0})
+
+    assert available_likwid_metrics(results) == ["MFlops/s"]
+
+
+def test_plot_likwid_export_data_json(tmp_path):
+    results = _likwid_results({0: 500.0, 1: 550.0})
+    data_file = tmp_path / "likwid_data.json"
+
+    plot_likwid(
+        results,
+        metric="MFlops/s",
+        filepath=tmp_path / "likwid_plot.png",
+        show=False,
+        verbose=False,
+        data_filepath=data_file,
+        data_format="json",
+    )
+
+    assert (tmp_path / "likwid_plot.png").stat().st_size > 0
+    payload = json.loads(data_file.read_text(encoding="utf-8"))
+    assert payload["metric"] == "MFlops/s"
+    values = {bar["series"]: bar["value"] for bar in payload["bars"]}
+    assert values["rank 0"] == pytest.approx(500.0)
+    assert values["rank 1"] == pytest.approx(550.0)
+
+
+def test_plot_likwid_without_likwid_data_raises(tmp_path):
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
+    results = read_h5(file_path)
+
+    with pytest.raises(ValueError, match="LIKWID"):
+        plot_likwid(results, metric="MFlops/s", show=False, verbose=False)
+
+
+def test_post_processing_cli_plots_likwid_requires_metric(tmp_path):
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
+
+    with pytest.raises(SystemExit):
+        main([str(file_path), "-o", str(tmp_path / "figures"), "--plots", "likwid"])
+
+
+def test_post_processing_cli_new_plots_and_options(tmp_path):
+    file_path = tmp_path / "run.h5"
+    output_dir = tmp_path / "figures"
+    _write_sample_h5(file_path, _sample_file_data(2, 10, 20))
+
+    main(
+        [
+            str(file_path),
+            "-o",
+            str(output_dir),
+            "--plots",
+            "durations",
+            "histogram",
+            "imbalance",
+            "--sort-by",
+            "total",
+            "--top-n",
+            "1",
+            "--log-scale",
+            "--bins",
+            "5",
+            "--imbalance-metric",
+            "avg",
+        ]
+    )
+
+    for name in ("durations_plot.png", "histogram_plot.png", "imbalance_plot.png"):
+        plot_file = output_dir / name
+        assert plot_file.exists()
+        assert plot_file.stat().st_size > 0
 
 
 def test_plot_speedup_export_data_json(tmp_path):
