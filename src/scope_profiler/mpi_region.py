@@ -87,7 +87,7 @@ class MPIRegion:
             region). Ranks without data for this region are skipped.
         origin : float, optional
             Seconds subtracted from every timestamp, so passing
-            ``reader.minimum_start_time`` yields a timeline starting at zero
+            ``results.minimum_start_time`` yields a timeline starting at zero
             (default: 0.0, i.e. raw timestamps).
 
         Returns

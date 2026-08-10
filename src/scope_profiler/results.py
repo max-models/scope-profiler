@@ -601,8 +601,8 @@ class ProfilingResults:
         --------
         ::
 
-            reader = read_h5("profiling_data.h5")
-            for rank, regions in reader.get_likwid_regions().items():
+            results = read_h5("profiling_data.h5")
+            for rank, regions in results.get_likwid_regions().items():
                 for tag, result in regions.items():
                     for name, values in zip(result.metric_names, result.metrics):
                         print(rank, tag, name, values)

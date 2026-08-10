@@ -16,13 +16,13 @@ def build_call_stack(regions: Iterable, rank: int, origin: float = 0.0) -> List[
     Parameters
     ----------
     regions : iterable of MPIRegion
-        Regions to include, e.g. ``reader.get_regions()``.
+        Regions to include, e.g. ``results.get_regions()``.
     rank : int
         Rank whose calls to reconstruct. Regions with no data for this rank
         are skipped.
     origin : float, optional
         Seconds subtracted from every timestamp, so passing
-        ``reader.minimum_start_time`` yields a timeline starting at zero
+        ``results.minimum_start_time`` yields a timeline starting at zero
         (default: 0.0, i.e. raw timestamps).
 
     Returns

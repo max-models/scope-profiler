@@ -341,8 +341,8 @@ def test_finalize_prints_the_shared_summary_table(tmp_path, capsys):
     printed = capsys.readouterr().out
 
     # Same header, columns and TOTAL row as ProfilingResults.print_summary().
-    reader = read_h5(file_path)
-    reader.print_summary(title=f"{file_path}  (1 rank(s))")
+    results = read_h5(file_path)
+    results.print_summary(title=f"{file_path}  (1 rank(s))")
     assert printed == capsys.readouterr().out
 
     assert "region" in printed and "std [s]" in printed
@@ -382,17 +382,17 @@ def test_setup_registers_the_run_start_time(tmp_path):
         sleep(0.001)
 
     ProfileManager.finalize(verbose=False)
-    reader = ProfileManager.read_results()
+    results = ProfileManager.read_results()
 
-    recorded = reader.metadata["start_time_ns"]
+    recorded = results.metadata["start_time_ns"]
     assert before <= recorded <= after
-    assert reader.run_start_time == pytest.approx(recorded / 1e9)
-    assert reader.time_origin == reader.run_start_time
+    assert results.run_start_time == pytest.approx(recorded / 1e9)
+    assert results.time_origin == results.run_start_time
 
     # The sleep before the first region is now visible as a startup gap.
-    startup = reader.minimum_start_time - reader.run_start_time
+    startup = results.minimum_start_time - results.run_start_time
     assert startup >= 0.01
-    assert reader.events()[0]["start"] == pytest.approx(startup)
+    assert results.events()[0]["start"] == pytest.approx(startup)
 
 
 def test_read_results_before_finalize_raises(tmp_path):
@@ -453,12 +453,12 @@ def test_finalize_writes_global_metadata(tmp_path):
         assert attrs["mpi_size"] == 1
         assert attrs["total_cores"] == attrs["mpi_size"] * attrs["omp_num_threads"]
 
-    reader = read_h5(file_path)
-    # The reader exposes the same fields, decoded into plain Python types
+    results = read_h5(file_path)
+    # read_h5 exposes the same fields, decoded into plain Python types
     # (list-valued attributes come back from h5py as numpy arrays).
-    assert reader.metadata.keys() == attrs.keys()
-    assert reader.metadata["hostname"] == attrs["hostname"]
-    assert isinstance(reader.metadata["modules"], list)
+    assert results.metadata.keys() == attrs.keys()
+    assert results.metadata["hostname"] == attrs["hostname"]
+    assert isinstance(results.metadata["modules"], list)
 
 
 def test_deactivate_file_output_writes_nothing(tmp_path):

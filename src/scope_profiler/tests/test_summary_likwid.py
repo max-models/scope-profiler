@@ -107,12 +107,12 @@ def test_filters_apply_to_the_counter_table(tmp_path):
         tmp_path / "d.h5",
         {0: [_result("solve"), _result("io")], 1: [_result("solve")]},
     )
-    reader = read_h5(path)
+    results = read_h5(path)
 
-    (table,) = likwid_tables(reader, include=["solve"], ranks=[0])
+    (table,) = likwid_tables(results, include=["solve"], ranks=[0])
     assert table["columns"] == ["solve"]
 
-    (table,) = likwid_tables(reader, exclude=["io"], ranks=[0])
+    (table,) = likwid_tables(results, exclude=["io"], ranks=[0])
     assert table["columns"] == ["solve"]
 
 

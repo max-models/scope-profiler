@@ -20,7 +20,7 @@ from pathlib import Path
 
 from scope_profiler.call_stack import build_call_stack
 from scope_profiler.plotting_scripts import (
-    _as_readers,
+    _as_runs,
     _filename_slug,
     _normalize_ranks,
     _unique_labels,
@@ -152,7 +152,7 @@ def export_prof(
     Parameters
     ----------
     profiling_data : ProfilingResults | Sequence[ProfilingResults]
-        The run(s) to export: file readers, in-memory results from
+        The run(s) to export: file runs, in-memory results from
         ``ProfileManager.finalize(return_results=True)``, or a mix.
     filepath : str | Path
         Base output path, e.g. ``figures/profile.prof``. A ``_rank<N>`` suffix
@@ -168,22 +168,22 @@ def export_prof(
     list[Path]
         The files written, in the order they were written.
     """
-    readers = _as_readers(profiling_data)
-    if not readers:
+    runs = _as_runs(profiling_data)
+    if not runs:
         # Not this rank's job; rank 0 writes the files.
         return []
 
     normalized_ranks = _normalize_ranks(ranks) if ranks is not None else [0]
 
-    labels = _unique_labels([reader.display_label for reader in readers])
+    labels = _unique_labels([run.display_label for run in runs])
 
     prepared = []
-    for label, reader in zip(labels, readers):
-        regions = reader.get_regions(include=include, exclude=exclude)
+    for label, run in zip(labels, runs):
+        regions = run.get_regions(include=include, exclude=exclude)
         if not regions:
             raise ValueError("No regions matched the selected filters.")
         for rank in normalized_ranks:
-            if rank < 0 or rank >= reader.num_ranks:
+            if rank < 0 or rank >= run.num_ranks:
                 raise ValueError(f"Invalid rank requested: {rank}")
             calls = build_call_stack(regions, rank)
             if calls:
@@ -194,7 +194,7 @@ def export_prof(
 
     base_path = Path(filepath)
     suffix = base_path.suffix or ".prof"
-    multiple_files = len(readers) > 1
+    multiple_files = len(runs) > 1
 
     written = []
     for label, rank, calls in prepared:

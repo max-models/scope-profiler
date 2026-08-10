@@ -127,10 +127,8 @@ def test_export_prof_per_rank_and_per_file(tmp_path):
     _write_sample_h5(file_one, {rank: _nested_file_data()[0] for rank in (0, 1)})
     _write_sample_h5(file_two, {rank: _nested_file_data()[0] for rank in (0, 1)})
 
-    readers = [read_h5(file_one), read_h5(file_two)]
-    written = export_prof(
-        readers, tmp_path / "profile.prof", ranks=[0, 1], verbose=False
-    )
+    runs = [read_h5(file_one), read_h5(file_two)]
+    written = export_prof(runs, tmp_path / "profile.prof", ranks=[0, 1], verbose=False)
 
     assert [path.name for path in written] == [
         "profile_run_one_rank0.prof",

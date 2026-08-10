@@ -39,7 +39,7 @@ def _write_sample_h5(path, rank_regions, metadata=None):
 
 
 def _seconds(nanoseconds):
-    """Timestamps are written in nanoseconds; the reader reports seconds."""
+    """Timestamps are written in nanoseconds; the API reports seconds."""
     return [value / 1e9 for value in nanoseconds]
 
 
@@ -61,10 +61,10 @@ def test_plot_durations_comparison(tmp_path):
     _write_sample_h5(file_one, _sample_file_data(2, 10, 20))
     _write_sample_h5(file_two, _sample_file_data(2, 20, 40))
 
-    readers = [read_h5(file_one), read_h5(file_two)]
+    runs = [read_h5(file_one), read_h5(file_two)]
 
     saved_paths = plot_durations(
-        readers,
+        runs,
         filepath=out_file,
         show=False,
         verbose=False,
@@ -89,9 +89,9 @@ def test_duration_timeseries_bands_span_ranks(tmp_path):
             1: {"solve": ([0, 100], [20, 140])},
         },
     )
-    reader = read_h5(file_path)
+    results = read_h5(file_path)
 
-    series = _duration_timeseries(reader.get_region("solve"), None, 0.0)
+    series = _duration_timeseries(results.get_region("solve"), None, 0.0)
 
     assert list(series["num_ranks"]) == [2, 2]
     assert series["min"] == pytest.approx(_seconds([10, 10]))
@@ -109,9 +109,9 @@ def test_duration_timeseries_handles_ragged_call_counts(tmp_path):
             1: {"solve": ([0], [20])},
         },
     )
-    reader = read_h5(file_path)
+    results = read_h5(file_path)
 
-    series = _duration_timeseries(reader.get_region("solve"), None, 0.0)
+    series = _duration_timeseries(results.get_region("solve"), None, 0.0)
 
     # The second call exists on rank 0 only, so its band collapses to a point.
     assert list(series["num_ranks"]) == [2, 1]
@@ -128,9 +128,9 @@ def test_duration_timeseries_respects_rank_selection(tmp_path):
             1: {"solve": ([0], [50])},
         },
     )
-    reader = read_h5(file_path)
+    results = read_h5(file_path)
 
-    series = _duration_timeseries(reader.get_region("solve"), [0], 0.0)
+    series = _duration_timeseries(results.get_region("solve"), [0], 0.0)
 
     assert list(series["num_ranks"]) == [1]
     assert series["min"] == pytest.approx(series["max"])
@@ -142,10 +142,10 @@ def test_plot_duration_timeseries_export_data_json(tmp_path):
     data_file = tmp_path / "duration_timeseries_data.json"
 
     _write_sample_h5(file_path, _sample_file_data(2, 10, 20))
-    reader = read_h5(file_path)
+    results = read_h5(file_path)
 
     plot_duration_timeseries(
-        reader,
+        results,
         filepath=tmp_path / "duration_timeseries_plot.png",
         show=False,
         verbose=False,
@@ -171,9 +171,9 @@ def test_plot_gantt_combined(tmp_path):
     _write_sample_h5(file_one, _sample_file_data(2, 10, 20))
     _write_sample_h5(file_two, _sample_file_data(2, 20, 40))
 
-    readers = [read_h5(file_one), read_h5(file_two)]
+    runs = [read_h5(file_one), read_h5(file_two)]
 
-    plot_gantt(readers, filepath=out_file, show=False, verbose=False)
+    plot_gantt(runs, filepath=out_file, show=False, verbose=False)
 
     assert out_file.exists()
     assert out_file.stat().st_size > 0
@@ -244,8 +244,8 @@ def test_build_call_stack_reconstructs_nesting(tmp_path):
     }
     file_path = tmp_path / "run.h5"
     _write_sample_h5(file_path, rank_regions)
-    reader = read_h5(file_path)
-    calls = build_call_stack(reader.get_regions(), rank=0)
+    results = read_h5(file_path)
+    calls = build_call_stack(results.get_regions(), rank=0)
 
     # Region.start_times converts stored nanoseconds to seconds.
     depths = {(call["name"], call["start"]): call["depth"] for call in calls}
@@ -269,14 +269,14 @@ def test_plot_flame_reconstructs_recursive_calls(tmp_path):
         }
     }
     _write_sample_h5(file_path, rank_regions)
-    reader = read_h5(file_path)
+    results = read_h5(file_path)
 
-    plot_flame(reader, filepath=out_file, show=False, verbose=False)
+    plot_flame(results, filepath=out_file, show=False, verbose=False)
 
     assert out_file.exists()
     assert out_file.stat().st_size > 0
 
-    calls = build_call_stack(reader.get_regions(), rank=0)
+    calls = build_call_stack(results.get_regions(), rank=0)
     assert len(calls) == 3
     depths = sorted(call["depth"] for call in calls)
     assert depths == [0, 1, 2]
@@ -292,13 +292,13 @@ def test_plot_speedup(tmp_path):
     _write_sample_h5(file_two, _sample_file_data(2, 50, 100))
     _write_sample_h5(file_four, _sample_file_data(4, 25, 50))
 
-    readers = [
+    runs = [
         read_h5(file_one),
         read_h5(file_two),
         read_h5(file_four),
     ]
 
-    plot_speedup(readers, filepath=out_file, show=False, verbose=False)
+    plot_speedup(runs, filepath=out_file, show=False, verbose=False)
 
     assert out_file.exists()
     assert out_file.stat().st_size > 0
@@ -320,7 +320,7 @@ def test_plot_speedup_x_field_omp_num_threads(tmp_path):
     _write_sample_h5(
         file_2, _sample_file_data(1, 50, 100), metadata={"omp_num_threads": 2}
     )
-    readers = [
+    runs = [
         read_h5(file_4),
         read_h5(file_1),
         read_h5(file_2),
@@ -328,7 +328,7 @@ def test_plot_speedup_x_field_omp_num_threads(tmp_path):
 
     data_file = tmp_path / "speedup_data.csv"
     plot_speedup(
-        readers,
+        runs,
         x_field="omp_num_threads",
         show=False,
         verbose=False,
@@ -358,11 +358,11 @@ def test_plot_speedup_x_field_total_cores(tmp_path):
         _sample_file_data(2, 25, 50),
         metadata={"omp_num_threads": 2},
     )
-    readers = [read_h5(file_small), read_h5(file_big)]
+    runs = [read_h5(file_small), read_h5(file_big)]
 
     data_file = tmp_path / "speedup_data.csv"
     plot_speedup(
-        readers,
+        runs,
         x_field="total_cores",
         show=False,
         verbose=False,
@@ -393,7 +393,7 @@ def test_plot_speedup_categorical_field_preserves_cli_order_and_skips_ideal_line
         _sample_file_data(1, 100, 200),
         metadata={"build_variant": "a_variant"},
     )
-    readers = [read_h5(file_b), read_h5(file_a)]
+    runs = [read_h5(file_b), read_h5(file_a)]
 
     captured = {}
     original_close = plt.close
@@ -409,7 +409,7 @@ def test_plot_speedup_categorical_field_preserves_cli_order_and_skips_ideal_line
     # A figure is only built when the plot is actually saved or shown, so
     # write one out to inspect the axes maxplotlib produced.
     plot_speedup(
-        readers,
+        runs,
         x_field="build_variant",
         filepath=str(tmp_path / "speedup.png"),
         show=False,
@@ -425,10 +425,10 @@ def test_plot_speedup_unknown_metadata_field_raises(tmp_path):
     file_b = tmp_path / "b.h5"
     _write_sample_h5(file_a, _sample_file_data(1, 10, 20))
     _write_sample_h5(file_b, _sample_file_data(2, 5, 10))
-    readers = [read_h5(file_a), read_h5(file_b)]
+    runs = [read_h5(file_a), read_h5(file_b)]
 
     with pytest.raises(ValueError, match="not found"):
-        plot_speedup(readers, x_field="nonexistent_field", show=False, verbose=False)
+        plot_speedup(runs, x_field="nonexistent_field", show=False, verbose=False)
 
 
 def test_post_processing_cli_supports_multiple_files(tmp_path):
@@ -507,10 +507,10 @@ def test_plot_gantt_export_data_json(tmp_path):
     data_file = tmp_path / "gantt_data.json"
 
     _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
-    reader = read_h5(file_path)
+    results = read_h5(file_path)
 
     plot_gantt(
-        reader,
+        results,
         show=False,
         verbose=False,
         data_filepath=data_file,
@@ -530,10 +530,10 @@ def test_plot_flame_export_data_json(tmp_path):
 
     rank_regions = {0: {"fib": ([0, 10, 60], [100, 90, 80])}}
     _write_sample_h5(file_path, rank_regions)
-    reader = read_h5(file_path)
+    results = read_h5(file_path)
 
     plot_flame(
-        reader,
+        results,
         show=False,
         verbose=False,
         data_filepath=data_file,
@@ -553,10 +553,10 @@ def test_plot_durations_export_data_json(tmp_path):
 
     _write_sample_h5(file_one, _sample_file_data(2, 10, 20))
     _write_sample_h5(file_two, _sample_file_data(2, 20, 40))
-    readers = [read_h5(file_one), read_h5(file_two)]
+    runs = [read_h5(file_one), read_h5(file_two)]
 
     plot_durations(
-        readers,
+        runs,
         filepath=tmp_path / "durations_plot.png",
         show=False,
         verbose=False,
@@ -579,10 +579,10 @@ def test_plot_speedup_export_data_json(tmp_path):
 
     _write_sample_h5(file_one, _sample_file_data(1, 100, 200))
     _write_sample_h5(file_two, _sample_file_data(2, 50, 100))
-    readers = [read_h5(file_one), read_h5(file_two)]
+    runs = [read_h5(file_one), read_h5(file_two)]
 
     plot_speedup(
-        readers,
+        runs,
         show=False,
         verbose=False,
         data_filepath=data_file,

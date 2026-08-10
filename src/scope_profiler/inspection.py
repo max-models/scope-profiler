@@ -49,11 +49,11 @@ _DEFAULT_VALUE_WIDTH = 96
 _ELLIPSIS = " […]"
 
 
-def _time_span(reader) -> float | None:
+def _time_span(results) -> float | None:
     """Wall-clock seconds of the run, or None when nothing was timed."""
-    if not any(region.has_timing for region in reader.get_regions()):
+    if not any(region.has_timing for region in results.get_regions()):
         return None
-    return reader.time_span
+    return results.time_span
 
 
 def _clip(value: str, full: bool) -> str:
@@ -159,33 +159,35 @@ def inspect_file(
         Where to write (default: stdout).
     """
     stream = sys.stdout if stream is None else stream
-    reader = read_h5(file_path)
+    results = read_h5(file_path)
 
-    path = Path(reader.file_path)
+    path = Path(results.file_path)
     size_mb = path.stat().st_size / 1024**2
-    span = _time_span(reader)
+    span = _time_span(results)
     headline = (
-        f"{reader.num_ranks} rank(s), {len(reader.get_regions())} region(s), "
+        f"{results.num_ranks} rank(s), {len(results.get_regions())} region(s), "
         f"{size_mb:.2f} MiB"
     )
     if span is not None:
         headline += f", {span:.6g} s wall clock"
 
     print("=" * 78, file=stream)
-    if reader.label is not None:
-        print(f"{reader.label} - {path}", file=stream)
+    if results.label is not None:
+        print(f"{results.label} - {path}", file=stream)
     else:
         print(path, file=stream)
     print(headline, file=stream)
     print("=" * 78 + "\n", file=stream)
 
     if show_metadata:
-        _print_metadata(reader.metadata, full=full, stream=stream)
+        _print_metadata(results.metadata, full=full, stream=stream)
 
     if not show_regions:
         return
 
-    rows = region_rows(reader, include=include, exclude=exclude, ranks=ranks, sort=sort)
+    rows = region_rows(
+        results, include=include, exclude=exclude, ranks=ranks, sort=sort
+    )
     print_region_table(rows, title=f"Regions ({len(rows)})", stream=stream)
 
 
@@ -229,13 +231,13 @@ def collect_file_metadata(
 
     files = []
     for item in profiling_data:
-        reader = item if isinstance(item, ProfilingResults) else read_h5(item)
+        results = item if isinstance(item, ProfilingResults) else read_h5(item)
         files.append(
             {
-                "file_path": str(Path(reader.file_path).resolve()),
-                "num_ranks": reader.num_ranks,
+                "file_path": str(Path(results.file_path).resolve()),
+                "num_ranks": results.num_ranks,
                 "metadata": {
-                    key: _json_safe(value) for key, value in reader.metadata.items()
+                    key: _json_safe(value) for key, value in results.metadata.items()
                 },
             }
         )

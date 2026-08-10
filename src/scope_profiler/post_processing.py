@@ -45,7 +45,7 @@ def parse_ranks(spec: str, verbose: bool = False) -> list[int]:
 
 
 def print_summary(
-    reader,
+    results,
     include=None,
     exclude=None,
     ranks=None,
@@ -61,7 +61,7 @@ def print_summary(
 
     Parameters
     ----------
-    reader : ProfilingResults
+    results : ProfilingResults
         The run to summarize.
     include, exclude : list of str or str, optional
         Regex patterns selecting which regions to report.
@@ -73,14 +73,16 @@ def print_summary(
     stream : file-like, optional
         Where to write (default: stdout).
     """
-    rows = region_rows(reader, include=include, exclude=exclude, ranks=ranks, sort=sort)
+    rows = region_rows(
+        results, include=include, exclude=exclude, ranks=ranks, sort=sort
+    )
     print_region_table(
         rows,
-        title=reader.default_title(),
+        title=results.default_title(),
         stream=stream,
     )
     print_likwid_tables(
-        reader, include=include, exclude=exclude, ranks=ranks, stream=stream
+        results, include=include, exclude=exclude, ranks=ranks, stream=stream
     )
 
 
@@ -344,30 +346,30 @@ def main(argv: list[str] | None = None):
             ranks.extend(parse_ranks(spec))
         args.ranks = sorted(set(ranks))
 
-    readers = [read_h5(file_path) for file_path in args.files]
+    runs = [read_h5(file_path) for file_path in args.files]
 
-    # Applied to the readers rather than passed down per plot: every output --
+    # Applied to the runs rather than passed down per plot: every output --
     # chart legends and panel titles, the summary headings, the JSON
     # statistics, the exported filenames -- names a run through
     # ProfilingResults.display_label, so overriding it here covers all of them
     # at once. The files themselves are not modified.
     if args.label is not None:
-        if len(args.label) != len(readers):
+        if len(args.label) != len(runs):
             parser.error(
                 f"--label given {len(args.label)} time(s) for "
-                f"{len(readers)} file(s); pass one per file, in order."
+                f"{len(runs)} file(s); pass one per file, in order."
             )
-        for reader, label in zip(readers, args.label):
-            reader.label = label
+        for run, label in zip(runs, args.label):
+            run.label = label
 
     if args.summary:
         # Before the timing check below: a file with nothing recorded still
         # has a perfectly good (if empty) summary table.
-        for index, reader in enumerate(readers):
+        for index, run in enumerate(runs):
             if index:
                 print()
             print_summary(
-                reader,
+                run,
                 include=args.include,
                 exclude=args.exclude,
                 ranks=args.ranks,
@@ -383,14 +385,14 @@ def main(argv: list[str] | None = None):
     # plotting code.
     if not any(
         len(region[rank].durations)
-        for reader in readers
-        for region in reader.get_regions()
+        for run in runs
+        for region in run.get_regions()
         for rank in region.regions
     ):
         print("No timing data found — these files recorded no calls.\n")
-        for reader in readers:
-            print(f"{reader.file_path}:")
-            for region in reader.get_regions():
+        for run in runs:
+            print(f"{run.file_path}:")
+            for region in run.get_regions():
                 total = sum(r.num_calls for r in region.regions.values())
                 print(f"  {region.name}: {total} calls")
         return
@@ -427,7 +429,7 @@ def main(argv: list[str] | None = None):
                 timeseries_path = os.path.join(
                     args.output, f"duration_timeseries_plot.{ext}"
                 )
-            if len(readers) > 1 and "speedup" in selected_plots:
+            if len(runs) > 1 and "speedup" in selected_plots:
                 speedup_path = os.path.join(args.output, f"speedup_plot.{ext}")
         statistics_path = os.path.join(args.output, "region_statistics.json")
         if args.export_data:
@@ -444,7 +446,7 @@ def main(argv: list[str] | None = None):
                 timeseries_data_path = os.path.join(
                     args.output, f"duration_timeseries_data.{data_ext}"
                 )
-            if len(readers) > 1 and "speedup" in selected_plots:
+            if len(runs) > 1 and "speedup" in selected_plots:
                 speedup_data_path = os.path.join(
                     args.output, f"speedup_data.{data_ext}"
                 )
@@ -460,7 +462,7 @@ def main(argv: list[str] | None = None):
 
     if args.export_prof:
         prof_paths = export_prof(
-            profiling_data=readers,
+            profiling_data=runs,
             filepath=prof_path,
             ranks=args.ranks,
             include=args.include,
@@ -470,7 +472,7 @@ def main(argv: list[str] | None = None):
 
     if args.export_speedscope:
         speedscope_paths = export_speedscope(
-            profiling_data=readers,
+            profiling_data=runs,
             filepath=speedscope_path,
             ranks=args.ranks,
             include=args.include,
@@ -481,7 +483,7 @@ def main(argv: list[str] | None = None):
     if render_plots:
         if "gantt" in selected_plots:
             plot_gantt(
-                profiling_data=readers,
+                profiling_data=runs,
                 filepath=gantt_path,
                 show=args.show,
                 include=args.include,
@@ -495,7 +497,7 @@ def main(argv: list[str] | None = None):
 
         if "flame" in selected_plots:
             plot_flame(
-                profiling_data=readers,
+                profiling_data=runs,
                 filepath=flame_path,
                 show=args.show,
                 include=args.include,
@@ -509,7 +511,7 @@ def main(argv: list[str] | None = None):
 
         if "durations" in selected_plots:
             durations_paths = plot_durations(
-                profiling_data=readers,
+                profiling_data=runs,
                 filepath=durations_path,
                 show=args.show,
                 include=args.include,
@@ -524,7 +526,7 @@ def main(argv: list[str] | None = None):
 
         if "timeseries" in selected_plots:
             plot_duration_timeseries(
-                profiling_data=readers,
+                profiling_data=runs,
                 filepath=timeseries_path,
                 show=args.show,
                 include=args.include,
@@ -536,9 +538,9 @@ def main(argv: list[str] | None = None):
                 backend=args.backend,
             )
 
-        if len(readers) > 1 and "speedup" in selected_plots:
+        if len(runs) > 1 and "speedup" in selected_plots:
             plot_speedup(
-                profiling_data=readers,
+                profiling_data=runs,
                 x_field=args.x_field,
                 ranks=args.ranks,
                 filepath=speedup_path,
@@ -553,7 +555,7 @@ def main(argv: list[str] | None = None):
 
     if statistics_path:
         write_region_statistics_json(
-            profiling_data=readers,
+            profiling_data=runs,
             filepath=statistics_path,
             ranks=args.ranks,
             include=args.include,
