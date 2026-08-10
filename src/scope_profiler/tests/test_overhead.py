@@ -31,9 +31,10 @@ from scope_profiler import ProfileManager
 from scope_profiler.region_profiler import DisabledProfileRegion, TimeOnlyProfileRegion
 
 # Per-call budgets in nanoseconds, by profiling mode. Measured on an idle
-# laptop (2026): ~100 ns disabled, ~360 ns with timestamps -- of which two
-# perf_counter_ns() reads are ~90 ns, so most of the rest is the `with`
-# statement itself.
+# laptop (2026): ~100 ns disabled, ~310 ns with timestamps. Of that, ~109 ns
+# is the `with` protocol on Python methods and ~66 ns is the two
+# perf_counter_ns() reads -- half the cost is out of this code's reach, which
+# is why the remaining budget is spent carefully (see BaseProfileRegion).
 #
 # The budgets sit ~10x above that, which is what a heavily contended machine
 # needs: under eight competing CPU-bound processes the same measurement rises

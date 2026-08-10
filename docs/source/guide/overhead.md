@@ -25,7 +25,7 @@ python examples/benchmark_overhead.py --show   # display interactively
 | Region type      | Overhead / call |
 | ---------------- | --------------: |
 | **Disabled**     |        ~0.1 µs  |
-| **TimeOnly**     |       ~0.45 µs  |
+| **TimeOnly**     |       ~0.33 µs  |
 | **LineProfiler** |        ~50 µs   |
 
 _(Numbers measured on an Apple M-series CPU; absolute values will vary,
@@ -34,7 +34,7 @@ but the relative ordering is stable.)_
 ## What this means for HPC
 
 The **TimeOnly** mode — the default and most commonly used — adds
-roughly **0.45 µs** per instrumented call. In practice:
+roughly **0.33 µs** per instrumented call. In practice:
 
 - A 64×64 matrix multiply takes ~36 µs, so the overhead is **< 2 %**.
 - A 256×256 matrix multiply takes ~780 µs, giving **< 0.1 %** overhead.
@@ -55,9 +55,11 @@ always-on use in hot loops.
 
 ## Where the time goes
 
-A recorded call is two `perf_counter_ns()` reads (~45 ns each) plus a slot
-reservation; the rest is the cost of the `with` statement or the decorator
-wrapper itself. Nothing touches the filesystem: the timestamps accumulate in a
+A recorded call is two `perf_counter_ns()` reads (~33 ns each from Python)
+plus a slot reservation; the rest is the cost of the `with` statement or the
+decorator wrapper itself. Those two together are about half the total and are
+out of the library's hands: an empty `with` on a Python object already costs
+~109 ns, and on a C-implemented one ~76 ns. Nothing touches the filesystem: the timestamps accumulate in a
 numpy buffer that doubles when it fills, and the whole buffer is written once,
 at `finalize()`. Writing is therefore not part of the per-call cost at all —
 `deactivate_file_output` changes what happens at the end of the run, not what

@@ -157,7 +157,7 @@ against a bare function call:
 ![Profiling overhead by region type](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/benchmark_overhead.png)
 
 The default **TimeOnly** mode — nanosecond timestamps for every call — adds
-roughly **0.45 µs** per instrumented call.
+roughly **0.33 µs** per instrumented call.
 
 Profiling can also be fully deactivated at setup time
 (`deactivate_profiling=True`) to reduce the overhead to ~0.1 µs — barely

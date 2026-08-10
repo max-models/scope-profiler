@@ -64,11 +64,13 @@ class BaseProfileRegion:
         "config",
         "start_times",
         "end_times",
-        "num_calls",
         "ptr",
         "buffer_limit",
         "capacity",
+        "_completed",
         "_scope_ptr_stack",
+        "_push_scope",
+        "_pop_scope",
     )
 
     # Subclasses that never write timestamps set this to False so no per-region
@@ -88,7 +90,10 @@ class BaseProfileRegion:
         """
         self.region_name = region_name
         self.config = config
-        self.num_calls = 0
+        # Calls already copied out by an earlier finalize(); `num_calls` adds
+        # this to `ptr` rather than being incremented on every entry, which
+        # takes one attribute write out of the hot path.
+        self._completed = 0
 
         # Preallocate buffers (skipped entirely when no timing is recorded).
         # `buffer_limit` is the *initial* capacity: `_grow` doubles it as
@@ -116,7 +121,12 @@ class BaseProfileRegion:
         # the outer call exits reserves its own slot instead of clobbering
         # the outer one. Only the context-manager form needs the stack; the
         # decorator form keeps its slot in the wrapper's local scope.
+        #
+        # The push/pop are bound once here: resolving `self._scope_ptr_stack`
+        # and then its `.append`/`.pop` costs ~10 ns each, per call, forever.
         self._scope_ptr_stack = []
+        self._push_scope = self._scope_ptr_stack.append
+        self._pop_scope = self._scope_ptr_stack.pop
 
     def _grow(self) -> None:
         """Double the timestamp buffers, preserving already-recorded slots.
@@ -159,6 +169,16 @@ class BaseProfileRegion:
         self.end_times[self.ptr] = end
         self.ptr += 1
 
+    @property
+    def num_calls(self) -> int:
+        """Times this region was entered, for the lifetime of the process.
+
+        Derived rather than counted: the slots in use (``ptr``) plus whatever
+        earlier finalize() calls already copied out. Keeping it out of
+        ``__enter__`` removes an attribute write from every recorded call.
+        """
+        return self._completed + self.ptr
+
     def get_durations_numpy(self) -> np.ndarray:
         """Return durations (end - start) for buffered entries as a NumPy array."""
         return self.end_times[: self.ptr] - self.start_times[: self.ptr]
@@ -180,6 +200,7 @@ class BaseProfileRegion:
         """
         if self._scope_ptr_stack:
             return
+        self._completed += self.ptr
         self.ptr = 0
 
     def get_end_times_numpy(self) -> np.ndarray:
@@ -234,14 +255,13 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            self.num_calls += 1
             # Reserve this call's slot before invoking `func`, so a
             # recursive call re-entering this region gets its own slot
             # instead of overwriting this one.
-            if self.ptr >= self.capacity:
-                self._grow()
             scope_ptr = self.ptr
-            self.ptr += 1
+            if scope_ptr >= self.capacity:
+                self._grow()
+            self.ptr = scope_ptr + 1
             start = perf_counter_ns()
             try:
                 return func(*args, **kwargs)
@@ -253,20 +273,18 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
         return wrapper
 
     def __enter__(self):
-        """Reserve this scope's slot, record start time, and increment call count."""
-        if self.ptr >= self.capacity:
+        """Reserve this scope's slot and record the start time."""
+        slot = self.ptr
+        if slot >= self.capacity:
             self._grow()
-        scope_ptr = self.ptr
-        self.ptr += 1
-        self._scope_ptr_stack.append(scope_ptr)
-        self.start_times[scope_ptr] = perf_counter_ns()
-        self.num_calls += 1
+        self.ptr = slot + 1
+        self._push_scope(slot)
+        self.start_times[slot] = perf_counter_ns()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         """Record the end time at this scope's reserved slot."""
-        scope_ptr = self._scope_ptr_stack.pop()
-        self.end_times[scope_ptr] = perf_counter_ns()
+        self.end_times[self._pop_scope()] = perf_counter_ns()
 
 
 # Full region: time + LIKWID
@@ -291,14 +309,13 @@ class FullProfileRegion(BaseProfileRegion):
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            self.num_calls += 1
             # Reserve this call's slot before invoking `func`, so a
             # recursive call re-entering this region gets its own slot
             # instead of overwriting this one.
-            if self.ptr >= self.capacity:
-                self._grow()
             scope_ptr = self.ptr
-            self.ptr += 1
+            if scope_ptr >= self.capacity:
+                self._grow()
+            self.ptr = scope_ptr + 1
             start = perf_counter_ns()
             self.likwid_marker_start(self.region_name)
             try:
@@ -313,21 +330,19 @@ class FullProfileRegion(BaseProfileRegion):
 
     def __enter__(self):
         """Reserve this scope's slot, record start time, and start LIKWID region."""
-        self.num_calls += 1
-        if self.ptr >= self.capacity:
+        slot = self.ptr
+        if slot >= self.capacity:
             self._grow()
-        scope_ptr = self.ptr
-        self.ptr += 1
-        self._scope_ptr_stack.append(scope_ptr)
-        self.start_times[scope_ptr] = perf_counter_ns()
+        self.ptr = slot + 1
+        self._push_scope(slot)
+        self.start_times[slot] = perf_counter_ns()
         self.likwid_marker_start(self.region_name)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         """Record the end time at this scope's slot and stop the LIKWID region."""
         self.likwid_marker_stop(self.region_name)
-        scope_ptr = self._scope_ptr_stack.pop()
-        self.end_times[scope_ptr] = perf_counter_ns()
+        self.end_times[self._pop_scope()] = perf_counter_ns()
 
 
 # Line profiler region: time + line_profiler
@@ -358,14 +373,13 @@ class LineProfilerRegion(BaseProfileRegion):
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            self.num_calls += 1
             # Reserve this call's slot before invoking `func`, so a
             # recursive call re-entering this region gets its own slot
             # instead of overwriting this one.
-            if self.ptr >= self.capacity:
-                self._grow()
             scope_ptr = self.ptr
-            self.ptr += 1
+            if scope_ptr >= self.capacity:
+                self._grow()
+            self.ptr = scope_ptr + 1
             start = perf_counter_ns()
             self._line_profiler.enable_by_count()
             try:
@@ -380,21 +394,19 @@ class LineProfilerRegion(BaseProfileRegion):
 
     def __enter__(self):
         """Reserve this scope's slot, record start time, and enable line profiler."""
-        self.num_calls += 1
-        if self.ptr >= self.capacity:
+        slot = self.ptr
+        if slot >= self.capacity:
             self._grow()
-        scope_ptr = self.ptr
-        self.ptr += 1
-        self._scope_ptr_stack.append(scope_ptr)
-        self.start_times[scope_ptr] = perf_counter_ns()
+        self.ptr = slot + 1
+        self._push_scope(slot)
+        self.start_times[slot] = perf_counter_ns()
         self._line_profiler.enable_by_count()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         """Disable the line profiler and record the end time at this scope's slot."""
         self._line_profiler.disable_by_count()
-        scope_ptr = self._scope_ptr_stack.pop()
-        self.end_times[scope_ptr] = perf_counter_ns()
+        self.end_times[self._pop_scope()] = perf_counter_ns()
 
     def add_function(self, func) -> None:
         """Register a function for line-by-line profiling."""
