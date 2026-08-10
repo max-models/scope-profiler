@@ -4,7 +4,6 @@ import functools
 from time import perf_counter_ns
 from typing import TYPE_CHECKING
 
-import h5py
 import numpy as np
 
 from scope_profiler.profile_config import ProfilingConfig
@@ -55,9 +54,9 @@ _EMPTY_TIMES.flags.writeable = False
 class BaseProfileRegion:
     """Base class providing shared profiling logic.
 
-    Handles start/end time buffering, call counting, and writing the recorded
-    timestamps to HDF5. The buffers grow on demand and are written out once,
-    at the end of the run.
+    Handles start/end time buffering and call counting. The buffers grow on
+    demand and are copied out once, at the end of the run, by
+    ``ProfileManager.finalize()`` -- regions never touch HDF5 themselves.
     """
 
     __slots__ = (
@@ -69,8 +68,6 @@ class BaseProfileRegion:
         "ptr",
         "buffer_limit",
         "capacity",
-        "group_path",
-        "local_file_path",
         "_scope_ptr_stack",
     )
 
@@ -121,10 +118,6 @@ class BaseProfileRegion:
         # decorator form keeps its slot in the wrapper's local scope.
         self._scope_ptr_stack = []
 
-        # Setu p paths
-        self.group_path = f"regions/{self.region_name}"
-        self.local_file_path = self.config._local_file_path
-
     def _grow(self) -> None:
         """Double the timestamp buffers, preserving already-recorded slots.
 
@@ -166,35 +159,14 @@ class BaseProfileRegion:
         self.end_times[self.ptr] = end
         self.ptr += 1
 
-    def write_to_disk(self):
-        """Write the recorded start/end times to the per-rank HDF5 file.
-
-        Called once, at the end of the run. Because the final length is known
-        by then, the datasets are created contiguous and exactly sized rather
-        than chunked and resizable, which keeps sparse regions small on disk.
-        """
-        if self.ptr == 0:
-            return
-
-        with h5py.File(self.config._local_file_path, "a") as f:
-            grp = f.require_group(self.group_path)
-            # Never fail on a dataset that is already there: writing twice into
-            # the same per-rank file (a second write_to_disk() outside the
-            # finalize() path) should replace the data, not raise from h5py.
-            for name in ("start_times", "end_times"):
-                if name in grp:
-                    del grp[name]
-            grp.create_dataset("start_times", data=self.start_times[: self.ptr])
-            grp.create_dataset("end_times", data=self.end_times[: self.ptr])
-
     def get_durations_numpy(self) -> np.ndarray:
         """Return durations (end - start) for buffered entries as a NumPy array."""
         return self.end_times[: self.ptr] - self.start_times[: self.ptr]
 
     def mark_written(self) -> None:
-        """Record that everything buffered so far has reached the disk.
+        """Record that everything buffered so far has been handed to finalize().
 
-        Called by ``finalize()`` once the data is safely written, so that a
+        Called by ``finalize()`` once the data has been copied out, so that a
         second run in the same process reports only its own events instead of
         re-reporting the first run's. The timestamp buffer rewinds (the arrays
         are reused; anything past ``ptr`` is unread scratch), while
@@ -240,10 +212,6 @@ class DisabledProfileRegion(BaseProfileRegion):
         """Ignored: no data recorded."""
         pass
 
-    def write_to_disk(self):
-        """Ignored: no data recorded."""
-        pass
-
     def get_durations_numpy(self):
         """Return an empty array since nothing is recorded."""
         return np.array([])
@@ -259,7 +227,7 @@ class DisabledProfileRegion(BaseProfileRegion):
 
 # Time-only region
 class TimeOnlyProfileRegion(BaseProfileRegion):
-    """Region that records timing, written to disk once at the end of the run."""
+    """Region that records timing, collected once at the end of the run."""
 
     def wrap(self, func):
         """Wrap a function to measure its execution time."""
@@ -305,8 +273,8 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
 class FullProfileRegion(BaseProfileRegion):
     """Region that records both timing and LIKWID metrics, and writes to HDF5.
 
-    This is the most complete profiling mode: users obtain LIKWID markers,
-    nanosecond-resolution timing, and persistent on-disk storage.
+    This is the most complete profiling mode: users obtain LIKWID markers and
+    nanosecond-resolution timing.
     """
 
     __slots__ = ("likwid_marker_start", "likwid_marker_stop")
@@ -367,7 +335,7 @@ class LineProfilerRegion(BaseProfileRegion):
     """Region that records timing and line-by-line profiling via line_profiler.
 
     Uses line_profiler to collect per-line execution statistics for decorated
-    functions. Also records nanosecond timestamps and flushes to HDF5.
+    functions. Also records nanosecond timestamps.
 
     Line-by-line profiling is most useful with the decorator (``wrap``) path,
     which automatically registers the function with the line profiler.  When

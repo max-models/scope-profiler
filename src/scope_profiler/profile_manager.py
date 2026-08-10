@@ -8,9 +8,8 @@ import sys
 import sysconfig
 import threading
 from types import FrameType
-from typing import TYPE_CHECKING, Callable, Dict
+from typing import TYPE_CHECKING, Callable, Dict, NamedTuple
 
-import h5py
 import numpy as np
 
 from scope_profiler.profile_config import ProfilingConfig
@@ -24,6 +23,28 @@ from scope_profiler.region_profiler import (
 
 if TYPE_CHECKING:  # imported lazily in read_results() to keep imports cheap
     from scope_profiler.results import ProfilingResults
+
+# Tag for the payload messages, on a communicator of our own (see finalize).
+_PAYLOAD_TAG = 0x5C09
+
+
+class RankPayload(NamedTuple):
+    """Everything one rank has to hand to rank 0 at ``finalize()``.
+
+    This is what crosses the wire under MPI, and it is also what rank 0 writes
+    into the output file and folds into the returned results -- one transport
+    feeding both, so they cannot disagree. A NamedTuple because it pickles as a
+    plain tuple, which is what mpi4py's ``send``/``recv`` use.
+    """
+
+    regions: dict
+    """Region name -> ``(start_times, end_times)`` int64 arrays, nanoseconds."""
+
+    likwid: dict
+    """Region tag -> :class:`~scope_profiler.likwid_data.LikwidRegionResult`."""
+
+    likwid_environment: dict
+    """This rank's ``LIKWID_*`` environment, stored with its counters."""
 
 
 class ProfileManager:
@@ -352,10 +373,11 @@ class ProfileManager:
     def _snapshot_regions(cls) -> Dict[str, tuple]:
         """Copy every region's buffered timestamps out of the live buffers.
 
-        Taken before ``finalize()`` writes anything, because writing rewinds
-        the buffers (see ``BaseProfileRegion.mark_written``) and the arrays are
-        then reused by any later call. The copies cover exactly the calls this
-        run would write to disk, so in-memory results and the output file agree.
+        Taken before ``finalize()`` marks the run boundary, because that
+        rewinds the buffers (see ``BaseProfileRegion.mark_written``) and the
+        arrays are then reused by any later call. These copies are what gets
+        written *and* what gets returned, so the output file and the in-memory
+        results cannot disagree.
 
         Returns
         -------
@@ -364,8 +386,8 @@ class ProfileManager:
         """
         snapshot = {}
         for name, region in cls.get_all_regions().items():
-            # Only this run's calls, matching the slice write_to_disk()
-            # persists.
+            # Only this run's calls: mark_written() rewinds ptr at the end of
+            # each finalize().
             if region.ptr == 0:
                 continue
             snapshot[name] = (
@@ -374,55 +396,158 @@ class ProfileManager:
             )
         return snapshot
 
-    @classmethod
-    def _build_results(cls, snapshot, likwid_results):
-        """Assemble a ProfilingResults from this rank's snapshot.
+    class _ResultAccumulator:
+        """Builds a ProfilingResults from per-rank payloads, one at a time.
 
-        Under MPI the snapshots are gathered on rank 0, which gets the results
-        for the whole run - the same split as the merged output file, which
-        only rank 0 writes. The other ranks get an empty, non-root result set
-        rather than None, so that a parallel script can go on calling
-        print_summary(), the plot functions and the exporters without a rank
-        guard: those do nothing for a non-root result set.
+        Rank 0 feeds every payload it writes to the output file through here as
+        well, so the returned results and the file are assembled from the same
+        bytes and cannot disagree.
         """
-        from scope_profiler.mpi_region import MPIRegion
-        from scope_profiler.region import Region
-        from scope_profiler.results import ProfilingResults
+
+        def __init__(self, config) -> None:
+            """Start an empty accumulation for the run described by ``config``."""
+            self._config = config
+            self._per_region: Dict[str, dict] = {}
+            self._likwid: Dict[int, dict] = {}
+
+        def add(self, rank: int, payload: "RankPayload") -> None:
+            """Fold one rank's payload into the result set."""
+            from scope_profiler.region import Region
+
+            if payload.likwid:
+                self._likwid[rank] = payload.likwid
+            for name, (starts, ends) in payload.regions.items():
+                self._per_region.setdefault(name, {})[rank] = Region(starts, ends)
+
+        def build(self):
+            """Return the assembled :class:`ProfilingResults`.
+
+            The per-rank entries are sorted by rank: payloads arrive in
+            whatever order the ranks send them, and pooled statistics sum the
+            per-rank arrays in dict order, so leaving arrival order in place
+            would make averages differ in their last bits from run to run --
+            and from the file, which is read back in rank order.
+            """
+            from scope_profiler.mpi_region import MPIRegion
+            from scope_profiler.results import ProfilingResults
+
+            return ProfilingResults(
+                {
+                    name: MPIRegion(name=name, regions=dict(sorted(regions.items())))
+                    for name, regions in self._per_region.items()
+                },
+                metadata=self._config.metadata,
+                num_ranks=self._config._size,
+                likwid=self._likwid,
+                file_path=self._config.file_path,
+            )
+
+    @classmethod
+    def _collect_payloads(cls, payload, write_file: bool, need_results: bool):
+        """Move every rank's payload to rank 0 and consume it there.
+
+        Rank 0 takes one payload at a time -- its own first, then one per
+        remaining rank -- writes it into the output file, folds it into the
+        results, and drops it before taking the next. Peak memory on rank 0 is
+        therefore one rank's data plus the open file, not the whole job's,
+        which is what makes this scale to thousands of ranks. (With
+        ``return_results=True`` the assembled results are of course the whole
+        run: that is the object being returned.)
+
+        Parameters
+        ----------
+        payload : RankPayload
+            This rank's data.
+        write_file : bool
+            Whether rank 0 writes the output file.
+        need_results : bool
+            Whether a :class:`ProfilingResults` has to be assembled.
+
+        Returns
+        -------
+        ProfilingResults or None
+            The run's results on rank 0, an empty non-root set elsewhere, and
+            None when no results were asked for.
+
+        Notes
+        -----
+        Collective. Every rank must reach this with the same ``write_file`` and
+        ``need_results``, and a rank that dies before sending leaves rank 0
+        waiting in ``recv``.
+
+        Receives run in rank order rather than by arrival. Pooled statistics
+        sum the per-rank arrays in the order the ranks were added, so a fixed
+        order is what keeps a run's averages reproducible and identical to the
+        ones read back from the file. It also keeps this loop free of any
+        mpi4py import, so the whole thing can be exercised with a stand-in
+        communicator.
+
+        The messages go over the run's own communicator, tagged with
+        ``_PAYLOAD_TAG``, rather than over a private duplicate of it. A
+        duplicate would be tidier -- it could not be intercepted by an
+        application posting ``recv(ANY_SOURCE, ANY_TAG)`` -- but ``MPI_Comm_dup``
+        is a collective that allocates a new context id, and by this point
+        every rank may have forked a child process: ``use_likwid=True`` reads
+        the counters back in a subprocess (see
+        ``collect_marker_results_isolated``). Open MPI does not support forking
+        from a rank using its shared-memory transport, and the duplicate
+        reliably segfaulted there. Point-to-point traffic survives it, as the
+        barrier this replaced always did.
+        """
+        from scope_profiler.h5writer import ProfilingWriter
 
         config = cls.get_config()
         comm = config.comm
-        payload = (snapshot, {result.tag: result for result in likwid_results})
 
-        if comm is None:
-            gathered = [payload]
-        else:
-            gathered = comm.gather(payload, root=0)
-            if config._rank != 0:
-                return ProfilingResults(
-                    {},
-                    metadata=config.metadata,
-                    num_ranks=config._size,
-                    file_path=config.file_path,
-                    is_root=False,
+        if comm is not None and config._rank != 0:
+            comm.send(payload, dest=0, tag=_PAYLOAD_TAG)
+            del payload
+            return cls._empty_results() if need_results else None
+
+        accumulator = cls._ResultAccumulator(config) if need_results else None
+        writer = (
+            ProfilingWriter(config.file_path, config.metadata) if write_file else None
+        )
+        try:
+            for source in range(config._size):
+                # Rank 0's own data needs no message.
+                incoming = (
+                    payload
+                    if source == 0
+                    else comm.recv(source=source, tag=_PAYLOAD_TAG)
                 )
+                if writer is not None:
+                    writer.write_rank(source, incoming)
+                if accumulator is not None:
+                    accumulator.add(source, incoming)
+                # Drop it before taking the next, so only one rank's data is
+                # held at a time.
+                del incoming
+            del payload
+        finally:
+            if writer is not None:
+                writer.close()
 
-        per_region: Dict[str, dict] = {}
-        likwid = {}
-        for rank, (rank_snapshot, rank_likwid) in enumerate(gathered):
-            if rank_likwid:
-                likwid[rank] = rank_likwid
-            for name, (starts, ends) in rank_snapshot.items():
-                per_region.setdefault(name, {})[rank] = Region(starts, ends)
+        return accumulator.build() if accumulator is not None else None
 
+    @classmethod
+    def _empty_results(cls):
+        """The result set a non-root rank gets back from ``finalize()``.
+
+        Empty and flagged ``is_root=False`` rather than None, so that a
+        parallel script can go on calling print_summary(), the plot functions
+        and the exporters without a rank guard: those do nothing for a
+        non-root result set.
+        """
+        from scope_profiler.results import ProfilingResults
+
+        config = cls.get_config()
         return ProfilingResults(
-            {
-                name: MPIRegion(name=name, regions=regions)
-                for name, regions in per_region.items()
-            },
+            {},
             metadata=config.metadata,
             num_ranks=config._size,
-            likwid=likwid,
             file_path=config.file_path,
+            is_root=False,
         )
 
     @classmethod
@@ -432,11 +557,17 @@ class ProfileManager:
         return_results: bool = False,
     ):
         """
-        Finalize profiling and merge results from all MPI ranks.
+        Finalize profiling and write the run's data to a single output file.
 
-        Flushes buffered profiling data to disk, synchronizes across MPI ranks,
-        and merges per-rank profiling files into a single output file. Optionally
+        Copies each region's buffered timestamps out, moves every rank's copy
+        to rank 0, and has rank 0 write them into one HDF5 file. Nothing is
+        staged on the filesystem, so no shared ``$TMPDIR`` is needed. Optionally
         prints profiling statistics for each region.
+
+        Under MPI this is **collective**: every rank must call it, with the
+        same arguments, or the job hangs -- rank 0 waits for a payload from
+        every other rank. A rank that dies before reaching it therefore leaves
+        the job waiting rather than silently dropping that rank's data.
 
         With ``use_likwid=True`` this is also where the LIKWID markers are
         closed and every marker region of the run is read back and stored in
@@ -482,102 +613,64 @@ class ProfileManager:
                 return ProfilingResults({}, file_path=config.file_path)
             return None
 
-        write_file = not config.deactivate_file_output
-        # With no file to read back, the summary has to come from memory, so
-        # the snapshot is taken whenever anything downstream needs the data.
-        # It has to happen before writing, which rewinds the buffers.
-        need_results = return_results or (verbose and not write_file)
-        snapshot = cls._snapshot_regions() if need_results else None
-        likwid_results = []
-
-        comm = config.comm
         rank = config._rank
         size = config._size
 
-        if write_file:
-            # 0. Discard any per-rank file left by an earlier finalize() on
-            # this config. Nothing else writes it, so its presence means a
-            # previous run in this process already finalized, and its regions
-            # would otherwise be merged into this run's output alongside the
-            # current ones.
-            stale_file = config._local_file_path
-            if os.path.exists(stale_file):
-                os.remove(stale_file)
+        # These three decide whether this rank communicates, so every one of
+        # them must depend only on the config (identical on all ranks, from the
+        # same setup()) and on this call's arguments (documented as collective).
+        # Nothing rank-local may gate a send or a receive, or the job deadlocks.
+        write_file = not config.deactivate_file_output
+        need_results = return_results or (verbose and not write_file)
+        need_payload = write_file or need_results
 
-            # 1. Write every region's buffered timestamps to its per-rank
-            # file. Once written, a region is marked so finalize() acts as a
-            # run boundary: a second run in the same process (e.g. a restart)
-            # writes only its own events.
+        # 1. Copy this run's timestamps out of the live buffers. The copy is
+        # both what gets written and what gets returned, so the file and the
+        # in-memory results are assembled from the same bytes.
+        snapshot = cls._snapshot_regions() if need_payload else {}
+
+        # The data is safely copied, so the run boundary can be marked now: a
+        # second finalize() in this process then reports only its own events.
+        # Not when nothing is written, though -- there the buffers are the only
+        # copy the caller has left.
+        if write_file:
             for region in cls.get_all_regions().values():
-                region.write_to_disk()
                 region.mark_written()
 
-        # 2. Close the LIKWID markers and store this rank's hardware counters
-        # alongside its timings. This has to happen before the merge below,
-        # not after it, or the counters would miss the copy into the output
-        # file. Closing the markers here also means the marker file exists in
-        # time to be read back; see ProfilingConfig.collect_likwid_results.
+        # 2. Close the LIKWID markers and pick up this rank's counters, which
+        # travel with the timings. Closing here also means the marker file
+        # exists in time to be read back; see collect_likwid_results.
+        likwid_results = []
+        likwid_environment = {}
         if config.use_likwid:
-            from scope_profiler.likwid_data import write_likwid_results
-
             likwid_results = config.collect_likwid_results(cls.get_all_regions().keys())
-            if likwid_results and write_file:
-                with h5py.File(config._local_file_path, "a") as f:
-                    write_likwid_results(
-                        f, likwid_results, environment=config.likwid_environment()
-                    )
+            if likwid_results:
+                likwid_environment = config.likwid_environment()
 
-        # 3. Barrier to ensure all ranks finished writing
-        if comm is not None:
-            comm.Barrier()
+        payload = RankPayload(
+            regions=snapshot,
+            likwid={result.tag: result for result in likwid_results},
+            likwid_environment=likwid_environment,
+        )
 
-        # 4. Only rank 0 performs the merge
-        if write_file and rank == 0:
-            merged_file_path = config.file_path
-            with h5py.File(merged_file_path, "w") as fout:
-                # Global environment metadata, gathered from rank 0 only.
-                meta_grp = fout.create_group("metadata")
-                for key, value in config.metadata.items():
-                    if isinstance(value, (list, tuple)):
-                        # h5py cannot infer a dtype for an empty list, and
-                        # would store a non-empty one as fixed-width bytes;
-                        # be explicit so list-valued metadata (e.g. the loaded
-                        # modules) always round-trips as strings.
-                        meta_grp.attrs.create(
-                            key, list(value), dtype=h5py.string_dtype()
-                        )
-                    else:
-                        meta_grp.attrs[key] = value
+        # 3. Move every rank's payload to rank 0, which writes it straight into
+        # the single output file. Nothing is staged on the filesystem, so no
+        # shared $TMPDIR is required, and a rank that never reports is a hang
+        # rather than a silently missing group.
+        results = None
+        if need_payload:
+            results = cls._collect_payloads(payload, write_file, need_results)
 
-                for r in range(size):
-                    rank_file = config.get_local_filepath(r)
-                    if not os.path.exists(rank_file):
-                        # print("warning: Profiling file is missing!")
-                        continue
-                    with h5py.File(rank_file, "r") as fin:
-                        # Copy all groups from the rank file under /rank<r>
-                        fout.copy(fin, f"rank{r}")
+        # 4. Summarize. With a file, it is read back so that the table has one
+        # implementation; without one, the same table comes from the results.
+        # Non-root ranks hold an empty result set, for which this does nothing.
+        if verbose and rank == 0 and write_file:
+            from scope_profiler.h5reader import read_h5
 
-            # 5. Summarize the merged file, using the same table that
-            # `scope-profiler inspect` and ProfilingResults.print_summary()
-            # render. Reading it back keeps the merge above a plain copy and
-            # leaves one implementation of the statistics.
-            if verbose:
-                from scope_profiler.h5reader import read_h5
-
-                read_h5(merged_file_path).print_summary(
-                    title=f"{merged_file_path}  ({size} rank(s))"
-                )
-
-        # The gather inside _build_results is collective, so it has to be
-        # reached by every rank -- `need_results` depends only on arguments
-        # that are the same on all of them.
-        results = cls._build_results(snapshot, likwid_results) if need_results else None
-
-        # 6. Without an output file there is nothing to read back, so the same
-        # table is rendered from the in-memory results instead. Non-root ranks
-        # hold an empty result set, for which print_summary() does nothing.
-        if verbose and not write_file:
+            read_h5(config.file_path).print_summary(
+                title=f"{config.file_path}  ({size} rank(s))"
+            )
+        elif verbose and not write_file:
             results.print_summary(
                 title=f"{results.display_label}  (in memory, {size} rank(s))"
             )
@@ -668,8 +761,8 @@ class ProfileManager:
             becomes a no-op, so the instrumentation can stay in the code at
             near-zero cost instead of being removed.
         deactivate_file_output : bool, optional
-            Write no HDF5 file at all (default: False): no per-rank files, no
-            merged output, not even the run metadata. Use it with
+            Write no HDF5 file at all (default: False), not even the run
+            metadata. Use it with
             ``finalize(return_results=True)`` to analyse a run entirely in
             memory::
 

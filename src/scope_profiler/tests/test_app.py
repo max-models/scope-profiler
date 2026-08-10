@@ -479,6 +479,25 @@ def test_deactivate_file_output_writes_nothing(tmp_path):
     assert results.get_region("ctx_region")[0].total_duration > 0
 
 
+def test_run_without_any_region_writes_metadata_only(tmp_path):
+    """A rank that recorded nothing gets no group, not an empty one.
+
+    The rank groups in a file are exactly the ranks with something to report,
+    which is what lets `check_mpi_launch.py` assert on the full rank list.
+    """
+    file_path = tmp_path / "nothing_profiled.h5"
+    ProfileManager.setup(file_path=str(file_path))
+
+    ProfileManager.finalize(verbose=False)
+
+    with h5py.File(file_path, "r") as f:
+        assert sorted(f) == ["metadata"]
+
+    results = read_h5(file_path)
+    assert results.region_names == []
+    assert results.num_ranks == 0
+
+
 def test_region_reports_timestamp_count(tmp_path):
     """num_calls is derived from the recorded timestamps."""
     file_path = tmp_path / "profiling_timed.h5"

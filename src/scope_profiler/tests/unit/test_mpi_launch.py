@@ -5,8 +5,8 @@ import sys
 import pytest
 
 from scope_profiler.mpi_launch import (
-    _LAUNCHER_ENV_VARS,
     _OVERRIDE_ENV_VAR,
+    LAUNCHER_ENV_VARS,
     get_comm,
     launched_under_mpi,
 )
@@ -15,7 +15,7 @@ from scope_profiler.mpi_launch import (
 @pytest.fixture
 def clean_env(monkeypatch):
     """An environment with no launcher variables and no override."""
-    for var in _LAUNCHER_ENV_VARS + (_OVERRIDE_ENV_VAR,):
+    for var in LAUNCHER_ENV_VARS + (_OVERRIDE_ENV_VAR,):
         monkeypatch.delenv(var, raising=False)
     # A previous test (or the application) may have imported mpi4py; hide it
     # so detection sees a genuinely serial process.
@@ -28,7 +28,7 @@ def test_serial_run_is_not_mpi(clean_env):
     assert get_comm() is None
 
 
-@pytest.mark.parametrize("var", _LAUNCHER_ENV_VARS)
+@pytest.mark.parametrize("var", LAUNCHER_ENV_VARS)
 def test_launcher_variables_are_detected(clean_env, var):
     clean_env.setenv(var, "0")
     assert launched_under_mpi() is True
