@@ -100,7 +100,10 @@ def diff_rows(
     # as region_rows() does.
     rows.sort(key=lambda row: row["name"])
     if sort != "name":
-        rows.sort(key=lambda row: abs(row[sort]) if row[sort] is not None else -1, reverse=True)
+        rows.sort(
+            key=lambda row: abs(row[sort]) if row[sort] is not None else -1,
+            reverse=True,
+        )
     return rows
 
 
