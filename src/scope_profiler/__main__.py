@@ -2,7 +2,7 @@
 
 Also runnable as ``python -m scope_profiler <command> ...``.
 
-Four subcommands:
+Five subcommands:
 
 - ``scope-profiler run script.py [args...]`` -- profiles a script's function
   calls without requiring any decorators or context managers in the script
@@ -17,6 +17,10 @@ Four subcommands:
 - ``scope-profiler inspect file.h5 [...]`` -- prints the run metadata and a
   per-region statistics table for merged HDF5 profiling output, without
   producing any plots. See ``scope_profiler.inspection``.
+- ``scope-profiler diff a.h5 b.h5`` -- compares region statistics between two
+  merged HDF5 profiling files, region by region, so a regression (or
+  improvement) between two runs shows up in one table. See
+  ``scope_profiler.diff``.
 - ``scope-profiler import-native traces/ -o out.h5`` -- converts the trace
   files written by the Fortran region API
   (``scope_profiler/fortran/scope_profiler.f90``)
@@ -112,6 +116,13 @@ def _inspect(argv):
     return inspect_main(argv)
 
 
+def _diff(argv):
+    """Handle ``scope-profiler diff``: delegate to the diff CLI."""
+    from scope_profiler.diff import main as diff_main
+
+    return diff_main(argv)
+
+
 def _import_fortran(argv):
     """Handle ``scope-profiler import-native``: Fortran traces -> HDF5."""
     from scope_profiler.native_trace import TRACE_SUFFIX, convert_traces
@@ -183,6 +194,7 @@ _COMMANDS = {
     "run": _run,
     "pproc": _pproc,
     "inspect": _inspect,
+    "diff": _diff,
     "import-native": _import_fortran,
 }
 
@@ -212,6 +224,12 @@ def main(argv=None):
         add_help=False,
         help="Print metadata and region statistics of HDF5 profiling data "
         "(see `scope-profiler inspect --help`)",
+    )
+    subparsers.add_parser(
+        "diff",
+        add_help=False,
+        help="Compare region statistics between two HDF5 profiling files "
+        "(see `scope-profiler diff --help`)",
     )
     subparsers.add_parser(
         "import-native",
