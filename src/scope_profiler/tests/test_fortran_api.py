@@ -10,6 +10,7 @@ cannot parse. The whole module skips when no compiler is available.
 import os
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -504,6 +505,56 @@ def test_the_shipped_example_builds_and_runs(tmp_path):
         results.region_names
     )
     assert results["solve"].num_calls == 20
+
+
+def test_the_examples_directory_still_builds_and_runs(tmp_path):
+    """examples/fortran is documentation; keep it from rotting silently.
+
+    Builds the standalone example into a temporary directory (so the repo is
+    left alone) and checks its trace holds the regions the README shows.
+    """
+    example_dir = Path(__file__).resolve().parents[3] / "examples" / "fortran"
+    if not (example_dir / "Makefile").exists() or shutil.which("make") is None:
+        pytest.skip("examples/fortran not present, or no make available")
+
+    # The Makefile asks the interpreter where scope_profiler.f90 lives, and
+    # `scope-profiler import-fortran` has to be the same code under test --
+    # so point both at this source tree rather than whatever is installed.
+    source_root = str(Path(__file__).resolve().parents[2])
+    env = {
+        **os.environ,
+        "MAKEFLAGS": "",
+        "PYTHONPATH": os.pathsep.join(
+            [source_root, os.environ.get("PYTHONPATH", "")]
+        ).strip(os.pathsep),
+    }
+    result = subprocess.run(
+        [
+            "make",
+            "run-standalone",
+            f"BUILD_DIR={tmp_path}",
+            f"FC={COMPILER}",
+            f"PYTHON={sys.executable}",
+        ],
+        cwd=example_dir,
+        capture_output=True,
+        text=True,
+        timeout=600,
+        env=env,
+    )
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+
+    results = read_h5(tmp_path / "profiling_data.h5")
+    # The regions kernels.f90 records inside itself, plus the driver's own.
+    assert {
+        "fortran:setup",
+        "fortran:timestep",
+        "fortran:stencil",
+        "fortran:residual",
+        "fortran:checkpoint",
+    } == set(results.region_names)
+    assert results["fortran:timestep"].num_calls == 20
+    assert results["fortran:stencil"].num_calls == 100
 
 
 def test_makefile_builds_the_example(tmp_path):

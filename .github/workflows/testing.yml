@@ -94,6 +94,13 @@ jobs:
           make -C src/scope_profiler/fortran run BUILD_DIR=$PWD/fortran_build
           scope-profiler inspect fortran_build/profiling_data.h5
 
+      # examples/fortran is what users copy from: build both the standalone
+      # program and the f2py extension, and run the mixed-language driver.
+      - name: Test Fortran examples
+        run: |
+          make -C examples/fortran run-standalone BUILD_DIR=$PWD/example_build
+          make -C examples/fortran run-mixed
+
       # mpi4py is installed at this point (via the dev extra), so the only
       # difference between these runs is the launcher: MPI must be used when
       # started by mpirun and never touched otherwise.
