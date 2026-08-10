@@ -168,11 +168,22 @@ The **LineProfiler** mode is intentionally heavier (~50 µs/call) because
 `line_profiler` traces every source line. It is designed for targeted
 debugging of individual functions, not for always-on use in hot loops.
 
-## Profiling Fortran code
+## Profiling native code (C, C++, Fortran)
 
-A Fortran module with the same region model ships with the package, so a
-Fortran program — or the Fortran kernels under a Python driver — can be
-profiled into the same output:
+C and Fortran region APIs ship with the package, so native code — or the
+kernels under a Python driver — can be profiled into the same output. They
+share one trace format, so a program built from both lands in one profile.
+
+```c
+#include "scope_profiler.h"
+
+sp_init("profile", my_rank);
+int solve = sp_region("solve");
+sp_begin(solve);
+solve_system();
+sp_end(solve);
+sp_finalize();
+```
 
 ```fortran
 use scope_profiler
@@ -187,16 +198,18 @@ call sp_finalize()
 ```
 
 ```bash
-scope-profiler import-fortran . -o profiling_data.h5   # then pproc/inspect as usual
+scope-profiler import-native . -o profiling_data.h5   # then pproc/inspect as usual
 ```
 
-It is plain Fortran 2008 in one file: no preprocessor flags, no HDF5, no MPI,
-nothing to link beyond libc. Timestamps come from the same clock as Python's
-`time.perf_counter_ns()`, so a Python driver and the Fortran kernels it calls
-land on a single timeline — `ProfileManager.finalize(fortran_traces=".")` folds
-them into one profile, with the Fortran regions nested inside the Python ones
-that called them. See the
-[Fortran guide](https://scope-profiler.readthedocs.io/en/latest/guide/fortran.html).
+Both are one self-contained file (Fortran 2008, or C99 with an `extern "C"`
+header for C++ callers): no HDF5, no MPI, nothing to link beyond libc.
+
+Timestamps come from the same clock as Python's `time.perf_counter_ns()`, so a
+Python driver and the native kernels it calls land on a single timeline —
+`ProfileManager.finalize(native_traces=".")` folds them into one profile, with
+the native regions nested inside the Python ones that called them. See the
+[Fortran](https://scope-profiler.readthedocs.io/en/latest/guide/fortran.html)
+and [C](https://scope-profiler.readthedocs.io/en/latest/guide/c.html) guides.
 
 ## Recursive profiling of nested calls
 

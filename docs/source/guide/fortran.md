@@ -2,7 +2,7 @@
 
 scope-profiler ships a Fortran module with the same region model as the Python
 API. A Fortran program marks regions, writes a small trace file per rank, and
-`scope-profiler import-fortran` turns those traces into the usual HDF5 output —
+`scope-profiler import-native` turns those traces into the usual HDF5 output —
 so a Fortran run gets the same summaries, charts, exporters and `pproc`
 workflow as a Python one.
 
@@ -10,12 +10,15 @@ The module is deliberately undemanding: plain Fortran 2008 with
 `iso_c_binding`, one file, no preprocessor flags, no HDF5, no MPI, nothing to
 link beyond libc.
 
+The trace format is shared with {doc}`the C API <c>`, so a program built from
+both lands in a single profile.
+
 ## Getting the source
 
 It ships inside the installed package:
 
 ```bash
-gfortran -c $(python -c "import scope_profiler.fortran_trace as t; print(t.module_source_path())")
+gfortran -c $(python -c "import scope_profiler.native_trace as t; print(t.fortran_source_path())")
 ```
 
 or from a checkout, `src/scope_profiler/fortran/scope_profiler.f90`. A
@@ -83,14 +86,14 @@ importer merges whatever it finds:
 
 ```bash
 mpirun -n 128 ./simulation
-scope-profiler import-fortran . -o profiling_data.h5
+scope-profiler import-native . -o profiling_data.h5
 scope-profiler pproc profiling_data.h5 -o figures
 ```
 
 ## From Python
 
 ```python
-from scope_profiler.fortran_trace import load_traces, convert_traces
+from scope_profiler.native_trace import load_traces, convert_traces
 
 results = load_traces("run_dir")            # -> ProfilingResults, as usual
 results.print_summary()
@@ -142,7 +145,7 @@ for step in range(nsteps):
         kernels.kernels.solve(n)                 # records its own regions
 
 kernels.kernels.stop_profiling()                 # sp_finalize writes the trace
-ProfileManager.finalize(fortran_traces=".")      # ...and it lands in the h5
+ProfileManager.finalize(native_traces=".")      # ...and it lands in the h5
 ```
 
 ```text
@@ -171,14 +174,14 @@ the other end.
 If the two halves were profiled separately, merge them after the fact:
 
 ```bash
-scope-profiler import-fortran traces/ --merge python_only.h5 -o combined.h5
+scope-profiler import-native traces/ --merge python_only.h5 -o combined.h5
 ```
 
 or in Python:
 
 ```python
 from scope_profiler import merge_results, read_h5
-from scope_profiler.fortran_trace import load_traces
+from scope_profiler.native_trace import load_traces
 
 combined = merge_results(read_h5("python_only.h5"), load_traces("traces/"))
 ```

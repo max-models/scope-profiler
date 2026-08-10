@@ -7,7 +7,7 @@ the shape a real kernel library takes, where the caller neither knows nor cares
 what is instrumented in there. The same file is then used by:
 
 - **`standalone.f90`** — a pure Fortran program. No Python at run time; the
-  trace is converted afterwards with `scope-profiler import-fortran`.
+  trace is converted afterwards with `scope-profiler import-native`.
 - **`run_mixed.py`** — a Python driver that calls the very same kernels through
   f2py, so both languages record into **one** profile with one call stack.
 
@@ -45,7 +45,7 @@ make run-mixed
 ```
 
 Builds the kernels into an extension module with f2py and runs the Python
-driver. Both sides record; `finalize(fortran_traces=...)` folds the Fortran
+driver. Both sides record; `finalize(native_traces=...)` folds the Fortran
 trace into the Python run's output, and one file comes out:
 
 ```
@@ -98,7 +98,7 @@ reason. To build it against MPI, point `FC` at your wrapper:
 ```bash
 make standalone FC=mpifort
 mpirun -n 4 ./build/standalone       # add MPI_Init/MPI_Finalize to the program
-scope-profiler import-fortran build -o profiling_data.h5
+scope-profiler import-native build -o profiling_data.h5
 ```
 
 For the mixed case, the Python driver already knows its rank from

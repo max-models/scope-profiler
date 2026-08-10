@@ -1,8 +1,10 @@
-"""Reading the trace files written by the Fortran region API.
+"""Reading the trace files written by the native (C and Fortran) region APIs.
 
-The Fortran module shipped in ``scope_profiler/fortran/`` records regions with
-no HDF5 and no Python involved, and dumps one small binary file per rank at
-``sp_finalize()``. This module turns those files into the same
+The C and Fortran modules shipped in ``scope_profiler/c/`` and
+``scope_profiler/fortran/`` record regions with no HDF5 and no Python
+involved, and dump one small binary file per rank at ``sp_finalize()``. Both
+write the *same* format, so a program built from either -- or both -- lands in
+one profile. This module turns those files into the same
 :class:`~scope_profiler.results.ProfilingResults` -- and the same HDF5 layout
 -- a Python run produces, so a Fortran run gets the whole post-processing
 stack (summaries, plots, exporters, ``pproc``) for free.
@@ -31,14 +33,17 @@ import numpy as np
 #: Directory holding the Fortran sources shipped with the package.
 FORTRAN_DIR = Path(__file__).resolve().parent / "fortran"
 
+#: Directory holding the C sources shipped with the package.
+C_DIR = Path(__file__).resolve().parent / "c"
 
-def module_source_path() -> Path:
+
+def fortran_source_path() -> Path:
     """Path to ``scope_profiler.f90``, the module to compile into your program.
 
     It ships with the package, so this works from an installed wheel::
 
         gfortran -c $(python -c \
-            "import scope_profiler.fortran_trace as t; print(t.module_source_path())")
+            "import scope_profiler.native_trace as t; print(t.fortran_source_path())")
 
     Returns
     -------
@@ -46,6 +51,36 @@ def module_source_path() -> Path:
         The Fortran module source.
     """
     return FORTRAN_DIR / "scope_profiler.f90"
+
+
+def c_source_path() -> Path:
+    """Path to ``scope_profiler.c``, the implementation to compile in.
+
+    Its header sits next to it; :func:`c_include_dir` is what to put on the
+    compiler's include path::
+
+        cc -c $(python -c \
+            "import scope_profiler.native_trace as t; print(t.c_source_path())") \
+           -I$(python -c \
+            "import scope_profiler.native_trace as t; print(t.c_include_dir())")
+
+    Returns
+    -------
+    Path
+        The C source file.
+    """
+    return C_DIR / "scope_profiler.c"
+
+
+def c_include_dir() -> Path:
+    """Directory holding ``scope_profiler.h``, for the compiler's ``-I``.
+
+    Returns
+    -------
+    Path
+        The include directory.
+    """
+    return C_DIR
 
 
 MAGIC = b"SCOPEPRF"
@@ -227,7 +262,7 @@ def load_traces(inputs, label: str | None = None):
         if rank in seen_ranks:
             raise TraceFormatError(
                 f"{path} and {seen_ranks[rank]} both claim rank {rank}; "
-                f"pass sp_init(..., rank=<mpi rank>) so each rank writes its own"
+                f"pass the MPI rank to sp_init() so each rank writes its own"
             )
         seen_ranks[rank] = path
         for name, (starts, ends) in regions.items():
@@ -236,7 +271,7 @@ def load_traces(inputs, label: str | None = None):
                 first = int(starts[0])
                 earliest = first if earliest is None else min(earliest, first)
 
-    metadata = {"source": "fortran", "trace_format_version": FORMAT_VERSION}
+    metadata = {"source": "native", "trace_format_version": FORMAT_VERSION}
     if earliest is not None:
         # The timeline origin, exactly as a Python run records it at setup().
         metadata["start_time_ns"] = earliest
@@ -250,7 +285,7 @@ def load_traces(inputs, label: str | None = None):
         },
         metadata=metadata,
         num_ranks=len(seen_ranks),
-        file_path=label or "fortran_trace",
+        file_path=label or "native_trace",
     )
 
 

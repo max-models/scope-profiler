@@ -64,6 +64,7 @@ guide/mpi
 guide/likwid
 guide/line_profiler
 guide/fortran
+guide/c
 guide/overhead
 ```
 

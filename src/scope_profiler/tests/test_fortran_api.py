@@ -18,19 +18,19 @@ import numpy as np
 import pytest
 
 from scope_profiler import read_h5
-from scope_profiler.fortran_trace import (
+from scope_profiler.native_trace import (
     FORMAT_VERSION,
     FORTRAN_DIR,
     MAGIC,
     TraceFormatError,
     convert_traces,
     find_traces,
+    fortran_source_path,
     load_traces,
-    module_source_path,
     read_trace,
 )
 
-MODULE_SOURCE = module_source_path()
+MODULE_SOURCE = fortran_source_path()
 
 #: First compiler on PATH; gfortran everywhere, the vendor ones on clusters.
 COMPILERS = ("gfortran", "ifx", "ifort", "flang", "nvfortran")
@@ -331,7 +331,7 @@ def test_converted_file_is_a_normal_profiling_file(tmp_path):
 
     assert from_disk.summary() == in_memory.summary()
     assert from_disk.num_ranks == 2
-    assert from_disk.metadata["source"] == "fortran"
+    assert from_disk.metadata["source"] == "native"
     assert from_disk.label == "fortran"
     # The timeline origin survives, so relative timestamps mean something.
     assert from_disk.run_start_time is not None
@@ -339,14 +339,14 @@ def test_converted_file_is_a_normal_profiling_file(tmp_path):
 
 
 def test_cli_import_fortran(tmp_path, capsys):
-    """``scope-profiler import-fortran`` writes a file pproc can read."""
+    """``scope-profiler import-native`` writes a file pproc can read."""
     from scope_profiler.__main__ import main
 
     executable = build(tmp_path, BASIC_PROGRAM)
     run(executable, tmp_path)
 
     output = tmp_path / "cli.h5"
-    main(["import-fortran", str(tmp_path), "-o", str(output)])
+    main(["import-native", str(tmp_path), "-o", str(output)])
 
     printed = capsys.readouterr().out
     assert "outer" in printed and "inner" in printed
@@ -518,7 +518,7 @@ def test_the_examples_directory_still_builds_and_runs(tmp_path):
         pytest.skip("examples/fortran not present, or no make available")
 
     # The Makefile asks the interpreter where scope_profiler.f90 lives, and
-    # `scope-profiler import-fortran` has to be the same code under test --
+    # `scope-profiler import-native` has to be the same code under test --
     # so point both at this source tree rather than whatever is installed.
     source_root = str(Path(__file__).resolve().parents[2])
     env = {

@@ -17,11 +17,11 @@ import sys
 import pytest
 
 from scope_profiler import ProfileManager, read_h5
-from scope_profiler.fortran_trace import module_source_path
+from scope_profiler.native_trace import fortran_source_path
 
 from .test_fortran_api import COMPILER
 
-MODULE_SOURCE = module_source_path()
+MODULE_SOURCE = fortran_source_path()
 
 HAVE_F2PY_BACKEND = all(
     importlib.util.find_spec(name) is not None for name in ("mesonbuild", "ninja")
@@ -137,7 +137,7 @@ def test_one_file_holds_both_languages(kernels, tmp_path):
                 extension.solve(100000)
 
     extension.stop_profiling()
-    ProfileManager.finalize(verbose=False, fortran_traces=tmp_path)
+    ProfileManager.finalize(verbose=False, native_traces=tmp_path)
 
     results = read_h5(output)
 
@@ -167,7 +167,7 @@ def test_the_two_languages_nest_correctly(kernels, tmp_path):
 
     extension.stop_profiling()
     results = ProfileManager.finalize(
-        verbose=False, return_results=True, fortran_traces=tmp_path
+        verbose=False, return_results=True, native_traces=tmp_path
     )
 
     call = results["python:call_fortran"][0]
@@ -198,7 +198,7 @@ def test_a_name_used_by_both_sides_is_refused(kernels, tmp_path):
 
     with pytest.raises(ValueError, match="recorded by both"):
         ProfileManager.finalize(
-            verbose=False, return_results=True, fortran_traces=tmp_path
+            verbose=False, return_results=True, native_traces=tmp_path
         )
 
 
@@ -216,7 +216,7 @@ def test_only_this_ranks_trace_is_folded_in(kernels, tmp_path):
         pass
 
     results = ProfileManager.finalize(
-        verbose=False, return_results=True, fortran_traces=tmp_path
+        verbose=False, return_results=True, native_traces=tmp_path
     )
 
     assert (tmp_path / "other_rank00007.spt").exists()
@@ -225,7 +225,7 @@ def test_only_this_ranks_trace_is_folded_in(kernels, tmp_path):
 
 def test_merging_after_the_fact(kernels, tmp_path):
     """The offline route: two separate runs, combined later."""
-    from scope_profiler.fortran_trace import load_traces
+    from scope_profiler.native_trace import load_traces
     from scope_profiler.results import merge_results
 
     extension, _ = kernels

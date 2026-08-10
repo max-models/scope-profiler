@@ -8,17 +8,22 @@
 #   make clean
 #
 # The profiler module itself comes from the installed package, so there is
-# nothing to vendor: module_source_path() locates it.
+# nothing to vendor: fortran_source_path() locates it.
 
 FC ?= gfortran
 FFLAGS ?= -O2 -Wall
 PYTHON ?= python3
 BUILD_DIR ?= build
 
-SP_MODULE := $(shell $(PYTHON) -c "import scope_profiler.fortran_trace as t; print(t.module_source_path())" 2>/dev/null)
+SP_MODULE := $(shell $(PYTHON) -c "import scope_profiler.native_trace as t; print(t.fortran_source_path())" 2>/dev/null)
 
+# Only a build needs the sources, so `make clean` still works when the
+# package is not importable -- otherwise a moved install would strand the
+# build artefacts here.
 ifeq ($(strip $(SP_MODULE)),)
+ifneq ($(MAKECMDGOALS),clean)
 $(error Cannot locate scope_profiler.f90. Is scope-profiler installed for $(PYTHON)? Try `pip install -e .` from the repository root, or point PYTHON at the interpreter that has it: make PYTHON=/path/to/python)
+endif
 endif
 
 .PHONY: all standalone mixed run-standalone run-mixed clean
@@ -42,7 +47,7 @@ $(BUILD_DIR)/standalone: standalone.f90 $(BUILD_DIR)/kernels.o $(BUILD_DIR)/scop
 
 run-standalone: standalone
 	cd $(BUILD_DIR) && ./standalone
-	scope-profiler import-fortran $(BUILD_DIR) -o $(BUILD_DIR)/profiling_data.h5
+	scope-profiler import-native $(BUILD_DIR) -o $(BUILD_DIR)/profiling_data.h5
 
 # --------------------------------------------------------------------- mixed
 # f2py compiles the profiler module and the kernels into one extension, which

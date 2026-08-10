@@ -82,11 +82,17 @@ scripts.scope-profiler = "scope_profiler.__main__:main"
 [tool.setuptools.packages.find]
 where = [ "src" ]
 
-# The Fortran region API ships with the wheel: it is source a user compiles
-# into their own program, so it has to survive `pip install`.
-# scope_profiler.fortran_trace.module_source_path() locates it at run time.
+# The native region APIs ship with the wheel: they are source a user compiles
+# into their own program, so they have to survive `pip install`.
+# native_trace.fortran_source_path() / c_source_path() locate them at run time.
 [tool.setuptools.package-data]
-scope_profiler = [ "fortran/*.f90", "fortran/Makefile" ]
+scope_profiler = [
+  "fortran/*.f90",
+  "fortran/Makefile",
+  "c/*.c",
+  "c/*.h",
+  "c/Makefile",
+]
 
 [tool.isort]
 profile = "black"
