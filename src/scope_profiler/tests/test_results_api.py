@@ -156,6 +156,25 @@ def test_reader_print_summary(sample_file, capsys):
     assert "setup" in out and "solve" in out
 
 
+def test_reader_print_summary_sort_by_min_and_std(sample_file):
+    """sort accepts every SORT_KEYS column, not just total/calls/avg/max/name."""
+    from scope_profiler.summary import SORT_KEYS, region_rows
+
+    assert {"min", "std"} <= set(SORT_KEYS)
+
+    results = read_h5(sample_file)
+
+    # setup: durations [1, 3] -> min 1, std 1.0
+    # solve: durations [2, 3, 4, 4] -> min 2, std ~0.829
+    # Descending by min: solve (2) before setup (1).
+    rows = region_rows(results, sort="min")
+    assert [row["name"] for row in rows] == ["solve", "setup"]
+
+    # Descending by std: setup (1.0) before solve (~0.829).
+    rows = region_rows(results, sort="std")
+    assert [row["name"] for row in rows] == ["setup", "solve"]
+
+
 def test_reader_to_dataframe(sample_file):
     pd = pytest.importorskip("pandas")
     results = read_h5(sample_file)

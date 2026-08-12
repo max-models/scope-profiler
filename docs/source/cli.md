@@ -38,7 +38,7 @@ glance.
 usage: scope-profiler inspect [-h] [--include INCLUDE [INCLUDE ...]]
                               [--exclude EXCLUDE [EXCLUDE ...]]
                               [--ranks RANKS [RANKS ...]]
-                              [--sort {total,calls,avg,max,name}] [--full]
+                              [--sort {total,calls,avg,min,max,std,name}] [--full]
                               [--metadata-only | --regions-only]
                               files [files ...]
 ```
@@ -48,7 +48,7 @@ usage: scope-profiler inspect [-h] [--include INCLUDE [INCLUDE ...]]
 | `--include`       | Only report regions matching these regex patterns                       |
 | `--exclude`       | Skip regions matching these regex patterns                              |
 | `--ranks`         | Restrict region statistics to these ranks, e.g. `0 2` or `0-3`          |
-| `--sort`          | Order regions by `total` (default), `calls`, `avg`, `max` or `name`     |
+| `--sort`          | Order regions by `total` (default), `calls`, `avg`, `min`, `max`, `std` or `name` |
 | `--full`          | Print long metadata values (`PATH`, `LD_LIBRARY_PATH`, ...) in full     |
 | `--export-metadata` | Also write the metadata of every inspected file to this JSON file     |
 | `-q`, `--quiet`   | Suppress the printed summary (useful with `--export-metadata`)          |
@@ -215,7 +215,7 @@ usage: scope-profiler pproc [-h] [--label LABEL] [--include [INCLUDE ...]]
                             [--export [{data,prof,speedscope} ...]]
                             [--export-data-format {csv,json}]
                             [--skip-plot-images] [--summary]
-                            [--summary-sort {total,calls,avg,max,name}]
+                            [--summary-sort {total,calls,avg,min,max,std,name}]
                             files [files ...]
 ```
 
@@ -279,7 +279,7 @@ All of these require `-o/--output`.
 | Flag              | Description                                      |
 | ----------------- | ------------------------------------------------ |
 | `--summary`       | Print the per-region statistics table, plus a separate LIKWID hardware counter table per rank and event group when the run recorded any. On its own it produces no plots |
-| `--summary-sort`  | Order the `--summary` region table: `total` (default), `calls`, `avg`, `max` or `name` |
+| `--summary-sort`  | Order the `--summary` region table: `total` (default), `calls`, `avg`, `min`, `max`, `std` or `name` |
 
 When `-o/--output` is supplied, the CLI saves one `<name>_plot.png` per plot
 selected by `--plots` (`durations_plot.png` becomes one

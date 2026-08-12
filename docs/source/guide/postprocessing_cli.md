@@ -81,7 +81,7 @@ run_2.h5  (2 rank(s))
 
 This is the same table `ProfileManager.finalize()` and
 {doc}`scope-profiler inspect <../cli>` render. `--summary-sort` reorders it
-(`total`, `calls`, `avg`, `max` or `name`), and `--include`/`--exclude`/
+(`total`, `calls`, `avg`, `min`, `max`, `std` or `name`), and `--include`/`--exclude`/
 `--ranks` narrow it as they do for the charts.
 
 On its own `--summary` produces no plots --- the summary is the whole job.

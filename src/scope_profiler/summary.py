@@ -13,7 +13,7 @@ import sys
 
 import numpy as np
 
-SORT_KEYS = ("total", "calls", "avg", "max", "name")
+SORT_KEYS = ("total", "calls", "avg", "min", "max", "std", "name")
 
 _COLUMNS = (
     ("name", "region"),
@@ -89,8 +89,8 @@ def region_rows(
     ranks : list of int, optional
         Restrict the statistics to these ranks (default: all).
     sort : str, optional
-        One of :data:`SORT_KEYS`: ``total``, ``calls``, ``avg`` and ``max``
-        sort descending, ``name`` alphabetically.
+        One of :data:`SORT_KEYS`: ``total`` (default), ``calls``, ``avg``,
+        ``min``, ``max`` and ``std`` sort descending, ``name`` alphabetically.
     """
     rows = [
         region_row(region, ranks)
@@ -111,7 +111,9 @@ def _format_duration(value) -> str:
     return "-" if value is None else f"{value:.6g}"
 
 
-def print_region_table(rows, title=None, stream=None) -> None:
+def print_region_table(
+    rows, title=None, stream=None, suppress_notes: bool = False
+) -> None:
     """Print the aligned per-region statistics table.
 
     Parameters
@@ -122,6 +124,8 @@ def print_region_table(rows, title=None, stream=None) -> None:
         Heading printed above the table.
     stream : file-like, optional
         Where to write (default: stdout).
+    suppress_notes : bool, optional
+        Don't print the explanatory notes below the table (default: False).
     """
     stream = sys.stdout if stream is None else stream
 
@@ -174,6 +178,13 @@ def print_region_table(rows, title=None, stream=None) -> None:
     print(f"  {rule}", file=stream)
     for row in formatted:
         print(f"  {render(row)}", file=stream)
+    if not suppress_notes:
+        notes = [
+            "Durations are in seconds.",
+            "TOTAL row sums over all ranks.",
+        ]
+        for note in notes:
+            print(f"\n  {note}", file=stream)
     print(f"  {rule}", file=stream)
     print(f"  {render(total_row)}", file=stream)
 
@@ -188,8 +199,9 @@ def print_region_table(rows, title=None, stream=None) -> None:
         notes.append(
             "Regions shown without timing recorded no calls on the selected ranks."
         )
-    for note in notes:
-        print(f"\n  {note}", file=stream)
+    if not suppress_notes and notes:
+        for note in notes:
+            print(f"\n  {note}", file=stream)
 
     # Trailing blank line so whatever follows (line-profiler stats, a second
     # file's table) is not pressed against the last row.
