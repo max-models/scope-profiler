@@ -390,6 +390,7 @@ class ProfilingResults:
         sort: str = "total",
         title: str | None = None,
         stream=None,
+        suppress_notes: bool = False,
     ) -> None:
         """
         Print a region summary table, aggregated over ranks.
@@ -406,7 +407,7 @@ class ProfilingResults:
             Restrict the statistics to these ranks (default: all).
         sort : str, optional
             Column to order by: ``total`` (default), ``calls``, ``avg``,
-            ``max`` or ``name``.
+            ``min``, ``max``, ``std`` or ``name``.
         title : str, optional
             Heading above the table (default: the file path and rank count).
         stream : file-like, optional
@@ -427,7 +428,9 @@ class ProfilingResults:
         )
         if title is None:
             title = self.default_title()
-        print_region_table(rows, title=title, stream=stream)
+        print_region_table(
+            rows, title=title, stream=stream, suppress_notes=suppress_notes
+        )
 
     def default_title(self) -> str:
         """

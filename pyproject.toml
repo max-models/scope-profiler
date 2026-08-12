@@ -49,7 +49,7 @@ optional-dependencies.pproc = [
   "ipykernel",
   "jupyterlab",
   "matplotlib",
-  "maxplotlibx >= 0.1.5",
+  "maxplotlibx >= 0.1.6",
   "pandas",
   "snakeviz",
 ]

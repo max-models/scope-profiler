@@ -61,7 +61,6 @@ profiling_data.h5  (1 rank(s))
   ----------------------------------------------------------------------------------------
   TOTAL                11   0.00150754
 
-  Regions may nest, so the summed total can exceed the wall-clock time.
 ```
 
 `finalize()` prints the same table as `scope-profiler inspect` and
