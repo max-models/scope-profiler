@@ -390,6 +390,7 @@ class ProfilingResults:
         sort: str = "total",
         title: str | None = None,
         stream=None,
+        suppress_notes: bool = False,
     ) -> None:
         """
         Print a region summary table, aggregated over ranks.
@@ -406,7 +407,7 @@ class ProfilingResults:
             Restrict the statistics to these ranks (default: all).
         sort : str, optional
             Column to order by: ``total`` (default), ``calls``, ``avg``,
-            ``max`` or ``name``.
+            ``min``, ``max``, ``std`` or ``name``.
         title : str, optional
             Heading above the table (default: the file path and rank count).
         stream : file-like, optional
@@ -427,7 +428,9 @@ class ProfilingResults:
         )
         if title is None:
             title = self.default_title()
-        print_region_table(rows, title=title, stream=stream)
+        print_region_table(
+            rows, title=title, stream=stream, suppress_notes=suppress_notes
+        )
 
     def default_title(self) -> str:
         """
@@ -601,8 +604,8 @@ class ProfilingResults:
         --------
         ::
 
-            reader = read_h5("profiling_data.h5")
-            for rank, regions in reader.get_likwid_regions().items():
+            results = read_h5("profiling_data.h5")
+            for rank, regions in results.get_likwid_regions().items():
                 for tag, result in regions.items():
                     for name, values in zip(result.metric_names, result.metrics):
                         print(rank, tag, name, values)
@@ -893,3 +896,83 @@ class ProfilingResults:
             f"<{type(self).__name__} {self.file_path.name!r}: "
             f"{len(self._region_dict)} region(s), {self._num_ranks} rank(s)>"
         )
+
+
+def merge_results(*result_sets, label: str | None = None, file_path=None):
+    """Combine several result sets into one.
+
+    The case this exists for is a mixed-language run: a Python driver records
+    its own regions while the Fortran (or other) code it calls records
+    theirs, and what the user wants at the end is *one* profile covering both.
+    Ranks line up by number, so rank 3's Python regions and rank 3's Fortran
+    regions end up side by side.
+
+    Parameters
+    ----------
+    *result_sets : ProfilingResults
+        The sets to combine. Non-root sets (the empty ones every rank but 0
+        gets back under MPI) are ignored, so this can be called unguarded in
+        a parallel script.
+    label : str, optional
+        Name for the combined run. Defaults to the first set's label.
+    file_path : str or Path, optional
+        Output path to attribute the combined set to. Defaults to the first
+        set's.
+
+    Returns
+    -------
+    ProfilingResults
+        One result set holding every region of every input.
+
+    Raises
+    ------
+    ValueError
+        If no result sets were given, or if a region name appears in more than
+        one of them. Merging same-named regions would silently double-count a
+        Python wrapper and the native region inside it, so the collision has to
+        be resolved by the caller -- name the regions apart, for instance with
+        a ``"fortran:"`` prefix.
+    """
+    if not result_sets:
+        raise ValueError("merge_results() needs at least one result set")
+
+    roots = [results for results in result_sets if results.is_root]
+    if not roots:
+        # Every input was a non-root rank's empty set: nothing to merge, and
+        # the caller is a parallel script that should carry on quietly.
+        return result_sets[0]
+
+    seen: Dict[str, int] = {}
+    for index, results in enumerate(roots):
+        for name in results.region_names:
+            if name in seen and seen[name] != index:
+                raise ValueError(
+                    f"region {name!r} appears in more than one result set; "
+                    f"merging them would double-count it. Give the regions "
+                    f"distinct names (a 'fortran:' prefix, say) before merging."
+                )
+            seen[name] = index
+
+    merged: Dict[str, MPIRegion] = {}
+    metadata: dict = {}
+    likwid: Dict[int, dict] = {}
+    num_ranks = 0
+    for results in roots:
+        # Earlier sets win, so the driver's metadata describes the run.
+        metadata = {**results.metadata, **metadata}
+        for rank, regions in results.get_likwid_regions().items():
+            likwid.setdefault(rank, {}).update(regions)
+        num_ranks = max(num_ranks, results.num_ranks)
+        for region in results.get_regions():
+            merged[region.name] = region
+
+    if label is not None:
+        metadata["label"] = label
+
+    return ProfilingResults(
+        merged,
+        metadata=metadata,
+        num_ranks=num_ranks,
+        likwid=likwid,
+        file_path=file_path if file_path is not None else roots[0].file_path,
+    )

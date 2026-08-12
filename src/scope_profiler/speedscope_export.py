@@ -20,7 +20,7 @@ from pathlib import Path
 
 from scope_profiler.call_stack import build_call_stack
 from scope_profiler.plotting_scripts import (
-    _as_readers,
+    _as_runs,
     _filename_slug,
     _normalize_ranks,
     _unique_labels,
@@ -29,7 +29,7 @@ from scope_profiler.results import ProfilingResults
 
 SCHEMA_URL = "https://www.speedscope.app/file-format-schema.json"
 
-# Timestamps are seconds throughout the reader API, so the profiles say so
+# Timestamps are seconds throughout the run API, so the profiles say so
 # rather than converting back to the nanoseconds the HDF5 files store.
 TIME_UNIT = "seconds"
 
@@ -211,7 +211,7 @@ def export_speedscope(
     Parameters
     ----------
     profiling_data : ProfilingResults | Sequence[ProfilingResults]
-        The run(s) to export: file readers, in-memory results from
+        The run(s) to export: file runs, in-memory results from
         ``ProfileManager.finalize(return_results=True)``, or a mix.
     filepath : str | Path
         Base output path, e.g. ``figures/profile.speedscope.json``. The input
@@ -226,23 +226,23 @@ def export_speedscope(
     list[Path]
         The files written, in the order they were written.
     """
-    readers = _as_readers(profiling_data)
-    if not readers:
+    runs = _as_runs(profiling_data)
+    if not runs:
         # Not this rank's job; rank 0 writes the files.
         return []
 
     normalized_ranks = _normalize_ranks(ranks) if ranks is not None else [0]
 
-    labels = _unique_labels([reader.display_label for reader in readers])
+    labels = _unique_labels([run.display_label for run in runs])
 
     prepared = []
-    for label, reader in zip(labels, readers):
-        regions = reader.get_regions(include=include, exclude=exclude)
+    for label, run in zip(labels, runs):
+        regions = run.get_regions(include=include, exclude=exclude)
         if not regions:
             raise ValueError("No regions matched the selected filters.")
         named_calls = []
         for rank in normalized_ranks:
-            if rank < 0 or rank >= reader.num_ranks:
+            if rank < 0 or rank >= run.num_ranks:
                 raise ValueError(f"Invalid rank requested: {rank}")
             calls = build_call_stack(regions, rank)
             if calls:
@@ -258,7 +258,7 @@ def export_speedscope(
     # sees the ".json" half of it, so the whole tail is kept here.
     stem, dot, extension = base_path.name.partition(".")
     suffix = f".{extension}" if dot else ".speedscope.json"
-    multiple_files = len(readers) > 1
+    multiple_files = len(runs) > 1
 
     written = []
     for label, named_calls in prepared:

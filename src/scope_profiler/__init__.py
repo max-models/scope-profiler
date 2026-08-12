@@ -12,7 +12,7 @@ from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.mpi_region import MPIRegion
 from scope_profiler.profile_manager import ProfileManager
 from scope_profiler.region import Region
-from scope_profiler.results import ProfilingResults
+from scope_profiler.results import ProfilingResults, merge_results
 
 try:
     __version__ = version("scope-profiler")
@@ -46,6 +46,7 @@ __all__ = [
     "build_call_stack",
     "call_stack_children",
     "call_stack_roots",
+    "merge_results",
     "read_h5",
     *sorted(_LAZY_ATTRS),
 ]

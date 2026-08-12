@@ -25,20 +25,20 @@ def _profile(out, label=None):
 
 def test_label_round_trips_through_the_file(tmp_path):
     """The label is metadata, so it survives into every post-processing step."""
-    reader = _profile(tmp_path / "run.h5", label="128 ranks")
+    results = _profile(tmp_path / "run.h5", label="128 ranks")
 
-    assert reader.label == "128 ranks"
-    assert reader.metadata["label"] == "128 ranks"
-    assert reader.display_label == "128 ranks"
+    assert results.label == "128 ranks"
+    assert results.metadata["label"] == "128 ranks"
+    assert results.display_label == "128 ranks"
 
 
 def test_without_a_label_the_file_stem_is_used(tmp_path):
     """The previous behaviour, unchanged for runs that set no label."""
-    reader = _profile(tmp_path / "run.h5")
+    results = _profile(tmp_path / "run.h5")
 
-    assert reader.label is None
-    assert "label" not in reader.metadata
-    assert reader.display_label == "run"
+    assert results.label is None
+    assert "label" not in results.metadata
+    assert results.display_label == "run"
 
 
 def test_in_memory_results_carry_the_label(tmp_path):
@@ -69,9 +69,9 @@ def test_label_names_the_run_in_charts_and_statistics(tmp_path):
 
 def test_label_leads_the_summary_heading(tmp_path, capsys):
     """Printed by finalize(), print_summary() and `scope-profiler pproc`."""
-    reader = _profile(tmp_path / "run.h5", label="128 ranks")
+    results = _profile(tmp_path / "run.h5", label="128 ranks")
 
-    reader.print_summary()
+    results.print_summary()
 
     heading = capsys.readouterr().out.splitlines()[0]
     assert heading.startswith("128 ranks - ")
@@ -99,7 +99,8 @@ def test_pproc_label_overrides_the_stored_one(tmp_path, capsys):
             "128 ranks",
             "--label",
             "256 ranks",
-            "--export-prof",
+            "--export",
+            "prof",
         ]
     )
 
@@ -140,7 +141,7 @@ def test_pproc_label_count_must_match_the_files(tmp_path):
 
 def test_empty_label_is_treated_as_no_label(tmp_path):
     """So that `label=os.environ.get(...)` cannot produce a blank heading."""
-    reader = _profile(tmp_path / "run.h5", label="")
+    results = _profile(tmp_path / "run.h5", label="")
 
-    assert reader.label is None
-    assert reader.display_label == "run"
+    assert results.label is None
+    assert results.display_label == "run"

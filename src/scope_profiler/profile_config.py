@@ -2,7 +2,6 @@
 
 import os
 import shutil
-import tempfile
 from time import perf_counter_ns
 from typing import TYPE_CHECKING
 
@@ -147,10 +146,10 @@ def _pylikwid_import_error(exc: ImportError) -> str:
 class ProfilingConfig:
     """Singleton class for managing global profiling settings.
 
-    This class centralizes configuration for time tracing,
-    LIKWID performance counters, buffer limits, and file paths.
-    It ensures consistent profiling state across MPI ranks and
-    creates per-rank temporary storage for profiling output.
+    This class centralizes configuration for LIKWID performance counters,
+    buffer limits, and file paths. Constructing it is purely local: it reads
+    the communicator for rank and size but issues no MPI call of its own, so
+    ``setup()`` does not have to be collective.
     """
 
     _instance = None
@@ -181,10 +180,9 @@ class ProfilingConfig:
             Turn profiling off entirely. Every region becomes a no-op, so
             instrumentation can stay in the code at near-zero cost.
         deactivate_file_output : bool
-            Write no HDF5 file at all: no per-rank files, no merged output,
-            not even the run metadata. The recorded data then lives only in
-            memory, where ``finalize(return_results=True)`` can still return
-            it.
+            Write no HDF5 file at all, not even the run metadata. The recorded
+            data then lives only in memory, where
+            ``finalize(return_results=True)`` can still return it.
         use_likwid : bool
             Enable LIKWID marker API if available.
         use_line_profiler : bool
@@ -230,31 +228,12 @@ class ProfilingConfig:
         self._buffer_limit = buffer_limit
         self._file_path = file_path
 
+        # Local queries, not collectives: nothing here has to be reached by
+        # every rank in lockstep. Rank 0 writes the whole output file at
+        # finalize() from data the other ranks send it, so there is no
+        # per-rank staging file and no shared directory to agree on.
         self._rank = 0 if self._comm is None else self._comm.Get_rank()
         self._size = 1 if self._comm is None else self._comm.Get_size()
-
-        # The per-rank files are staging for the merge, so they are only
-        # created when there is going to be an output file at all.
-        if self._deactivate_file_output:
-            self._temp_dir_obj = None
-            self.temp_dir = None
-            self._local_file_path = None
-        else:
-            # Only rank 0 creates the TemporaryDirectory
-            if self._rank == 0:
-                self._temp_dir_obj = tempfile.TemporaryDirectory(prefix="profile_h5_")
-                temp_dir = self._temp_dir_obj.name
-            else:
-                temp_dir = None
-                self._temp_dir_obj = None  # still define to keep the attribute
-
-            # Broadcast the directory path to all ranks
-            if self._comm is not None:
-                temp_dir = self._comm.bcast(temp_dir, root=0)
-
-            self.temp_dir = temp_dir
-            # Temporary file with rank-specific timings
-            self._local_file_path = self.get_local_filepath(self._rank)
 
         # Environment metadata (hostname, OpenMP threads, versions, ...).
         # Collected on every rank, but only rank 0's copy ends up persisted
@@ -282,21 +261,6 @@ class ProfilingConfig:
             except ImportError as e:
                 raise ImportError(_pylikwid_import_error(e)) from e
         self._initialized = True
-
-    def get_local_filepath(self, rank):
-        """Return the per-rank local profiling file path.
-
-        Parameters
-        ----------
-        rank : int
-            MPI rank identifier.
-
-        Returns
-        -------
-        str
-            The path to the per-rank HDF5 file.
-        """
-        return os.path.join(self.temp_dir, f"rank_{rank}.h5")
 
     @classmethod
     def reset(cls):

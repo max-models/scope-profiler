@@ -1,4 +1,4 @@
-"""Tests for the post-processing Python API (reader, Region, MPIRegion)."""
+"""Tests for the post-processing Python API (ProfilingResults, Region, MPIRegion)."""
 
 import h5py
 import numpy as np
@@ -116,36 +116,36 @@ def test_mpi_region_unknown_rank_lists_available(sample_file):
 
 
 def test_reader_mapping_interface(sample_file):
-    reader = read_h5(sample_file)
+    results = read_h5(sample_file)
 
-    assert reader.region_names == ["setup", "solve"]
-    assert len(reader) == 2
-    assert "solve" in reader
-    assert "missing" not in reader
-    assert [region.name for region in reader] == ["setup", "solve"]
-    assert reader["solve"] is reader.get_region("solve")
-    assert reader.num_ranks == 2
-    assert "sample.h5" in repr(reader)
+    assert results.region_names == ["setup", "solve"]
+    assert len(results) == 2
+    assert "solve" in results
+    assert "missing" not in results
+    assert [region.name for region in results] == ["setup", "solve"]
+    assert results["solve"] is results.get_region("solve")
+    assert results.num_ranks == 2
+    assert "sample.h5" in repr(results)
 
 
 def test_reader_unknown_region_lists_available(sample_file):
-    reader = read_h5(sample_file)
+    results = read_h5(sample_file)
 
     with pytest.raises(KeyError, match="Available regions"):
-        reader.get_region("nope")
+        results.get_region("nope")
 
 
 def test_reader_summary(sample_file):
-    reader = read_h5(sample_file)
+    results = read_h5(sample_file)
 
-    summary = reader.summary()
+    summary = results.summary()
     assert [row["name"] for row in summary] == ["setup", "solve"]
     assert summary[1]["num_calls"] == 4
     assert summary[1]["total_duration"] == pytest.approx(13.0)
 
     # Filters use the same regex semantics as get_regions().
-    assert [row["name"] for row in reader.summary(include="sol")] == ["solve"]
-    assert [row["name"] for row in reader.summary(exclude="sol")] == ["setup"]
+    assert [row["name"] for row in results.summary(include="sol")] == ["solve"]
+    assert [row["name"] for row in results.summary(exclude="sol")] == ["setup"]
 
 
 def test_reader_print_summary(sample_file, capsys):
@@ -156,16 +156,35 @@ def test_reader_print_summary(sample_file, capsys):
     assert "setup" in out and "solve" in out
 
 
+def test_reader_print_summary_sort_by_min_and_std(sample_file):
+    """sort accepts every SORT_KEYS column, not just total/calls/avg/max/name."""
+    from scope_profiler.summary import SORT_KEYS, region_rows
+
+    assert {"min", "std"} <= set(SORT_KEYS)
+
+    results = read_h5(sample_file)
+
+    # setup: durations [1, 3] -> min 1, std 1.0
+    # solve: durations [2, 3, 4, 4] -> min 2, std ~0.829
+    # Descending by min: solve (2) before setup (1).
+    rows = region_rows(results, sort="min")
+    assert [row["name"] for row in rows] == ["solve", "setup"]
+
+    # Descending by std: setup (1.0) before solve (~0.829).
+    rows = region_rows(results, sort="std")
+    assert [row["name"] for row in rows] == ["setup", "solve"]
+
+
 def test_reader_to_dataframe(sample_file):
     pd = pytest.importorskip("pandas")
-    reader = read_h5(sample_file)
+    results = read_h5(sample_file)
 
-    frame = reader.to_dataframe()
+    frame = results.to_dataframe()
     assert isinstance(frame, pd.DataFrame)
     assert list(frame["name"]) == ["setup", "solve"]
     assert frame.loc[frame["name"] == "solve", "num_calls"].item() == 4
 
-    per_rank = reader.to_dataframe(per_rank=True)
+    per_rank = results.to_dataframe(per_rank=True)
     assert list(per_rank["rank"]) == [0, 1, 0, 1]
     assert per_rank.loc[
         (per_rank["name"] == "solve") & (per_rank["rank"] == 0), "total_duration"
@@ -213,18 +232,18 @@ def test_mpi_region_events_span_ranks(sample_file):
 
 
 def test_reader_events(sample_file):
-    reader = read_h5(sample_file)
+    results = read_h5(sample_file)
 
-    events = reader.events()
+    events = results.events()
     assert len(events) == 6
     assert [event["name"] for event in events[:2]] == ["setup", "setup"]
 
     # Relative timestamps (the default) start the timeline at zero.
     assert min(event["start"] for event in events) == 0.0
-    absolute = reader.events(relative=False)
+    absolute = results.events(relative=False)
     assert min(event["start"] for event in absolute) == 0.0  # sample starts at 0
 
-    solve_events = reader.events(include="solve", ranks=0)
+    solve_events = results.events(include="solve", ranks=0)
     assert [event["call_index"] for event in solve_events] == [0, 1]
     assert [event["start"] for event in solve_events] == pytest.approx([2.0, 5.0])
 
@@ -234,15 +253,15 @@ def test_reader_events_are_rebased_on_first_entry(tmp_path):
     path = tmp_path / "offset.h5"
     _write_sample_h5(path, {0: {"solve": ([100 * NS, 130 * NS], [110 * NS, 140 * NS])}})
 
-    reader = read_h5(path)
+    results = read_h5(path)
 
-    assert [event["start"] for event in reader.events()] == pytest.approx([0.0, 30.0])
-    assert [event["start"] for event in reader.events(relative=False)] == pytest.approx(
-        [100.0, 130.0]
-    )
-    assert reader.minimum_start_time == pytest.approx(100.0)
-    assert reader.maximum_end_time == pytest.approx(140.0)
-    assert reader.time_span == pytest.approx(40.0)
+    assert [event["start"] for event in results.events()] == pytest.approx([0.0, 30.0])
+    assert [
+        event["start"] for event in results.events(relative=False)
+    ] == pytest.approx([100.0, 130.0])
+    assert results.minimum_start_time == pytest.approx(100.0)
+    assert results.maximum_end_time == pytest.approx(140.0)
+    assert results.time_span == pytest.approx(40.0)
 
 
 def test_reader_uses_registered_start_time_as_origin(tmp_path):
@@ -255,22 +274,22 @@ def test_reader_uses_registered_start_time_as_origin(tmp_path):
         metadata={"start_time_ns": 80 * NS},
     )
 
-    reader = read_h5(path)
+    results = read_h5(path)
 
-    assert reader.run_start_time == pytest.approx(80.0)
-    assert reader.time_origin == pytest.approx(80.0)
+    assert results.run_start_time == pytest.approx(80.0)
+    assert results.time_origin == pytest.approx(80.0)
     # Events now carry the 20 s of un-instrumented startup.
-    assert [event["start"] for event in reader.events()] == pytest.approx([20.0, 50.0])
-    assert [call["start"] for call in reader.call_stack()] == pytest.approx(
+    assert [event["start"] for event in results.events()] == pytest.approx([20.0, 50.0])
+    assert [call["start"] for call in results.call_stack()] == pytest.approx(
         [20.0, 50.0]
     )
     # The startup gap the instrumentation could not see.
-    assert reader.minimum_start_time - reader.run_start_time == pytest.approx(20.0)
+    assert results.minimum_start_time - results.run_start_time == pytest.approx(20.0)
     # Durations and the profiled window are unaffected by the origin.
-    assert [event["duration"] for event in reader.events()] == pytest.approx(
+    assert [event["duration"] for event in results.events()] == pytest.approx(
         [10.0, 10.0]
     )
-    assert reader.time_span == pytest.approx(40.0)
+    assert results.time_span == pytest.approx(40.0)
 
 
 def test_reader_origin_overrides_registered_start_time(tmp_path):
@@ -280,15 +299,17 @@ def test_reader_origin_overrides_registered_start_time(tmp_path):
         {0: {"solve": ([100 * NS], [110 * NS])}},
         metadata={"start_time_ns": 80 * NS},
     )
-    reader = read_h5(path)
+    results = read_h5(path)
 
     # Explicit origin wins over the registered start time...
-    assert reader.events(origin=reader.minimum_start_time)[0]["start"] == 0.0
-    assert reader.call_stack(origin=reader.minimum_start_time)[0]["start"] == 0.0
-    assert reader.to_events_dataframe(origin=100.0)["start"].tolist() == [0.0]
+    assert results.events(origin=results.minimum_start_time)[0]["start"] == 0.0
+    assert results.call_stack(origin=results.minimum_start_time)[0]["start"] == 0.0
+    assert results.to_events_dataframe(origin=100.0)["start"].tolist() == [0.0]
     # ...and over relative=False.
-    assert reader.events(relative=False)[0]["start"] == pytest.approx(100.0)
-    assert reader.events(relative=False, origin=80.0)[0]["start"] == pytest.approx(20.0)
+    assert results.events(relative=False)[0]["start"] == pytest.approx(100.0)
+    assert results.events(relative=False, origin=80.0)[0]["start"] == pytest.approx(
+        20.0
+    )
 
 
 @pytest.mark.parametrize(
@@ -309,19 +330,21 @@ def test_reader_without_registered_start_time_falls_back(tmp_path, metadata):
         metadata=metadata,
     )
 
-    reader = read_h5(path)
+    results = read_h5(path)
 
-    assert reader.run_start_time is None
+    assert results.run_start_time is None
     # The timeline falls back to the first region entry, as before.
-    assert reader.time_origin == pytest.approx(reader.minimum_start_time)
-    assert reader.startup_time == 0.0
-    assert [event["start"] for event in reader.events()] == pytest.approx([0.0, 30.0])
-    assert [call["start"] for call in reader.call_stack()] == pytest.approx([0.0, 30.0])
-    assert reader.to_events_dataframe()["start"].tolist() == pytest.approx([0.0, 30.0])
+    assert results.time_origin == pytest.approx(results.minimum_start_time)
+    assert results.startup_time == 0.0
+    assert [event["start"] for event in results.events()] == pytest.approx([0.0, 30.0])
+    assert [call["start"] for call in results.call_stack()] == pytest.approx(
+        [0.0, 30.0]
+    )
+    assert results.to_events_dataframe()["start"].tolist() == pytest.approx([0.0, 30.0])
     # An explicit origin still works, and so does the raw timeline.
-    assert reader.events(origin=130.0)[1]["start"] == pytest.approx(0.0)
-    assert reader.events(relative=False)[0]["start"] == pytest.approx(100.0)
-    assert reader.time_span == pytest.approx(40.0)
+    assert results.events(origin=130.0)[1]["start"] == pytest.approx(0.0)
+    assert results.events(relative=False)[0]["start"] == pytest.approx(100.0)
+    assert results.time_span == pytest.approx(40.0)
 
 
 def test_startup_time_measures_the_gap_before_the_first_region(tmp_path):
@@ -340,19 +363,19 @@ def test_reader_time_span_without_regions(tmp_path):
     path = tmp_path / "empty.h5"
     _write_sample_h5(path, {0: {}})
 
-    reader = read_h5(path)
+    results = read_h5(path)
 
-    assert reader.minimum_start_time == 0.0
-    assert reader.maximum_end_time == 0.0
-    assert reader.time_span == 0.0
-    assert reader.events() == []
+    assert results.minimum_start_time == 0.0
+    assert results.maximum_end_time == 0.0
+    assert results.time_span == 0.0
+    assert results.events() == []
 
 
 def test_reader_to_events_dataframe(sample_file):
     pd = pytest.importorskip("pandas")
-    reader = read_h5(sample_file)
+    results = read_h5(sample_file)
 
-    frame = reader.to_events_dataframe()
+    frame = results.to_events_dataframe()
     assert isinstance(frame, pd.DataFrame)
     assert list(frame.columns) == [
         "name",
@@ -398,9 +421,9 @@ def test_reader_call_stack(tmp_path):
             }
         },
     )
-    reader = read_h5(path)
+    results = read_h5(path)
 
-    calls = reader.call_stack(rank=0)
+    calls = results.call_stack(rank=0)
 
     assert [(call["name"], call["depth"]) for call in calls] == [
         ("outer", 0),
@@ -420,7 +443,7 @@ def test_reader_call_stack(tmp_path):
     assert call_stack_children(calls) == [[1, 3], [2], [], []]
 
     # A filtered stack renests around what is left.
-    assert [call["depth"] for call in reader.call_stack(exclude="inner")] == [0, 1]
+    assert [call["depth"] for call in results.call_stack(exclude="inner")] == [0, 1]
 
 
 def test_top_level_exports_and_lazy_plotting():

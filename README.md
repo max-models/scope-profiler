@@ -61,7 +61,6 @@ profiling_data.h5  (1 rank(s))
   ----------------------------------------------------------------------------------------
   TOTAL                11   0.00150754
 
-  Regions may nest, so the summed total can exceed the wall-clock time.
 ```
 
 `finalize()` prints the same table as `scope-profiler inspect` and
@@ -157,16 +156,59 @@ against a bare function call:
 ![Profiling overhead by region type](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/benchmark_overhead.png)
 
 The default **TimeOnly** mode — nanosecond timestamps for every call — adds
-roughly **0.75 µs** per instrumented call.
+roughly **0.33 µs** per instrumented call.
 
 Profiling can also be fully deactivated at setup time
-(`deactivate_profiling=True`) to reduce the overhead to ~0.03 µs — barely
+(`deactivate_profiling=True`) to reduce the overhead to ~0.1 µs — barely
 above a bare function call — making it safe to leave instrumentation in
 production code and toggle it on only when needed.
 
-The **LineProfiler** mode is intentionally heavier (~41 µs/call) because
+The **LineProfiler** mode is intentionally heavier (~50 µs/call) because
 `line_profiler` traces every source line. It is designed for targeted
 debugging of individual functions, not for always-on use in hot loops.
+
+## Profiling native code (C, C++, Fortran)
+
+C and Fortran region APIs ship with the package, so native code — or the
+kernels under a Python driver — can be profiled into the same output. They
+share one trace format, so a program built from both lands in one profile.
+
+```c
+#include "scope_profiler.h"
+
+sp_init("profile", my_rank);
+int solve = sp_region("solve");
+sp_begin(solve);
+solve_system();
+sp_end(solve);
+sp_finalize();
+```
+
+```fortran
+use scope_profiler
+integer :: solve
+
+call sp_init("profile", rank=my_rank)
+solve = sp_region("solve")
+call sp_begin(solve)
+call solve_system()
+call sp_end(solve)
+call sp_finalize()
+```
+
+```bash
+scope-profiler import-native . -o profiling_data.h5   # then pproc/inspect as usual
+```
+
+Both are one self-contained file (Fortran 2008, or C99 with an `extern "C"`
+header for C++ callers): no HDF5, no MPI, nothing to link beyond libc.
+
+Timestamps come from the same clock as Python's `time.perf_counter_ns()`, so a
+Python driver and the native kernels it calls land on a single timeline —
+`ProfileManager.finalize(native_traces=".")` folds them into one profile, with
+the native regions nested inside the Python ones that called them. See the
+[Fortran](https://scope-profiler.readthedocs.io/en/latest/guide/fortran.html)
+and [C](https://scope-profiler.readthedocs.io/en/latest/guide/c.html) guides.
 
 ## Recursive profiling of nested calls
 
@@ -405,34 +447,35 @@ The JSON payload additionally includes a `colors` map (region or file label
 to `#rrggbb`) matching the colors used in the matplotlib plot, so a
 JavaScript charting library like Plotly can reproduce the same look.
 
-`scope-profiler pproc --export-data` does the same for every plot in one
-run, writing `gantt_data`, `flame_data`, `durations_data`, and (for multiple
-input files) `speedup_data` alongside the PNGs. Pass `--export-data-format
-json` to get `.json` files instead of the default `.csv`:
+`scope-profiler pproc --export data` does the same for every selected plot in
+one run, writing `gantt_data`, `flame_data`, `durations_data`, and (for
+multiple input files) `speedup_data` alongside the PNGs. Pass
+`--export-data-format json` to get `.json` files instead of the default
+`.csv`:
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures --export-data
-scope-profiler pproc profiling_data.h5 -o figures --export-data --export-data-format json
+scope-profiler pproc profiling_data.h5 -o figures --export data
+scope-profiler pproc profiling_data.h5 -o figures --export data --export-data-format json
 ```
 
-Pass `--skip-plot-images` (requires `--export-data`) to skip rendering the
-PNGs entirely and only write the exported data plus `region_statistics.json`
-— useful when a website renders charts client-side (e.g. with Plotly)
-straight from the JSON:
+Pass `--skip-plot-images` (requires `--export`) to skip rendering the PNGs
+entirely and only write the exported data plus `region_statistics.json` —
+useful when a website renders charts client-side (e.g. with Plotly) straight
+from the JSON:
 
 ```bash
 scope-profiler pproc profiling_data.h5 -o figures \
-  --export-data --export-data-format json --skip-plot-images
+  --export data --export-data-format json --skip-plot-images
 ```
 
 ### Viewing a run in snakeviz
 
-`--export-prof` writes the profile in the `.prof` format of the standard
+`--export prof` writes the profile in the `.prof` format of the standard
 library's `cProfile`, so a run can be explored with
 [snakeviz](https://jiffyclub.github.io/snakeviz/) or `python -m pstats`:
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures --export-prof --skip-plot-images
+scope-profiler pproc profiling_data.h5 -o figures --export prof --skip-plot-images
 snakeviz figures/profile_rank0.prof
 ```
 
@@ -443,12 +486,12 @@ written per exported rank, since `.prof` has no notion of ranks — see
 
 ### Viewing a run in speedscope
 
-`--export-speedscope` writes the run as a
+`--export speedscope` writes the run as a
 [speedscope](https://www.speedscope.app) JSON file. Unlike `.prof`, it keeps
 every individual call, so the timeline shows the run as it happened:
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures --export-speedscope --skip-plot-images
+scope-profiler pproc profiling_data.h5 -o figures --export speedscope --skip-plot-images
 npx speedscope figures/profile.speedscope.json  # or drop the file on speedscope.app
 ```
 

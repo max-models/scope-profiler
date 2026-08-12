@@ -145,7 +145,8 @@ def main() -> None:
         # Single run: gantt, flame, durations (total only), duration timeseries.
         pproc(["run_2.h5", "-o", "figures"], work_dir)
 
-        # Also produce an avg plot for the docs illustration of --metrics.
+        # Also produce an avg plot for the docs illustration of
+        # --duration-metrics.
         pproc(
             [
                 "run_2.h5",
@@ -153,7 +154,7 @@ def main() -> None:
                 "figures_avg",
                 "--plots",
                 "durations",
-                "--metrics",
+                "--duration-metrics",
                 "avg",
             ],
             work_dir,

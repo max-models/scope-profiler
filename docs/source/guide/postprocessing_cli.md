@@ -81,7 +81,7 @@ run_2.h5  (2 rank(s))
 
 This is the same table `ProfileManager.finalize()` and
 {doc}`scope-profiler inspect <../cli>` render. `--summary-sort` reorders it
-(`total`, `calls`, `avg`, `max` or `name`), and `--include`/`--exclude`/
+(`total`, `calls`, `avg`, `min`, `max`, `std` or `name`), and `--include`/`--exclude`/
 `--ranks` narrow it as they do for the charts.
 
 On its own `--summary` produces no plots --- the summary is the whole job.
@@ -123,10 +123,10 @@ rank 0 only; pass `--ranks` to render more (one panel each).
 ## Duration bar charts
 
 One bar chart is written per duration statistic. By default only `total` time
-is shown; `--metrics` selects which statistics to include:
+is shown; `--duration-metrics` selects which statistics to include:
 
 ```bash
-scope-profiler pproc run_2.h5 -o figures --metrics avg total
+scope-profiler pproc run_2.h5 -o figures --duration-metrics avg total
 ```
 
 ```{image} /_static/figures/cli/durations_plot_avg.png
@@ -181,13 +181,13 @@ solver behaves as designed: `solve` and `assemble` scale well, `io` is serial
 and flat, and `halo_exchange` gets *slower* with more ranks, dragging
 `timestep` below the ideal line.
 
-The x-axis is the MPI rank count by default. `--x-field` switches it to
+The x-axis is the MPI rank count by default. `--speedup-x-field` switches it to
 `omp_num_threads` or `total_cores` (both read from the run metadata), or to
 any other metadata field — in which case the files stay in the order given on
 the command line and no ideal-scaling line is drawn:
 
 ```bash
-scope-profiler pproc omp_*.h5 -o figures_scaling --x-field omp_num_threads
+scope-profiler pproc omp_*.h5 -o figures_scaling --speedup-x-field omp_num_threads
 ```
 
 Files can also be selected with wildcards. Quote the pattern to let
@@ -310,11 +310,11 @@ beyond Plotly itself.
 
 ## Exporting the data behind the charts
 
-`--export-data` writes the exact series each chart was drawn from, so the
+`--export data` writes the exact series each chart was drawn from, so the
 figures can be reproduced — or re-styled elsewhere — without the HDF5 files:
 
 ```bash
-scope-profiler pproc run_2.h5 -o figures --export-data
+scope-profiler pproc run_2.h5 -o figures --export data
 ```
 
 ```text
@@ -339,21 +339,21 @@ region colors. If only the data is wanted, `--skip-plot-images` skips
 rendering the images altogether:
 
 ```bash
-scope-profiler pproc run_2.h5 -o data --export-data --export-data-format json \
+scope-profiler pproc run_2.h5 -o data --export data --export-data-format json \
     --skip-plot-images
 ```
 
 ## Exporting to external profile viewers
 
-Two flags export the run in formats other tools understand:
+`--export` also writes the run in formats other tools understand:
 
 ```bash
 # cProfile/pstats format, one file per exported rank
-scope-profiler pproc run_2.h5 -o figures --export-prof --skip-plot-images
+scope-profiler pproc run_2.h5 -o figures --export prof --skip-plot-images
 snakeviz figures/profile_rank0.prof
 
 # speedscope, one file holding one profile per exported rank
-scope-profiler pproc run_2.h5 -o figures --export-speedscope --skip-plot-images
+scope-profiler pproc run_2.h5 -o figures --export speedscope --skip-plot-images
 npx speedscope figures/profile.speedscope.json
 ```
 

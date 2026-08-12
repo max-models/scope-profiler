@@ -31,15 +31,30 @@ from scope_profiler import ProfileManager
 from scope_profiler.region_profiler import DisabledProfileRegion, TimeOnlyProfileRegion
 
 # Per-call budgets in nanoseconds, by profiling mode. Measured on an idle
-# laptop (2026): ~100 ns disabled, ~780 ns with timestamps.
+# laptop (2026): ~100 ns disabled, ~310 ns with timestamps. Of that, ~109 ns
+# is the `with` protocol on Python methods and ~66 ns is the two
+# perf_counter_ns() reads -- half the cost is out of this code's reach, which
+# is why the remaining budget is spent carefully (see BaseProfileRegion).
+#
+# The budgets sit ~10x above that, which is what a heavily contended machine
+# needs: under eight competing CPU-bound processes the same measurement rises
+# to ~900 ns. They therefore catch structural regressions (an allocation, a
+# lock, a filesystem touch per call), not a 2x slowdown -- no absolute budget
+# can do the latter without going flaky. The printed numbers are what make a
+# 2x change visible; see the module docstring for reading them.
 BUDGET_NS = {
     "disabled": 2_000,
-    "time": 6_000,
+    "time": 4_000,
 }
 
 # Extra budget for resolving a region by name on every call instead of
 # hoisting the region object out of the loop (measured: ~45 ns, one dict get).
 LOOKUP_BUDGET_NS = 2_000
+
+# Buffer growth is measured in a single pass -- once the buffers have doubled
+# their way up they stay grown, so it cannot take the minimum over repeats and
+# is the noisiest number here. It also carries the reallocation copies.
+GROWTH_BUDGET_NS = 6_000
 
 # A region records one int64 start and one int64 end per call.
 BYTES_PER_EVENT = 16
@@ -285,11 +300,11 @@ def test_buffer_growth_stays_amortized(configure):
     # One pass only: growth happens once per capacity doubling, so repeating
     # the measurement would time an already-grown buffer.
     overhead = _overhead_ns(instrumented, _empty_loop, iterations=calls, repeats=1)
-    _report("buffer growth, amortized [time]", overhead, BUDGET_NS["time"])
+    _report("buffer growth, amortized [time]", overhead, GROWTH_BUDGET_NS)
 
-    assert overhead < BUDGET_NS["time"], (
+    assert overhead < GROWTH_BUDGET_NS, (
         f"growing from buffer_limit=8 costs {overhead:.0f} ns/call amortized, "
-        f"budget {BUDGET_NS['time']} ns"
+        f"budget {GROWTH_BUDGET_NS} ns"
     )
     # Growth must not lose or duplicate events.
     assert region.num_calls == calls
@@ -351,7 +366,7 @@ def test_measured_duration_matches_wall_clock(configure):
     The instrumentation cost has to fall *outside* the recorded interval;
     if it leaked in, every duration in every report would be inflated.
     """
-    calls = 200
+    calls = 100
     busy_ns = 200_000  # ~0.2 ms of real work per call
     configure()
     region = ProfileManager.profile_region("busy")
@@ -361,26 +376,33 @@ def test_measured_duration_matches_wall_clock(configure):
         while perf_counter_ns() < deadline:
             pass
 
-    outer_start = perf_counter_ns()
-    for _ in range(calls):
-        with region:
-            spin(busy_ns)
-    outer_end = perf_counter_ns()
+    def measure_gap():
+        """Nanoseconds per call the loop spent outside the recorded intervals."""
+        start_ptr = region.ptr
+        outer_start = perf_counter_ns()
+        for _ in range(calls):
+            with region:
+                spin(busy_ns)
+        outer_end = perf_counter_ns()
+        recorded = int(
+            np.sum(
+                region.end_times[start_ptr : start_ptr + calls]
+                - region.start_times[start_ptr : start_ptr + calls]
+            )
+        )
+        wall = outer_end - outer_start
+        # Recorded time can never exceed the wall clock it happened in.
+        assert recorded <= wall
+        return (wall - recorded) / calls, recorded / calls
 
-    recorded_ns = int(np.sum(region.end_times[:calls] - region.start_times[:calls]))
-    wall_ns = outer_end - outer_start
-    # The time the loop spent outside the recorded intervals is the
-    # instrumentation, measured here on a body that does real work.
-    _report(
-        "unrecorded gap, busy body [time]",
-        (wall_ns - recorded_ns) / calls,
-        BUDGET_NS["time"],
-    )
+    # The gap also absorbs any descheduling between calls, so take the best of
+    # several passes: only the minimum is dominated by the instrumentation.
+    gaps, per_calls = zip(*(measure_gap() for _ in range(REPEATS)))
+    gap_ns = min(gaps)
 
-    # Recorded time cannot exceed the wall clock, and the gap is the
-    # instrumentation: it stays inside the budget for these calls.
-    assert recorded_ns <= wall_ns
-    assert wall_ns - recorded_ns < calls * BUDGET_NS["time"]
+    _report("unrecorded gap, busy body [time]", gap_ns, BUDGET_NS["time"])
 
-    per_call_ns = recorded_ns / calls
-    assert per_call_ns >= busy_ns
+    # The instrumentation cost falls outside the recorded interval...
+    assert gap_ns < BUDGET_NS["time"]
+    # ...and the body's own time falls inside it.
+    assert min(per_calls) >= busy_ns

@@ -5,7 +5,7 @@ requires = [ "setuptools", "wheel" ]
 
 [project]
 name = "scope-profiler"
-version = "0.2.7"
+version = "0.2.8"
 description = "Profile code regions in python, optionally with LIKWID markers."
 readme = "README.md"
 keywords = [ "python" ]
@@ -26,6 +26,13 @@ dependencies = [
   "numpy",
 ]
 
+optional-dependencies.fortran = [
+  # f2py's build backend, for building Fortran kernels into an extension
+  # module. The Fortran API itself needs only a compiler.
+  "meson",
+  "ninja",
+]
+
 optional-dependencies.likwid = [
   "pylikwid",
 ]
@@ -42,7 +49,7 @@ optional-dependencies.pproc = [
   "ipykernel",
   "jupyterlab",
   "matplotlib",
-  "maxplotlibx >= 0.1.5",
+  "maxplotlibx >= 0.1.6",
   "pandas",
   "snakeviz",
 ]
@@ -51,7 +58,7 @@ optional-dependencies.dev = [
   "black[jupyter]",
   "isort",
   "ruff",
-  "scope-profiler[docs,line-profiler,mpi,pproc,test]",
+  "scope-profiler[docs,fortran,line-profiler,mpi,pproc,test]",
 ]
 # https://medium.com/@pratikdomadiya123/build-project-documentation-quickly-with-the-sphinx-python-2a9732b66594
 optional-dependencies.docs = [
@@ -74,6 +81,18 @@ scripts.scope-profiler = "scope_profiler.__main__:main"
 
 [tool.setuptools.packages.find]
 where = [ "src" ]
+
+# The native region APIs ship with the wheel: they are source a user compiles
+# into their own program, so they have to survive `pip install`.
+# native_trace.fortran_source_path() / c_source_path() locate them at run time.
+[tool.setuptools.package-data]
+scope_profiler = [
+  "fortran/*.f90",
+  "fortran/Makefile",
+  "c/*.c",
+  "c/*.h",
+  "c/Makefile",
+]
 
 [tool.isort]
 profile = "black"

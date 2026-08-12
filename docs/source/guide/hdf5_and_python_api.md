@@ -1,7 +1,8 @@
 # HDF5 output & post-processing from Python
 
-Unless `deactivate_file_output=True`, scope-profiler writes timing data into
-per-rank HDF5 files and merges them on `finalize()`.
+Unless `deactivate_file_output=True`, `finalize()` writes the run's timing
+data into a single HDF5 file --- under MPI, rank 0 writes it from the data the
+other ranks hand it, so nothing is staged on disk per rank.
 
 This page covers the file layout and the Python API for reading and plotting
 it. The same charts are available from the command line without writing any

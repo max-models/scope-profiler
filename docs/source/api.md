@@ -105,6 +105,28 @@ interchangeable.
 .. autofunction:: scope_profiler.h5reader.read_h5
 ```
 
+### Native (C and Fortran) traces
+
+Reading what the C and Fortran region APIs write -- they share one format; see
+{doc}`guide/c` and {doc}`guide/fortran`.
+
+```{eval-rst}
+.. autofunction:: scope_profiler.native_trace.load_traces
+.. autofunction:: scope_profiler.native_trace.convert_traces
+.. autofunction:: scope_profiler.native_trace.read_trace
+.. autofunction:: scope_profiler.native_trace.find_traces
+.. autofunction:: scope_profiler.native_trace.write_results
+.. autofunction:: scope_profiler.native_trace.fortran_source_path
+.. autofunction:: scope_profiler.native_trace.c_source_path
+.. autofunction:: scope_profiler.native_trace.c_include_dir
+```
+
+### Combining runs
+
+```{eval-rst}
+.. autofunction:: scope_profiler.results.merge_results
+```
+
 ### Region
 
 ```{eval-rst}

@@ -2,7 +2,7 @@
 
 Also runnable as ``python -m scope_profiler <command> ...``.
 
-Three subcommands:
+Five subcommands:
 
 - ``scope-profiler run script.py [args...]`` -- profiles a script's function
   calls without requiring any decorators or context managers in the script
@@ -17,12 +17,22 @@ Three subcommands:
 - ``scope-profiler inspect file.h5 [...]`` -- prints the run metadata and a
   per-region statistics table for merged HDF5 profiling output, without
   producing any plots. See ``scope_profiler.inspection``.
+- ``scope-profiler diff a.h5 b.h5`` -- compares region statistics between two
+  merged HDF5 profiling files, region by region, so a regression (or
+  improvement) between two runs shows up in one table. See
+  ``scope_profiler.diff``.
+- ``scope-profiler import-native traces/ -o out.h5`` -- converts the trace
+  files written by the Fortran region API
+  (``scope_profiler/fortran/scope_profiler.f90``)
+  into the usual HDF5 output, so a Fortran run post-processes exactly like a
+  Python one. See ``scope_profiler.native_trace``.
 """
 
 import argparse
 import os
 import sys
 
+from scope_profiler import __version__
 from scope_profiler.profile_manager import ProfileManager
 
 
@@ -107,20 +117,101 @@ def _inspect(argv):
     return inspect_main(argv)
 
 
+def _diff(argv):
+    """Handle ``scope-profiler diff``: delegate to the diff CLI."""
+    from scope_profiler.diff import main as diff_main
+
+    return diff_main(argv)
+
+
+def _import_fortran(argv):
+    """Handle ``scope-profiler import-native``: Fortran traces -> HDF5."""
+    from scope_profiler.native_trace import TRACE_SUFFIX, convert_traces
+
+    parser = argparse.ArgumentParser(
+        prog="scope-profiler import-native",
+        description=(
+            "Convert the trace files written by the Fortran region API into a "
+            "standard scope-profiler HDF5 file."
+        ),
+    )
+    parser.add_argument(
+        "inputs",
+        nargs="+",
+        help=f"trace files (*{TRACE_SUFFIX}) and/or directories containing them",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        default="profiling_data.h5",
+        help="HDF5 file to write (default: profiling_data.h5)",
+    )
+    parser.add_argument(
+        "--label",
+        default=None,
+        help="name for the run in summaries, charts and exports",
+    )
+    parser.add_argument(
+        "--merge",
+        metavar="PROFILE.h5",
+        default=None,
+        help="an existing profile to combine the traces with, for a run whose "
+        "Python side was profiled separately; region names must not clash",
+    )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="do not print the summary table",
+    )
+    args = parser.parse_args(argv)
+
+    if args.merge is None:
+        path = convert_traces(args.inputs, args.output, label=args.label)
+    else:
+        from scope_profiler.h5reader import read_h5
+        from scope_profiler.native_trace import load_traces, write_results
+        from scope_profiler.results import merge_results
+
+        path = write_results(
+            merge_results(
+                read_h5(args.merge),
+                load_traces(args.inputs),
+                label=args.label,
+                file_path=args.output,
+            ),
+            args.output,
+        )
+
+    if not args.quiet:
+        from scope_profiler.h5reader import read_h5
+
+        read_h5(path).print_summary()
+        print(f"\nwrote {path}")
+    return 0
+
+
 _COMMANDS = {
     "run": _run,
     "pproc": _pproc,
     "inspect": _inspect,
+    "diff": _diff,
+    "import-native": _import_fortran,
 }
 
 
 def main(argv=None):
-    """Dispatch to the ``run`` or ``pproc`` subcommand."""
+    """Dispatch to the requested subcommand."""
     argv = sys.argv[1:] if argv is None else list(argv)
 
     parser = argparse.ArgumentParser(
         prog="scope-profiler",
         description="Profile scripts and post-process the resulting HDF5 output.",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser(
@@ -140,12 +231,24 @@ def main(argv=None):
         help="Print metadata and region statistics of HDF5 profiling data "
         "(see `scope-profiler inspect --help`)",
     )
+    subparsers.add_parser(
+        "diff",
+        add_help=False,
+        help="Compare region statistics between two HDF5 profiling files "
+        "(see `scope-profiler diff --help`)",
+    )
+    subparsers.add_parser(
+        "import-native",
+        add_help=False,
+        help="Convert Fortran API trace files into HDF5 "
+        "(see `scope-profiler import-native --help`)",
+    )
 
     if not argv:
         parser.print_help()
         raise SystemExit(1)
-    if argv[0] in ("-h", "--help"):
-        parser.parse_args(argv)  # prints help and exits(0)
+    if argv[0] in ("-h", "--help", "--version"):
+        parser.parse_args(argv)  # prints help/version and exits(0)
         return
 
     command, *rest = argv

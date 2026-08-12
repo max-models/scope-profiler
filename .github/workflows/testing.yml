@@ -84,6 +84,36 @@ jobs:
           python3 src/scope_profiler/tests/examples.py
           scope-profiler pproc profiling_data.h5 --show -o figures
 
+      # The Fortran tests in the suite above already compile and run the
+      # module (gfortran ships on the runners). This adds the path a user
+      # actually takes: the shipped Makefile, then the importer, on a
+      # platform whose clock ids differ from macOS's.
+      - name: Test Fortran API (build, run, import)
+        run: |
+          gfortran --version
+          make -C src/scope_profiler/fortran run BUILD_DIR=$PWD/fortran_build
+          scope-profiler inspect fortran_build/profiling_data.h5
+
+      # examples/fortran is what users copy from: build both the standalone
+      # program and the f2py extension, and run the mixed-language driver.
+      - name: Test Fortran examples
+        run: |
+          make -C examples/fortran run-standalone BUILD_DIR=$PWD/example_build
+          make -C examples/fortran run-mixed
+
+      # The C API shares the trace format with the Fortran one, and its clock
+      # selection differs per platform -- so build and run it on Linux too.
+      - name: Test C API (build, run, import)
+        run: |
+          cc --version
+          make -C src/scope_profiler/c run BUILD_DIR=$PWD/c_build
+          scope-profiler inspect c_build/profiling_data.h5
+
+      - name: Test C examples
+        run: |
+          make -C examples/c run-standalone BUILD_DIR=$PWD/c_example_build
+          make -C examples/c run-mixed
+
       # mpi4py is installed at this point (via the dev extra), so the only
       # difference between these runs is the launcher: MPI must be used when
       # started by mpirun and never touched otherwise.

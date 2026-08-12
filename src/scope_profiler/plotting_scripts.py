@@ -16,6 +16,7 @@ import numpy as np
 
 from scope_profiler.call_stack import build_call_stack
 from scope_profiler.results import ProfilingResults
+from scope_profiler.summary import _name_selected
 
 
 def _write_csv(
@@ -220,7 +221,7 @@ def _region_color_map(region_names, cmap: str = DEFAULT_CMAP) -> dict:
     return dict(zip(names, colors))
 
 
-def _as_readers(
+def _as_runs(
     profiling_data: ProfilingResults | Sequence[ProfilingResults],
 ) -> list[ProfilingResults]:
     """Normalize the input, dropping result sets this rank must not draw.
@@ -234,10 +235,10 @@ def _as_readers(
     """
     if isinstance(profiling_data, ProfilingResults):
         profiling_data = [profiling_data]
-    readers = list(profiling_data)
-    if not readers:
+    runs = list(profiling_data)
+    if not runs:
         raise ValueError("No profiling data provided.")
-    return [reader for reader in readers if reader.is_root]
+    return [run for run in runs if run.is_root]
 
 
 def _filename_slug(label: str) -> str:
@@ -338,12 +339,12 @@ def _stats_from_values(values: np.ndarray) -> dict[str, float | int | None]:
 
 
 def _common_region_names(
-    readers: Sequence[ProfilingResults],
+    runs: Sequence[ProfilingResults],
     include: list[str] | str | None = None,
     exclude: list[str] | str | None = None,
 ) -> list[str]:
     filtered_regions = [
-        reader.get_regions(include=include, exclude=exclude) for reader in readers
+        run.get_regions(include=include, exclude=exclude) for run in runs
     ]
     if not filtered_regions or not filtered_regions[0]:
         return []
@@ -361,33 +362,33 @@ def _common_region_names(
 _SCALING_X_FIELDS = {"num_ranks", "omp_num_threads", "total_cores"}
 
 
-def _speedup_x_value(reader: ProfilingResults, x_field: str):
-    """Resolve the x-axis value for a single reader given ``x_field``."""
+def _speedup_x_value(run: ProfilingResults, x_field: str):
+    """Resolve the x-axis value for a single run given ``x_field``."""
     if x_field == "num_ranks":
-        return reader.num_ranks
+        return run.num_ranks
 
     if x_field == "omp_num_threads":
-        value = reader.metadata.get("omp_num_threads")
+        value = run.metadata.get("omp_num_threads")
         if value is None:
             raise ValueError(
-                f"'omp_num_threads' not found in metadata for {reader.file_path}"
+                f"'omp_num_threads' not found in metadata for {run.file_path}"
             )
         return int(value)
 
     if x_field == "total_cores":
-        value = reader.metadata.get("omp_num_threads")
+        value = run.metadata.get("omp_num_threads")
         if value is None:
             raise ValueError(
-                f"'omp_num_threads' not found in metadata for {reader.file_path}"
+                f"'omp_num_threads' not found in metadata for {run.file_path}"
             )
-        return reader.num_ranks * int(value)
+        return run.num_ranks * int(value)
 
-    if x_field not in reader.metadata:
+    if x_field not in run.metadata:
         raise ValueError(
-            f"Metadata field {x_field!r} not found for {reader.file_path}. "
-            f"Available fields: {sorted(reader.metadata)}"
+            f"Metadata field {x_field!r} not found for {run.file_path}. "
+            f"Available fields: {sorted(run.metadata)}"
         )
-    return reader.metadata[x_field]
+    return run.metadata[x_field]
 
 
 def collect_region_statistics(
@@ -398,9 +399,9 @@ def collect_region_statistics(
     labels: Sequence[str] | None = None,
 ) -> dict:
     """Collect aggregate region-duration statistics for one or more profiling files."""
-    readers = _as_readers(profiling_data)
+    runs = _as_runs(profiling_data)
     selected_ranks = _normalize_ranks(ranks)
-    if not readers:
+    if not runs:
         # Not this rank's data; rank 0 holds it all.
         return {
             "units": {"durations": "seconds"},
@@ -414,16 +415,16 @@ def collect_region_statistics(
         }
 
     if labels is None:
-        labels = _unique_labels([reader.display_label for reader in readers])
+        labels = _unique_labels([run.display_label for run in runs])
     else:
         labels = list(labels)
 
-    if len(labels) != len(readers):
+    if len(labels) != len(runs):
         raise ValueError("labels must match the number of profiling files.")
 
     files_payload = []
-    for label, reader in zip(labels, readers):
-        regions = reader.get_regions(include=include, exclude=exclude)
+    for label, run in zip(labels, runs):
+        regions = run.get_regions(include=include, exclude=exclude)
         region_payload = {}
         for region in regions:
             values = _region_duration_values(region, selected_ranks)
@@ -441,8 +442,8 @@ def collect_region_statistics(
         files_payload.append(
             {
                 "label": label,
-                "file_path": str(Path(reader.file_path).resolve()),
-                "num_ranks": reader.num_ranks,
+                "file_path": str(Path(run.file_path).resolve()),
+                "num_ranks": run.num_ranks,
                 "region_statistics": region_payload,
             }
         )
@@ -455,8 +456,8 @@ def collect_region_statistics(
             "ranks": selected_ranks,
         },
         "common_regions": (
-            _common_region_names(readers, include=include, exclude=exclude)
-            if len(readers) > 1
+            _common_region_names(runs, include=include, exclude=exclude)
+            if len(runs) > 1
             else list(files_payload[0]["region_statistics"].keys())
         ),
         "files": files_payload,
@@ -511,9 +512,9 @@ def _prepare_gantt_data(
             raise ValueError(f"Invalid ranks requested: {invalid_ranks}")
 
     # Charts frame the recorded window: x = 0 is the first region entry, not
-    # the run's registered start (reader.time_origin), so that a long gap
+    # the run's registered start (run.time_origin), so that a long gap
     # between setup() and the first region does not push the bars off to one
-    # side. reader.events(origin=reader.minimum_start_time) matches this.
+    # side. run.events(origin=run.minimum_start_time) matches this.
     return regions, normalized_ranks, profiling_data.minimum_start_time
 
 
@@ -539,20 +540,20 @@ def plot_gantt(
         Backend to use for rendering: "matplotlib" (default) or "plotly".
     """
     Canvas = _get_canvas()
-    readers = _as_readers(profiling_data)
-    if not readers:
+    runs = _as_runs(profiling_data)
+    if not runs:
         # Not this rank's job; rank 0 draws it.
         return
 
     prepared = []
-    for reader in readers:
+    for run in runs:
         regions, selected_ranks, first_start_time = _prepare_gantt_data(
-            reader,
+            run,
             ranks,
             include,
             exclude,
         )
-        prepared.append((reader, regions, selected_ranks, first_start_time))
+        prepared.append((run, regions, selected_ranks, first_start_time))
 
     color_map = _region_color_map(
         (region.name for _, regions, _, _ in prepared for region in regions),
@@ -562,7 +563,7 @@ def plot_gantt(
         for region in regions:
             region.color = color_map[region.name]
 
-    labels = _unique_labels([reader.display_label for reader, _, _, _ in prepared])
+    labels = _unique_labels([run.display_label for run, _, _, _ in prepared])
 
     if data_filepath:
         if data_format == "json":
@@ -716,8 +717,8 @@ def plot_flame(
         Backend to use for rendering: "matplotlib" (default) or "plotly".
     """
     Canvas = _get_canvas()
-    readers = _as_readers(profiling_data)
-    if not readers:
+    runs = _as_runs(profiling_data)
+    if not runs:
         # Not this rank's job; rank 0 draws it.
         return
 
@@ -725,12 +726,12 @@ def plot_flame(
 
     reader_regions = []
     all_region_names: set[str] = set()
-    for reader in readers:
-        regions = reader.get_regions(include=include, exclude=exclude)
+    for run in runs:
+        regions = run.get_regions(include=include, exclude=exclude)
         if not regions:
             raise ValueError("No regions matched the selected filters.")
         all_region_names.update(region.name for region in regions)
-        reader_regions.append((reader, regions))
+        reader_regions.append((run, regions))
 
     color_map = _region_color_map(all_region_names, cmap=cmap)
     for _, regions in reader_regions:
@@ -738,19 +739,19 @@ def plot_flame(
             region.color = color_map[region.name]
 
     prepared = []
-    for reader, regions in reader_regions:
+    for run, regions in reader_regions:
         for rank in normalized_ranks:
-            if rank < 0 or rank >= reader.num_ranks:
+            if rank < 0 or rank >= run.num_ranks:
                 raise ValueError(f"Invalid rank requested: {rank}")
             calls = build_call_stack(regions, rank)
             if calls:
-                prepared.append((reader, rank, calls))
+                prepared.append((run, rank, calls))
 
     if not prepared:
         raise ValueError("No calls recorded for the requested ranks.")
 
     if data_filepath:
-        labels = _unique_labels([reader.display_label for reader, _, _ in prepared])
+        labels = _unique_labels([run.display_label for run, _, _ in prepared])
         if data_format == "json":
             call_records = []
             colors = {}
@@ -792,7 +793,7 @@ def plot_flame(
         print(
             "Plotting flame graph for: "
             + ", ".join(
-                f"{reader.display_label} (rank {rank})" for reader, rank, _ in prepared
+                f"{run.display_label} (rank {rank})" for run, rank, _ in prepared
             )
         )
 
@@ -810,7 +811,7 @@ def plot_flame(
         gridspec_kw=_panel_gridspec(fig_width, fig_height, 8, not single_panel),
     )
 
-    for idx, (reader, rank, calls) in enumerate(prepared):
+    for idx, (run, rank, calls) in enumerate(prepared):
         row = None if single_panel else idx
         col = None if single_panel else 0
 
@@ -840,7 +841,7 @@ def plot_flame(
         canvas.set_ylim(-0.6, max_depth + 1.0, row=row, col=col)
         canvas.set_xlabel("Time (seconds)", row=row, col=col)
         canvas.set_ylabel("Call depth", row=row, col=col)
-        canvas.set_title(f"{reader.display_label} (rank {rank})", row=row, col=col)
+        canvas.set_title(f"{run.display_label} (rank {rank})", row=row, col=col)
         canvas.set_grid(True, row=row, col=col)
 
     if not single_panel:
@@ -875,6 +876,50 @@ def _metric_filepath(filepath: str, metric_key: str, single_metric: bool) -> str
     return f"{base}_{metric_key}{ext}"
 
 
+def _sort_and_limit_region_names(
+    region_names: list[str],
+    runs: Sequence[ProfilingResults],
+    ranks: list[int] | None,
+    sort_by: str | None,
+    top_n: int | None,
+) -> list[str]:
+    """Order region names by a duration statistic and/or keep only the top N.
+
+    ``sort_by`` picks the worst case across runs (the maximum of the chosen
+    statistic over all the files being plotted together), so a multi-file
+    comparison still sorts on "what's expensive anywhere", not just in the
+    first file. ``sort_by="name"`` sorts alphabetically instead. Neither
+    argument reorders anything when both are ``None``, which keeps the
+    default the same natural (first-appearance) order as before.
+    """
+    if sort_by is None and top_n is None:
+        return region_names
+
+    if sort_by is None or sort_by == "name":
+        ordered = sorted(region_names)
+    else:
+        if sort_by not in _DURATION_METRICS:
+            raise ValueError(
+                f"Unknown sort_by {sort_by!r}. Valid options are: "
+                f"{['name', *_DURATION_METRICS]}"
+            )
+        stat_key, _ = _DURATION_METRICS[sort_by]
+
+        def _score(name: str) -> float:
+            values = [
+                _region_metric_value(run.get_region(name), stat_key, ranks=ranks)
+                for run in runs
+            ]
+            finite = [value for value in values if np.isfinite(value)]
+            return max(finite) if finite else float("-inf")
+
+        ordered = sorted(region_names, key=lambda name: (-_score(name), name))
+
+    if top_n is not None:
+        ordered = ordered[:top_n]
+    return ordered
+
+
 def plot_durations(
     profiling_data: ProfilingResults | Sequence[ProfilingResults],
     ranks: list[int] | int | None = None,
@@ -882,10 +927,13 @@ def plot_durations(
     exclude: list[str] | str | None = None,
     labels: Sequence[str] | None = None,
     metrics: list[str] | str | None = None,
+    sort_by: str | None = None,
+    top_n: int | None = None,
     filepath: str | None = None,
     show: bool = False,
     verbose: bool = True,
     cmap: str = DEFAULT_CMAP,
+    log_scale: bool = False,
     data_filepath: str | Path | None = None,
     data_format: str = "csv",
     backend: str = "matplotlib",
@@ -903,8 +951,8 @@ def plot_durations(
         List of filepaths that were written (empty if filepath is None).
     """
     Canvas = _get_canvas()
-    readers = _as_readers(profiling_data)
-    if not readers:
+    runs = _as_runs(profiling_data)
+    if not runs:
         # Not this rank's job; rank 0 draws it.
         return []
     ranks = _normalize_ranks(ranks)
@@ -924,16 +972,19 @@ def plot_durations(
         )
 
     if labels is None:
-        labels = _unique_labels([reader.display_label for reader in readers])
+        labels = _unique_labels([run.display_label for run in runs])
     else:
         labels = list(labels)
 
-    if len(labels) != len(readers):
+    if len(labels) != len(runs):
         raise ValueError("labels must match the number of profiling files.")
 
-    region_names = _common_region_names(readers, include=include, exclude=exclude)
+    region_names = _common_region_names(runs, include=include, exclude=exclude)
     if not region_names:
         raise ValueError("No regions matched the selected filters.")
+    region_names = _sort_and_limit_region_names(
+        region_names, runs, ranks, sort_by, top_n
+    )
 
     if verbose:
         print(
@@ -941,7 +992,7 @@ def plot_durations(
             f"for files: {', '.join(labels)}"
         )
 
-    num_readers = len(readers)
+    num_readers = len(runs)
     colors = _get_cmap_colors(cmap, max(num_readers, 1))
     fig_width = max(10, 0.85 * len(region_names) + 2)
     fig_height = max(4.5, 2.5 + 0.35 * num_readers)
@@ -955,12 +1006,10 @@ def plot_durations(
 
         values = [
             [
-                _region_metric_value(
-                    reader.get_region(region_name), stat_key, ranks=ranks
-                )
+                _region_metric_value(run.get_region(region_name), stat_key, ranks=ranks)
                 for region_name in region_names
             ]
-            for reader in readers
+            for run in runs
         ]
 
         if data_filepath:
@@ -990,6 +1039,8 @@ def plot_durations(
         canvas.set_ylabel(ylabel)
         canvas.set_title(f"Region duration comparison ({metric_key})")
         canvas.set_grid(True)
+        if log_scale:
+            canvas.set_yscale("log")
         if num_readers > 1:
             canvas.set_legend()
 
@@ -1091,6 +1142,7 @@ def plot_duration_timeseries(
     show: bool = False,
     verbose: bool = True,
     cmap: str = DEFAULT_CMAP,
+    log_scale: bool = False,
     data_filepath: str | Path | None = None,
     data_format: str = "csv",
     backend: str = "matplotlib",
@@ -1107,8 +1159,8 @@ def plot_duration_timeseries(
         Backend to use for rendering: "matplotlib" (default) or "plotly".
     """
     Canvas = _get_canvas()
-    readers = _as_readers(profiling_data)
-    if not readers:
+    runs = _as_runs(profiling_data)
+    if not runs:
         # Not this rank's job; rank 0 draws it.
         return
 
@@ -1116,19 +1168,19 @@ def plot_duration_timeseries(
 
     reader_regions = []
     all_region_names: set[str] = set()
-    for reader in readers:
-        regions = reader.get_regions(include=include, exclude=exclude)
+    for run in runs:
+        regions = run.get_regions(include=include, exclude=exclude)
         if not regions:
             raise ValueError("No regions matched the selected filters.")
         all_region_names.update(region.name for region in regions)
-        reader_regions.append((reader, regions))
+        reader_regions.append((run, regions))
 
     color_map = _region_color_map(all_region_names, cmap=cmap)
 
     prepared = []
-    for reader, regions in reader_regions:
+    for run, regions in reader_regions:
         # As in _prepare_gantt_data: charts are framed on the first entry.
-        first_start_time = reader.minimum_start_time
+        first_start_time = run.minimum_start_time
         series = [
             (
                 region.name,
@@ -1138,12 +1190,12 @@ def plot_duration_timeseries(
         ]
         series = [(name, values) for name, values in series if values is not None]
         if series:
-            prepared.append((reader, series))
+            prepared.append((run, series))
 
     if not prepared:
         raise ValueError("No calls recorded for the requested ranks.")
 
-    labels = _unique_labels([reader.display_label for reader, _ in prepared])
+    labels = _unique_labels([run.display_label for run, _ in prepared])
 
     if data_filepath:
         records = []
@@ -1194,7 +1246,7 @@ def plot_duration_timeseries(
         gridspec_kw=_panel_gridspec(fig_width, fig_height, 12, not single_panel),
     )
 
-    for idx, (reader, series) in enumerate(prepared):
+    for idx, (run, series) in enumerate(prepared):
         row = None if single_panel else idx
         col = None if single_panel else 0
 
@@ -1222,12 +1274,14 @@ def plot_duration_timeseries(
         canvas.set_xlabel("Time (seconds)", row=row, col=col)
         canvas.set_ylabel("Duration per call (seconds)", row=row, col=col)
         canvas.set_title(
-            "Region duration over time" if single_panel else reader.display_label,
+            "Region duration over time" if single_panel else run.display_label,
             row=row,
             col=col,
         )
         canvas.set_grid(True, row=row, col=col)
         canvas.set_legend(row=row, col=col)
+        if log_scale:
+            canvas.set_yscale("log", row=row, col=col)
 
     if not single_panel:
         canvas.suptitle("Region duration over time")
@@ -1257,19 +1311,19 @@ def plot_speedup(
         Backend to use for rendering: "matplotlib" (default) or "plotly".
     """
     Canvas = _get_canvas()
-    readers = _as_readers(profiling_data)
-    if not readers:
+    runs = _as_runs(profiling_data)
+    if not runs:
         # Not this rank's job; rank 0 draws it.
         return
-    if len(readers) < 2:
+    if len(runs) < 2:
         raise ValueError("Speedup plot requires at least two profiling files.")
 
-    region_names = _common_region_names(readers, include=include, exclude=exclude)
+    region_names = _common_region_names(runs, include=include, exclude=exclude)
     if not region_names:
         raise ValueError("No regions matched the selected filters.")
 
     is_scaling = x_field in _SCALING_X_FIELDS
-    x_per_reader = [_speedup_x_value(reader, x_field) for reader in readers]
+    x_per_reader = [_speedup_x_value(run, x_field) for run in runs]
 
     if is_scaling:
         x_keys = sorted({int(value) for value in x_per_reader})
@@ -1285,10 +1339,10 @@ def plot_speedup(
     duration_samples: dict[str, dict] = {
         region_name: defaultdict(list) for region_name in region_names
     }
-    for reader, x_value in zip(readers, x_per_reader):
+    for run, x_value in zip(runs, x_per_reader):
         for region_name in region_names:
             duration = _region_average_duration(
-                reader.get_region(region_name),
+                run.get_region(region_name),
                 ranks=ranks,
             )
             if np.isfinite(duration) and duration > 0:
@@ -1386,5 +1440,520 @@ def plot_speedup(
     canvas.set_title(f"Region speedup scaling (baseline: {x_label} = {baseline_key})")
     canvas.set_grid(True)
     canvas.set_legend()
+
+    _render(canvas, filepath, show, backend)
+
+
+def plot_imbalance(
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
+    metric: str = "total",
+    ranks: list[int] | int | None = None,
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+    filepath: str | None = None,
+    show: bool = False,
+    verbose: bool = True,
+    cmap: str = DEFAULT_CMAP,
+    log_scale: bool = False,
+    data_filepath: str | Path | None = None,
+    data_format: str = "csv",
+    backend: str = "matplotlib",
+) -> None:
+    """Plot each region's duration statistic per rank, to surface load imbalance.
+
+    One point per (region, rank), connected by a line in rank order, with a
+    dashed horizontal line at the mean over ranks -- so a straggler rank shows
+    up as a point sitting well off its region's line. This is a per-rank view
+    of the same statistics :func:`plot_durations` aggregates across ranks.
+
+    Parameters
+    ----------
+    metric : str
+        Which per-call duration statistic to plot per rank; one of
+        ``"avg"``, ``"min"``, ``"max"``, ``"total"`` (default: ``"total"``,
+        the total time a rank spent in the region).
+    backend : str
+        Backend to use for rendering: "matplotlib" (default) or "plotly".
+    """
+    Canvas = _get_canvas()
+    runs = _as_runs(profiling_data)
+    if not runs:
+        # Not this rank's job; rank 0 draws it.
+        return
+
+    if metric not in _DURATION_METRICS:
+        raise ValueError(
+            f"Unknown metric {metric!r}. Valid options are: {list(_DURATION_METRICS)}"
+        )
+    stat_key, metric_label = _DURATION_METRICS[metric]
+
+    normalized_ranks = _normalize_ranks(ranks)
+
+    reader_regions = []
+    all_region_names: set[str] = set()
+    for run in runs:
+        regions = run.get_regions(include=include, exclude=exclude)
+        if not regions:
+            raise ValueError("No regions matched the selected filters.")
+        all_region_names.update(region.name for region in regions)
+        reader_regions.append((run, regions))
+
+    color_map = _region_color_map(all_region_names, cmap=cmap)
+
+    prepared = []
+    for run, regions in reader_regions:
+        available_ranks = (
+            normalized_ranks
+            if normalized_ranks is not None
+            else list(range(run.num_ranks))
+        )
+        series = []
+        for region in regions:
+            rank_list: list[int] = []
+            value_list: list[float] = []
+            for rank in sorted(available_ranks):
+                if rank not in region:
+                    continue
+                durations = region[rank].durations
+                if not durations.size:
+                    continue
+                value = _stats_from_values(durations)[stat_key]
+                if value is None:
+                    continue
+                rank_list.append(rank)
+                value_list.append(value)
+            if rank_list:
+                series.append(
+                    (
+                        region.name,
+                        np.asarray(rank_list, dtype=int),
+                        np.asarray(value_list, dtype=float),
+                    )
+                )
+        if series:
+            prepared.append((run, series))
+
+    if not prepared:
+        raise ValueError("No calls recorded for the requested ranks.")
+
+    labels = _unique_labels([run.display_label for run, _ in prepared])
+
+    if data_filepath:
+        records = []
+        for label, (_, series) in zip(labels, prepared):
+            for region_name, region_ranks, values in series:
+                mean_value = float(np.mean(values))
+                for rank, value in zip(region_ranks, values):
+                    records.append(
+                        [label, region_name, int(rank), float(value), mean_value]
+                    )
+        header = ["file", "region", "rank", "value_seconds", "mean_over_ranks_seconds"]
+        if data_format == "json":
+            points = [dict(zip(header, record)) for record in records]
+            colors_map = {
+                name: _to_hex(color) for name, color in sorted(color_map.items())
+            }
+            _write_json(
+                data_filepath,
+                {"metric": metric, "points": points, "colors": colors_map},
+            )
+        else:
+            _write_csv(data_filepath, header, records)
+
+    if verbose:
+        print(f"Plotting per-rank imbalance ({metric}) for files: " + ", ".join(labels))
+
+    single_panel = len(prepared) == 1
+    fig_width, fig_height = 12.0, 1.0 + 4.0 * len(prepared)
+    canvas = Canvas(
+        nrows=len(prepared),
+        ncols=1,
+        figsize=(fig_width, fig_height),
+        gridspec_kw=_panel_gridspec(fig_width, fig_height, 10, not single_panel),
+    )
+
+    for idx, (run, series) in enumerate(prepared):
+        row = None if single_panel else idx
+        col = None if single_panel else 0
+
+        for region_name, region_ranks, values in series:
+            color = _to_hex(color_map[region_name])
+            canvas.add_line(
+                region_ranks,
+                values,
+                row=row,
+                col=col,
+                linewidth=1.4,
+                color=color,
+                label=region_name,
+            )
+            canvas.scatter(
+                region_ranks,
+                values,
+                row=row,
+                col=col,
+                color=color,
+            )
+            canvas.axhline(
+                float(np.mean(values)),
+                row=row,
+                col=col,
+                linestyle="--",
+                linewidth=1.0,
+                color=color,
+                alpha=0.5,
+            )
+
+        canvas.set_xlabel("Rank", row=row, col=col)
+        canvas.set_ylabel(metric_label, row=row, col=col)
+        canvas.set_title(
+            "Per-rank load imbalance" if single_panel else run.display_label,
+            row=row,
+            col=col,
+        )
+        canvas.set_grid(True, row=row, col=col)
+        canvas.set_legend(row=row, col=col)
+        if log_scale:
+            canvas.set_yscale("log", row=row, col=col)
+
+    if not single_panel:
+        canvas.suptitle("Per-rank load imbalance")
+
+    _render(canvas, filepath, show, backend)
+
+
+def plot_duration_histogram(
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
+    ranks: list[int] | int | None = None,
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+    bins: int = 30,
+    filepath: str | None = None,
+    show: bool = False,
+    verbose: bool = True,
+    cmap: str = DEFAULT_CMAP,
+    log_scale: bool = False,
+    data_filepath: str | Path | None = None,
+    data_format: str = "csv",
+    backend: str = "matplotlib",
+) -> None:
+    """Plot each region's call-duration distribution as a frequency line.
+
+    One panel per file, one line per region, giving the count of calls
+    falling in each duration bin -- so a region whose calls are mostly fast
+    with an occasional slow outlier shows up as a peak with a long tail,
+    something the mean/min/max in :func:`plot_durations` cannot distinguish
+    from a uniformly slower region.
+
+    Parameters
+    ----------
+    bins : int
+        Number of histogram bins spanning each file's observed duration
+        range (default: 30). All regions in a panel share the same bin edges,
+        so the curves are directly comparable.
+    backend : str
+        Backend to use for rendering: "matplotlib" (default) or "plotly".
+    """
+    Canvas = _get_canvas()
+    runs = _as_runs(profiling_data)
+    if not runs:
+        # Not this rank's job; rank 0 draws it.
+        return
+
+    normalized_ranks = _normalize_ranks(ranks)
+
+    reader_regions = []
+    all_region_names: set[str] = set()
+    for run in runs:
+        regions = run.get_regions(include=include, exclude=exclude)
+        if not regions:
+            raise ValueError("No regions matched the selected filters.")
+        all_region_names.update(region.name for region in regions)
+        reader_regions.append((run, regions))
+
+    color_map = _region_color_map(all_region_names, cmap=cmap)
+
+    prepared = []
+    for run, regions in reader_regions:
+        series = []
+        for region in regions:
+            values = _region_duration_values(region, normalized_ranks)
+            if values.size:
+                series.append((region.name, values))
+        if series:
+            prepared.append((run, series))
+
+    if not prepared:
+        raise ValueError("No calls recorded for the requested ranks.")
+
+    labels = _unique_labels([run.display_label for run, _ in prepared])
+
+    if verbose:
+        print("Plotting duration histograms for files: " + ", ".join(labels))
+
+    single_panel = len(prepared) == 1
+    fig_width, fig_height = 12.0, 1.0 + 4.0 * len(prepared)
+    canvas = Canvas(
+        nrows=len(prepared),
+        ncols=1,
+        figsize=(fig_width, fig_height),
+        gridspec_kw=_panel_gridspec(fig_width, fig_height, 10, not single_panel),
+    )
+
+    data_rows = []
+    for idx, (run, series) in enumerate(prepared):
+        row = None if single_panel else idx
+        col = None if single_panel else 0
+
+        all_values = np.concatenate([values for _, values in series])
+        edges = np.histogram_bin_edges(all_values, bins=bins)
+        centers = 0.5 * (edges[:-1] + edges[1:])
+
+        for region_name, values in series:
+            counts, _ = np.histogram(values, bins=edges)
+            color = _to_hex(color_map[region_name])
+            canvas.add_line(
+                centers,
+                counts,
+                row=row,
+                col=col,
+                linewidth=1.6,
+                color=color,
+                label=region_name,
+            )
+            if data_filepath:
+                label = labels[idx]
+                for center, low, high, count in zip(
+                    centers, edges[:-1], edges[1:], counts
+                ):
+                    data_rows.append(
+                        [
+                            label,
+                            region_name,
+                            float(low),
+                            float(high),
+                            float(center),
+                            int(count),
+                        ]
+                    )
+
+        canvas.set_xlabel("Duration per call (seconds)", row=row, col=col)
+        canvas.set_ylabel("Number of calls", row=row, col=col)
+        canvas.set_title(
+            "Call duration distribution" if single_panel else run.display_label,
+            row=row,
+            col=col,
+        )
+        canvas.set_grid(True, row=row, col=col)
+        canvas.set_legend(row=row, col=col)
+        if log_scale:
+            canvas.set_yscale("log", row=row, col=col)
+
+    if not single_panel:
+        canvas.suptitle("Call duration distribution")
+
+    if data_filepath:
+        header = [
+            "file",
+            "region",
+            "bin_low_seconds",
+            "bin_high_seconds",
+            "bin_center_seconds",
+            "count",
+        ]
+        if data_format == "json":
+            bins_payload = [dict(zip(header, record)) for record in data_rows]
+            colors_map = {
+                name: _to_hex(color) for name, color in sorted(color_map.items())
+            }
+            _write_json(data_filepath, {"bins": bins_payload, "colors": colors_map})
+        else:
+            _write_csv(data_filepath, header, data_rows)
+
+    _render(canvas, filepath, show, backend)
+
+
+def available_likwid_metrics(
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
+) -> list[str]:
+    """List the LIKWID metric/event names available for :func:`plot_likwid`.
+
+    Union over every run, rank and region, in the order LIKWID reported them
+    (derived metrics first, then raw events) -- so a caller who does not know
+    what a run measured can list the valid ``metric`` values before plotting.
+    """
+    runs = _as_runs(profiling_data)
+    names: list[str] = []
+    seen: set[str] = set()
+    for run in runs:
+        for regions in run.get_likwid_regions().values():
+            for result in regions.values():
+                for name in (*result.metric_names, *result.event_labels):
+                    if name not in seen:
+                        seen.add(name)
+                        names.append(name)
+    return names
+
+
+def _likwid_metric_value(result, metric: str) -> float:
+    """Read one metric/event's value for a LIKWID region, averaged over threads."""
+    for names, values in (
+        (result.metric_names, result.metrics),
+        (result.event_labels, result.events),
+    ):
+        if metric in names:
+            index = names.index(metric)
+            row = values[index]
+            return float(np.mean(row)) if len(row) else float("nan")
+    return float("nan")
+
+
+def plot_likwid(
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
+    metric: str,
+    ranks: list[int] | int | None = None,
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+    labels: Sequence[str] | None = None,
+    filepath: str | None = None,
+    show: bool = False,
+    verbose: bool = True,
+    cmap: str = DEFAULT_CMAP,
+    log_scale: bool = False,
+    data_filepath: str | Path | None = None,
+    data_format: str = "csv",
+    backend: str = "matplotlib",
+) -> None:
+    """Plot one LIKWID derived metric or raw event, grouped by region and rank.
+
+    LIKWID counters are otherwise only visible as text tables
+    (:func:`~scope_profiler.summary.print_likwid_tables`); this gives the same
+    numbers a bar chart, one group of bars per region and one bar per rank, so
+    a metric like memory bandwidth or CPI can be compared across regions (or
+    across files, for a single rank) the same way :func:`plot_durations`
+    compares timings.
+
+    Parameters
+    ----------
+    metric : str
+        Name of a LIKWID derived metric (e.g. ``"CPI"``) or raw event/event
+        label (e.g. ``"CAS_COUNT_RD"``). See :func:`available_likwid_metrics`
+        for the names a run actually recorded.
+    backend : str
+        Backend to use for rendering: "matplotlib" (default) or "plotly".
+    """
+    Canvas = _get_canvas()
+    runs = _as_runs(profiling_data)
+    if not runs:
+        # Not this rank's job; rank 0 draws it.
+        return
+
+    if not any(run.has_likwid for run in runs):
+        raise ValueError(
+            "None of the selected files recorded LIKWID data. Runs must be "
+            "started under likwid-perfctr/likwid-mpirun with use_likwid=True."
+        )
+
+    normalized_ranks = _normalize_ranks(ranks)
+
+    # One "series" per (file, rank) so a single multi-rank file still yields a
+    # readable grouped bar chart; multiple single-rank files compare across
+    # files the way plot_durations does.
+    series: list[tuple[str, dict[str, float]]] = []
+    for run in runs:
+        run_ranks = (
+            [rank for rank in normalized_ranks if rank in run.likwid_ranks]
+            if normalized_ranks is not None
+            else run.likwid_ranks
+        )
+        for rank in run_ranks:
+            regions = run.get_likwid_regions(rank)
+            values: dict[str, float] = {
+                tag: _likwid_metric_value(result, metric)
+                for tag, result in regions.items()
+            }
+            if values:
+                label = run.display_label if len(runs) > 1 else f"rank {rank}"
+                if len(runs) > 1 and len(run_ranks) > 1:
+                    label = f"{run.display_label} (rank {rank})"
+                series.append((label, values))
+
+    if not series:
+        raise ValueError(
+            f"No LIKWID data found for metric {metric!r} with the requested "
+            "ranks/files."
+        )
+
+    region_names = sorted(
+        {
+            tag
+            for _, values in series
+            for tag in values
+            if _name_selected(tag, include, exclude)
+        }
+    )
+    if not region_names:
+        raise ValueError("No regions matched the selected filters.")
+
+    if labels is None:
+        series_labels = _unique_labels([label for label, _ in series])
+    else:
+        series_labels = list(labels)
+        if len(series_labels) != len(series):
+            raise ValueError("labels must match the number of (file, rank) series.")
+
+    if verbose:
+        print(f"Plotting LIKWID metric {metric!r} for: " + ", ".join(series_labels))
+
+    num_series = len(series)
+    colors = _get_cmap_colors(cmap, max(num_series, 1))
+    fig_width = max(10, 0.85 * len(region_names) + 2)
+    fig_height = max(4.5, 2.5 + 0.35 * num_series)
+    width = min(0.8 / max(num_series, 1), 0.35)
+
+    canvas = Canvas(figsize=(fig_width, fig_height))
+    x_positions = np.arange(len(region_names))
+    offset_start = -0.5 * width * (num_series - 1)
+
+    data_rows = []
+    for idx, (label, values) in enumerate(zip(series_labels, (v for _, v in series))):
+        bar_values = [values.get(name, float("nan")) for name in region_names]
+        offsets = x_positions + offset_start + idx * width
+        canvas.bar(
+            offsets,
+            bar_values,
+            width=width,
+            label=label if num_series > 1 else None,
+            color=_to_hex(colors[idx]),
+            edgecolor="black",
+            alpha=0.8,
+        )
+        if data_filepath:
+            for region_name, value in zip(region_names, bar_values):
+                data_rows.append([label, region_name, value])
+
+    canvas.set_xticks(x_positions, labels=region_names)
+    canvas.set_ylabel(metric)
+    canvas.set_title(f"LIKWID {metric}")
+    canvas.set_grid(True)
+    if log_scale:
+        canvas.set_yscale("log")
+    if num_series > 1:
+        canvas.set_legend()
+
+    if data_filepath:
+        if data_format == "json":
+            bars = [
+                {"series": series_label, "region": region, "value": value}
+                for series_label, region, value in data_rows
+            ]
+            colors_map = {
+                label: _to_hex(color) for label, color in zip(series_labels, colors)
+            }
+            _write_json(
+                data_filepath, {"metric": metric, "bars": bars, "colors": colors_map}
+            )
+        else:
+            _write_csv(data_filepath, ["series", "region", "value"], data_rows)
 
     _render(canvas, filepath, show, backend)

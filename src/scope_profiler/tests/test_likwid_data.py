@@ -69,16 +69,16 @@ def _write_merged_file(path, results, rank=0):
 
 
 def test_write_and_read_back_round_trip(tmp_path):
-    """Results survive a write to HDF5 and a read back through the reader."""
+    """Results survive a write to HDF5 and a read back through read_h5."""
     path = tmp_path / "profiling_data.h5"
     original = _make_result()
     _write_merged_file(path, [original])
 
-    reader = read_h5(path)
-    assert reader.has_likwid
-    assert reader.likwid_ranks == [0]
+    results = read_h5(path)
+    assert results.has_likwid
+    assert results.likwid_ranks == [0]
 
-    result = reader.get_likwid_region("solve")
+    result = results.get_likwid_region("solve")
     assert result.tag == "solve"
     assert result.group_id == 0
     assert result.group_name == "CLOCK"
@@ -111,12 +111,12 @@ def test_reader_without_likwid_data(tmp_path):
         grp.create_dataset("start_times", data=np.array([0], dtype=np.int64))
         grp.create_dataset("end_times", data=np.array([10], dtype=np.int64))
 
-    reader = read_h5(path)
-    assert not reader.has_likwid
-    assert reader.likwid_ranks == []
-    assert reader.get_likwid_regions() == {}
+    results = read_h5(path)
+    assert not results.has_likwid
+    assert results.likwid_ranks == []
+    assert results.get_likwid_regions() == {}
     with pytest.raises(KeyError):
-        reader.get_likwid_region("solve")
+        results.get_likwid_region("solve")
 
 
 def test_multiple_ranks(tmp_path):
@@ -128,9 +128,9 @@ def test_multiple_ranks(tmp_path):
             result.times = result.times + rank
             write_likwid_results(f.create_group(f"rank{rank}"), [result])
 
-    reader = read_h5(path)
-    assert reader.likwid_ranks == [0, 1]
-    assert reader.get_likwid_region("solve", rank=1).times[0] == pytest.approx(1.1)
+    results = read_h5(path)
+    assert results.likwid_ranks == [0, 1]
+    assert results.get_likwid_region("solve", rank=1).times[0] == pytest.approx(1.1)
 
 
 def test_tag_with_slash_is_escaped(tmp_path):
@@ -138,9 +138,9 @@ def test_tag_with_slash_is_escaped(tmp_path):
     path = tmp_path / "profiling_data.h5"
     _write_merged_file(path, [_make_result(tag="solve/inner")])
 
-    reader = read_h5(path)
+    results = read_h5(path)
     # The true tag survives, even though the group name had to be escaped.
-    assert reader.get_likwid_region("solve/inner").tag == "solve/inner"
+    assert results.get_likwid_region("solve/inner").tag == "solve/inner"
 
 
 def test_rewriting_replaces_previous_results(tmp_path):
@@ -151,8 +151,8 @@ def test_rewriting_replaces_previous_results(tmp_path):
         write_likwid_results(grp, [_make_result(tag="first")])
         write_likwid_results(grp, [_make_result(tag="second")])
 
-    reader = read_h5(path)
-    assert sorted(reader.get_likwid_regions(0)) == ["second"]
+    results = read_h5(path)
+    assert sorted(results.get_likwid_regions(0)) == ["second"]
 
 
 def test_likwid_to_dataframe(tmp_path):

@@ -1,0 +1,10 @@
+# Build and run artefacts of these examples
+build/
+figures/
+__pycache__/
+*.spt
+*.h5
+*.mod
+*.o
+*.so
+*.dylib

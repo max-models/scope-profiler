@@ -127,10 +127,8 @@ def test_export_prof_per_rank_and_per_file(tmp_path):
     _write_sample_h5(file_one, {rank: _nested_file_data()[0] for rank in (0, 1)})
     _write_sample_h5(file_two, {rank: _nested_file_data()[0] for rank in (0, 1)})
 
-    readers = [read_h5(file_one), read_h5(file_two)]
-    written = export_prof(
-        readers, tmp_path / "profile.prof", ranks=[0, 1], verbose=False
-    )
+    runs = [read_h5(file_one), read_h5(file_two)]
+    written = export_prof(runs, tmp_path / "profile.prof", ranks=[0, 1], verbose=False)
 
     assert [path.name for path in written] == [
         "profile_run_one_rank0.prof",
@@ -165,7 +163,8 @@ def test_cli_export_prof_without_plots(tmp_path, capsys):
             str(h5_file),
             "-o",
             str(out_dir),
-            "--export-prof",
+            "--export",
+            "prof",
             "--skip-plot-images",
         ]
     )
@@ -184,7 +183,7 @@ def test_cli_export_prof_alongside_plots(tmp_path):
     _write_sample_h5(h5_file, _nested_file_data())
     out_dir = tmp_path / "figures"
 
-    main([str(h5_file), "-o", str(out_dir), "--export-prof", "--ranks", "0"])
+    main([str(h5_file), "-o", str(out_dir), "--export", "prof", "--ranks", "0"])
 
     assert (out_dir / "profile_rank0.prof").exists()
     assert (out_dir / "flame_plot.png").exists()
@@ -195,7 +194,7 @@ def test_cli_export_prof_requires_output(tmp_path):
     _write_sample_h5(h5_file, _nested_file_data())
 
     with pytest.raises(SystemExit):
-        main([str(h5_file), "--export-prof"])
+        main([str(h5_file), "--export", "prof"])
 
 
 def test_exported_prof_loads_in_snakeviz(tmp_path):

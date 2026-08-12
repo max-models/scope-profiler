@@ -15,12 +15,13 @@ import os
 import sys
 
 # Per-process variables exported by the process managers behind the common
-# launchers. Each is set only for processes started *by* the launcher, so the
+# launchers. Public because a subprocess spawned from a rank has to be able to
+# strip them; see likwid_data._child_environment. Each is set only for processes started *by* the launcher, so the
 # presence of any one of them means "this rank belongs to an MPI job".
 # SLURM_PROCID is deliberately absent: it is also set for the script of a
 # plain `sbatch` job, which is not an MPI launch. `srun` is covered by the
 # PMI/PMIX variables its MPI plugin exports.
-_LAUNCHER_ENV_VARS = (
+LAUNCHER_ENV_VARS = (
     "OMPI_COMM_WORLD_RANK",  # Open MPI (and derivatives: Spectrum, ...)
     "PMI_RANK",  # MPICH, Intel MPI, MS-MPI, Cray, srun (pmi2)
     "PMIX_RANK",  # PMIx, used by srun --mpi=pmix and Open MPI 5
@@ -66,7 +67,7 @@ def launched_under_mpi() -> bool:
     if override is not None:
         return override
 
-    if any(var in os.environ for var in _LAUNCHER_ENV_VARS):
+    if any(var in os.environ for var in LAUNCHER_ENV_VARS):
         return True
 
     # The application may have initialized MPI itself (embedded interpreter,
