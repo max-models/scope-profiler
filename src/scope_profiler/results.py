@@ -428,7 +428,9 @@ class ProfilingResults:
         )
         if title is None:
             title = self.default_title()
-        print_region_table(rows, title=title, stream=stream, suppress_notes=suppress_notes)
+        print_region_table(
+            rows, title=title, stream=stream, suppress_notes=suppress_notes
+        )
 
     def default_title(self) -> str:
         """
