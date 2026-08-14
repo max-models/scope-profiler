@@ -444,6 +444,7 @@ def collect_region_statistics(
                 "label": label,
                 "file_path": str(Path(run.file_path).resolve()),
                 "num_ranks": run.num_ranks,
+                "total_time_seconds": run.total_time,
                 "region_statistics": region_payload,
             }
         )

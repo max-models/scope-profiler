@@ -117,6 +117,7 @@ def print_summary(
         rows,
         title=results.default_title(),
         stream=stream,
+        total_time=results.total_time,
     )
     print_likwid_tables(
         results, include=include, exclude=exclude, ranks=ranks, stream=stream

@@ -395,6 +395,48 @@ def test_setup_registers_the_run_start_time(tmp_path):
     assert results.events()[0]["start"] == pytest.approx(startup)
 
 
+def test_finalize_registers_the_finalize_time(tmp_path):
+    """finalize() records its own call time, and total_time spans setup->finalize."""
+    file_path = tmp_path / "finalize_time.h5"
+    ProfileManager.setup(file_path=str(file_path))
+
+    sleep(0.01)  # un-instrumented startup, invisible to time_span
+    with ProfileManager.profile_region("step"):
+        sleep(0.001)
+    sleep(0.01)  # un-instrumented teardown, also invisible to time_span
+
+    before = perf_counter_ns()
+    ProfileManager.finalize(verbose=False)
+    after = perf_counter_ns()
+    results = ProfileManager.read_results()
+
+    recorded = results.metadata["finalize_time_ns"]
+    assert before <= recorded <= after
+    assert results.finalize_time == pytest.approx(recorded / 1e9)
+
+    assert results.total_time == pytest.approx(
+        results.finalize_time - results.run_start_time
+    )
+    # The un-instrumented startup and teardown make total_time the larger span.
+    assert results.total_time > results.time_span
+    assert results.total_time >= 0.02
+
+
+def test_finalize_return_results_also_carries_total_time(tmp_path):
+    """The in-memory path (deactivate_file_output=True) gets it too."""
+    ProfileManager.setup(deactivate_file_output=True)
+    with ProfileManager.profile_region("step"):
+        sleep(0.001)
+
+    results = ProfileManager.finalize(return_results=True, verbose=False)
+
+    assert results.run_start_time is not None
+    assert results.finalize_time is not None
+    assert results.total_time == pytest.approx(
+        results.finalize_time - results.run_start_time
+    )
+
+
 def test_read_results_before_finalize_raises(tmp_path):
     ProfileManager.setup(file_path=str(tmp_path / "missing.h5"))
 
