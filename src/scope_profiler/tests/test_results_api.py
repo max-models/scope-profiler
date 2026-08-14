@@ -154,6 +154,23 @@ def test_reader_print_summary(sample_file, capsys):
     out = capsys.readouterr().out
     assert "region" in out and "total [s]" in out
     assert "setup" in out and "solve" in out
+    # sample_file carries no start_time_ns/finalize_time_ns, so total_time is
+    # undefined and print_summary must not claim a number for it.
+    assert "Total time" not in out
+
+
+def test_reader_print_summary_shows_total_time_when_available(tmp_path, capsys):
+    path = tmp_path / "with_finalize.h5"
+    _write_sample_h5(
+        path,
+        {0: {"solve": ([100 * NS], [130 * NS])}},
+        metadata={"start_time_ns": 80 * NS, "finalize_time_ns": 140 * NS},
+    )
+
+    read_h5(path).print_summary()
+
+    out = capsys.readouterr().out
+    assert "Total time (setup to finalize): 60 s" in out
 
 
 def test_reader_print_summary_sort_by_min_and_std(sample_file):
@@ -356,6 +373,44 @@ def test_startup_time_measures_the_gap_before_the_first_region(tmp_path):
     )
 
     assert read_h5(path).startup_time == pytest.approx(20.0)
+
+
+def test_total_time_spans_setup_to_finalize(tmp_path):
+    """total_time covers startup and teardown that time_span misses."""
+    path = tmp_path / "with_finalize.h5"
+    _write_sample_h5(
+        path,
+        # 20 s of startup before the first region, 10 s of teardown after
+        # the last one, so total_time (60 s) must exceed time_span (30 s).
+        {0: {"solve": ([100 * NS], [130 * NS])}},
+        metadata={"start_time_ns": 80 * NS, "finalize_time_ns": 140 * NS},
+    )
+
+    results = read_h5(path)
+
+    assert results.finalize_time == pytest.approx(140.0)
+    assert results.time_span == pytest.approx(30.0)
+    assert results.total_time == pytest.approx(60.0)
+
+
+def test_total_time_none_without_start_or_finalize_time(tmp_path):
+    """Older files (or a run that skipped setup()/finalize()) report None."""
+    path = tmp_path / "no_start.h5"
+    _write_sample_h5(path, {0: {"solve": ([100 * NS], [110 * NS])}})
+
+    results = read_h5(path)
+
+    assert results.finalize_time is None
+    assert results.total_time is None
+
+    # A registered start with no matching finalize time is still incomplete.
+    path_start_only = tmp_path / "start_only.h5"
+    _write_sample_h5(
+        path_start_only,
+        {0: {"solve": ([100 * NS], [110 * NS])}},
+        metadata={"start_time_ns": 80 * NS},
+    )
+    assert read_h5(path_start_only).total_time is None
 
 
 def test_reader_time_span_without_regions(tmp_path):

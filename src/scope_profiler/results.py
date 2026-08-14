@@ -88,13 +88,21 @@ class ProfilingResults:
         # downstream falls back to the first region entry, so an unreadable
         # value is ignored rather than fatal: a file is worth reading for its
         # timings even if this field is not.
-        self._run_start_time: float | None = None
-        start_time_ns = self._metadata.get("start_time_ns")
-        if start_time_ns is not None:
-            try:
-                self._run_start_time = float(start_time_ns) / NS_PER_SECOND
-            except (TypeError, ValueError):
-                self._run_start_time = None
+        self._run_start_time = self._metadata_time("start_time_ns")
+        # Recorded as the first thing finalize() does; absent in files from
+        # before it existed, or from a run that set deactivate_file_output
+        # and never called finalize(return_results=True) either.
+        self._finalize_time = self._metadata_time("finalize_time_ns")
+
+    def _metadata_time(self, key: str) -> float | None:
+        """Read a ``*_time_ns`` metadata field as seconds, or None if unusable."""
+        value = self._metadata.get(key)
+        if value is None:
+            return None
+        try:
+            return float(value) / NS_PER_SECOND
+        except (TypeError, ValueError):
+            return None
 
     @classmethod
     def from_h5(
@@ -429,7 +437,11 @@ class ProfilingResults:
         if title is None:
             title = self.default_title()
         print_region_table(
-            rows, title=title, stream=stream, suppress_notes=suppress_notes
+            rows,
+            title=title,
+            stream=stream,
+            suppress_notes=suppress_notes,
+            total_time=self.total_time,
         )
 
     def default_title(self) -> str:
@@ -843,6 +855,47 @@ class ProfilingResults:
         if not any(region.has_timing for region in self.get_regions()):
             return 0.0
         return self.maximum_end_time - self.minimum_start_time
+
+    @property
+    def finalize_time(self) -> float | None:
+        """
+        When ``finalize()`` was called, in seconds on the recording clock.
+
+        This is the ``finalize_time_ns`` metadata field, read as the first
+        thing ``ProfileManager.finalize()`` does -- before it spends any time
+        collecting or writing the run's data, so it marks the moment
+        finalize() was reached rather than the moment it returned.
+
+        Returns
+        -------
+        float or None
+            The registered finalize time, or None for runs without one (older
+            files, or a run that never reached finalize()).
+        """
+        return self._finalize_time
+
+    @property
+    def total_time(self) -> float | None:
+        """
+        Wall-clock seconds from ``setup()`` to ``finalize()``.
+
+        Unlike :attr:`time_span` (first region entry to last exit), this
+        covers the whole instrumented program: startup work before the first
+        region, gaps between regions, and any teardown after the last one but
+        before ``finalize()`` is called -- the number to report as "how long
+        did the run take" alongside the region breakdown.
+
+        Returns
+        -------
+        float or None
+            :attr:`finalize_time` minus :attr:`run_start_time`, or None if
+            either is missing -- an older file, or a run that set up
+            profiling (or called finalize) some other way than
+            ``ProfileManager.setup()``/``finalize()``.
+        """
+        if self._run_start_time is None or self._finalize_time is None:
+            return None
+        return self._finalize_time - self._run_start_time
 
     def get_regions(
         self,

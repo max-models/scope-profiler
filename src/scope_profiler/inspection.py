@@ -25,6 +25,7 @@ from scope_profiler.summary import SORT_KEYS, print_region_table, region_rows
 _RUN_FIELDS = (
     "timestamp",
     "start_time_ns",
+    "finalize_time_ns",
     "user",
     "hostname",
     "working_directory",
@@ -170,6 +171,8 @@ def inspect_file(
     )
     if span is not None:
         headline += f", {span:.6g} s wall clock"
+    if results.total_time is not None:
+        headline += f", {results.total_time:.6g} s total (setup to finalize)"
 
     print("=" * 78, file=stream)
     if results.label is not None:
@@ -188,7 +191,12 @@ def inspect_file(
     rows = region_rows(
         results, include=include, exclude=exclude, ranks=ranks, sort=sort
     )
-    print_region_table(rows, title=f"Regions ({len(rows)})", stream=stream)
+    print_region_table(
+        rows,
+        title=f"Regions ({len(rows)})",
+        stream=stream,
+        total_time=results.total_time,
+    )
 
 
 def _json_safe(value):

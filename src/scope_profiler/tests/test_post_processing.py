@@ -10,6 +10,7 @@ from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.plotting_scripts import (
     _duration_timeseries,
     available_likwid_metrics,
+    collect_region_statistics,
     plot_duration_histogram,
     plot_duration_timeseries,
     plot_durations,
@@ -576,6 +577,31 @@ def test_plot_durations_export_data_json(tmp_path):
     assert set(payload["colors"]) == {"run_one", "run_two"}
     assert all(color.startswith("#") for color in payload["colors"].values())
     assert {bar["metric"] for bar in payload["bars"]} == {"avg", "min", "max", "total"}
+
+
+def test_collect_region_statistics_includes_total_time(tmp_path):
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(
+        file_path,
+        {0: {"solve": ([100 * 1_000_000_000], [130 * 1_000_000_000])}},
+        metadata={
+            "start_time_ns": 80 * 1_000_000_000,
+            "finalize_time_ns": 140 * 1_000_000_000,
+        },
+    )
+
+    payload = collect_region_statistics(read_h5(file_path))
+
+    assert payload["files"][0]["total_time_seconds"] == pytest.approx(60.0)
+
+
+def test_collect_region_statistics_total_time_none_without_metadata(tmp_path):
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
+
+    payload = collect_region_statistics(read_h5(file_path))
+
+    assert payload["files"][0]["total_time_seconds"] is None
 
 
 def test_plot_durations_sort_by_and_top_n(tmp_path):

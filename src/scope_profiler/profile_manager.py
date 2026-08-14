@@ -7,6 +7,7 @@ import site
 import sys
 import sysconfig
 import threading
+from time import perf_counter_ns
 from types import FrameType
 from typing import TYPE_CHECKING, Callable, Dict, NamedTuple
 
@@ -657,6 +658,13 @@ class ProfileManager:
             :attr:`~scope_profiler.results.ProfilingResults.is_root`.
         """
         config = cls.get_config()
+
+        # Read on the same clock as start_time_ns, and as the very first
+        # thing here, so total_time (see ProfilingResults.total_time) reports
+        # the program's own setup()-to-finalize() span rather than including
+        # whatever this call itself goes on to spend collecting and writing
+        # the run's data.
+        config.metadata["finalize_time_ns"] = perf_counter_ns()
 
         if config.deactivate_profiling:
             if return_results:

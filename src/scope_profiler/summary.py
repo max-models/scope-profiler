@@ -112,7 +112,11 @@ def _format_duration(value) -> str:
 
 
 def print_region_table(
-    rows, title=None, stream=None, suppress_notes: bool = False
+    rows,
+    title=None,
+    stream=None,
+    suppress_notes: bool = False,
+    total_time: float | None = None,
 ) -> None:
     """Print the aligned per-region statistics table.
 
@@ -126,6 +130,12 @@ def print_region_table(
         Where to write (default: stdout).
     suppress_notes : bool, optional
         Don't print the explanatory notes below the table (default: False).
+    total_time : float, optional
+        Wall-clock seconds from ``setup()`` to ``finalize()`` (see
+        :attr:`~scope_profiler.results.ProfilingResults.total_time`), printed
+        below the TOTAL row when given. Unlike that row -- which sums region
+        durations and so can exceed the run's real duration when regions
+        nest -- this is the run's own actual wall-clock time.
     """
     stream = sys.stdout if stream is None else stream
 
@@ -187,6 +197,8 @@ def print_region_table(
             print(f"\n  {note}", file=stream)
     print(f"  {rule}", file=stream)
     print(f"  {render(total_row)}", file=stream)
+    if total_time is not None:
+        print(f"\n  Total time (setup to finalize): {total_time:.6g} s", file=stream)
 
     notes = []
     if len(rows) > 1:
