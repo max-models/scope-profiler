@@ -164,8 +164,8 @@ def test_prof_export_no_split_timeline(tmp_path):
     "two timelines" due to duplicate region entries or incorrect call stack
     reconstruction.
     """
-    from scope_profiler.prof_export import export_prof, build_pstats_dict
     from scope_profiler.call_stack import build_call_stack
+    from scope_profiler.prof_export import build_pstats_dict, export_prof
 
     path = tmp_path / "multi_rank.h5"
     with ProfilingWriter(path) as writer:
@@ -204,7 +204,9 @@ def test_prof_export_no_split_timeline(tmp_path):
 
     # Verify no duplicate entries in pstats
     stat_keys = list(stats.keys())
-    assert len(stat_keys) == len(set(key[2] for key in stat_keys)), "Duplicate regions in pstats"
+    assert len(stat_keys) == len(
+        set(key[2] for key in stat_keys)
+    ), "Duplicate regions in pstats"
 
     # Verify each region appears exactly once
     region_entries = [key[2] for key in stat_keys if key[2] != "main"]
