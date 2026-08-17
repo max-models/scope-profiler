@@ -209,7 +209,8 @@ usage: scope-profiler pproc [-h] [--label LABEL] [--include [INCLUDE ...]]
                             [--backend {matplotlib,plotly}] [--cmap CMAP]
                             [--duration-metrics [{avg,min,max,total} ...]]
                             [--sort-by {name,avg,min,max,total}] [--top-n N]
-                            [--log-scale] [--histogram-bins N]
+                            [--combine-regions [NAME=PATTERN[,PATTERN...]
+                            ...]] [--log-scale] [--histogram-bins N]
                             [--imbalance-metric {avg,min,max,total}]
                             [--likwid-metric NAME] [--speedup-x-field FIELD]
                             [--export [{data,prof,speedscope} ...]]
@@ -258,6 +259,7 @@ plot that ignores it is harmless.
 | `--duration-metrics` | durations  | Duration statistics to draw as bar columns: any of `avg`, `min`, `max`, `total` (default: `total`) |
 | `--sort-by`           | durations, likwid | Order the bar chart's regions by this statistic, descending (`name` sorts alphabetically). Default: order of first appearance |
 | `--top-n`             | durations, likwid | Keep only the top N regions after `--sort-by` |
+| `--combine-regions`   | durations  | Merge several regions into one bar: `NAME=PATTERN1,PATTERN2` (repeat once per group). Region names are matched against the comma-separated regexes like `--include`; a region matched by more than one group is claimed by whichever group is listed first |
 | `--log-scale`         | durations, timeseries, histogram, imbalance, likwid | Logarithmic y-axis |
 | `--histogram-bins`    | histogram  | Number of duration bins (default: 30) |
 | `--imbalance-metric`  | imbalance  | Per-call duration statistic plotted per rank: any of `avg`, `min`, `max`, `total` (default: `total`) |
