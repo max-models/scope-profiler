@@ -26,6 +26,10 @@ all through a single, unified API.
 - **CLI post-processing** --- `scope-profiler plot` reads HDF5 output and
   generates Gantt charts and exports region statistics JSON with
   region/rank filtering.
+- **MCP server** --- `scope-profiler-mcp` exposes structured profiling data
+  to AI coding agents such as Claude Code, so an agent can inspect a run,
+  benchmark a script and compare before/after profiles as part of its own
+  workflow. See {doc}`guide/mcp`.
 
 ## Quick example
 
@@ -60,6 +64,7 @@ guide/configuration
 guide/regions
 guide/hdf5_and_python_api
 guide/plot_cli
+guide/mcp
 guide/mpi
 guide/likwid
 guide/line_profiler

@@ -41,6 +41,10 @@ optional-dependencies.line-profiler = [
   "line-profiler",
 ]
 
+optional-dependencies.mcp = [
+  "mcp>=1.6.0,<2.0.0",
+]
+
 optional-dependencies.mpi = [
   "mpi4py",
 ]
@@ -58,7 +62,7 @@ optional-dependencies.dev = [
   "black[jupyter]",
   "isort",
   "ruff",
-  "scope-profiler[docs,fortran,line-profiler,mpi,pproc,test]",
+  "scope-profiler[docs,fortran,line-profiler,mcp,mpi,pproc,test]",
 ]
 # https://medium.com/@pratikdomadiya123/build-project-documentation-quickly-with-the-sphinx-python-2a9732b66594
 optional-dependencies.docs = [
@@ -78,6 +82,7 @@ optional-dependencies.test = [
 urls."Source" = "https://github.com/max-models/scope-profiler"
 
 scripts.scope-profiler = "scope_profiler.__main__:main"
+scripts.scope-profiler-mcp = "scope_profiler.mcp_server.server:main"
 
 [tool.setuptools.packages.find]
 where = [ "src" ]
