@@ -141,15 +141,21 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
                 region = Region(
                     region_grp["start_times"][()],
                     region_grp["end_times"][()],
-                    source_file=_decode_attribute(attrs["source_file"])
-                    if "source_file" in attrs
-                    else None,
-                    source_lineno=int(attrs["source_lineno"])
-                    if "source_lineno" in attrs
-                    else None,
-                    source_text=_decode_attribute(attrs["source_text"])
-                    if "source_text" in attrs
-                    else None,
+                    source_file=(
+                        _decode_attribute(attrs["source_file"])
+                        if "source_file" in attrs
+                        else None
+                    ),
+                    source_lineno=(
+                        int(attrs["source_lineno"])
+                        if "source_lineno" in attrs
+                        else None
+                    ),
+                    source_text=(
+                        _decode_attribute(attrs["source_text"])
+                        if "source_text" in attrs
+                        else None
+                    ),
                 )
                 # Merge if region already exists (from another rank)
                 if region_name in _region_dict:

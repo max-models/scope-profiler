@@ -281,7 +281,9 @@ def test_source_capture_is_a_one_time_per_name_cost(configure):
     # source); the rest are cache hits on an existing region, same as any
     # other repeated call.
     overhead = _overhead_ns(create_regions, _empty_loop, iterations=names, repeats=1)
-    _report("region creation + source capture [time]", overhead, SOURCE_CAPTURE_BUDGET_NS)
+    _report(
+        "region creation + source capture [time]", overhead, SOURCE_CAPTURE_BUDGET_NS
+    )
 
     assert overhead < SOURCE_CAPTURE_BUDGET_NS, (
         f"creating a region with source capture costs {overhead:.0f} ns/region, "
@@ -294,7 +296,9 @@ def test_source_capture_is_a_one_time_per_name_cost(configure):
     # Once every name exists, repeated calls cost the normal per-call budget:
     # nothing in the region-resolution path re-touches the source.
     repeat_overhead = _overhead_ns(create_regions, _empty_loop)
-    _report("repeated calls after source capture [time]", repeat_overhead, BUDGET_NS["time"])
+    _report(
+        "repeated calls after source capture [time]", repeat_overhead, BUDGET_NS["time"]
+    )
     assert repeat_overhead < BUDGET_NS["time"]
 
 
