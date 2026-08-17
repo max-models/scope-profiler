@@ -49,7 +49,7 @@ def write_metadata(h5file, metadata: dict) -> None:
             meta_grp.attrs[key] = value
 
 
-def write_regions(group, regions: dict) -> None:
+def write_regions(group, regions: dict, sources: dict | None = None) -> None:
     """Write one rank's recorded timestamps under ``<group>/regions``.
 
     The datasets are created from exactly-sized arrays and without chunking,
@@ -63,8 +63,13 @@ def write_regions(group, regions: dict) -> None:
     regions : dict
         Region name -> ``(start_times, end_times)`` int64 arrays, in
         nanoseconds.
+    sources : dict, optional
+        Region name -> ``(source_file, source_lineno, source_text)``. A name
+        missing here (or the argument itself) simply gets no source attrs,
+        which the reader treats as "not captured".
     """
     regions_grp = group.create_group("regions")
+    sources = sources or {}
     for name, (start_times, end_times) in regions.items():
         region_grp = regions_grp.create_group(name)
         region_grp.create_dataset(
@@ -73,6 +78,12 @@ def write_regions(group, regions: dict) -> None:
         region_grp.create_dataset(
             "end_times", data=np.asarray(end_times, dtype=np.int64)
         )
+        source = sources.get(name)
+        if source is not None:
+            source_file, source_lineno, source_text = source
+            region_grp.attrs["source_file"] = source_file
+            region_grp.attrs["source_lineno"] = source_lineno
+            region_grp.attrs["source_text"] = source_text
 
 
 def write_rank_payload(h5file, rank: int, payload) -> bool:
@@ -102,7 +113,7 @@ def write_rank_payload(h5file, rank: int, payload) -> bool:
     # duplicate means a bug in the receive loop rather than something to merge.
     group = h5file.create_group(rank_group_name(rank))
     if payload.regions:
-        write_regions(group, payload.regions)
+        write_regions(group, payload.regions, payload.sources)
     if payload.likwid:
         write_likwid_results(
             group,

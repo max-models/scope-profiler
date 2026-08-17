@@ -20,6 +20,8 @@ from scope_profiler.region_profiler import (
     FullProfileRegion,
     LineProfilerRegion,
     TimeOnlyProfileRegion,
+    call_site_source,
+    function_source,
 )
 
 if TYPE_CHECKING:  # imported lazily in read_results() to keep imports cheap
@@ -46,6 +48,20 @@ class RankPayload(NamedTuple):
 
     likwid_environment: dict
     """This rank's ``LIKWID_*`` environment, stored with its counters."""
+
+    sources: dict | None = None
+    """Region name -> ``(source_file, source_lineno, source_text)``.
+
+    Only present for regions whose call site could be captured (see
+    ``ProfileManager._capture_region_source``); a name missing here simply
+    has no recorded source, e.g. one created only by the recursive tracer.
+
+    Defaults to None rather than ``{}``: a NamedTuple's default is built once
+    and shared by every instance that omits the argument, so a mutable
+    default here would hand every such payload the *same* dict object.
+    Nothing mutates it in place today, but callers should read it via
+    ``payload.sources or {}`` rather than relying on that.
+    """
 
 
 class ProfileManager:
@@ -228,10 +244,46 @@ class ProfileManager:
         if region is None:
             region = cls._region_cls(region_name, config=cls.get_config())
             cls._regions[region_name] = region
+            cls._capture_region_source(region)
         if functions is not None:
             for func in functions:
                 region.add_function(func)
         return region
+
+    @classmethod
+    def _capture_region_source(cls, region: BaseProfileRegion) -> None:
+        """Record a freshly created region's call site, if it has one.
+
+        Runs exactly once per region name, at creation, so it never touches
+        the per-call hot path. Only meaningful for a direct
+        ``with ProfileManager.profile_region(...):`` call: internal callers
+        (the decorator, the recursive tracer, ``run_script``) are skipped by
+        the module check, since their own frame is inside scope_profiler
+        itself rather than user code. The decorator path instead records the
+        decorated function's source directly (see ``profile``), which is
+        richer than its one-line decoration site.
+
+        Also skipped for a disabled region: ``deactivate_profiling=True``
+        promises near-zero setup cost, and the source of a region that will
+        never report any data is not worth even a one-time AST parse.
+
+        This assumes the call site is exactly two frames up. A user helper
+        that itself wraps ``profile_region(...)`` (rather than calling it
+        directly in a ``with``) shifts that: the captured location becomes
+        the helper's own call to ``profile_region``, not the ``with`` at the
+        helper's call site. There is no reliable way to see through an
+        arbitrary wrapper from here, so this is a known limitation of the
+        direct-call form, same as e.g. the stdlib ``logging`` module's
+        caller detection.
+        """
+        if isinstance(region, DisabledProfileRegion):
+            return
+        frame = sys._getframe(2)  # profile_region() -> here -> caller
+        if cls._is_internal_frame(frame):
+            return
+        filename = frame.f_code.co_filename
+        lineno = frame.f_lineno
+        region.set_source(filename, lineno, call_site_source(filename, lineno))
 
     @classmethod
     def profile(
@@ -274,9 +326,7 @@ class ProfileManager:
             _bound = [None, None]  # [region, wrapped_func]
             recursive_override = recursive
 
-            region = cls.profile_region(name)
-            _bound[0] = region
-            _bound[1] = region.wrap(func)
+            cls._bind_decorated_region(name, func, _bound)
             cls._decorated_codes.add(func.__code__)
 
             # Register so set_config() can rebind without a per-call check.
@@ -403,6 +453,32 @@ class ProfileManager:
             )
         return snapshot
 
+    @classmethod
+    def _snapshot_sources(cls, names) -> Dict[str, tuple]:
+        """Call-site source of every named region that captured one.
+
+        Parameters
+        ----------
+        names : iterable of str
+            Region names to look up (normally ``_snapshot_regions()``'s keys).
+
+        Returns
+        -------
+        dict
+            Region name -> ``(source_file, source_lineno, source_text)``,
+            omitting names with no captured source.
+        """
+        sources = {}
+        for name in names:
+            region = cls._regions.get(name)
+            if region is not None and region.source_text is not None:
+                sources[name] = (
+                    region.source_file,
+                    region.source_lineno,
+                    region.source_text,
+                )
+        return sources
+
     class _ResultAccumulator:
         """Builds a ProfilingResults from per-rank payloads, one at a time.
 
@@ -423,8 +499,18 @@ class ProfileManager:
 
             if payload.likwid:
                 self._likwid[rank] = payload.likwid
+            sources = payload.sources or {}
             for name, (starts, ends) in payload.regions.items():
-                self._per_region.setdefault(name, {})[rank] = Region(starts, ends)
+                source_file, source_lineno, source_text = sources.get(
+                    name, (None, None, None)
+                )
+                self._per_region.setdefault(name, {})[rank] = Region(
+                    starts,
+                    ends,
+                    source_file=source_file,
+                    source_lineno=source_lineno,
+                    source_text=source_text,
+                )
 
         def build(self):
             """Return the assembled :class:`ProfilingResults`.
@@ -688,6 +774,7 @@ class ProfileManager:
         # both what gets written and what gets returned, so the file and the
         # in-memory results are assembled from the same bytes.
         snapshot = cls._snapshot_regions() if need_payload else {}
+        sources = cls._snapshot_sources(snapshot) if need_payload else {}
 
         # The data is safely copied, so the run boundary can be marked now: a
         # second finalize() in this process then reports only its own events.
@@ -719,6 +806,7 @@ class ProfileManager:
             regions=snapshot,
             likwid={result.tag: result for result in likwid_results},
             likwid_environment=likwid_environment,
+            sources=sources,
         )
 
         # 3. Move every rank's payload to rank 0, which writes it straight into
@@ -905,9 +993,24 @@ class ProfileManager:
         # This is the only place rebinding happens — there is no per-call check.
         for name, entries in cls._decorators.items():
             for func, _bound in entries:
-                region = cls.profile_region(name)
-                _bound[0] = region
-                _bound[1] = region.wrap(func)
+                cls._bind_decorated_region(name, func, _bound)
+
+    @classmethod
+    def _bind_decorated_region(cls, name: str, func, _bound: list) -> BaseProfileRegion:
+        """Resolve ``name``'s region, capture ``func``'s source, and bind it into ``_bound``.
+
+        Shared between the initial ``@ProfileManager.profile`` decoration and
+        ``set_config()``'s rebind, since a config change replaces every region
+        object (see ``set_config``) and the new one starts with no source of
+        its own -- skipping this on rebind would silently drop it.
+        """
+        region = cls.profile_region(name)
+        source = function_source(func)
+        if source is not None:
+            region.set_source(*source)
+        _bound[0] = region
+        _bound[1] = region.wrap(func)
+        return region
 
     @classmethod
     def get_config(cls) -> ProfilingConfig:

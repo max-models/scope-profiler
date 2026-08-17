@@ -18,6 +18,9 @@ class Region:
         self,
         start_times: np.ndarray,
         end_times: np.ndarray,
+        source_file: str | None = None,
+        source_lineno: int | None = None,
+        source_text: str | None = None,
     ) -> None:
         """
         Initialize a Region with timing information for multiple calls.
@@ -28,11 +31,19 @@ class Region:
             Start times of all calls in nanoseconds.
         end_times : np.ndarray
             End times of all calls in nanoseconds.
+        source_file, source_lineno, source_text : optional
+            Where this region is defined in user code, and its source text
+            (the ``with`` block or decorated function). None when not
+            captured, e.g. files written before this was recorded, or a
+            region created only via the recursive tracer.
         """
         self._start_times = start_times
         self._end_times = end_times
         self._durations = end_times - start_times
         self._num_calls = len(self._durations)
+        self._source_file = source_file
+        self._source_lineno = source_lineno
+        self._source_text = source_text
 
     def get_summary(self) -> Dict[str, Any]:
         """
@@ -87,6 +98,30 @@ class Region:
     def has_timing(self) -> bool:
         """Whether this region recorded any calls at all."""
         return len(self._durations) > 0
+
+    @property
+    def has_source(self) -> bool:
+        """Whether this region's call-site source was captured."""
+        return self._source_text is not None
+
+    @property
+    def source_file(self) -> str | None:
+        """Path of the file this region is defined in, or None if not captured."""
+        return self._source_file
+
+    @property
+    def source_lineno(self) -> int | None:
+        """Line the region's call site starts at, or None if not captured."""
+        return self._source_lineno
+
+    @property
+    def source_text(self) -> str | None:
+        """Source text of the region's ``with`` block or decorated function.
+
+        None if it was not captured -- either the file it came from is no
+        longer readable, or the file predates this being recorded.
+        """
+        return self._source_text
 
     @property
     def start_times_ns(self) -> np.ndarray:
