@@ -194,7 +194,6 @@ See {doc}`guide/likwid` for the workflow and the HDF5 layout.
 ### Summary tables
 
 ```{eval-rst}
-.. autofunction:: scope_profiler.post_processing.print_summary
 .. autofunction:: scope_profiler.summary.likwid_tables
 .. autofunction:: scope_profiler.summary.print_likwid_table
 .. autofunction:: scope_profiler.summary.print_likwid_tables

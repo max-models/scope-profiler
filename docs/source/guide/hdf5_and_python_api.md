@@ -6,7 +6,7 @@ other ranks hand it, so nothing is staged on disk per rank.
 
 This page covers the file layout and the Python API for reading and plotting
 it. The same charts are available from the command line without writing any
-code --- see {doc}`/guide/postprocessing_cli`.
+code --- see {doc}`/guide/plot_cli`.
 
 ## HDF5 file structure
 
@@ -319,8 +319,8 @@ name.
 
 ```{note}
 Everything below has a command-line equivalent that needs no code:
-`scope-profiler pproc profiling_data.h5 -o figures/` writes the same charts
-plus a statistics JSON. See {doc}`/guide/postprocessing_cli` for a worked
+`scope-profiler plot profiling_data.h5 -o figures/` writes the same charts
+plus a statistics JSON. See {doc}`/guide/plot_cli` for a worked
 walkthrough with example figures, and {doc}`/cli` for the flag reference.
 ```
 
@@ -422,7 +422,7 @@ stats = write_region_statistics_json(runs, "stats.json")   # same dict, and a fi
 Both return per-file, per-region aggregates (`count`, `average`, `min`,
 `max`, `std`, `total`, all in seconds), per-rank statistics for each region,
 and the region names common to all inputs. This is the same document
-`scope-profiler pproc -o ...` writes as `region_statistics.json`.
+`scope-profiler plot -o ...` writes as `region_statistics.json`.
 
 ## Speedup graph from Python
 

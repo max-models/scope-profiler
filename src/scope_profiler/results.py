@@ -510,7 +510,7 @@ class ProfilingResults:
     def label(self, value: str | None) -> None:
         """Rename this run for the report being produced.
 
-        What ``scope-profiler pproc --label`` does: the file on disk keeps the
+        What ``scope-profiler plot --label`` does: the file on disk keeps the
         label the run was given (if any), while everything downstream of here
         uses the new one. Setting it to None or "" restores the fallback to the
         file stem.

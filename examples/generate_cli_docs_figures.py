@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Generate the figures shown on the "Post-processing with the CLI" docs page
-==========================================================================
+Generate the figures shown on the "Plotting with the CLI" docs page
+====================================================================
 
 Runs a small mock solver (setup + a timestep loop with nested regions) at
 1, 2 and 4 MPI ranks, then post-processes the resulting HDF5 files with
-``scope-profiler pproc`` --- exactly the commands quoted on the docs page ---
+``scope-profiler plot`` --- exactly the commands quoted on the docs page ---
 and copies the generated figures into ``figures/cli`` at the repo root. The
 docs build copies that directory into ``docs/source/_static/figures``, where
 the page references it as ``/_static/figures/cli/...``.
@@ -100,11 +100,11 @@ def generate_h5_files(work_dir: str) -> list[str]:
     return paths
 
 
-def pproc(args: list[str], work_dir: str) -> None:
-    """Invoke the pproc CLI the same way the docs page does."""
-    print("$ scope-profiler pproc " + " ".join(args))
+def plot(args: list[str], work_dir: str) -> None:
+    """Invoke the plot CLI the same way the docs page does."""
+    print("$ scope-profiler plot " + " ".join(args))
     subprocess.run(
-        [sys.executable, "-m", "scope_profiler", "pproc", *args],
+        [sys.executable, "-m", "scope_profiler", "plot", *args],
         check=True,
         cwd=work_dir,
     )
@@ -143,11 +143,11 @@ def main() -> None:
         figures_dir = os.path.join(work_dir, "figures")
 
         # Single run: gantt, flame, durations (total only), duration timeseries.
-        pproc(["run_2.h5", "-o", "figures"], work_dir)
+        plot(["run_2.h5", "-o", "figures"], work_dir)
 
         # Also produce an avg plot for the docs illustration of
         # --duration-metrics.
-        pproc(
+        plot(
             [
                 "run_2.h5",
                 "-o",
@@ -161,7 +161,7 @@ def main() -> None:
         )
 
         # Several runs: the speedup plot, on the total time per region.
-        pproc(
+        plot(
             ["run_1.h5", "run_2.h5", "run_4.h5", "-o", "figures_scaling"],
             work_dir,
         )
@@ -195,7 +195,7 @@ def main() -> None:
             copied.append("speedup_plot.png")
 
         # Region/rank filtering, shown on the docs page next to the full chart.
-        pproc(
+        plot(
             [
                 "run_2.h5",
                 "-o",

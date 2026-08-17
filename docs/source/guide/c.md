@@ -3,7 +3,7 @@
 scope-profiler ships a C region API with the same model as the Python one. A C
 program marks regions, writes a small trace file per rank, and
 `scope-profiler import-native` turns those traces into the usual HDF5 output —
-so a C run gets the same summaries, charts, exporters and `pproc` workflow as a
+so a C run gets the same summaries, charts, exporters and `plot` workflow as a
 Python one.
 
 It is one C99 file plus a header: no dependencies beyond libc, no HDF5, no MPI,
@@ -89,7 +89,7 @@ not collective and a rank that dies takes only its own trace with it:
 ```bash
 mpirun -n 128 ./simulation
 scope-profiler import-native . -o profiling_data.h5
-scope-profiler pproc profiling_data.h5 -o figures
+scope-profiler plot profiling_data.h5 -o figures
 ```
 
 ## Python calling C

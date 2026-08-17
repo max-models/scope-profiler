@@ -1,9 +1,10 @@
 """CLI entry point for ``scope-profiler inspect``: summarize a profiling file.
 
 Prints the run metadata in full and a one-line-per-region overview of the
-timing data, without producing any plots. The metadata can also be exported
-to JSON, either from the CLI (``--export-metadata``) or with
-:func:`write_metadata_json`.
+timing data, plus a LIKWID hardware-counter table per rank and event group
+when the run recorded any, without producing any plots. The metadata can
+also be exported to JSON, either from the CLI (``--export-metadata``) or
+with :func:`write_metadata_json`.
 """
 
 import argparse
@@ -16,7 +17,12 @@ import numpy as np
 
 from scope_profiler.h5reader import read_h5
 from scope_profiler.results import ProfilingResults
-from scope_profiler.summary import SORT_KEYS, print_region_table, region_rows
+from scope_profiler.summary import (
+    SORT_KEYS,
+    print_likwid_tables,
+    print_region_table,
+    region_rows,
+)
 
 # Metadata is printed in these groups, in this order, so the fields that
 # identify a run come first and the sprawling environment variables last.
@@ -227,6 +233,9 @@ def inspect_file(
             title=f"Regions ({len(rows)})",
             stream=stream,
             total_time=results.total_time,
+        )
+        print_likwid_tables(
+            results, include=include, exclude=exclude, ranks=ranks, stream=stream
         )
 
     if source:

@@ -20,7 +20,7 @@ with the bracket syntax:
 | `likwid`        | `pip install "scope-profiler[likwid]"`        | LIKWID hardware counters via [pylikwid](https://github.com/RRZE-HPC/pylikwid)         |
 | `line-profiler` | `pip install "scope-profiler[line-profiler]"` | Line-by-line profiling via [line_profiler](https://github.com/pyutils/line_profiler) |
 | `mpi`           | `pip install "scope-profiler[mpi]"`           | MPI support via [mpi4py](https://mpi4py.readthedocs.io/)                             |
-| `pproc`         | `pip install "scope-profiler[pproc]"`         | Plotting and post-processing (`scope-profiler pproc`, `to_dataframe()`)               |
+| `pproc`         | `pip install "scope-profiler[pproc]"`         | Plotting and post-processing (`scope-profiler plot`, `to_dataframe()`)               |
 | `dev`           | `pip install "scope-profiler[dev]"`           | All of the above plus linting, formatting, and docs tools                            |
 
 The base install pulls in only `h5py` and `numpy`. Recording timings, writing

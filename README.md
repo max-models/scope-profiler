@@ -131,7 +131,7 @@ write_metadata_json("profiling_data.h5", "metadata.json")
 
 ## Example plots
 
-`scope-profiler pproc` turns an HDF5 profiling file into Gantt, flame,
+`scope-profiler plot` turns an HDF5 profiling file into Gantt, flame,
 duration, and speedup charts (see [Flame graphs](#flame-graphs) below for
 details). The plots here come from `examples/generate_readme_figures.py`, a
 small mock timestep loop with nested and self-recursive regions, and are
@@ -197,7 +197,7 @@ call sp_finalize()
 ```
 
 ```bash
-scope-profiler import-native . -o profiling_data.h5   # then pproc/inspect as usual
+scope-profiler import-native . -o profiling_data.h5   # then plot/inspect as usual
 ```
 
 Both are one self-contained file (Fortran 2008, or C99 with an `extern "C"`
@@ -397,11 +397,11 @@ graph, with recursion showing up as a narrowing tower of frames - as with
 
 ![Flame graph of a mock timestep loop](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/flame_plot.png)
 
-`scope-profiler pproc` generates `flame_plot.png` alongside the Gantt chart
+`scope-profiler plot` generates `flame_plot.png` alongside the Gantt chart
 for every run:
 
 ```bash
-scope-profiler pproc profiling_data.h5 --show -o figures
+scope-profiler plot profiling_data.h5 --show -o figures
 ```
 
 Or programmatically:
@@ -419,7 +419,7 @@ different [matplotlib colormap](https://matplotlib.org/stable/users/explain/colo
 than the default `tab20`:
 
 ```bash
-scope-profiler pproc profiling_data.h5 --cmap viridis -o figures
+scope-profiler plot profiling_data.h5 --cmap viridis -o figures
 ```
 
 By default the flame graph covers rank 0, since it represents a single
@@ -447,15 +447,15 @@ The JSON payload additionally includes a `colors` map (region or file label
 to `#rrggbb`) matching the colors used in the matplotlib plot, so a
 JavaScript charting library like Plotly can reproduce the same look.
 
-`scope-profiler pproc --export data` does the same for every selected plot in
+`scope-profiler plot --export data` does the same for every selected plot in
 one run, writing `gantt_data`, `flame_data`, `durations_data`, and (for
 multiple input files) `speedup_data` alongside the PNGs. Pass
 `--export-data-format json` to get `.json` files instead of the default
 `.csv`:
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures --export data
-scope-profiler pproc profiling_data.h5 -o figures --export data --export-data-format json
+scope-profiler plot profiling_data.h5 -o figures --export data
+scope-profiler plot profiling_data.h5 -o figures --export data --export-data-format json
 ```
 
 Pass `--skip-plot-images` (requires `--export`) to skip rendering the PNGs
@@ -464,7 +464,7 @@ useful when a website renders charts client-side (e.g. with Plotly) straight
 from the JSON:
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures \
+scope-profiler plot profiling_data.h5 -o figures \
   --export data --export-data-format json --skip-plot-images
 ```
 
@@ -475,7 +475,7 @@ library's `cProfile`, so a run can be explored with
 [snakeviz](https://jiffyclub.github.io/snakeviz/) or `python -m pstats`:
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures --export prof --skip-plot-images
+scope-profiler plot profiling_data.h5 -o figures --export prof --skip-plot-images
 snakeviz figures/profile_rank0.prof
 ```
 
@@ -491,7 +491,7 @@ written per exported rank, since `.prof` has no notion of ranks — see
 every individual call, so the timeline shows the run as it happened:
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures --export speedscope --skip-plot-images
+scope-profiler plot profiling_data.h5 -o figures --export speedscope --skip-plot-images
 npx speedscope figures/profile.speedscope.json  # or drop the file on speedscope.app
 ```
 

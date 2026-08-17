@@ -111,7 +111,7 @@ as `|` in the group name --- the `tag` attribute always holds the real name.
 
 ## From the command line
 
-`scope-profiler pproc file.h5 --summary` prints the region statistics and, if
+`scope-profiler inspect file.h5` prints the region statistics and, if
 the run recorded counters, one LIKWID table per rank and event group:
 
 ```text
