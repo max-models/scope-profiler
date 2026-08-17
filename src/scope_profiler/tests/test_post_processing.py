@@ -652,6 +652,118 @@ def test_plot_durations_log_scale_renders(tmp_path):
     assert out_file.stat().st_size > 0
 
 
+def test_plot_durations_combine_regions_pools_stats(tmp_path):
+    file_path = tmp_path / "run.h5"
+    ns = 1_000_000_000
+    _write_sample_h5(
+        file_path,
+        {
+            0: {
+                "setup: read_input": ([0], [10 * ns]),
+                "setup: init_grid": ([10 * ns], [15 * ns]),
+                "solve": ([15 * ns], [35 * ns]),
+            }
+        },
+    )
+    results = read_h5(file_path)
+    data_file = tmp_path / "durations_data.json"
+
+    plot_durations(
+        results,
+        filepath=tmp_path / "durations_plot.png",
+        show=False,
+        verbose=False,
+        metrics=["total", "avg"],
+        combine_regions={"setup": ["^setup:.*"]},
+        data_filepath=data_file,
+        data_format="json",
+    )
+
+    payload = json.loads(data_file.read_text(encoding="utf-8"))
+    bars = {
+        (bar["region"], bar["metric"]): bar["value_seconds"] for bar in payload["bars"]
+    }
+    assert {bar["region"] for bar in payload["bars"]} == {"setup", "solve"}
+    assert bars[("setup", "total")] == pytest.approx(15.0)
+    assert bars[("setup", "avg")] == pytest.approx(7.5)
+    assert bars[("solve", "total")] == pytest.approx(20.0)
+
+
+def test_plot_durations_combine_regions_no_match_raises(tmp_path):
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
+    results = read_h5(file_path)
+
+    with pytest.raises(ValueError, match="matched no regions"):
+        plot_durations(
+            results,
+            filepath=tmp_path / "durations_plot.png",
+            show=False,
+            verbose=False,
+            combine_regions={"nope": ["^does_not_exist.*"]},
+        )
+
+
+def test_plot_durations_combine_regions_name_collision_raises(tmp_path):
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
+    results = read_h5(file_path)
+
+    with pytest.raises(ValueError, match="collide"):
+        plot_durations(
+            results,
+            filepath=tmp_path / "durations_plot.png",
+            show=False,
+            verbose=False,
+            combine_regions={"solve": ["^setup$"]},
+        )
+
+
+def test_post_processing_cli_combine_regions(tmp_path):
+    file_path = tmp_path / "run.h5"
+    output_dir = tmp_path / "figures"
+    _write_sample_h5(
+        file_path,
+        {
+            0: {
+                "setup: read_input": ([0], [10]),
+                "setup: init_grid": ([10], [15]),
+                "solve": ([15], [35]),
+            }
+        },
+    )
+
+    main(
+        [
+            str(file_path),
+            "-o",
+            str(output_dir),
+            "--plots",
+            "durations",
+            "--combine-regions",
+            "setup=^setup:.*",
+            "--export",
+            "data",
+        ]
+    )
+
+    data_file = output_dir / "durations_data.csv"
+    assert data_file.exists()
+    rows = data_file.read_text(encoding="utf-8").splitlines()
+    regions = {row.split(",")[1] for row in rows[1:]}
+    assert regions == {"setup", "solve"}
+
+
+def test_post_processing_cli_combine_regions_bad_spec_errors(tmp_path, capsys):
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
+
+    with pytest.raises(SystemExit):
+        main([str(file_path), "--combine-regions", "not-a-valid-spec"])
+
+    assert "NAME=PATTERN" in capsys.readouterr().err
+
+
 def test_plot_duration_histogram_export_data_json(tmp_path):
     file_path = tmp_path / "run.h5"
     _write_sample_h5(
