@@ -680,7 +680,9 @@ def test_plot_durations_combine_regions_pools_stats(tmp_path):
     )
 
     payload = json.loads(data_file.read_text(encoding="utf-8"))
-    bars = {(bar["region"], bar["metric"]): bar["value_seconds"] for bar in payload["bars"]}
+    bars = {
+        (bar["region"], bar["metric"]): bar["value_seconds"] for bar in payload["bars"]
+    }
     assert {bar["region"] for bar in payload["bars"]} == {"setup", "solve"}
     assert bars[("setup", "total")] == pytest.approx(15.0)
     assert bars[("setup", "avg")] == pytest.approx(7.5)
