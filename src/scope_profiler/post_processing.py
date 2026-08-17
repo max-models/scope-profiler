@@ -81,6 +81,30 @@ def parse_ranks(spec: str, verbose: bool = False) -> list[int]:
     return ranks
 
 
+def parse_region_groups(
+    specs: list[str] | None, parser: argparse.ArgumentParser
+) -> dict[str, list[str]] | None:
+    """Parse ``--combine-regions`` specs into a ``{name: [patterns]}`` dict.
+
+    Each spec has the form ``NAME=PATTERN1,PATTERN2``. Repeating the same
+    NAME across specs is not supported -- pass every pattern for a group in
+    one spec instead.
+    """
+    if not specs:
+        return None
+    groups: dict[str, list[str]] = {}
+    for spec in specs:
+        name, sep, patterns = spec.partition("=")
+        if not sep or not name or not patterns:
+            parser.error(
+                "--combine-regions expects 'NAME=PATTERN1,PATTERN2' " f"(got {spec!r})"
+            )
+        if name in groups:
+            parser.error(f"--combine-regions group {name!r} given more than once.")
+        groups[name] = [pattern for pattern in patterns.split(",") if pattern]
+    return groups
+
+
 def print_summary(
     results,
     include=None,
@@ -268,6 +292,22 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     tuning.add_argument(
+        "--combine-regions",
+        nargs="*",
+        type=str,
+        default=None,
+        metavar="NAME=PATTERN[,PATTERN...]",
+        help=(
+            "[durations] Merge several regions into a single bar. Each "
+            "value is 'NAME=PATTERN1,PATTERN2' where NAME is the combined "
+            "bar's label and the comma-separated PATTERNs are regexes "
+            "matched against region names (like --include). Repeat once per "
+            "group. A region matched by more than one group is claimed by "
+            "whichever group is given first. Example: --combine-regions "
+            "'setup=^setup:.*'"
+        ),
+    )
+    tuning.add_argument(
         "--log-scale",
         action="store_true",
         help=(
@@ -420,6 +460,7 @@ def main(argv: list[str] | None = None):
     parser = build_parser()
     args = parser.parse_args(argv)
     args.files = expand_file_patterns(args.files, parser)
+    args.combine_regions = parse_region_groups(args.combine_regions, parser)
 
     want_export_data = "data" in args.export
     want_export_prof = "prof" in args.export
@@ -642,6 +683,7 @@ def main(argv: list[str] | None = None):
                 metrics=args.duration_metrics,
                 sort_by=args.sort_by,
                 top_n=args.top_n,
+                combine_regions=args.combine_regions,
                 cmap=args.cmap,
                 log_scale=args.log_scale,
                 data_filepath=durations_data_path,
