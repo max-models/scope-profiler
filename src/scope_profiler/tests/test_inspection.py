@@ -397,9 +397,7 @@ def _write_likwid_h5(path, tag="solve"):
         grp = h5file.create_group("rank0")
         region_group = grp.create_group("regions").create_group(tag)
         region_group.create_dataset("start_times", data=np.array([0], dtype=np.int64))
-        region_group.create_dataset(
-            "end_times", data=np.array([10**9], dtype=np.int64)
-        )
+        region_group.create_dataset("end_times", data=np.array([10**9], dtype=np.int64))
         write_likwid_results(grp, [_likwid_result(tag)])
     return path
 
