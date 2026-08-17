@@ -109,10 +109,11 @@ Region durations are in seconds, aggregated over the selected ranks. See
 
 ### Showing a region's source
 
-Every region remembers the `with` block or decorated function it was defined
-with, captured once when the region is first created (see
-{doc}`/guide/hdf5_and_python_api`). `--source` prints it, after the region
-table:
+A region can remember the `with` block or decorated function it was defined
+with -- captured once when the region is first created, but only if the run
+was profiled with `capture_region_source=True` (off by default; see
+{doc}`/guide/configuration` for its cost and {doc}`/guide/hdf5_and_python_api`
+for the Python API). `--source` prints it, after the region table:
 
 ```bash
 scope-profiler inspect profiling_data.h5 --source solve assemble
@@ -129,10 +130,11 @@ Source (2)
         return build_matrix(size)
 ```
 
-A name with nothing captured (files written before this was recorded, or a
-region only ever created by the recursive tracer) prints "source not
-captured" instead of failing the whole command; an unknown name prints the
-list of regions the file actually has.
+A name with nothing captured (`capture_region_source` was left at its
+default, the file predates this feature, or the region was only ever created
+by the recursive tracer) prints "source not captured" instead of failing the
+whole command; an unknown name prints the list of regions the file actually
+has.
 
 ### Exporting metadata to JSON
 

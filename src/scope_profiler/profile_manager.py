@@ -911,7 +911,7 @@ class ProfileManager:
         buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
         label: str | None = None,
-        capture_region_source: bool = True,
+        capture_region_source: bool = False,
     ):
         """
         Initialize and configure the profiling system.
@@ -961,17 +961,20 @@ class ProfileManager:
         capture_region_source : bool, optional
             Record where each region is defined -- the ``with`` block or the
             decorated function -- once per distinct source file, the first
-            time any of its regions is created (default: True). See
-            :attr:`~scope_profiler.region.Region.source_text`. Costs one
-            ``ast.parse`` + tree walk of that file: under a millisecond for a
-            typical few-hundred-line file, but tenths of a second per rank
-            for one containing thousands of lines across many regions --
-            and every rank pays that independently, so it can compound to
-            whole seconds under contention on a job with more ranks than idle
-            cores (measured: ~0.3s/rank at 8 ranks, ~2.9s/rank at 64, for a
-            single ~10,000-line file, on a shared/oversubscribed node). Set
-            to False to skip it, e.g. for that kind of job, or where source
-            is not reliably available (a frozen or packaged deployment).
+            time any of its regions is created (default: False). See
+            :attr:`~scope_profiler.region.Region.source_text`. Off by
+            default because the cost, while cheap for a typical file, is not
+            always: it is one ``ast.parse`` + tree walk of that file, so it
+            tracks the file's total size, not the size or number of the
+            regions in it -- under a millisecond for a typical few-hundred-
+            line file, but tenths of a second per rank for one containing
+            thousands of lines across many regions. Every rank pays that
+            independently, so it can compound to whole seconds under
+            contention on a job with more ranks than idle cores (measured:
+            ~0.3s/rank at 8 ranks, ~2.9s/rank at 64, for a single
+            ~10,000-line file, on a shared/oversubscribed node)::
+
+                ProfileManager.setup(capture_region_source=True)
 
         Notes
         -----

@@ -2,11 +2,16 @@
 Inspecting a region's source code
 ==================================
 
-Every region remembers where it was defined in your code: the ``with`` block
-for the context-manager form, or the whole function body for the decorator
-form. It is captured once, when the region is first created, so it costs
-nothing on the hot path -- see ``region.source_file``, ``region.source_lineno``
-and ``region.source_text`` below.
+Every region can remember where it was defined in your code: the ``with``
+block for the context-manager form, or the whole function body for the
+decorator form. It is captured once, when the region is first created, so it
+costs nothing on the hot path -- see ``region.source_file``,
+``region.source_lineno`` and ``region.source_text`` below.
+
+It is off by default (``capture_region_source=False``): capturing it means
+parsing the defining file's AST, which tracks that file's total size rather
+than the region's, and can add up on a large file profiled by many MPI ranks.
+Pass ``capture_region_source=True`` to ``setup()`` to turn it on, as below.
 
 If the same region name is used at more than one call site, the source of
 whichever call site created it first is kept (their timings are pooled
@@ -39,7 +44,7 @@ def solve(values):
 
 
 def main():
-    ProfileManager.setup()
+    ProfileManager.setup(capture_region_source=True)
 
     values = assemble(20_000)
     solve(values)

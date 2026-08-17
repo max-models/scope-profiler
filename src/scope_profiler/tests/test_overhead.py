@@ -268,7 +268,7 @@ def test_source_capture_is_a_one_time_per_name_cost(configure):
     per call, and repeated calls to an already-created region cost nothing
     extra at all.
     """
-    configure()
+    configure(capture_region_source=True)
     names = 500
 
     def create_regions(iterations, names=names):

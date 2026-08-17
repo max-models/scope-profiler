@@ -171,7 +171,7 @@ class ProfilingConfig:
         buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
         label: str | None = None,
-        capture_region_source: bool = True,
+        capture_region_source: bool = False,
     ):
         """Initialize the profiling configuration.
 
@@ -204,18 +204,17 @@ class ProfilingConfig:
             Record where each region is defined (see
             :attr:`~scope_profiler.region.Region.source_text`), once per
             distinct source file, the first time any of its regions is
-            created. Measured cost is driven almost entirely by that file's
-            total size (an ``ast.parse`` + one tree walk), not by the number
-            or size of the regions in it: under a millisecond for a typical
-            file of a few hundred lines, regardless of MPI rank count, but
-            tenths of a second *per rank* for a single ~10,000-line file with
-            many regions -- and that cost is paid independently and
-            concurrently by every rank, so on a job with more ranks than idle
-            cores it can compound into whole seconds under contention (~0.3s
-            at 8 ranks, ~2.9s at 64, measured on a shared, oversubscribed
-            login node with such a file). Set to False to skip it entirely if
-            that matters for your job, or source is not reliably readable
-            (a frozen/packaged deployment).
+            created. Off by default: measured cost is driven almost entirely
+            by that file's total size (an ``ast.parse`` + one tree walk), not
+            by the number or size of the regions in it, and every rank pays
+            it independently and concurrently -- under a millisecond for a
+            typical file of a few hundred lines regardless of MPI rank count,
+            but tenths of a second *per rank* for a single ~10,000-line file
+            with many regions, compounding into whole seconds under
+            contention on a job with more ranks than idle cores (~0.3s at 8
+            ranks, ~2.9s at 64, measured on a shared, oversubscribed login
+            node with such a file). Set to True to enable it; for a typical,
+            modestly sized codebase the cost is negligible.
 
 
         Notes

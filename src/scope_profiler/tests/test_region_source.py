@@ -11,10 +11,26 @@ def _reset():
     ProfileManager._reset()
 
 
+def test_capturing_source_is_off_by_default(tmp_path):
+    """``capture_region_source`` defaults to False (see issue #161)."""
+    path = tmp_path / "profiling_data.h5"
+    ProfileManager.setup(file_path=str(path))
+
+    with ProfileManager.profile_region("solve"):
+        pass
+
+    results = ProfileManager.finalize(verbose=False, return_results=True)
+    region = results["solve"]
+
+    assert not region.has_source
+    assert region.source_file is None
+    assert region.source_text is None
+
+
 def test_context_manager_region_captures_its_with_block(tmp_path):
     """A ``with`` region records the file, line and text of its own block."""
     path = tmp_path / "profiling_data.h5"
-    ProfileManager.setup(file_path=str(path))
+    ProfileManager.setup(file_path=str(path), capture_region_source=True)
 
     with ProfileManager.profile_region("solve"):
         pass
@@ -31,7 +47,7 @@ def test_context_manager_region_captures_its_with_block(tmp_path):
 def test_decorated_region_captures_the_function_source(tmp_path):
     """A decorated region records the whole decorated function, not one line."""
     path = tmp_path / "profiling_data.h5"
-    ProfileManager.setup(file_path=str(path))
+    ProfileManager.setup(file_path=str(path), capture_region_source=True)
 
     @ProfileManager.profile("kernel")
     def kernel():
@@ -52,7 +68,7 @@ def test_reusing_a_region_name_keeps_the_first_call_site(tmp_path):
     first, rather than silently overwriting or erroring.
     """
     path = tmp_path / "profiling_data.h5"
-    ProfileManager.setup(file_path=str(path))
+    ProfileManager.setup(file_path=str(path), capture_region_source=True)
 
     def first():
         with ProfileManager.profile_region("shared"):
@@ -138,7 +154,7 @@ def test_source_is_not_captured_for_disabled_profiling(tmp_path):
 def test_source_round_trips_through_the_written_file(tmp_path):
     """The source captured in-process survives a write and re-read."""
     path = tmp_path / "profiling_data.h5"
-    ProfileManager.setup(file_path=str(path))
+    ProfileManager.setup(file_path=str(path), capture_region_source=True)
 
     with ProfileManager.profile_region("written"):
         pass

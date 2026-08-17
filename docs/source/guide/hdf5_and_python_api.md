@@ -122,25 +122,27 @@ results.get_regions(exclude="io.*")
 
 ### Where a region is defined
 
-Every region records the source it was created from: the `with` block for
+A region can record the source it was created from: the `with` block for
 the context-manager form, or the whole function body for the decorator form.
-It is captured once, when the region is first created, so it costs nothing
-per call:
+It is off by default -- turn it on with `capture_region_source=True` (see
+{doc}`configuration` for what it costs and why it isn't on unconditionally):
 
 ```python
+ProfileManager.setup(capture_region_source=True)
+...
 region = results.get_region("solve")
 print(f"{region.source_file}:{region.source_lineno}")
 print(region.source_text)
 ```
 
-`region.has_source` is `False` for a file written before this was recorded,
-or a region created only by the recursive tracer (`recursive_profile=True`)
-or `scope-profiler run`, neither of which has one call site to point at. If
-the same region name is used at more than one call site, the source of
-whichever call created it first is kept -- their timings are pooled together
-under that one name either way. The same information is available without
-writing any Python, via `scope-profiler inspect --source`; see
-{doc}`/cli`.
+`region.has_source` is `False` when it was never enabled, for a file written
+before this feature existed, or for a region created only by the recursive
+tracer (`recursive_profile=True`) or `scope-profiler run`, none of which have
+one call site to point at. If the same region name is used at more than one
+call site, the source of whichever call created it first is kept -- their
+timings are pooled together under that one name either way. The same
+information is available without writing any Python, via
+`scope-profiler inspect --source`; see {doc}`/cli`.
 
 ### Post-processing in the script that produced the data
 
