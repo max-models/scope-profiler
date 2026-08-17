@@ -15,7 +15,10 @@ from scope_profiler.inspection import write_metadata_json
 NS = 1_000_000_000
 
 
-def _write_sample_h5(path, rank_regions, metadata=None):
+def _write_sample_h5(path, rank_regions, metadata=None, sources=None):
+    """``sources``: region name -> ``(source_file, source_lineno, source_text)``,
+    written onto that region's group on every rank that has it."""
+    sources = sources or {}
     with h5py.File(path, "w") as h5file:
         if metadata:
             meta_grp = h5file.create_group("metadata")
@@ -35,6 +38,12 @@ def _write_sample_h5(path, rank_regions, metadata=None):
                 region_group.create_dataset(
                     "end_times", data=np.asarray(ends, dtype=np.int64)
                 )
+                source = sources.get(region_name)
+                if source is not None:
+                    source_file, source_lineno, source_text = source
+                    region_group.attrs["source_file"] = source_file
+                    region_group.attrs["source_lineno"] = source_lineno
+                    region_group.attrs["source_text"] = source_text
 
 
 @pytest.fixture
@@ -174,6 +183,67 @@ def test_section_switches(sample_file, capsys):
     inspect_file(sample_file, show_metadata=False)
     out = capsys.readouterr().out
     assert "Metadata" not in out and "Regions" in out
+
+
+def test_source_prints_captured_call_site(tmp_path, capsys):
+    path = tmp_path / "with_source.h5"
+    _write_sample_h5(
+        path,
+        {0: {"solve": ([0], [1 * NS])}},
+        sources={
+            "solve": (
+                "kernels.py",
+                12,
+                '    with ProfileManager.profile_region("solve"):\n        pass\n',
+            )
+        },
+    )
+
+    inspect_file(path, source=["solve"])
+    out = capsys.readouterr().out
+
+    assert "Source (1)" in out
+    assert "solve  (kernels.py:12)" in out
+    assert 'with ProfileManager.profile_region("solve")' in out
+
+
+def test_source_without_a_captured_region_says_so(sample_file, capsys):
+    inspect_file(sample_file, source=["solve"])
+    out = capsys.readouterr().out
+
+    assert "solve: source not captured" in out
+
+
+def test_source_of_an_unknown_region_lists_the_available_ones(sample_file, capsys):
+    inspect_file(sample_file, source=["nope"])
+    out = capsys.readouterr().out
+
+    assert "'nope': no such region" in out
+    assert "'setup'" in out and "'solve'" in out
+
+
+def test_source_prints_regardless_of_metadata_only(sample_file, capsys):
+    """--source is independent of --metadata-only/--regions-only."""
+    inspect_file(sample_file, show_regions=False, source=["solve"])
+    out = capsys.readouterr().out
+
+    assert "Regions" not in out
+    assert "Source (1)" in out
+
+
+def test_cli_source_flag(tmp_path, capsys):
+    path = tmp_path / "with_source.h5"
+    _write_sample_h5(
+        path,
+        {0: {"solve": ([0], [1 * NS])}},
+        sources={"solve": ("kernels.py", 3, "    with region():\n        pass\n")},
+    )
+
+    inspect_main([str(path), "--source", "solve"])
+    out = capsys.readouterr().out
+
+    assert "Source (1)" in out
+    assert "kernels.py:3" in out
 
 
 def test_file_without_regions_or_metadata(tmp_path, capsys):

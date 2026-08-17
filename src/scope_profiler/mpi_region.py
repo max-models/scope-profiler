@@ -50,6 +50,39 @@ class MPIRegion:
         """Whether any rank recorded timestamps for this region."""
         return any(region.has_timing for region in self._regions.values())
 
+    def _first_captured(self, attr: str):
+        """First non-None value of ``attr`` across ranks, in rank order.
+
+        Every rank that created this region from the same code path captured
+        the same source, so any one of them stands in for the region as a
+        whole.
+        """
+        for rank in self.ranks:
+            value = getattr(self._regions[rank], attr)
+            if value is not None:
+                return value
+        return None
+
+    @property
+    def has_source(self) -> bool:
+        """Whether any rank captured this region's call-site source."""
+        return self.source_text is not None
+
+    @property
+    def source_file(self) -> str | None:
+        """Path of the file this region is defined in, or None if not captured."""
+        return self._first_captured("source_file")
+
+    @property
+    def source_lineno(self) -> int | None:
+        """Line the region's call site starts at, or None if not captured."""
+        return self._first_captured("source_lineno")
+
+    @property
+    def source_text(self) -> str | None:
+        """Source text of the region's ``with`` block or decorated function."""
+        return self._first_captured("source_text")
+
     def get_summary(self) -> Dict[str, Any]:
         """
         Return statistics aggregated over every rank.

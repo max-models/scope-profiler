@@ -17,6 +17,31 @@ configuration is global: every call to `profile()` or `profile_region()`
 | `buffer_limit`        | `int`  | `1024`                | Initial per-region buffer capacity. Buffers grow on demand, so this is a starting size, not a cap. |
 | `file_path`           | `str`  | `"profiling_data.h5"` | Output path for the merged HDF5 file written by `finalize()`.                                   |
 | `label`               | `str`  | `None`                | Short name for the run, used by post-processing wherever a run has to be named. See below.       |
+| `capture_region_source`| `bool` | `False`              | Record where each region is defined (see {doc}`hdf5_and_python_api`). Off by default; see below for its cost and how to turn it on. |
+
+## Enabling `capture_region_source`
+
+Off by default, because its cost -- while cheap for a typical file -- is not
+always. Capturing a region's source parses its defining file's AST and walks
+it once per distinct file, the first time any of its regions is created --
+not once per region, and not on any later call. Measured cost tracks that
+file's **total size**, not the size or number of the regions it defines:
+
+| File                                          | Cost, 1 rank | Cost per rank, 64 ranks (shared, oversubscribed node) |
+| ---------------------------------------------- | ------------ | -------------------------------------------------------- |
+| Typical, a few hundred lines                   | < 1 ms       | a few ms                                                  |
+| ~10,000 lines, ~1,000 regions (one spanning 3,000 lines) | ~0.3 s       | ~2.9 s                                                    |
+
+The per-region text itself is cheap to extract even when huge (~0.1 ms for a
+3,000-line block) -- the file-wide parse dominates. Every rank pays this
+independently and concurrently, so on a job with more ranks than idle cores it
+compounds under contention; at rank counts within the idle core count (1--8
+ranks, above), it stays flat. For a typical, modestly sized codebase this is
+negligible either way -- turn it on with:
+
+```python
+ProfileManager.setup(capture_region_source=True)
+```
 
 ## Naming a run with `label`
 

@@ -51,6 +51,15 @@ BUDGET_NS = {
 # hoisting the region object out of the loop (measured: ~45 ns, one dict get).
 LOOKUP_BUDGET_NS = 2_000
 
+# Capturing a region's call-site source (issue #161) happens once per region
+# name, at creation, never per call -- so it gets its own, much looser budget
+# than the per-call ones above. Measured: ~6 us/region for a small file (one
+# ast.parse the first time a file is seen, plus one AST walk per new name
+# after that). This is generous enough to absorb a much bigger file, while
+# still catching a regression that makes it scale with the number of calls
+# instead of the number of distinct region names.
+SOURCE_CAPTURE_BUDGET_NS = 200_000
+
 # Buffer growth is measured in a single pass -- once the buffers have doubled
 # their way up they stay grown, so it cannot take the minimum over repeats and
 # is the noisiest number here. It also carries the reallocation copies.
@@ -251,6 +260,46 @@ def test_region_lookup_by_name_stays_cheap(configure, mode):
     )
     # The lookup must reuse the region, not build a second one per call.
     assert ProfileManager.get_region("bench") is region
+
+
+def test_source_capture_is_a_one_time_per_name_cost(configure):
+    """Capturing a region's call-site source (issue #161) never touches a
+    hot loop: creating N distinct regions costs about N captures, not one
+    per call, and repeated calls to an already-created region cost nothing
+    extra at all.
+    """
+    configure(capture_region_source=True)
+    names = 500
+
+    def create_regions(iterations, names=names):
+        profile_region = ProfileManager.profile_region
+        for i in range(iterations):
+            with profile_region(f"source_bench_{i % names}"):
+                pass
+
+    # First pass creates `names` distinct regions (and captures their
+    # source); the rest are cache hits on an existing region, same as any
+    # other repeated call.
+    overhead = _overhead_ns(create_regions, _empty_loop, iterations=names, repeats=1)
+    _report(
+        "region creation + source capture [time]", overhead, SOURCE_CAPTURE_BUDGET_NS
+    )
+
+    assert overhead < SOURCE_CAPTURE_BUDGET_NS, (
+        f"creating a region with source capture costs {overhead:.0f} ns/region, "
+        f"budget {SOURCE_CAPTURE_BUDGET_NS} ns"
+    )
+    assert all(
+        ProfileManager.get_region(f"source_bench_{i}").has_source for i in range(names)
+    )
+
+    # Once every name exists, repeated calls cost the normal per-call budget:
+    # nothing in the region-resolution path re-touches the source.
+    repeat_overhead = _overhead_ns(create_regions, _empty_loop)
+    _report(
+        "repeated calls after source capture [time]", repeat_overhead, BUDGET_NS["time"]
+    )
+    assert repeat_overhead < BUDGET_NS["time"]
 
 
 def test_nested_regions_cost_scales_with_depth(configure):

@@ -1,8 +1,11 @@
 """Profile region classes implementing the strategy pattern for different profiling modes."""
 
+import ast
 import functools
+import inspect
+import linecache
 from time import perf_counter_ns
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 import numpy as np
 
@@ -10,6 +13,81 @@ from scope_profiler.profile_config import ProfilingConfig
 
 if TYPE_CHECKING:
     pass
+
+
+# Parsed module ASTs, memoized by filename. Capturing a region's source only
+# runs once per region name (see BaseProfileRegion.set_source), but a file can
+# define many regions, so the parse itself is cached rather than repeated.
+_AST_CACHE: Dict[str, Optional[ast.Module]] = {}
+
+
+def _parsed_module(filename: str) -> Optional[ast.Module]:
+    """Parse ``filename`` into an AST, memoized by filename.
+
+    Returns None for anything that cannot be parsed (a REPL frame, a frozen
+    module, a file that no longer exists), so callers fall back gracefully
+    instead of raising.
+    """
+    if filename not in _AST_CACHE:
+        try:
+            text = "".join(linecache.getlines(filename))
+            _AST_CACHE[filename] = ast.parse(text, filename=filename) if text else None
+        except (OSError, SyntaxError, ValueError):
+            _AST_CACHE[filename] = None
+    return _AST_CACHE[filename]
+
+
+# Lineno -> With node, memoized by filename. Keeping this separate from
+# _AST_CACHE means a file with many regions costs one ast.walk() in total
+# (done the first time any region in it is captured), not one per region: the
+# naive approach -- walking the whole tree again for every new region name --
+# turned out to cost hundreds of microseconds per region on a file of a few
+# hundred lines (measured in test_source_capture_is_a_one_time_per_name_cost),
+# which is fine once but not once per distinct name in a busy file.
+_WITH_NODE_CACHE: Dict[str, Dict[int, ast.With]] = {}
+
+
+def _with_nodes(filename: str) -> Dict[int, ast.With]:
+    """Every ``with`` statement in ``filename``, indexed by its start line."""
+    if filename not in _WITH_NODE_CACHE:
+        tree = _parsed_module(filename)
+        nodes: Dict[int, ast.With] = {}
+        if tree is not None:
+            for node in ast.walk(tree):
+                if isinstance(node, ast.With):
+                    nodes[node.lineno] = node
+        _WITH_NODE_CACHE[filename] = nodes
+    return _WITH_NODE_CACHE[filename]
+
+
+def call_site_source(filename: str, lineno: int) -> Optional[str]:
+    """Source text of the ``with`` block starting at ``lineno`` in ``filename``.
+
+    Falls back to just the call-site line when the enclosing ``with``
+    statement cannot be located (e.g. the file cannot be parsed), so a region
+    still gets *some* location information rather than none.
+    """
+    node = _with_nodes(filename).get(lineno)
+    if node is not None:
+        end_lineno = getattr(node, "end_lineno", node.lineno)
+        lines = linecache.getlines(filename)[node.lineno - 1 : end_lineno]
+        if lines:
+            return "".join(lines)
+    return linecache.getline(filename, lineno) or None
+
+
+def function_source(func) -> Optional[Tuple[str, int, str]]:
+    """Source file, starting line and text of a decorated function.
+
+    Returns None when the source cannot be recovered (e.g. a function defined
+    interactively or via ``exec``).
+    """
+    try:
+        lines, first_lineno = inspect.getsourcelines(func)
+        filename = inspect.getsourcefile(func) or func.__code__.co_filename
+    except (OSError, TypeError):
+        return None
+    return filename, first_lineno, "".join(lines)
 
 
 def _import_pylikwid():
@@ -71,6 +149,9 @@ class BaseProfileRegion:
         "_scope_ptr_stack",
         "_push_scope",
         "_pop_scope",
+        "source_file",
+        "source_lineno",
+        "source_text",
     )
 
     # Subclasses that never write timestamps set this to False so no per-region
@@ -127,6 +208,32 @@ class BaseProfileRegion:
         self._scope_ptr_stack = []
         self._push_scope = self._scope_ptr_stack.append
         self._pop_scope = self._scope_ptr_stack.pop
+
+        # Where this region is defined in user code, set once via
+        # set_source() (see ProfileManager._capture_region_source and the
+        # decorator path in ProfileManager.profile). None until then, and for
+        # regions whose source could not be recovered at all.
+        self.source_file = None
+        self.source_lineno = None
+        self.source_text = None
+
+    def set_source(self, filename, lineno, text) -> None:
+        """Record where this region is defined, the first time it is called.
+
+        First writer wins: a region name reused at more than one call site
+        keeps only the first location, matching how their timings are already
+        pooled together under one name (see issue #161).
+        """
+        if self.source_text is not None or filename is None:
+            return
+        self.source_file = filename
+        self.source_lineno = lineno
+        self.source_text = text
+
+    @property
+    def has_source(self) -> bool:
+        """Whether this region's call-site source was captured."""
+        return self.source_text is not None
 
     def _grow(self) -> None:
         """Double the timestamp buffers, preserving already-recorded slots.

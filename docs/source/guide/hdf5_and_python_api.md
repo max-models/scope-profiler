@@ -20,7 +20,8 @@ profiling_data.h5
 │   └── regions/
 │       ├── region_a/
 │       │   ├── start_times   (int64, nanoseconds)
-│       │   └── end_times     (int64, nanoseconds)
+│       │   ├── end_times     (int64, nanoseconds)
+│       │   └── (attrs) source_file, source_lineno, source_text
 │       └── region_b/
 │           ├── start_times
 │           └── end_times
@@ -118,6 +119,30 @@ results.get_regions(include="solver.*")
 # Everything except IO regions
 results.get_regions(exclude="io.*")
 ```
+
+### Where a region is defined
+
+A region can record the source it was created from: the `with` block for
+the context-manager form, or the whole function body for the decorator form.
+It is off by default -- turn it on with `capture_region_source=True` (see
+{doc}`configuration` for what it costs and why it isn't on unconditionally):
+
+```python
+ProfileManager.setup(capture_region_source=True)
+...
+region = results.get_region("solve")
+print(f"{region.source_file}:{region.source_lineno}")
+print(region.source_text)
+```
+
+`region.has_source` is `False` when it was never enabled, for a file written
+before this feature existed, or for a region created only by the recursive
+tracer (`recursive_profile=True`) or `scope-profiler run`, none of which have
+one call site to point at. If the same region name is used at more than one
+call site, the source of whichever call created it first is kept -- their
+timings are pooled together under that one name either way. The same
+information is available without writing any Python, via
+`scope-profiler inspect --source`; see {doc}`/cli`.
 
 ### Post-processing in the script that produced the data
 
