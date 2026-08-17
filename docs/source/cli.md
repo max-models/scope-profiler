@@ -39,6 +39,7 @@ usage: scope-profiler inspect [-h] [--include INCLUDE [INCLUDE ...]]
                               [--exclude EXCLUDE [EXCLUDE ...]]
                               [--ranks RANKS [RANKS ...]]
                               [--sort {total,calls,avg,min,max,std,name}] [--full]
+                              [--source NAME [NAME ...]]
                               [--metadata-only | --regions-only]
                               files [files ...]
 ```
@@ -50,6 +51,7 @@ usage: scope-profiler inspect [-h] [--include INCLUDE [INCLUDE ...]]
 | `--ranks`         | Restrict region statistics to these ranks, e.g. `0 2` or `0-3`          |
 | `--sort`          | Order regions by `total` (default), `calls`, `avg`, `min`, `max`, `std` or `name` |
 | `--full`          | Print long metadata values (`PATH`, `LD_LIBRARY_PATH`, ...) in full     |
+| `--source`        | Print the captured call-site source (the `with` block or decorated function that defines it) of these regions |
 | `--export-metadata` | Also write the metadata of every inspected file to this JSON file     |
 | `-q`, `--quiet`   | Suppress the printed summary (useful with `--export-metadata`)          |
 | `--metadata-only` | Print only the metadata section                                         |
@@ -59,6 +61,7 @@ usage: scope-profiler inspect [-h] [--include INCLUDE [INCLUDE ...]]
 scope-profiler inspect profiling_data.h5
 scope-profiler inspect 'run_*.h5' --regions-only --sort calls
 scope-profiler inspect profiling_data.h5 --export-metadata metadata.json --quiet
+scope-profiler inspect profiling_data.h5 --source solve assemble
 ```
 
 Example output:
@@ -103,6 +106,33 @@ Regions (4)
 
 Region durations are in seconds, aggregated over the selected ranks. See
 {doc}`/guide/hdf5_and_python_api` for what each metadata field means.
+
+### Showing a region's source
+
+Every region remembers the `with` block or decorated function it was defined
+with, captured once when the region is first created (see
+{doc}`/guide/hdf5_and_python_api`). `--source` prints it, after the region
+table:
+
+```bash
+scope-profiler inspect profiling_data.h5 --source solve assemble
+```
+
+```text
+Source (2)
+  solve  (kernels.py:42)
+        with ProfileManager.profile_region("solve"):
+            return solver.step(state)
+  assemble  (kernels.py:18)
+    @ProfileManager.profile("assemble")
+    def assemble(size):
+        return build_matrix(size)
+```
+
+A name with nothing captured (files written before this was recorded, or a
+region only ever created by the recursive tracer) prints "source not
+captured" instead of failing the whole command; an unknown name prints the
+list of regions the file actually has.
 
 ### Exporting metadata to JSON
 

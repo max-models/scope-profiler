@@ -49,6 +49,8 @@ scripts:
   one decorated entrypoint using `recursive_profile=True`.
 - **`ex_cli_profiling.py`** --- an uninstrumented script, profiled with
   `scope-profiler run` (no decorators or setup calls needed).
+- **`ex_region_source.py`** --- reads back the source code a region was
+  defined with, both from Python and via `scope-profiler inspect --source`.
 - **`benchmark_overhead.py`** --- measures per-call overhead of every
   profiling mode and produces a bar chart.
 
