@@ -127,7 +127,9 @@ class TestInspectProfileTool:
     def test_returns_structured_content(self, sample_file):
         server = create_server()
 
-        result = _run(server.call_tool("inspect_profile", {"file_path": str(sample_file)}))
+        result = _run(
+            server.call_tool("inspect_profile", {"file_path": str(sample_file)})
+        )
         payload = _tool_json(result)
 
         assert payload["num_ranks"] == 1
@@ -150,7 +152,12 @@ class TestCompareProfilesTool:
         candidate = tmp_path / "candidate.h5"
         _write_sample_h5(
             candidate,
-            {0: {"setup": ([0], [1 * NS]), "solve": ([1 * NS, 2 * NS], [2 * NS, 3 * NS])}},
+            {
+                0: {
+                    "setup": ([0], [1 * NS]),
+                    "solve": ([1 * NS, 2 * NS], [2 * NS, 3 * NS]),
+                }
+            },
             metadata={"start_time_ns": 0, "finalize_time_ns": 3 * NS},
         )
 

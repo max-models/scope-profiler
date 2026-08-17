@@ -95,7 +95,9 @@ class TestInspectProfile:
         metadata = payload["metadata"]
         assert metadata["parallelism"] == {"mpi_size": 1, "omp_num_threads": 4}
         assert metadata["slurm"] == {"SLURM_JOB_ID": "1234567"}
-        assert isinstance(metadata["parallelism"]["mpi_size"], int)  # not a numpy scalar
+        assert isinstance(
+            metadata["parallelism"]["mpi_size"], int
+        )  # not a numpy scalar
 
     def test_top_n_limits_regions_but_reports_the_true_total(self, baseline_file):
         payload = inspect_profile(str(baseline_file), top_n=1)
@@ -127,7 +129,11 @@ class TestInspectProfile:
         _write_sample_h5(
             path,
             {0: {"setup": ([0], [1 * NS])}},
-            metadata={"start_time_ns": 0, "finalize_time_ns": 1 * NS, "MY_ENV_VAR": "x"},
+            metadata={
+                "start_time_ns": 0,
+                "finalize_time_ns": 1 * NS,
+                "MY_ENV_VAR": "x",
+            },
         )
 
         collapsed = inspect_profile(str(path))
@@ -156,7 +162,9 @@ class TestCompareProfiles:
         assert by_name["solve"]["delta"] == pytest.approx(-2.0)
         assert by_name["setup"]["delta"] == pytest.approx(0.0)
 
-    def test_improvements_and_regressions_split_by_threshold(self, baseline_file, candidate_file):
+    def test_improvements_and_regressions_split_by_threshold(
+        self, baseline_file, candidate_file
+    ):
         payload = compare_profiles(
             str(baseline_file), str(candidate_file), threshold_pct=5.0
         )
@@ -164,11 +172,18 @@ class TestCompareProfiles:
         assert [row["name"] for row in payload["improvements"]] == ["solve"]
         assert payload["regressions"] == []
 
-    def test_a_slower_candidate_is_reported_as_a_regression(self, tmp_path, baseline_file):
+    def test_a_slower_candidate_is_reported_as_a_regression(
+        self, tmp_path, baseline_file
+    ):
         slower = tmp_path / "slower.h5"
         _write_sample_h5(
             slower,
-            {0: {"setup": ([0], [1 * NS]), "solve": ([1 * NS, 4 * NS], [3 * NS, 9 * NS])}},
+            {
+                0: {
+                    "setup": ([0], [1 * NS]),
+                    "solve": ([1 * NS, 4 * NS], [3 * NS, 9 * NS]),
+                }
+            },
             metadata={"start_time_ns": 0, "finalize_time_ns": 9 * NS},
         )
 
@@ -234,9 +249,7 @@ class TestRunProfile:
 
         # A shell metacharacter-laden argument must reach the script literally,
         # never be interpreted -- proving no shell is involved.
-        payload = run_profile(
-            str(script), script_args=["hello world", "$(rm -rf /)"]
-        )
+        payload = run_profile(str(script), script_args=["hello world", "$(rm -rf /)"])
         assert payload["num_ranks"] == 1
 
 

@@ -27,7 +27,11 @@ import numpy as np
 from scope_profiler.diff import METRICS as DIFF_METRICS
 from scope_profiler.diff import diff_rows
 from scope_profiler.h5reader import read_h5
-from scope_profiler.inspection import _metadata_sections, _time_span, collect_file_metadata
+from scope_profiler.inspection import (
+    _metadata_sections,
+    _time_span,
+    collect_file_metadata,
+)
 from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import SORT_KEYS, region_rows
 
@@ -59,8 +63,12 @@ def _read_profile(file_path: str) -> ProfilingResults:
         return read_h5(file_path)
     except FileNotFoundError as exc:
         raise ToolError(str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001 - h5py/attribute errors vary by failure mode
-        raise ToolError(f"Could not read {file_path!r} as a profiling file: {exc}") from exc
+    except (
+        Exception
+    ) as exc:  # noqa: BLE001 - h5py/attribute errors vary by failure mode
+        raise ToolError(
+            f"Could not read {file_path!r} as a profiling file: {exc}"
+        ) from exc
 
 
 def _profile_headline(results: ProfilingResults) -> dict:
@@ -101,7 +109,9 @@ def _metadata_payload(results: ProfilingResults, full: bool) -> dict:
     return payload
 
 
-def _likwid_payload(results: ProfilingResults, ranks=None, top_n: int | None = None) -> dict | None:
+def _likwid_payload(
+    results: ProfilingResults, ranks=None, top_n: int | None = None
+) -> dict | None:
     """Structured LIKWID summary, or ``None`` when the run recorded none.
 
     Per-thread metric/event values are averaged across threads (a region
@@ -168,7 +178,9 @@ def inspect_profile(
 
     results = _read_profile(file_path)
 
-    rows = region_rows(results, include=include, exclude=exclude, ranks=ranks, sort=sort)
+    rows = region_rows(
+        results, include=include, exclude=exclude, ranks=ranks, sort=sort
+    )
     total_matching = len(rows)
     limited = rows[:top_n] if top_n else rows
 
@@ -214,21 +226,40 @@ def compare_profiles(
     candidate = _read_profile(candidate_path)
 
     rows = diff_rows(
-        baseline, candidate, include=include, exclude=exclude, ranks=ranks,
-        metric=metric, sort="pct",
+        baseline,
+        candidate,
+        include=include,
+        exclude=exclude,
+        ranks=ranks,
+        metric=metric,
+        sort="pct",
     )
     region_deltas = [
-        {"name": row["name"], "baseline": row["a"], "candidate": row["b"],
-         "delta": row["delta"], "pct": row["pct"]}
+        {
+            "name": row["name"],
+            "baseline": row["a"],
+            "candidate": row["b"],
+            "delta": row["delta"],
+            "pct": row["pct"],
+        }
         for row in rows
     ]
 
     regressions = sorted(
-        (row for row in region_deltas if row["pct"] is not None and row["pct"] > threshold_pct),
-        key=lambda row: row["pct"], reverse=True,
+        (
+            row
+            for row in region_deltas
+            if row["pct"] is not None and row["pct"] > threshold_pct
+        ),
+        key=lambda row: row["pct"],
+        reverse=True,
     )
     improvements = sorted(
-        (row for row in region_deltas if row["pct"] is not None and row["pct"] < -threshold_pct),
+        (
+            row
+            for row in region_deltas
+            if row["pct"] is not None and row["pct"] < -threshold_pct
+        ),
         key=lambda row: row["pct"],
     )
 
@@ -252,7 +283,9 @@ def compare_profiles(
         overall["relative_change_pct"] = (
             (absolute_diff / baseline_total) * 100 if baseline_total else None
         )
-        overall["speedup"] = (baseline_total / candidate_total) if candidate_total else None
+        overall["speedup"] = (
+            (baseline_total / candidate_total) if candidate_total else None
+        )
         overall["faster"] = candidate_total < baseline_total
 
     return {
@@ -319,7 +352,11 @@ def run_profile(
 
     try:
         completed = subprocess.run(
-            command, capture_output=True, text=True, timeout=timeout_seconds, check=False,
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
         )
     except subprocess.TimeoutExpired as exc:
         raise ToolError(
@@ -332,7 +369,9 @@ def run_profile(
             f"stderr:\n{completed.stderr[-2000:]}"
         )
     if not out_path.exists():
-        raise ToolError("Profiling run exited successfully but produced no output file.")
+        raise ToolError(
+            "Profiling run exited successfully but produced no output file."
+        )
 
     summary = inspect_profile(str(out_path), top_n=top_n)
     summary["stdout_tail"] = completed.stdout[-2000:] if completed.stdout else ""
@@ -362,7 +401,9 @@ def plot_profile(
     if not file_paths:
         raise ToolError("file_paths must contain at least one path")
     if plot_type not in _PLOT_FUNCS:
-        raise ToolError(f"plot_type must be one of {sorted(_PLOT_FUNCS)}, got {plot_type!r}")
+        raise ToolError(
+            f"plot_type must be one of {sorted(_PLOT_FUNCS)}, got {plot_type!r}"
+        )
     if plot_type == "speedup" and len(file_paths) < 2:
         raise ToolError("plot_type='speedup' requires at least 2 file_paths")
     if backend not in ("matplotlib", "plotly"):
@@ -379,7 +420,11 @@ def plot_profile(
 
     plot_func = getattr(plotting_scripts, _PLOT_FUNCS[plot_type])
 
-    out_dir = Path(output_dir) if output_dir else Path(tempfile.mkdtemp(prefix="scope-profiler-mcp-plot-"))
+    out_dir = (
+        Path(output_dir)
+        if output_dir
+        else Path(tempfile.mkdtemp(prefix="scope-profiler-mcp-plot-"))
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
     ext = "html" if backend == "plotly" else "png"
     filepath = out_dir / f"{plot_type}_plot.{ext}"
