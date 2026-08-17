@@ -54,7 +54,7 @@ ProfileManager.setup(file_path="run_a.h5", label="128 ranks")
 ```
 
 The label is stored as metadata in the output file, so it survives into every
-later step --- `scope-profiler pproc`, `scope-profiler inspect`, the plotting
+later step --- `scope-profiler plot`, `scope-profiler inspect`, the plotting
 functions and the exporters all pick it up with no extra flags. It is
 especially worth setting for scaling studies, where a legend reading
 `128 ranks` beats one reading `run_a`.

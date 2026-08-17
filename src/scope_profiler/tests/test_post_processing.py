@@ -478,6 +478,17 @@ def test_post_processing_cli_supports_multiple_files(tmp_path):
     assert payload["files"][2]["region_statistics"]["setup"]["count"] == 4
 
 
+def test_post_processing_cli_rejects_summary_flag(tmp_path, capsys):
+    """--summary moved to `scope-profiler inspect`; plot no longer accepts it."""
+    file_one = tmp_path / "run_1.h5"
+    _write_sample_h5(file_one, _sample_file_data(1, 100, 200))
+
+    with pytest.raises(SystemExit):
+        main([str(file_one), "--summary"])
+
+    assert "unrecognized arguments: --summary" in capsys.readouterr().err
+
+
 def test_post_processing_cli_supports_wildcard_file_patterns(tmp_path):
     file_one = tmp_path / "file_1.h5"
     file_two = tmp_path / "file_2.h5"

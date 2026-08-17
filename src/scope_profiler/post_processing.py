@@ -19,12 +19,6 @@ from scope_profiler.plotting_scripts import (
 )
 from scope_profiler.prof_export import export_prof
 from scope_profiler.speedscope_export import export_speedscope
-from scope_profiler.summary import (
-    SORT_KEYS,
-    print_likwid_tables,
-    print_region_table,
-    region_rows,
-)
 
 # Single source of truth for --plots: name -> (one-line description, is a
 # default plot). Everything else derives from this -- the argparse choices,
@@ -105,53 +99,10 @@ def parse_region_groups(
     return groups
 
 
-def print_summary(
-    results,
-    include=None,
-    exclude=None,
-    ranks=None,
-    sort: str = "total",
-    stream=None,
-) -> None:
-    """Print one file's region statistics, and its LIKWID counters if any.
-
-    The region table is the same one ``ProfileManager.finalize()`` and
-    ``scope-profiler inspect`` render. LIKWID results, when the run recorded
-    them, follow as one additional table per rank and event group; files
-    without LIKWID data simply end after the region table.
-
-    Parameters
-    ----------
-    results : ProfilingResults
-        The run to summarize.
-    include, exclude : list of str or str, optional
-        Regex patterns selecting which regions to report.
-    ranks : list of int, optional
-        Restrict the statistics to these ranks (default: all).
-    sort : str, optional
-        Region table ordering; one of
-        :data:`~scope_profiler.summary.SORT_KEYS`.
-    stream : file-like, optional
-        Where to write (default: stdout).
-    """
-    rows = region_rows(
-        results, include=include, exclude=exclude, ranks=ranks, sort=sort
-    )
-    print_region_table(
-        rows,
-        title=results.default_title(),
-        stream=stream,
-        total_time=results.total_time,
-    )
-    print_likwid_tables(
-        results, include=include, exclude=exclude, ranks=ranks, stream=stream
-    )
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="scope-profiler pproc",
-        description="Read and summarize profiling HDF5 data.",
+        prog="scope-profiler plot",
+        description="Render plots and export data from HDF5 profiling files.",
     )
     parser.add_argument(
         "files",
@@ -162,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     selecting = parser.add_argument_group(
         "Selecting data",
-        "Which files, regions and ranks feed every plot, the summary and every export below.",
+        "Which files, regions and ranks feed every plot and export below.",
     )
     selecting.add_argument(
         "--label",
@@ -339,8 +290,8 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "[likwid] Name of the LIKWID derived metric or raw event to "
             "plot, e.g. 'CPI', 'MFlops/s'. Required when 'likwid' is in "
-            "--plots. Run with --summary on a LIKWID-enabled file to see "
-            "the available names, or inspect "
+            "--plots. Run `scope-profiler inspect` on a LIKWID-enabled file "
+            "to see the available names, or inspect "
             "ProfilingResults.get_likwid_regions()."
         ),
     )
@@ -405,27 +356,6 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    summary = parser.add_argument_group(
-        "Text summary",
-        "An alternative to plots: per-region statistics printed to the terminal.",
-    )
-    summary.add_argument(
-        "--summary",
-        action="store_true",
-        help=(
-            "Print the per-region statistics table for each file, plus a "
-            "separate LIKWID hardware counter table per rank and event group "
-            "when the run recorded any. On its own this prints the summary "
-            "and produces no plots; combine it with --show or -o/--output to "
-            "get both."
-        ),
-    )
-    summary.add_argument(
-        "--summary-sort",
-        choices=SORT_KEYS,
-        default="total",
-        help="Order the --summary region table by this column (default: total)",
-    )
     return parser
 
 
@@ -490,10 +420,10 @@ def main(argv: list[str] | None = None):
     runs = [read_h5(file_path) for file_path in args.files]
 
     # Applied to the runs rather than passed down per plot: every output --
-    # chart legends and panel titles, the summary headings, the JSON
-    # statistics, the exported filenames -- names a run through
-    # ProfilingResults.display_label, so overriding it here covers all of them
-    # at once. The files themselves are not modified.
+    # chart legends and panel titles, the JSON statistics, the exported
+    # filenames -- names a run through ProfilingResults.display_label, so
+    # overriding it here covers all of them at once. The files themselves
+    # are not modified.
     if args.label is not None:
         if len(args.label) != len(runs):
             parser.error(
@@ -502,24 +432,6 @@ def main(argv: list[str] | None = None):
             )
         for run, label in zip(runs, args.label):
             run.label = label
-
-    if args.summary:
-        # Before the timing check below: a file with nothing recorded still
-        # has a perfectly good (if empty) summary table.
-        for index, run in enumerate(runs):
-            if index:
-                print()
-            print_summary(
-                run,
-                include=args.include,
-                exclude=args.exclude,
-                ranks=args.ranks,
-                sort=args.summary_sort,
-            )
-        # Asking only for a summary means the summary is the whole job;
-        # rendering charts nobody requested would just cost time.
-        if not (args.show or args.output):
-            return
 
     # A file whose regions recorded no calls would produce empty charts.
     # Report what is there and stop, rather than failing deep inside the

@@ -15,7 +15,7 @@ in any order and in any environment.
    regions, `MPIRegion` vs `Region`, summaries, DataFrames, filtering, metadata
    and JSON export.
 3. **Visualizing results** --- Gantt, flame, duration and speedup charts, plus
-   the equivalent `scope-profiler pproc` invocations.
+   the equivalent `scope-profiler plot` invocations.
 4. **Profiling modes** --- what each `setup()` option records, recursive and
    line-by-line profiling, the zero-instrumentation CLI, MPI and LIKWID.
 5. **Custom analysis** --- one level below the summaries: `events()` and the

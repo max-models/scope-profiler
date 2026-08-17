@@ -339,7 +339,7 @@ def test_converted_file_is_a_normal_profiling_file(tmp_path):
 
 
 def test_cli_import_fortran(tmp_path, capsys):
-    """``scope-profiler import-native`` writes a file pproc can read."""
+    """``scope-profiler import-native`` writes a file ``plot`` can read."""
     from scope_profiler.__main__ import main
 
     executable = build(tmp_path, BASIC_PROGRAM)

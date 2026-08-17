@@ -11,6 +11,7 @@ from scope_profiler.__main__ import main as cli_main
 from scope_profiler.inspection import collect_file_metadata, inspect_file
 from scope_profiler.inspection import main as inspect_main
 from scope_profiler.inspection import write_metadata_json
+from scope_profiler.likwid_data import LikwidRegionResult, write_likwid_results
 
 NS = 1_000_000_000
 
@@ -269,7 +270,7 @@ def test_cli_accepts_multiple_files_and_globs(sample_file, capsys):
     inspect_main([str(sample_file), str(second)])
     assert capsys.readouterr().out.count("Metadata") == 2
 
-    # A glob covers both, and repeated paths are reported once (as in pproc).
+    # A glob covers both, and repeated paths are reported once (as in plot).
     inspect_main([str(sample_file.parent / "*.h5"), str(sample_file)])
     assert capsys.readouterr().out.count("Metadata") == 2
 
@@ -370,3 +371,56 @@ def test_inspect_listed_in_top_level_help(capsys):
         cli_main(["--help"])
 
     assert "inspect" in capsys.readouterr().out
+
+
+def _likwid_result(tag, group="CLOCK"):
+    """A minimal LIKWID result for one region on one rank."""
+    return LikwidRegionResult(
+        tag=tag,
+        group_id=0,
+        group_name=group,
+        cpus=[0],
+        times=np.full(1, 0.5),
+        call_counts=np.full(1, 3, dtype=np.int64),
+        event_names=["INSTR_RETIRED_ANY", "CAS_COUNT_RD"],
+        counter_names=["FIXC0", "MBOX0C0"],
+        events=np.array([[100.0], [10.0]]),
+        metric_names=["Clock [MHz]", "CPI"],
+        metrics=np.array([[2400.0], [0.5]]),
+        source="full_api",
+    )
+
+
+def _write_likwid_h5(path, tag="solve"):
+    """A merged-looking file with one timed region and its LIKWID counters."""
+    with h5py.File(path, "w") as h5file:
+        grp = h5file.create_group("rank0")
+        region_group = grp.create_group("regions").create_group(tag)
+        region_group.create_dataset("start_times", data=np.array([0], dtype=np.int64))
+        region_group.create_dataset(
+            "end_times", data=np.array([10**9], dtype=np.int64)
+        )
+        write_likwid_results(grp, [_likwid_result(tag)])
+    return path
+
+
+def test_inspect_prints_likwid_tables_when_present(tmp_path, capsys):
+    """inspect prints the LIKWID counter table alongside the region table."""
+    path = _write_likwid_h5(tmp_path / "d.h5")
+
+    inspect_file(path)
+    out = capsys.readouterr().out
+
+    assert "solve" in out
+    assert "LIKWID counters (rank 0, group CLOCK)" in out
+    assert "CAS_COUNT_RD" in out
+    assert "Clock [MHz]" in out
+
+
+def test_inspect_without_likwid_prints_only_regions(sample_file, capsys):
+    """Files recorded without LIKWID data print no counter section."""
+    inspect_file(sample_file)
+    out = capsys.readouterr().out
+
+    assert "solve" in out
+    assert "LIKWID" not in out

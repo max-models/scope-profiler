@@ -227,14 +227,17 @@ well-defined -100%, while a region appearing fresh in `b` has no baseline to
 divide by, and is listed under "Only in b" instead. `--threshold` never drops
 those regions, since there is nothing to compare against.
 
-## `scope-profiler pproc`
+## `scope-profiler plot`
 
 Post-process one or more HDF5 profiling files, generate plots, and export
-aggregate region statistics to JSON. See
-{doc}`/guide/postprocessing_cli` for a walkthrough with example figures.
+aggregate region statistics to JSON. For text/JSON summaries (including
+LIKWID hardware counters), see `scope-profiler inspect` above instead.
+See {doc}`/guide/plot_cli` for a walkthrough with example figures.
+
+The old name `pproc` still works as a deprecated alias.
 
 ```text
-usage: scope-profiler pproc [-h] [--label LABEL] [--include [INCLUDE ...]]
+usage: scope-profiler plot [-h] [--label LABEL] [--include [INCLUDE ...]]
                             [--exclude [EXCLUDE ...]] [--ranks [RANKS ...]]
                             [--plots [{gantt,flame,durations,timeseries,speedup,histogram,imbalance,likwid} ...]]
                             [--show] [-o OUTPUT]
@@ -247,14 +250,13 @@ usage: scope-profiler pproc [-h] [--label LABEL] [--include [INCLUDE ...]]
                             [--likwid-metric NAME] [--speedup-x-field FIELD]
                             [--export [{data,prof,speedscope} ...]]
                             [--export-data-format {csv,json}]
-                            [--skip-plot-images] [--summary]
-                            [--summary-sort {total,calls,avg,min,max,std,name}]
+                            [--skip-plot-images]
                             files [files ...]
 ```
 
 The full `--help` output groups these under "Selecting data", "Choosing and
-rendering plots", "Tuning individual plots", "Exporting extra data" and "Text
-summary" — the same grouping used below.
+rendering plots", "Tuning individual plots" and "Exporting extra data" — the
+same grouping used below.
 
 ### Positional arguments
 
@@ -308,13 +310,6 @@ All of these require `-o/--output`.
 | `--export-data-format` | Format used by `--export data`: `csv` (default) or `json` (adds a `colors` map) |
 | `--skip-plot-images` | Do not render the plot images, only the `--export` outputs. Requires `--export` to select at least one output |
 
-### Text summary
-
-| Flag              | Description                                      |
-| ----------------- | ------------------------------------------------ |
-| `--summary`       | Print the per-region statistics table, plus a separate LIKWID hardware counter table per rank and event group when the run recorded any. On its own it produces no plots |
-| `--summary-sort`  | Order the `--summary` region table: `total` (default), `calls`, `avg`, `min`, `max`, `std` or `name` |
-
 When `-o/--output` is supplied, the CLI saves one `<name>_plot.png` per plot
 selected by `--plots` (`durations_plot.png` becomes one
 `durations_plot_<metric>.png` per metric when `--duration-metrics` requests
@@ -342,7 +337,7 @@ common regions across all inputs.
 can be browsed with any pstats-based viewer:
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures --export prof --skip-plot-images
+scope-profiler plot profiling_data.h5 -o figures --export prof --skip-plot-images
 snakeviz figures/profile_rank0.prof
 ```
 
@@ -372,7 +367,7 @@ individual call, so the timeline shows the run as it actually happened —
 closest in spirit to the Gantt and flame charts, but interactive:
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures --export speedscope --skip-plot-images
+scope-profiler plot profiling_data.h5 -o figures --export speedscope --skip-plot-images
 ```
 
 Both formats can be written in the same run, e.g. `--export prof speedscope`.
@@ -401,26 +396,26 @@ called from several places and recursion behave as described above.
 **Save plots for a single file:**
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures/
+scope-profiler plot profiling_data.h5 -o figures/
 ```
 
 **Compare multiple files:**
 
 ```bash
-scope-profiler pproc run_1.h5 run_2.h5 run_4.h5 -o figures/
+scope-profiler plot run_1.h5 run_2.h5 run_4.h5 -o figures/
 ```
 
 **Select files via wildcard patterns:**
 
 ```bash
-scope-profiler pproc files/*.h5 -o figures/
-scope-profiler pproc "files/file_*.h5" -o figures/
+scope-profiler plot files/*.h5 -o figures/
+scope-profiler plot "files/file_*.h5" -o figures/
 ```
 
 **Display interactively with region filtering:**
 
 ```bash
-scope-profiler pproc profiling_data.h5 --show \
+scope-profiler plot profiling_data.h5 --show \
     --include "solver.*" "rhs.*" \
     --exclude "io"
 ```
@@ -428,7 +423,7 @@ scope-profiler pproc profiling_data.h5 --show \
 **Select specific MPI ranks:**
 
 ```bash
-scope-profiler pproc profiling_data.h5 --show --ranks 0-3 8
+scope-profiler plot profiling_data.h5 --show --ranks 0-3 8
 ```
 
 The `--ranks` flag accepts comma-separated values and dash ranges that
@@ -437,12 +432,12 @@ can be combined: `0,2,4-7` expands to ranks 0, 2, 4, 5, 6, 7.
 **Only export average and total duration plots:**
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures/ --duration-metrics avg total
+scope-profiler plot profiling_data.h5 -o figures/ --duration-metrics avg total
 ```
 
 **Only generate the duration bar chart and speedup plot:**
 
 ```bash
-scope-profiler pproc run_1.h5 run_2.h5 run_4.h5 -o figures/ \
+scope-profiler plot run_1.h5 run_2.h5 run_4.h5 -o figures/ \
     --plots durations speedup
 ```
