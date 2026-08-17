@@ -165,7 +165,7 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
 
     regions = {
         region_name: MPIRegion(name=region_name, regions=_region_dict[region_name])
-        for region_name in region_names
+        for region_name in dict.fromkeys(region_names)
     }
 
     return {
