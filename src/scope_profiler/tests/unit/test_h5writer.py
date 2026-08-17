@@ -155,3 +155,59 @@ def test_regions_not_duplicated_across_ranks(tmp_path):
         region = results[region_name]
         assert len(region.regions) == 3
         assert set(region.regions.keys()) == {0, 1, 2}
+
+
+def test_prof_export_no_split_timeline(tmp_path):
+    """Verify prof export doesn't create split timelines or duplicate calls.
+
+    This is a regression test for issue #167 where prof exports could show
+    "two timelines" due to duplicate region entries or incorrect call stack
+    reconstruction.
+    """
+    from scope_profiler.prof_export import export_prof, build_pstats_dict
+    from scope_profiler.call_stack import build_call_stack
+
+    path = tmp_path / "multi_rank.h5"
+    with ProfilingWriter(path) as writer:
+        # Write multiple ranks with multiple nested regions
+        for rank in range(2):
+            writer.write_rank(
+                rank,
+                payload(
+                    {
+                        "main": ([0], [100 * NS]),
+                        "setup": ([0], [20 * NS]),
+                        "solve": ([20 * NS], [90 * NS]),
+                        "assemble": ([30 * NS], [60 * NS]),
+                    }
+                ),
+            )
+
+    results = read_h5(path)
+    regions = results.get_regions()
+
+    # Build call stack for rank 0
+    calls = build_call_stack(regions, rank=0)
+
+    # Verify no duplicate calls - each region should appear only once per call
+    region_names_in_calls = [call["name"] for call in calls]
+    call_counts = {}
+    for name in region_names_in_calls:
+        call_counts[name] = call_counts.get(name, 0) + 1
+
+    # Each region should have exactly 1 call (no duplicates)
+    for region_name, count in call_counts.items():
+        assert count == 1, f"Region {region_name} appears {count} times in call stack"
+
+    # Build pstats dict and verify structure
+    stats = build_pstats_dict(calls)
+
+    # Verify no duplicate entries in pstats
+    stat_keys = list(stats.keys())
+    assert len(stat_keys) == len(set(key[2] for key in stat_keys)), "Duplicate regions in pstats"
+
+    # Verify each region appears exactly once
+    region_entries = [key[2] for key in stat_keys if key[2] != "main"]
+    assert region_entries.count("setup") <= 1
+    assert region_entries.count("solve") <= 1
+    assert region_entries.count("assemble") <= 1
