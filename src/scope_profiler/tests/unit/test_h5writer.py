@@ -121,3 +121,37 @@ def test_write_rank_payload_refuses_a_duplicate_rank(tmp_path):
         write_rank_payload(handle, 0, payload({"solve": ([0], [NS])}))
         with pytest.raises(ValueError):
             write_rank_payload(handle, 0, payload({"solve": ([0], [NS])}))
+
+
+def test_regions_not_duplicated_across_ranks(tmp_path):
+    """When multiple ranks have the same regions, they should not be duplicated.
+
+    This is a regression test for an issue where region_names was built by
+    appending every region from every rank, creating duplicates that could
+    affect the final regions dict.
+    """
+    path = tmp_path / "multi_rank.h5"
+    with ProfilingWriter(path) as writer:
+        # Write 3 ranks with the same regions
+        for rank in range(3):
+            writer.write_rank(
+                rank,
+                payload(
+                    {
+                        "main": ([0], [10 * NS]),
+                        "setup": ([0], [2 * NS]),
+                        "solve": ([2 * NS], [9 * NS]),
+                    }
+                ),
+            )
+
+    results = read_h5(path)
+    # Should have exactly 3 regions, not 9 (3 ranks * 3 regions)
+    assert len(results.region_names) == 3
+    assert set(results.region_names) == {"main", "setup", "solve"}
+
+    # Each region should have data from all 3 ranks
+    for region_name in ["main", "setup", "solve"]:
+        region = results[region_name]
+        assert len(region.regions) == 3
+        assert set(region.regions.keys()) == {0, 1, 2}
