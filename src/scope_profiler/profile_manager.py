@@ -265,7 +265,9 @@ class ProfileManager:
 
         Also skipped for a disabled region: ``deactivate_profiling=True``
         promises near-zero setup cost, and the source of a region that will
-        never report any data is not worth even a one-time AST parse.
+        never report any data is not worth even a one-time AST parse. Same
+        for ``capture_region_source=False`` (see ``setup()``): both skip this
+        before it ever reads a file from disk.
 
         This assumes the call site is exactly two frames up. A user helper
         that itself wraps ``profile_region(...)`` (rather than calling it
@@ -276,7 +278,10 @@ class ProfileManager:
         direct-call form, same as e.g. the stdlib ``logging`` module's
         caller detection.
         """
-        if isinstance(region, DisabledProfileRegion):
+        if (
+            isinstance(region, DisabledProfileRegion)
+            or not cls._config.capture_region_source
+        ):
             return
         frame = sys._getframe(2)  # profile_region() -> here -> caller
         if cls._is_internal_frame(frame):
@@ -906,6 +911,7 @@ class ProfileManager:
         buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
         label: str | None = None,
+        capture_region_source: bool = True,
     ):
         """
         Initialize and configure the profiling system.
@@ -952,6 +958,20 @@ class ProfileManager:
 
             It is stored in the output file as the ``label`` metadata field,
             so it survives into every later post-processing step.
+        capture_region_source : bool, optional
+            Record where each region is defined -- the ``with`` block or the
+            decorated function -- once per distinct source file, the first
+            time any of its regions is created (default: True). See
+            :attr:`~scope_profiler.region.Region.source_text`. Costs one
+            ``ast.parse`` + tree walk of that file: under a millisecond for a
+            typical few-hundred-line file, but tenths of a second per rank
+            for one containing thousands of lines across many regions --
+            and every rank pays that independently, so it can compound to
+            whole seconds under contention on a job with more ranks than idle
+            cores (measured: ~0.3s/rank at 8 ranks, ~2.9s/rank at 64, for a
+            single ~10,000-line file, on a shared/oversubscribed node). Set
+            to False to skip it, e.g. for that kind of job, or where source
+            is not reliably available (a frozen or packaged deployment).
 
         Notes
         -----
@@ -973,6 +993,7 @@ class ProfileManager:
             buffer_limit=buffer_limit,
             file_path=file_path,
             label=label,
+            capture_region_source=capture_region_source,
         )
         cls.set_config(config=config)
 
@@ -1005,9 +1026,12 @@ class ProfileManager:
         its own -- skipping this on rebind would silently drop it.
         """
         region = cls.profile_region(name)
-        source = function_source(func)
-        if source is not None:
-            region.set_source(*source)
+        if cls._config.capture_region_source and not isinstance(
+            region, DisabledProfileRegion
+        ):
+            source = function_source(func)
+            if source is not None:
+                region.set_source(*source)
         _bound[0] = region
         _bound[1] = region.wrap(func)
         return region

@@ -171,6 +171,7 @@ class ProfilingConfig:
         buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
         label: str | None = None,
+        capture_region_source: bool = True,
     ):
         """Initialize the profiling configuration.
 
@@ -199,6 +200,23 @@ class ProfilingConfig:
             has to be named: chart legends, the summary heading, the JSON
             statistics. Defaults to None, in which case the output file's stem
             is used. Persisted as the ``label`` metadata field.
+        capture_region_source : bool
+            Record where each region is defined (see
+            :attr:`~scope_profiler.region.Region.source_text`), once per
+            distinct source file, the first time any of its regions is
+            created. Measured cost is driven almost entirely by that file's
+            total size (an ``ast.parse`` + one tree walk), not by the number
+            or size of the regions in it: under a millisecond for a typical
+            file of a few hundred lines, regardless of MPI rank count, but
+            tenths of a second *per rank* for a single ~10,000-line file with
+            many regions -- and that cost is paid independently and
+            concurrently by every rank, so on a job with more ranks than idle
+            cores it can compound into whole seconds under contention (~0.3s
+            at 8 ranks, ~2.9s at 64, measured on a shared, oversubscribed
+            login node with such a file). Set to False to skip it entirely if
+            that matters for your job, or source is not reliably readable
+            (a frozen/packaged deployment).
+
 
         Notes
         -----
@@ -227,6 +245,7 @@ class ProfilingConfig:
         self._recursive_profile = recursive_profile
         self._buffer_limit = buffer_limit
         self._file_path = file_path
+        self._capture_region_source = capture_region_source
 
         # Local queries, not collectives: nothing here has to be reached by
         # every rank in lockstep. Rank 0 writes the whole output file at
@@ -390,6 +409,11 @@ class ProfilingConfig:
     def recursive_profile(self) -> bool:
         """Return whether recursive decorator profiling is enabled by default."""
         return self._recursive_profile
+
+    @property
+    def capture_region_source(self) -> bool:
+        """Return whether a region's defining source is captured at creation."""
+        return self._capture_region_source
 
     @property
     def start_time_ns(self) -> int:
