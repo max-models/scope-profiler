@@ -49,7 +49,7 @@ optional-dependencies.mpi = [
   "mpi4py",
 ]
 
-optional-dependencies.pproc = [
+optional-dependencies.plot = [
   "ipykernel",
   "jupyterlab",
   "matplotlib",
@@ -62,7 +62,7 @@ optional-dependencies.dev = [
   "black[jupyter]",
   "isort",
   "ruff",
-  "scope-profiler[docs,fortran,line-profiler,mcp,mpi,pproc,test]",
+  "scope-profiler[docs,fortran,line-profiler,mcp,mpi,plot,test]",
 ]
 # https://medium.com/@pratikdomadiya123/build-project-documentation-quickly-with-the-sphinx-python-2a9732b66594
 optional-dependencies.docs = [
@@ -73,7 +73,7 @@ optional-dependencies.docs = [
   "pyproject-fmt",
   "sphinx",
   "sphinx-book-theme",
-  "scope-profiler[line-profiler,pproc]",
+  "scope-profiler[line-profiler,plot]",
 ]
 optional-dependencies.test = [
   "coverage",

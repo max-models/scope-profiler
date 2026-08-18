@@ -24,23 +24,21 @@ def test_no_args_prints_help_and_exits_nonzero(capsys):
     assert "usage: scope-profiler" in capsys.readouterr().out
 
 
-def test_help_lists_plot_and_not_pproc(capsys):
+def test_help_lists_plot_export_and_not_pproc(capsys):
     with pytest.raises(SystemExit):
         cli_main(["--help"])
 
     out = capsys.readouterr().out
     assert "plot" in out
+    assert "export" in out
     assert "pproc" not in out
 
 
-def test_pproc_still_dispatches_with_a_deprecation_warning(capsys):
+def test_pproc_is_not_a_command(capsys):
     with pytest.raises(SystemExit):
         cli_main(["pproc", "--help"])
 
-    captured = capsys.readouterr()
-    assert "deprecated" in captured.err
-    assert "plot" in captured.err
-    assert "usage: scope-profiler plot" in captured.out
+    assert "invalid choice" in capsys.readouterr().err
 
 
 def test_invalid_choice_does_not_mention_pproc(capsys):

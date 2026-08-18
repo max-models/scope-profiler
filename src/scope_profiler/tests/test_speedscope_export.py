@@ -3,7 +3,7 @@ import json
 import pytest
 
 from scope_profiler import read_h5
-from scope_profiler.post_processing import main
+from scope_profiler.post_processing import export_main
 from scope_profiler.speedscope_export import (
     build_speedscope_document,
     export_speedscope,
@@ -184,14 +184,12 @@ def test_cli_export_speedscope_without_plots(tmp_path, capsys):
     _write_sample_h5(h5_file, _nested_file_data())
     out_dir = tmp_path / "figures"
 
-    main(
+    export_main(
         [
+            "speedscope",
             str(h5_file),
             "-o",
             str(out_dir),
-            "--export",
-            "speedscope",
-            "--skip-plot-images",
         ]
     )
 
@@ -214,10 +212,9 @@ def test_cli_export_speedscope_alongside_plots(tmp_path):
     _write_sample_h5(h5_file, _nested_file_data())
     out_dir = tmp_path / "figures"
 
-    main([str(h5_file), "-o", str(out_dir), "--export", "speedscope", "--ranks", "0"])
+    export_main(["speedscope", str(h5_file), "-o", str(out_dir), "--ranks", "0"])
 
     assert (out_dir / "profile.speedscope.json").exists()
-    assert (out_dir / "flame_plot.png").exists()
 
 
 def test_cli_export_speedscope_requires_output(tmp_path):
@@ -225,4 +222,4 @@ def test_cli_export_speedscope_requires_output(tmp_path):
     _write_sample_h5(h5_file, _nested_file_data())
 
     with pytest.raises(SystemExit):
-        main([str(h5_file), "--export", "speedscope"])
+        export_main(["speedscope", str(h5_file)])

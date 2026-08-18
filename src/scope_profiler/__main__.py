@@ -2,17 +2,18 @@
 
 Also runnable as ``python -m scope_profiler <command> ...``.
 
-Five subcommands:
+Six subcommands:
 
 - ``scope-profiler run script.py [args...]`` -- profiles a script's function
   calls without requiring any decorators or context managers in the script
   itself, similar to ``python -m cProfile``. By default only the script's
   own code is instrumented (the standard library and installed packages are
   skipped) to keep overhead low; pass ``--all`` to trace everything.
-- ``scope-profiler plot file.h5 [...]`` -- reads merged HDF5 profiling
-  output and renders Gantt/flame/duration/speedup charts, or exports the
-  underlying data. See ``scope_profiler.post_processing`` for its full set
-  of options. The old name ``pproc`` still works as a deprecated alias.
+- ``scope-profiler plot <kind> file.h5 [...]`` -- reads merged HDF5 profiling
+  output and renders Gantt/flame/duration/speedup charts. See
+  ``scope_profiler.post_processing`` for its full set of options.
+- ``scope-profiler export <kind> file.h5 [...]`` -- writes plot data,
+  cProfile/pstats files, or speedscope JSON without rendering charts.
 - ``scope-profiler inspect file.h5 [...]`` -- prints the run metadata and a
   per-region statistics table (including LIKWID hardware counters, when the
   run recorded any) for merged HDF5 profiling output, without producing any
@@ -110,6 +111,13 @@ def _plot(argv):
     return plot_main(argv)
 
 
+def _export(argv):
+    """Handle ``scope-profiler export``: delegate to the export CLI."""
+    from scope_profiler.post_processing import export_main
+
+    return export_main(argv)
+
+
 def _inspect(argv):
     """Handle ``scope-profiler inspect``: delegate to the inspection CLI."""
     from scope_profiler.inspection import main as inspect_main
@@ -194,17 +202,10 @@ def _import_fortran(argv):
 _COMMANDS = {
     "run": _run,
     "plot": _plot,
+    "export": _export,
     "inspect": _inspect,
     "diff": _diff,
     "import-native": _import_fortran,
-}
-
-# Old command names kept working for backwards compatibility. Deliberately
-# not part of _COMMANDS or the add_subparsers() calls below, so they stay
-# out of --help and out of the "invalid choice" error listing -- they still
-# work if a user types them, with a deprecation warning.
-_DEPRECATED_ALIASES = {
-    "pproc": "plot",
 }
 
 
@@ -234,6 +235,12 @@ def main(argv=None):
         "(see `scope-profiler plot --help`)",
     )
     subparsers.add_parser(
+        "export",
+        add_help=False,
+        help="Export HDF5 profiling data without rendering charts "
+        "(see `scope-profiler export --help`)",
+    )
+    subparsers.add_parser(
         "inspect",
         add_help=False,
         help="Print metadata and region statistics of HDF5 profiling data "
@@ -260,14 +267,6 @@ def main(argv=None):
         return
 
     command, *rest = argv
-    if command in _DEPRECATED_ALIASES:
-        target = _DEPRECATED_ALIASES[command]
-        print(
-            f"scope-profiler: {command!r} is deprecated and will be removed "
-            f"in a future release; use {target!r} instead.",
-            file=sys.stderr,
-        )
-        command = target
     handler = _COMMANDS.get(command)
     if handler is None:
         parser.error(
