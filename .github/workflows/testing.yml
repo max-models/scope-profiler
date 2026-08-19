@@ -6,69 +6,33 @@ on:
   pull_request:
     branches: [main, devel]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  pytest:
     runs-on: ubuntu-latest
+    permissions:
+      packages: read
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/scope-profiler-ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     strategy:
       matrix:
-        python-version: ["3.11", "3.12"]
+        include:
+          - python-version: "3.11"
+            venv: /opt/venvs/py311
+          - python-version: "3.12"
+            venv: /opt/venvs/py312
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        name: Set up Python ${{ matrix.python-version }}
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install MPI prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libopenmpi-dev openmpi-bin
-
-      - name: Install LIKWID
-        run: |
-          git clone https://github.com/RRZE-HPC/likwid.git
-          cd likwid
-          make && sudo make install
-          sudo modprobe msr
-          echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/likwid.conf
-          sudo ldconfig
-          likwid-perfctr -a
-
-      - name: Install pylikwid from source
-        run: |
-          git clone https://github.com/RRZE-HPC/pylikwid.git
-          cd pylikwid
-          python3 -m pip install --upgrade pip
-          python3 -m pip install setuptools
-          # Build extension, provide include/lib paths
-          python3 setup.py build_ext \
-          -I/usr/local/include \
-          -L/usr/local/lib \
-          -R/usr/local/lib
-          # Install it
-          python3 setup.py install
-
-      # - name: Install pylikwid from pypi
-      #   run: |
-      #     python3 -m pip install --upgrade pip
-      #     python3 -m pip install setuptools
-      #     python3 -m pip install pylikwid
-
-      - name: Verify pylikwid import
-        run: |
-          python3 -c "import pylikwid"
-
-      - name: Test likwid-mpirun
-        run: |
-          likwid-perfctr -a
-          likwid-mpirun -h
-          likwid-mpirun -n 1 -g FLOPS_SP -mpi openmpi -stats python3 -c "import pylikwid"
-
-      - name: Test pylikwid readme example
-        run: |
-          likwid-mpirun -n 1 -g FLOPS_SP -mpi openmpi -stats -marker python3 src/scope_profiler/tests/pylikwid_readme.py
+      - name: Use Python ${{ matrix.python-version }} venv
+        run: echo "${{ matrix.venv }}/bin" >> "$GITHUB_PATH"
 
       - name: Install project
         run: |
@@ -84,8 +48,138 @@ jobs:
           python3 src/scope_profiler/tests/examples.py
           scope-profiler plot default profiling_data.h5 --show -o figures
 
-      # The Fortran tests in the suite above already compile and run the
-      # module (gfortran ships on the runners). This adds the path a user
+  likwid-smoke:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/scope-profiler-ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      # LIKWID's marker API needs the msr kernel module. --privileged lets the
+      # container load it into the (shared) host kernel, but the container's
+      # own rootfs ships no kernel modules at all, so /lib/modules from the
+      # host has to be bind-mounted in for modprobe to find it.
+      options: --privileged -v /lib/modules:/lib/modules:ro
+    strategy:
+      matrix:
+        include:
+          - python-version: "3.11"
+            venv: /opt/venvs/py311
+          - python-version: "3.12"
+            venv: /opt/venvs/py312
+    # Container jobs run as root, and Open MPI refuses to launch as root
+    # without an explicit opt-in. Fine in this throwaway CI container.
+    env:
+      OMPI_ALLOW_RUN_AS_ROOT: "1"
+      OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Python ${{ matrix.python-version }} venv
+        run: echo "${{ matrix.venv }}/bin" >> "$GITHUB_PATH"
+
+      - name: Load msr kernel module
+        run: modprobe msr
+
+      - name: Verify pylikwid import
+        run: |
+          python3 -c "import pylikwid"
+
+      - name: Test likwid-mpirun
+        run: |
+          likwid-perfctr -a
+          likwid-mpirun -h
+          likwid-mpirun -n 1 -g FLOPS_SP -mpi openmpi -stats python3 -c "import pylikwid"
+
+      - name: Test pylikwid readme example
+        run: |
+          likwid-mpirun -n 1 -g FLOPS_SP -mpi openmpi -stats -marker python3 src/scope_profiler/tests/pylikwid_readme.py
+
+  likwid-examples:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/scope-profiler-ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --privileged -v /lib/modules:/lib/modules:ro
+    strategy:
+      matrix:
+        include:
+          - python-version: "3.11"
+            venv: /opt/venvs/py311
+          - python-version: "3.12"
+            venv: /opt/venvs/py312
+    # Container jobs run as root, and Open MPI refuses to launch as root
+    # without an explicit opt-in. Fine in this throwaway CI container.
+    env:
+      OMPI_ALLOW_RUN_AS_ROOT: "1"
+      OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Python ${{ matrix.python-version }} venv
+        run: echo "${{ matrix.venv }}/bin" >> "$GITHUB_PATH"
+
+      - name: Load msr kernel module
+        run: modprobe msr
+
+      - name: Install project
+        run: |
+          pip install --upgrade pip
+          pip install ".[dev]"
+
+      # examples_pylikwid.py asserts that the hardware counters actually reach
+      # the HDF5 file, so these runs cover the whole marker -> h5 path. Serial
+      # first, to keep a LIKWID failure distinguishable from an MPI one.
+      - name: Test examples with pylikwid (serial)
+        run: |
+          likwid-perfctr -C 0 -g FLOPS_SP -m python3 src/scope_profiler/tests/examples_pylikwid.py
+
+      - name: Test examples with pylikwid (MPI)
+        run: |
+          likwid-mpirun -n 2 -g FLOPS_SP -mpi openmpi -stats -marker python3 src/scope_profiler/tests/examples_pylikwid.py
+
+      - name: Test LIKWID example
+        run: |
+          likwid-perfctr -C 0 -g FLOPS_DP -m python3 examples/ex_likwid.py
+
+  fortran:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/scope-profiler-ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    strategy:
+      matrix:
+        include:
+          - python-version: "3.11"
+            venv: /opt/venvs/py311
+          - python-version: "3.12"
+            venv: /opt/venvs/py312
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Python ${{ matrix.python-version }} venv
+        run: echo "${{ matrix.venv }}/bin" >> "$GITHUB_PATH"
+
+      - name: Install project
+        run: |
+          pip install --upgrade pip
+          pip install ".[dev]"
+
+      # The Fortran tests in the pytest suite already compile and run the
+      # module (gfortran ships in the image). This adds the path a user
       # actually takes: the shipped Makefile, then the importer, on a
       # platform whose clock ids differ from macOS's.
       - name: Test Fortran API (build, run, import)
@@ -101,6 +195,34 @@ jobs:
           make -C examples/fortran run-standalone BUILD_DIR=$PWD/example_build
           make -C examples/fortran run-mixed
 
+  c:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/scope-profiler-ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    strategy:
+      matrix:
+        include:
+          - python-version: "3.11"
+            venv: /opt/venvs/py311
+          - python-version: "3.12"
+            venv: /opt/venvs/py312
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Python ${{ matrix.python-version }} venv
+        run: echo "${{ matrix.venv }}/bin" >> "$GITHUB_PATH"
+
+      - name: Install project
+        run: |
+          pip install --upgrade pip
+          pip install ".[dev]"
+
       # The C API shares the trace format with the Fortran one, and its clock
       # selection differs per platform -- so build and run it on Linux too.
       - name: Test C API (build, run, import)
@@ -113,6 +235,39 @@ jobs:
         run: |
           make -C examples/c run-standalone BUILD_DIR=$PWD/c_example_build
           make -C examples/c run-mixed
+
+  mpi:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/scope-profiler-ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    strategy:
+      matrix:
+        include:
+          - python-version: "3.11"
+            venv: /opt/venvs/py311
+          - python-version: "3.12"
+            venv: /opt/venvs/py312
+    # Container jobs run as root, and Open MPI refuses to launch as root
+    # without an explicit opt-in. Fine in this throwaway CI container.
+    env:
+      OMPI_ALLOW_RUN_AS_ROOT: "1"
+      OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Python ${{ matrix.python-version }} venv
+        run: echo "${{ matrix.venv }}/bin" >> "$GITHUB_PATH"
+
+      - name: Install project
+        run: |
+          pip install --upgrade pip
+          pip install ".[dev]"
 
       # mpi4py is installed at this point (via the dev extra), so the only
       # difference between these runs is the launcher: MPI must be used when
@@ -134,21 +289,6 @@ jobs:
         run: |
           mpirun -n 2 python3 src/scope_profiler/tests/test_mpi.py
           scope-profiler plot default profiling_data.h5 --show -o figures
-
-      # examples_pylikwid.py asserts that the hardware counters actually reach
-      # the HDF5 file, so these runs cover the whole marker -> h5 path. Serial
-      # first, to keep a LIKWID failure distinguishable from an MPI one.
-      - name: Test examples with pylikwid (serial)
-        run: |
-          likwid-perfctr -C 0 -g FLOPS_SP -m python3 src/scope_profiler/tests/examples_pylikwid.py
-
-      - name: Test examples with pylikwid (MPI)
-        run: |
-          likwid-mpirun -n 2 -g FLOPS_SP -mpi openmpi -stats -marker python3 src/scope_profiler/tests/examples_pylikwid.py
-
-      - name: Test LIKWID example
-        run: |
-          likwid-perfctr -C 0 -g FLOPS_DP -m python3 examples/ex_likwid.py
 
     # - name: Test tutorials
     #   run: |

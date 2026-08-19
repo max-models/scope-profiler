@@ -128,7 +128,7 @@ Build the kernels however you already do (f2py, ctypes, Cython, a hand-written
 extension), compiling `scope_profiler.f90` in alongside them:
 
 ```bash
-python -m numpy.f2py -c scope_profiler.f90 kernels.f90 -m kernels
+python -m numpy.f2py -c scope_profiler.f90 kernels.f90 -m kernels --backend meson
 ```
 
 Then let `finalize()` fold the Fortran trace in:
