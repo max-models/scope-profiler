@@ -97,6 +97,8 @@ def kernels(tmp_path_factory):
             "-m",
             "kernels",
             "--quiet",
+            "--backend",
+            "meson",
         ],
         cwd=build_dir,
         capture_output=True,
