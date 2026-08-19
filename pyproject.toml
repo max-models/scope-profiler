@@ -41,6 +41,10 @@ optional-dependencies.line-profiler = [
   "line-profiler",
 ]
 
+optional-dependencies.nvtx = [
+  "nvtx",
+]
+
 optional-dependencies.mcp = [
   "mcp>=1.6.0,<2.0.0",
 ]
@@ -62,7 +66,7 @@ optional-dependencies.dev = [
   "black[jupyter]",
   "isort",
   "ruff",
-  "scope-profiler[docs,fortran,line-profiler,mcp,mpi,plot,test]",
+  "scope-profiler[docs,fortran,line-profiler,mcp,mpi,nvtx,plot,test]",
 ]
 # https://medium.com/@pratikdomadiya123/build-project-documentation-quickly-with-the-sphinx-python-2a9732b66594
 optional-dependencies.docs = [

@@ -167,6 +167,7 @@ class ProfilingConfig:
         deactivate_file_output: bool = False,
         use_likwid: bool = False,
         use_line_profiler: bool = False,
+        use_nvtx: bool = False,
         recursive_profile: bool = False,
         buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
@@ -188,6 +189,8 @@ class ProfilingConfig:
             Enable LIKWID marker API if available.
         use_line_profiler : bool
             Enable line-by-line profiling via line_profiler.
+        use_nvtx : bool
+            Add NVTX ranges to profiled regions for NVIDIA Nsight tools.
         recursive_profile : bool
             Enable recursive profiling by default for decorated functions.
         buffer_limit : int
@@ -241,6 +244,7 @@ class ProfilingConfig:
         self._deactivate_file_output = deactivate_file_output
         self._use_likwid = use_likwid
         self._use_line_profiler = use_line_profiler
+        self._use_nvtx = use_nvtx
         self._recursive_profile = recursive_profile
         self._buffer_limit = buffer_limit
         self._file_path = file_path
@@ -398,6 +402,11 @@ class ProfilingConfig:
     def use_line_profiler(self) -> bool:
         """Return whether line_profiler profiling is enabled."""
         return self._use_line_profiler
+
+    @property
+    def use_nvtx(self) -> bool:
+        """Return whether NVTX annotations are enabled."""
+        return self._use_nvtx
 
     @property
     def deactivate_file_output(self) -> bool:

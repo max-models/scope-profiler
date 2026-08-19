@@ -19,6 +19,7 @@ from scope_profiler.region_profiler import (
     DisabledProfileRegion,
     FullProfileRegion,
     LineProfilerRegion,
+    NVTXProfileRegion,
     TimeOnlyProfileRegion,
     call_site_source,
     function_source,
@@ -210,6 +211,8 @@ class ProfileManager:
             cls._region_cls = LineProfilerRegion
         elif cfg.use_likwid:
             cls._region_cls = FullProfileRegion
+        elif cfg.use_nvtx:
+            cls._region_cls = NVTXProfileRegion
         else:
             cls._region_cls = TimeOnlyProfileRegion
 
@@ -907,6 +910,7 @@ class ProfileManager:
         deactivate_file_output: bool = False,
         use_likwid: bool = False,
         use_line_profiler: bool = False,
+        use_nvtx: bool = False,
         recursive_profile: bool = False,
         buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
@@ -936,6 +940,9 @@ class ProfileManager:
             Enable LIKWID hardware counter collection (default: False).
         use_line_profiler : bool, optional
             Enable line-by-line profiling via line_profiler (default: False).
+        use_nvtx : bool, optional
+            Add NVTX ranges to profiled regions for NVIDIA Nsight tools
+            (default: False). Requires ``scope-profiler[nvtx]``.
         recursive_profile : bool, optional
             Enable recursive profiling for all decorated functions by default
             (default: False). This can be overridden per decorator with
@@ -992,6 +999,7 @@ class ProfileManager:
             deactivate_file_output=deactivate_file_output,
             use_likwid=use_likwid,
             use_line_profiler=use_line_profiler,
+            use_nvtx=use_nvtx,
             recursive_profile=recursive_profile,
             buffer_limit=buffer_limit,
             file_path=file_path,

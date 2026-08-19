@@ -121,6 +121,18 @@ def _import_line_profiler():
     return LineProfiler
 
 
+def _import_nvtx():
+    """Import NVTX lazily, with an actionable optional-dependency error."""
+    try:
+        import nvtx
+    except ImportError as exc:
+        raise ImportError(
+            "NVTX annotations requested but nvtx is not installed. Install "
+            "scope-profiler[nvtx], or nvtx directly."
+        ) from exc
+    return nvtx
+
+
 # Shared read-only stand-in for the timing buffers of regions that never record
 # timestamps. Handing out one module-level array keeps `start_times`/`end_times`
 # valid attributes (and the derived properties empty) at zero per-region cost.
@@ -392,6 +404,52 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
     def __exit__(self, exc_type, exc_value, traceback):
         """Record the end time at this scope's reserved slot."""
         self.end_times[self._pop_scope()] = perf_counter_ns()
+
+
+# NVTX region: time + NVIDIA Nsight annotation
+class NVTXProfileRegion(TimeOnlyProfileRegion):
+    """Region that records CPU time and emits an NVTX range.
+
+    NVTX is an annotation API, not a GPU timing API. Nsight Systems and
+    Nsight Compute consume the ranges and correlate them with GPU work. The
+    normal CPU timestamps are retained in the scope-profiler result.
+    """
+
+    __slots__ = ("_nvtx",)
+
+    def __init__(self, region_name: str, config: ProfilingConfig):
+        super().__init__(region_name, config)
+        self._nvtx = _import_nvtx()
+
+    def wrap(self, func):
+        """Wrap a function with both CPU timing and an NVTX range."""
+        wrapped = super().wrap(func)
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            self._nvtx.push_range(self.region_name)
+            try:
+                return wrapped(*args, **kwargs)
+            finally:
+                self._nvtx.pop_range()
+
+        return wrapper
+
+    def __enter__(self):
+        """Record CPU start time and push an NVTX range."""
+        self._nvtx.push_range(self.region_name)
+        try:
+            return super().__enter__()
+        except BaseException:
+            self._nvtx.pop_range()
+            raise
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Pop the NVTX range after recording CPU end time."""
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self._nvtx.pop_range()
 
 
 # Full region: time + LIKWID
