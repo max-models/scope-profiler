@@ -324,6 +324,9 @@ solve.num_calls                   # summed over ranks
 solve.total_duration              # seconds
 solve.average_durations()         # {rank: seconds}, for load imbalance
 solve[0].durations                # every call on rank 0, as a numpy array
+solve.p50_duration                # median call duration, in seconds
+solve.p95_duration                # 95th-percentile call duration
+solve.rank_imbalance_pct          # slowest rank over mean, as a percentage
 ```
 
 `summary()` returns the same table as a list of dicts, and `to_dataframe()`
@@ -333,6 +336,24 @@ with `per_rank=True`):
 ```python
 frame = results.to_dataframe().sort_values("total_duration", ascending=False)
 per_rank = results.to_dataframe(per_rank=True)
+```
+
+Summary rows and dataframes also include `p50`, `p95`, `p99`, and
+`imbalance` (the slowest rank's total time above the per-rank mean). These
+statistics are useful when averages hide tail latency or MPI load imbalance.
+
+### Safe profiling sessions
+
+Use `ProfileManager.session()` when profiling should always be finalized,
+including when the profiled code raises:
+
+```python
+with ProfileManager.session(file_path="run.h5", verbose=False,
+                            return_results=True) as run:
+    with ProfileManager.profile_region("solve"):
+        solve()
+
+results = run.results
 ```
 
 `include` / `exclude` regexes select regions in `get_regions()`, `summary()`,

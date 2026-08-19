@@ -13,7 +13,10 @@ import sys
 
 import numpy as np
 
-SORT_KEYS = ("total", "calls", "avg", "min", "max", "first", "last", "std", "name")
+SORT_KEYS = (
+    "total", "calls", "avg", "min", "max", "first", "last", "std",
+    "p50", "p95", "p99", "imbalance", "name",
+)
 
 _COLUMNS = (
     ("name", "region"),
@@ -26,6 +29,10 @@ _COLUMNS = (
     ("first", "first [s]"),
     ("last", "last [s]"),
     ("std", "std [s]"),
+    ("p50", "p50 [s]"),
+    ("p95", "p95 [s]"),
+    ("p99", "p99 [s]"),
+    ("imbalance", "imbalance [%]"),
 )
 
 
@@ -94,7 +101,26 @@ def region_row(region, ranks=None) -> dict:
         "first": first,
         "last": last,
         "std": float(np.std(durations)) if durations.size else None,
+        "p50": float(np.percentile(durations, 50)) if durations.size else None,
+        "p95": float(np.percentile(durations, 95)) if durations.size else None,
+        "p99": float(np.percentile(durations, 99)) if durations.size else None,
+        "imbalance": (
+            region.rank_imbalance_pct
+            if ranks is None
+            else _rank_imbalance_pct(region, ranks)
+        ),
     }
+
+
+def _rank_imbalance_pct(region, ranks=None) -> float:
+    """Compute slowest-rank total excess over the selected-rank mean."""
+    selected = region.regions if ranks is None else {
+        rank: region.regions[rank] for rank in ranks if rank in region.regions
+    }
+    totals = [data.total_duration for data in selected.values() if data.total_duration > 0]
+    if len(totals) < 2:
+        return 0.0
+    return (max(totals) / float(np.mean(totals)) - 1.0) * 100.0
 
 
 def region_rows(
@@ -183,6 +209,10 @@ def print_region_table(
             "first": _format_duration(row["first"]),
             "last": _format_duration(row["last"]),
             "std": _format_duration(row["std"]),
+            "p50": _format_duration(row["p50"]),
+            "p95": _format_duration(row["p95"]),
+            "p99": _format_duration(row["p99"]),
+            "imbalance": _format_duration(row["imbalance"]),
         }
         for row in rows
     ]
@@ -199,6 +229,10 @@ def print_region_table(
         "first": "",
         "last": "",
         "std": "",
+        "p50": "",
+        "p95": "",
+        "p99": "",
+        "imbalance": "",
     }
 
     widths = {

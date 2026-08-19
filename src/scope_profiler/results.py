@@ -195,9 +195,26 @@ class ProfilingResults:
             by first start time. Durations are in seconds.
         """
         return [
-            region.get_summary()
+            self._summary_row(region)
             for region in self.get_regions(include=include, exclude=exclude)
         ]
+
+    @staticmethod
+    def _summary_row(region: MPIRegion) -> dict:
+        """Return the public aggregate summary, including rich statistics."""
+        return {
+            **region.get_summary(),
+            "p50_duration": region.p50_duration,
+            "p95_duration": region.p95_duration,
+            "p99_duration": region.p99_duration,
+            "rank_imbalance": region.rank_imbalance,
+            "rank_imbalance_pct": region.rank_imbalance_pct,
+            # Short aliases match the summary-table column names.
+            "p50": region.p50_duration,
+            "p95": region.p95_duration,
+            "p99": region.p99_duration,
+            "imbalance": region.rank_imbalance_pct,
+        }
 
     def to_dataframe(
         self,
@@ -237,13 +254,20 @@ class ProfilingResults:
 
         regions = self.get_regions(include=include, exclude=exclude)
         if not per_rank:
-            return pd.DataFrame(region.get_summary() for region in regions)
+            return pd.DataFrame(self._summary_row(region) for region in regions)
 
         rows = []
         for region in regions:
             for rank in region.ranks:
                 rows.append(
-                    {"name": region.name, "rank": rank, **region[rank].get_summary()}
+                    {
+                        "name": region.name,
+                        "rank": rank,
+                        **region[rank].get_summary(),
+                        "p50_duration": region[rank].p50_duration,
+                        "p95_duration": region[rank].p95_duration,
+                        "p99_duration": region[rank].p99_duration,
+                    }
                 )
         return pd.DataFrame(rows)
 

@@ -14,7 +14,7 @@ from scope_profiler.h5reader import read_h5
 from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import region_rows
 
-METRICS = ("total", "avg", "min", "max", "calls")
+METRICS = ("total", "avg", "min", "max", "p50", "p95", "p99", "imbalance", "calls")
 SORT_KEYS = ("delta", "pct", "name")
 
 _METRIC_LABELS = {
@@ -22,6 +22,10 @@ _METRIC_LABELS = {
     "avg": "avg [s]",
     "min": "min [s]",
     "max": "max [s]",
+    "p50": "p50 [s]",
+    "p95": "p95 [s]",
+    "p99": "p99 [s]",
+    "imbalance": "imbalance [%]",
     "calls": "calls",
 }
 
@@ -231,6 +235,77 @@ def diff_files(
     print_diff_table(rows, metric=metric, title=f"Regions ({len(rows)})", stream=stream)
 
 
+def check_rows(
+    results_a: ProfilingResults,
+    results_b: ProfilingResults,
+    max_regression: float = 0.0,
+    include=None,
+    exclude=None,
+    ranks=None,
+    metric: str = "total",
+    fail_on_new: bool = False,
+) -> list:
+    """Return rows that violate a performance regression budget.
+
+    ``max_regression`` is a percentage. New regions have no meaningful
+    percentage baseline and are only failures when ``fail_on_new`` is true.
+    """
+    if max_regression < 0:
+        raise ValueError("max_regression must be non-negative")
+    rows = diff_rows(
+        results_a, results_b, include=include, exclude=exclude, ranks=ranks,
+        metric=metric, sort="pct",
+    )
+    return [
+        row for row in rows
+        if (row["pct"] is not None and row["pct"] > max_regression)
+        or (row["pct"] is None and row["a"] is None and fail_on_new)
+    ]
+
+
+def check_files(
+    file_a,
+    file_b,
+    max_regression: float = 0.0,
+    include=None,
+    exclude=None,
+    ranks=None,
+    metric: str = "total",
+    fail_on_new: bool = False,
+    stream=None,
+) -> int:
+    """Print a CI regression report and return 0 for pass, 1 for failure."""
+    stream = sys.stdout if stream is None else stream
+    results_a, results_b = read_h5(file_a), read_h5(file_b)
+    failures = check_rows(
+        results_a, results_b, max_regression=max_regression,
+        include=include, exclude=exclude, ranks=ranks, metric=metric,
+        fail_on_new=fail_on_new,
+    )
+    all_rows = diff_rows(
+        results_a, results_b, include=include, exclude=exclude, ranks=ranks,
+        metric=metric, sort="pct",
+    )
+    print(f"Baseline: {results_a.default_title()}", file=stream)
+    print(f"Candidate: {results_b.default_title()}", file=stream)
+    print(
+        f"Regression budget: +{max_regression:g}% ({metric})",
+        file=stream,
+    )
+    print_diff_table(
+        all_rows,
+        metric=metric,
+        title=f"Regression check: {'FAIL' if failures else 'PASS'}",
+        stream=stream,
+    )
+    if failures:
+        print(
+            "Budget violations: " + ", ".join(row["name"] for row in failures),
+            file=stream,
+        )
+    return 1 if failures else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the argument parser for ``scope-profiler diff``."""
     parser = argparse.ArgumentParser(
@@ -275,6 +350,29 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_check_parser() -> argparse.ArgumentParser:
+    """Build the parser for ``scope-profiler check``."""
+    parser = argparse.ArgumentParser(
+        prog="scope-profiler check",
+        description="Fail when a profiling candidate exceeds a regression budget.",
+    )
+    parser.add_argument("file_a", help="Baseline profiling_data.h5")
+    parser.add_argument("file_b", help="Candidate profiling_data.h5")
+    parser.add_argument(
+        "--max-regression", type=float, default=0.0, metavar="PCT",
+        help="Maximum allowed increase in percent (default: 0)",
+    )
+    parser.add_argument("--include", nargs="+", help="Only check matching regions")
+    parser.add_argument("--exclude", nargs="+", help="Skip matching regions")
+    parser.add_argument("--ranks", nargs="+", help="Restrict statistics to ranks")
+    parser.add_argument("--metric", choices=METRICS, default="total")
+    parser.add_argument(
+        "--fail-on-new", action="store_true",
+        help="Treat regions absent from the baseline as failures",
+    )
+    return parser
+
+
 def main(argv: list | None = None):
     """Entry point for ``scope-profiler diff``."""
     from scope_profiler.post_processing import parse_ranks
@@ -295,4 +393,21 @@ def main(argv: list | None = None):
         metric=args.metric,
         sort=args.sort,
         threshold=args.threshold,
+    )
+    return 0
+
+
+def check_main(argv: list | None = None):
+    """Entry point for ``scope-profiler check``."""
+    from scope_profiler.post_processing import parse_ranks
+
+    parser = build_check_parser()
+    args = parser.parse_args(argv)
+    ranks = None
+    if args.ranks:
+        ranks = sorted({rank for spec in args.ranks for rank in parse_ranks(spec)})
+    return check_files(
+        args.file_a, args.file_b, max_regression=args.max_regression,
+        include=args.include, exclude=args.exclude, ranks=ranks,
+        metric=args.metric, fail_on_new=args.fail_on_new,
     )

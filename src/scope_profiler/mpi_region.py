@@ -273,6 +273,47 @@ class MPIRegion:
         values = self.durations
         return float(np.std(values)) if values.size else 0.0
 
+    def percentile_duration(self, percentile: float) -> float:
+        """Return a pooled duration percentile across all ranks."""
+        if not 0 <= percentile <= 100:
+            raise ValueError("percentile must be between 0 and 100")
+        values = self.durations
+        return float(np.percentile(values, percentile)) if values.size else 0.0
+
+    @property
+    def p50_duration(self) -> float:
+        """Median duration across all ranks, in seconds."""
+        return self.percentile_duration(50)
+
+    @property
+    def p95_duration(self) -> float:
+        """95th-percentile duration across all ranks, in seconds."""
+        return self.percentile_duration(95)
+
+    @property
+    def p99_duration(self) -> float:
+        """99th-percentile duration across all ranks, in seconds."""
+        return self.percentile_duration(99)
+
+    @property
+    def rank_imbalance(self) -> float:
+        """Maximum per-rank total divided by the mean per-rank total.
+
+        A value of 1.0 means perfectly balanced ranks. Values are ``0.0``
+        when no calls were recorded or only one rank has timing data.
+        """
+        totals = [region.total_duration for region in self._regions.values()]
+        totals = [total for total in totals if total > 0]
+        if len(totals) < 2:
+            return 0.0
+        return float(max(totals) / np.mean(totals))
+
+    @property
+    def rank_imbalance_pct(self) -> float:
+        """Excess of the slowest rank over the mean, as a percentage."""
+        ratio = self.rank_imbalance
+        return (ratio - 1.0) * 100.0 if ratio else 0.0
+
     @property
     def min_duration(self) -> float:
         """

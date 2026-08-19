@@ -183,7 +183,7 @@ two configs, two job sizes -- shows up as a single table.
 usage: scope-profiler diff [-h] [--include INCLUDE [INCLUDE ...]]
                            [--exclude EXCLUDE [EXCLUDE ...]]
                            [--ranks RANKS [RANKS ...]]
-                           [--metric {total,avg,min,max,calls}]
+                           [--metric {total,avg,min,max,p50,p95,p99,imbalance,calls}]
                            [--sort {delta,pct,name}] [--threshold PCT]
                            file_a file_b
 ```
@@ -193,7 +193,7 @@ usage: scope-profiler diff [-h] [--include INCLUDE [INCLUDE ...]]
 | `--include`       | Only compare regions matching these regex patterns                       |
 | `--exclude`       | Skip regions matching these regex patterns                               |
 | `--ranks`         | Restrict the statistics to these ranks, e.g. `0 2` or `0-3`              |
-| `--metric`        | Statistic to compare: `total` (default), `avg`, `min`, `max` or `calls`  |
+| `--metric`        | Statistic to compare: `total` (default), `avg`, `min`, `max`, `p50`, `p95`, `p99`, `imbalance` or `calls` |
 | `--sort`          | Order regions by descending `|delta|` (default), descending `|delta %|`, or `name` |
 | `--threshold`     | Only show regions whose absolute percent change is at least this many percent |
 
@@ -201,6 +201,19 @@ usage: scope-profiler diff [-h] [--include INCLUDE [INCLUDE ...]]
 scope-profiler diff baseline.h5 candidate.h5
 scope-profiler diff baseline.h5 candidate.h5 --metric avg --threshold 5
 ```
+
+## `scope-profiler check`
+
+Use `check` in CI to fail when a candidate exceeds a performance budget:
+
+```bash
+scope-profiler check baseline.h5 candidate.h5 --max-regression 5
+```
+
+The command prints the comparison table and returns exit code `1` when any
+region is more than 5% slower. Use `--fail-on-new` to treat newly appearing
+regions as failures, and `--metric p95` or `--metric imbalance` to enforce a
+tail-latency or MPI-balance budget.
 
 Example output:
 
