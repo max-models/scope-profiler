@@ -20,9 +20,11 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-      # LIKWID's marker API needs the msr kernel module, which the container
-      # has to be allowed to load into the (shared) host kernel.
-      options: --privileged
+      # LIKWID's marker API needs the msr kernel module. --privileged lets the
+      # container load it into the (shared) host kernel, but the container's
+      # own rootfs ships no kernel modules at all, so /lib/modules from the
+      # host has to be bind-mounted in for modprobe to find it.
+      options: --privileged -v /lib/modules:/lib/modules:ro
     strategy:
       matrix:
         include:
