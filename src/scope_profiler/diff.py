@@ -253,11 +253,17 @@ def check_rows(
     if max_regression < 0:
         raise ValueError("max_regression must be non-negative")
     rows = diff_rows(
-        results_a, results_b, include=include, exclude=exclude, ranks=ranks,
-        metric=metric, sort="pct",
+        results_a,
+        results_b,
+        include=include,
+        exclude=exclude,
+        ranks=ranks,
+        metric=metric,
+        sort="pct",
     )
     return [
-        row for row in rows
+        row
+        for row in rows
         if (row["pct"] is not None and row["pct"] > max_regression)
         or (row["pct"] is None and row["a"] is None and fail_on_new)
     ]
@@ -278,13 +284,23 @@ def check_files(
     stream = sys.stdout if stream is None else stream
     results_a, results_b = read_h5(file_a), read_h5(file_b)
     failures = check_rows(
-        results_a, results_b, max_regression=max_regression,
-        include=include, exclude=exclude, ranks=ranks, metric=metric,
+        results_a,
+        results_b,
+        max_regression=max_regression,
+        include=include,
+        exclude=exclude,
+        ranks=ranks,
+        metric=metric,
         fail_on_new=fail_on_new,
     )
     all_rows = diff_rows(
-        results_a, results_b, include=include, exclude=exclude, ranks=ranks,
-        metric=metric, sort="pct",
+        results_a,
+        results_b,
+        include=include,
+        exclude=exclude,
+        ranks=ranks,
+        metric=metric,
+        sort="pct",
     )
     print(f"Baseline: {results_a.default_title()}", file=stream)
     print(f"Candidate: {results_b.default_title()}", file=stream)
@@ -359,7 +375,10 @@ def build_check_parser() -> argparse.ArgumentParser:
     parser.add_argument("file_a", help="Baseline profiling_data.h5")
     parser.add_argument("file_b", help="Candidate profiling_data.h5")
     parser.add_argument(
-        "--max-regression", type=float, default=0.0, metavar="PCT",
+        "--max-regression",
+        type=float,
+        default=0.0,
+        metavar="PCT",
         help="Maximum allowed increase in percent (default: 0)",
     )
     parser.add_argument("--include", nargs="+", help="Only check matching regions")
@@ -367,7 +386,8 @@ def build_check_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ranks", nargs="+", help="Restrict statistics to ranks")
     parser.add_argument("--metric", choices=METRICS, default="total")
     parser.add_argument(
-        "--fail-on-new", action="store_true",
+        "--fail-on-new",
+        action="store_true",
         help="Treat regions absent from the baseline as failures",
     )
     return parser
@@ -407,7 +427,12 @@ def check_main(argv: list | None = None):
     if args.ranks:
         ranks = sorted({rank for spec in args.ranks for rank in parse_ranks(spec)})
     return check_files(
-        args.file_a, args.file_b, max_regression=args.max_regression,
-        include=args.include, exclude=args.exclude, ranks=ranks,
-        metric=args.metric, fail_on_new=args.fail_on_new,
+        args.file_a,
+        args.file_b,
+        max_regression=args.max_regression,
+        include=args.include,
+        exclude=args.exclude,
+        ranks=ranks,
+        metric=args.metric,
+        fail_on_new=args.fail_on_new,
     )

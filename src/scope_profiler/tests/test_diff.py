@@ -5,7 +5,13 @@ import numpy as np
 import pytest
 
 from scope_profiler.__main__ import main as cli_main
-from scope_profiler.diff import check_files, check_main, check_rows, diff_files, diff_rows
+from scope_profiler.diff import (
+    check_files,
+    check_main,
+    check_rows,
+    diff_files,
+    diff_rows,
+)
 from scope_profiler.diff import main as diff_main
 
 NS = 1_000_000_000
@@ -208,11 +214,14 @@ def test_cli_threshold_flag(file_a, file_b, capsys):
 def test_check_passes_within_budget_and_fails_over_budget(file_a, file_b, capsys):
     from scope_profiler.h5reader import read_h5
 
-    assert check_rows(
-        read_h5(file_a),
-        read_h5(file_b),
-        max_regression=60,
-    ) == []
+    assert (
+        check_rows(
+            read_h5(file_a),
+            read_h5(file_b),
+            max_regression=60,
+        )
+        == []
+    )
     failures = check_rows(
         read_h5(file_a),
         read_h5(file_b),
