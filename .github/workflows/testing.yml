@@ -69,6 +69,11 @@ jobs:
             venv: /opt/venvs/py311
           - python-version: "3.12"
             venv: /opt/venvs/py312
+    # Container jobs run as root, and Open MPI refuses to launch as root
+    # without an explicit opt-in. Fine in this throwaway CI container.
+    env:
+      OMPI_ALLOW_RUN_AS_ROOT: "1"
+      OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: "1"
 
     steps:
       - uses: actions/checkout@v4
@@ -110,6 +115,11 @@ jobs:
             venv: /opt/venvs/py311
           - python-version: "3.12"
             venv: /opt/venvs/py312
+    # Container jobs run as root, and Open MPI refuses to launch as root
+    # without an explicit opt-in. Fine in this throwaway CI container.
+    env:
+      OMPI_ALLOW_RUN_AS_ROOT: "1"
+      OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: "1"
 
     steps:
       - uses: actions/checkout@v4
@@ -242,6 +252,11 @@ jobs:
             venv: /opt/venvs/py311
           - python-version: "3.12"
             venv: /opt/venvs/py312
+    # Container jobs run as root, and Open MPI refuses to launch as root
+    # without an explicit opt-in. Fine in this throwaway CI container.
+    env:
+      OMPI_ALLOW_RUN_AS_ROOT: "1"
+      OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: "1"
 
     steps:
       - uses: actions/checkout@v4
