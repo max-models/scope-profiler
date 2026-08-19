@@ -12,6 +12,7 @@ configuration is global: every call to `profile()` or `profile_region()`
 | `deactivate_profiling`| `bool` | `False`               | Master switch. When `True`, all regions become no-ops with near-zero cost.                      |
 | `use_likwid`          | `bool` | `False`               | Wrap regions with LIKWID marker API calls for hardware counter collection. Requires `pylikwid`. |
 | `use_line_profiler`   | `bool` | `False`               | Enable line-by-line profiling via `line_profiler`. See {doc}`line_profiler`.                    |
+| `use_nvtx`            | `bool` | `False`               | Add NVTX ranges for NVIDIA Nsight tools; requires `scope-profiler[nvtx]`.                       |
 | `recursive_profile`   | `bool` | `False`               | Enable recursive nested-call profiling for all decorated functions by default.                    |
 | `deactivate_file_output`| `bool` | `False`             | When `True`, write no HDF5 file at all; the run stays in memory. See below.                      |
 | `buffer_limit`        | `int`  | `1024`                | Initial per-region buffer capacity. Buffers grow on demand, so this is a starting size, not a cap. |
@@ -75,8 +76,14 @@ class once, at `setup()`, so there are no runtime conditionals in the hot path:
 | *(defaults)*              | `TimeOnlyProfileRegion` | Timestamps                |
 | `use_likwid`              | `FullProfileRegion`     | Timestamps + LIKWID       |
 | `use_line_profiler`       | `LineProfilerRegion`    | Timestamps + line-by-line |
+| `use_nvtx`                | `NVTXProfileRegion`     | Timestamps + NVTX ranges  |
 
 `use_line_profiler=True` takes precedence over `use_likwid=True`.
+
+`use_nvtx=True` adds NVTX annotations while retaining the normal CPU timing
+records. NVTX does not measure GPU kernel duration itself; use NVIDIA Nsight
+Systems/Compute or CUDA events for device-side timings. `use_likwid=True` and
+`use_nvtx=True` are currently separate modes, with LIKWID taking precedence.
 
 `deactivate_file_output` is not part of this dispatch: recording is identical
 either way, and the flag only decides whether `finalize()` writes the buffers

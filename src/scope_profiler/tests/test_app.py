@@ -1,4 +1,6 @@
 import socket
+import sys
+from types import SimpleNamespace
 from time import perf_counter_ns, sleep
 
 import h5py
@@ -10,6 +12,7 @@ from scope_profiler.region_profiler import (
     DisabledProfileRegion,
     FullProfileRegion,
     LineProfilerRegion,
+    NVTXProfileRegion,
     TimeOnlyProfileRegion,
 )
 
@@ -106,6 +109,26 @@ def test_all_region_types():
     assert region.ptr == 1
     durations = region.get_durations_numpy()
     assert durations[0] > 0
+
+    # NVTX region: CPU timing plus an NVTX range.
+    calls = []
+    fake_nvtx = SimpleNamespace(
+        push_range=lambda name: calls.append(("push", name)),
+        pop_range=lambda: calls.append(("pop",)),
+    )
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setitem(sys.modules, "nvtx", fake_nvtx)
+    try:
+        ProfileManager.setup(
+            use_nvtx=True,
+            deactivate_file_output=True,
+        )
+        assert ProfileManager._region_cls is NVTXProfileRegion
+        with ProfileManager.profile_region("nvtx_region"):
+            sleep(0.001)
+        assert calls == [("push", "nvtx_region"), ("pop",)]
+    finally:
+        monkeypatch.undo()
 
     # Full region (time + LIKWID)
     try:
