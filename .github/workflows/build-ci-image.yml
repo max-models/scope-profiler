@@ -4,7 +4,7 @@ name: Build CI image
 # only needs rebuilding when its own Dockerfile (or this workflow) changes.
 on:
   push:
-    branches: [add-docker-image, devel]
+    branches: [devel]
     paths:
       - docker/ci/Dockerfile
       - .github/workflows/build-ci-image.yml
