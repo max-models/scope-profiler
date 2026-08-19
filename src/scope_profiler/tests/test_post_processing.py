@@ -892,7 +892,17 @@ def test_post_processing_cli_new_plots_and_options(tmp_path):
     _write_sample_h5(file_path, _sample_file_data(2, 10, 20))
 
     main(["durations", str(file_path), "-o", str(output_dir), "--sort-by", "total"])
-    main(["histogram", str(file_path), "-o", str(output_dir), "--log-scale", "--bins", "5"])
+    main(
+        [
+            "histogram",
+            str(file_path),
+            "-o",
+            str(output_dir),
+            "--log-scale",
+            "--bins",
+            "5",
+        ]
+    )
     main(["imbalance", str(file_path), "-o", str(output_dir), "--metric", "avg"])
 
     for name in ("durations_plot.png", "histogram_plot.png", "imbalance_plot.png"):

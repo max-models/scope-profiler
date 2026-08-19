@@ -509,10 +509,10 @@ def _plot_output_targets(
 
     output_path = Path(args.output)
     ext = "html" if args.backend == "plotly" else "png"
-    is_single_plot_file = (
-        len(selected_plots) == 1
-        and output_path.suffix.lower() in {".png", ".html"}
-    )
+    is_single_plot_file = len(selected_plots) == 1 and output_path.suffix.lower() in {
+        ".png",
+        ".html",
+    }
     if is_single_plot_file:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         return OutputTargets(
@@ -544,7 +544,11 @@ def _plot_path(
 
 
 def _data_path(
-    output_dir: str | None, selected_plots: set[str], plot_name: str, filename: str, fmt: str
+    output_dir: str | None,
+    selected_plots: set[str],
+    plot_name: str,
+    filename: str,
+    fmt: str,
 ) -> str | None:
     if output_dir and plot_name in selected_plots:
         return os.path.join(output_dir, f"{filename}.{fmt}")
@@ -561,8 +565,12 @@ def _plot_options(args: argparse.Namespace, name: str):
         "combine_regions": getattr(args, "combine_regions", None),
         "log_scale": getattr(args, "log_scale", False),
         "histogram_bins": getattr(args, "bins", 30),
-        "imbalance_metric": metric if name == "imbalance" and metric else imbalance_metric,
-        "likwid_metric": metric if name == "likwid" else getattr(args, "likwid_metric", None),
+        "imbalance_metric": (
+            metric if name == "imbalance" and metric else imbalance_metric
+        ),
+        "likwid_metric": (
+            metric if name == "likwid" else getattr(args, "likwid_metric", None)
+        ),
         "speedup_x_field": getattr(args, "x", "num_ranks"),
     }
 
@@ -578,8 +586,13 @@ def _render_selected_plots(
     data_format: str = "csv",
     render_images: bool = True,
 ) -> list[str]:
-    if "likwid" in selected_plots and not _plot_options(args, "likwid")["likwid_metric"]:
-        parser.error("likwid requires --metric for plots or --likwid-metric for plot-data.")
+    if (
+        "likwid" in selected_plots
+        and not _plot_options(args, "likwid")["likwid_metric"]
+    ):
+        parser.error(
+            "likwid requires --metric for plots or --likwid-metric for plot-data."
+        )
 
     ext = "html" if getattr(args, "backend", "matplotlib") == "plotly" else "png"
     options = _plot_options(args, "")
@@ -592,49 +605,102 @@ def _render_selected_plots(
 
     if any(
         plot_name in selected_plots
-        for plot_name in ("gantt", "flame", "durations", "timeseries", "histogram", "imbalance")
+        for plot_name in (
+            "gantt",
+            "flame",
+            "durations",
+            "timeseries",
+            "histogram",
+            "imbalance",
+        )
     ) and not _has_timing_data(runs):
         _report_no_timing_data(runs)
         return []
 
-    gantt_data_path = _data_path(data_output_dir, selected_plots, "gantt", "gantt_data", data_format)
-    flame_data_path = _data_path(data_output_dir, selected_plots, "flame", "flame_data", data_format)
-    durations_data_path = _data_path(data_output_dir, selected_plots, "durations", "durations_data", data_format)
-    timeseries_data_path = _data_path(data_output_dir, selected_plots, "timeseries", "duration_timeseries_data", data_format)
+    gantt_data_path = _data_path(
+        data_output_dir, selected_plots, "gantt", "gantt_data", data_format
+    )
+    flame_data_path = _data_path(
+        data_output_dir, selected_plots, "flame", "flame_data", data_format
+    )
+    durations_data_path = _data_path(
+        data_output_dir, selected_plots, "durations", "durations_data", data_format
+    )
+    timeseries_data_path = _data_path(
+        data_output_dir,
+        selected_plots,
+        "timeseries",
+        "duration_timeseries_data",
+        data_format,
+    )
     speedup_data_path = (
-        _data_path(data_output_dir, selected_plots, "speedup", "speedup_data", data_format)
+        _data_path(
+            data_output_dir, selected_plots, "speedup", "speedup_data", data_format
+        )
         if len(runs) > 1
         else None
     )
-    histogram_data_path = _data_path(data_output_dir, selected_plots, "histogram", "histogram_data", data_format)
-    imbalance_data_path = _data_path(data_output_dir, selected_plots, "imbalance", "imbalance_data", data_format)
-    likwid_data_path = _data_path(data_output_dir, selected_plots, "likwid", "likwid_data", data_format)
+    histogram_data_path = _data_path(
+        data_output_dir, selected_plots, "histogram", "histogram_data", data_format
+    )
+    imbalance_data_path = _data_path(
+        data_output_dir, selected_plots, "imbalance", "imbalance_data", data_format
+    )
+    likwid_data_path = _data_path(
+        data_output_dir, selected_plots, "likwid", "likwid_data", data_format
+    )
 
     if "gantt" in selected_plots:
         path = image_path("gantt", "gantt_plot")
-        plot_gantt(runs, filepath=path, show=args.show, include=args.include,
-                   exclude=args.exclude, ranks=args.ranks, cmap=args.cmap,
-                   data_filepath=gantt_data_path, data_format=data_format,
-                   backend=args.backend)
+        plot_gantt(
+            runs,
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            cmap=args.cmap,
+            data_filepath=gantt_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
         saved.extend(path for path in (path, gantt_data_path) if path)
 
     if "flame" in selected_plots:
         path = image_path("flame", "flame_plot")
-        plot_flame(runs, filepath=path, show=args.show, include=args.include,
-                   exclude=args.exclude, ranks=args.ranks, cmap=args.cmap,
-                   data_filepath=flame_data_path, data_format=data_format,
-                   backend=args.backend)
+        plot_flame(
+            runs,
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            cmap=args.cmap,
+            data_filepath=flame_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
         saved.extend(path for path in (path, flame_data_path) if path)
 
     if "durations" in selected_plots:
         path = image_path("durations", "durations_plot")
         durations_paths = plot_durations(
-            runs, filepath=path, show=args.show, include=args.include,
-            exclude=args.exclude, ranks=args.ranks, metrics=options["duration_metrics"],
-            sort_by=options["sort_by"], top_n=options["top_n"],
-            combine_regions=options["combine_regions"], cmap=args.cmap,
-            log_scale=options["log_scale"], data_filepath=durations_data_path,
-            data_format=data_format, backend=args.backend)
+            runs,
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            metrics=options["duration_metrics"],
+            sort_by=options["sort_by"],
+            top_n=options["top_n"],
+            combine_regions=options["combine_regions"],
+            cmap=args.cmap,
+            log_scale=options["log_scale"],
+            data_filepath=durations_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
         saved.extend(str(path) for path in durations_paths if path)
         if durations_data_path:
             saved.append(durations_data_path)
@@ -642,49 +708,89 @@ def _render_selected_plots(
     if "timeseries" in selected_plots:
         path = image_path("timeseries", "duration_timeseries_plot")
         plot_duration_timeseries(
-            runs, filepath=path, show=args.show, include=args.include,
-            exclude=args.exclude, ranks=args.ranks, cmap=args.cmap,
-            log_scale=options["log_scale"], data_filepath=timeseries_data_path,
-            data_format=data_format, backend=args.backend)
+            runs,
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            cmap=args.cmap,
+            log_scale=options["log_scale"],
+            data_filepath=timeseries_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
         saved.extend(path for path in (path, timeseries_data_path) if path)
 
     if "histogram" in selected_plots:
         path = image_path("histogram", "histogram_plot")
         plot_duration_histogram(
-            runs, filepath=path, show=args.show, include=args.include,
-            exclude=args.exclude, ranks=args.ranks, bins=options["histogram_bins"],
-            cmap=args.cmap, log_scale=options["log_scale"],
-            data_filepath=histogram_data_path, data_format=data_format,
-            backend=args.backend)
+            runs,
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            bins=options["histogram_bins"],
+            cmap=args.cmap,
+            log_scale=options["log_scale"],
+            data_filepath=histogram_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
         saved.extend(path for path in (path, histogram_data_path) if path)
 
     if "imbalance" in selected_plots:
         path = image_path("imbalance", "imbalance_plot")
         plot_imbalance(
-            runs, metric=options["imbalance_metric"], filepath=path,
-            show=args.show, include=args.include, exclude=args.exclude,
-            ranks=args.ranks, cmap=args.cmap, log_scale=options["log_scale"],
-            data_filepath=imbalance_data_path, data_format=data_format,
-            backend=args.backend)
+            runs,
+            metric=options["imbalance_metric"],
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            cmap=args.cmap,
+            log_scale=options["log_scale"],
+            data_filepath=imbalance_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
         saved.extend(path for path in (path, imbalance_data_path) if path)
 
     if "likwid" in selected_plots:
         path = image_path("likwid", "likwid_plot")
         plot_likwid(
-            runs, metric=_plot_options(args, "likwid")["likwid_metric"],
-            filepath=path, show=args.show, include=args.include,
-            exclude=args.exclude, ranks=args.ranks, cmap=args.cmap,
-            log_scale=options["log_scale"], data_filepath=likwid_data_path,
-            data_format=data_format, backend=args.backend)
+            runs,
+            metric=_plot_options(args, "likwid")["likwid_metric"],
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            cmap=args.cmap,
+            log_scale=options["log_scale"],
+            data_filepath=likwid_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
         saved.extend(path for path in (path, likwid_data_path) if path)
 
     if len(runs) > 1 and "speedup" in selected_plots:
         path = image_path("speedup", "speedup_plot")
         plot_speedup(
-            runs, x_field=options["speedup_x_field"], ranks=args.ranks,
-            filepath=path, show=args.show, include=args.include,
-            exclude=args.exclude, cmap=args.cmap, data_filepath=speedup_data_path,
-            data_format=data_format, backend=args.backend)
+            runs,
+            x_field=options["speedup_x_field"],
+            ranks=args.ranks,
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            cmap=args.cmap,
+            data_filepath=speedup_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
         saved.extend(path for path in (path, speedup_data_path) if path)
 
     return saved
@@ -757,7 +863,9 @@ def export_main(argv: list[str] | None = None):
         )
         saved.extend(str(path) for path in speedscope_paths)
     elif args.export_kind == "plot-data":
-        selected_plots = set(args.plots) if args.plots is not None else set(_DEFAULT_PLOTS)
+        selected_plots = (
+            set(args.plots) if args.plots is not None else set(_DEFAULT_PLOTS)
+        )
         if "likwid" in selected_plots and not args.likwid_metric:
             parser.error("plot-data with likwid requires --likwid-metric.")
         args.show = False
