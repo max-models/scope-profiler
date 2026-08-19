@@ -67,6 +67,17 @@ def test_region_durations_are_seconds():
     assert region.first_start_time == 0.0
     assert region.last_end_time == 14.0
     assert region.get_summary()["total_duration"] == 6.0
+    assert region.p50_duration == pytest.approx(3.0)
+    assert region.p95_duration == pytest.approx(3.9)
+    assert region.p99_duration == pytest.approx(3.98)
+
+
+def test_region_percentile_rejects_invalid_values():
+    region = Region(np.array([0], dtype=np.int64), np.array([NS], dtype=np.int64))
+    with pytest.raises(ValueError):
+        region.percentile_duration(-1)
+    with pytest.raises(ValueError):
+        region.percentile_duration(101)
 
 
 def test_region_without_any_calls_is_safe():
@@ -113,6 +124,10 @@ def test_mpi_region_aggregates_over_ranks(sample_file):
     assert solve.first_duration == pytest.approx(2.0)
     assert solve.last_duration == pytest.approx(4.0)
     assert "solve" in repr(solve)
+    assert solve.p50_duration == pytest.approx(3.5)
+    assert solve.p95_duration == pytest.approx(4.0)
+    assert solve.rank_imbalance == pytest.approx(8.0 / 6.5)
+    assert solve.rank_imbalance_pct == pytest.approx((8.0 / 6.5 - 1) * 100)
 
 
 def test_mpi_region_unknown_rank_lists_available(sample_file):
@@ -149,6 +164,8 @@ def test_reader_summary(sample_file):
     assert [row["name"] for row in summary] == ["setup", "solve"]
     assert summary[1]["num_calls"] == 4
     assert summary[1]["total_duration"] == pytest.approx(13.0)
+    assert summary[1]["p95"] == pytest.approx(4.0)
+    assert summary[1]["imbalance"] == pytest.approx((8.0 / 6.5 - 1) * 100)
 
     # Filters use the same regex semantics as get_regions().
     assert [row["name"] for row in results.summary(include="sol")] == ["solve"]

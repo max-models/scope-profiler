@@ -48,6 +48,16 @@ jobs:
           python3 src/scope_profiler/tests/examples.py
           scope-profiler plot default profiling_data.h5 --show -o figures
 
+      # Keep a small baseline/candidate workflow example in CI. Call counts
+      # are deterministic on shared runners, so this validates the regression
+      # gate without making the job depend on noisy wall-clock timings.
+      - name: Check profiling regression budget
+        run: |
+          scope-profiler run --quiet -o baseline.h5 examples/ex_cli_profiling.py
+          scope-profiler run --quiet -o candidate.h5 examples/ex_cli_profiling.py
+          scope-profiler check baseline.h5 candidate.h5 \
+            --metric calls --max-regression 5
+
   likwid-smoke:
     runs-on: ubuntu-latest
     permissions:

@@ -65,6 +65,30 @@ class RankPayload(NamedTuple):
     """
 
 
+class _ProfilingSession:
+    """Context manager backing :meth:`ProfileManager.session`."""
+
+    def __init__(self, manager, setup_kwargs, verbose, return_results, native_traces):
+        self._manager = manager
+        self._setup_kwargs = setup_kwargs
+        self._verbose = verbose
+        self._return_results = return_results
+        self._native_traces = native_traces
+        self.results = None
+
+    def __enter__(self):
+        self._manager.setup(**self._setup_kwargs)
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.results = self._manager.finalize(
+            verbose=self._verbose,
+            return_results=self._return_results,
+            native_traces=self._native_traces,
+        )
+        return False
+
+
 class ProfileManager:
     """
     Singleton class to manage and track all ProfileRegion instances.
@@ -1007,6 +1031,33 @@ class ProfileManager:
             capture_region_source=capture_region_source,
         )
         cls.set_config(config=config)
+
+    @classmethod
+    def session(
+        cls,
+        *,
+        verbose: bool = True,
+        return_results: bool = False,
+        native_traces=None,
+        **setup_kwargs,
+    ):
+        """Return a context manager that sets up and finalizes profiling.
+
+        All keyword arguments other than ``verbose``, ``return_results`` and
+        ``native_traces`` are passed to :meth:`setup`. Finalization runs even
+        when the profiled block raises; the original exception is preserved.
+
+        When ``return_results=True``, the context object exposes the finalized
+        :class:`~scope_profiler.results.ProfilingResults` as ``results``::
+
+            with ProfileManager.session(return_results=True, verbose=False) as run:
+                with ProfileManager.profile_region("solve"):
+                    solve()
+            results = run.results
+        """
+        return _ProfilingSession(
+            cls, setup_kwargs, verbose, return_results, native_traces
+        )
 
     @classmethod
     def set_config(cls, config: ProfilingConfig) -> None:

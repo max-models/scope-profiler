@@ -219,6 +219,36 @@ class Region:
             float(np.std(self._durations)) / NS_PER_SECOND if self.has_timing else 0.0
         )
 
+    def percentile_duration(self, percentile: float) -> float:
+        """Return a duration percentile in seconds.
+
+        ``percentile`` follows :func:`numpy.percentile` and must be between
+        0 and 100. Empty regions return ``0.0`` for consistency with the
+        other duration statistics.
+        """
+        if not 0 <= percentile <= 100:
+            raise ValueError("percentile must be between 0 and 100")
+        return (
+            float(np.percentile(self._durations, percentile)) / NS_PER_SECOND
+            if self.has_timing
+            else 0.0
+        )
+
+    @property
+    def p50_duration(self) -> float:
+        """Median duration in seconds."""
+        return self.percentile_duration(50)
+
+    @property
+    def p95_duration(self) -> float:
+        """95th-percentile duration in seconds."""
+        return self.percentile_duration(95)
+
+    @property
+    def p99_duration(self) -> float:
+        """99th-percentile duration in seconds."""
+        return self.percentile_duration(99)
+
     def __len__(self) -> int:
         """Number of recorded calls."""
         return self.num_calls

@@ -5,7 +5,13 @@ import numpy as np
 import pytest
 
 from scope_profiler.__main__ import main as cli_main
-from scope_profiler.diff import diff_files, diff_rows
+from scope_profiler.diff import (
+    check_files,
+    check_main,
+    check_rows,
+    diff_files,
+    diff_rows,
+)
 from scope_profiler.diff import main as diff_main
 
 NS = 1_000_000_000
@@ -111,6 +117,13 @@ def test_diff_rows_metric_calls(file_a, file_b):
     assert by_name["solve"]["delta"] == 0
 
 
+def test_diff_rows_percentile_metric(file_a, file_b):
+    from scope_profiler.h5reader import read_h5
+
+    rows = diff_rows(read_h5(file_a), read_h5(file_b), metric="p95")
+    assert {row["name"] for row in rows} == {"setup", "solve", "teardown"}
+
+
 def test_diff_rows_sort_by_delta_magnitude(file_a, file_b):
     from scope_profiler.h5reader import read_h5
 
@@ -196,6 +209,32 @@ def test_cli_threshold_flag(file_a, file_b, capsys):
     diff_main([str(file_a), str(file_b), "--threshold", "10"])
     out = capsys.readouterr().out
     assert "setup" not in out.split("Regions")[1]
+
+
+def test_check_passes_within_budget_and_fails_over_budget(file_a, file_b, capsys):
+    from scope_profiler.h5reader import read_h5
+
+    assert (
+        check_rows(
+            read_h5(file_a),
+            read_h5(file_b),
+            max_regression=60,
+        )
+        == []
+    )
+    failures = check_rows(
+        read_h5(file_a),
+        read_h5(file_b),
+        max_regression=10,
+    )
+    assert [row["name"] for row in failures] == ["solve"]
+    assert check_files(file_a, file_b, max_regression=60) == 0
+    assert check_files(file_a, file_b, max_regression=10) == 1
+    assert "FAIL" in capsys.readouterr().out
+
+
+def test_check_can_fail_on_new_regions(file_a, file_b):
+    assert check_main([str(file_a), str(file_b), "--fail-on-new"]) == 1
 
 
 def test_dispatch_from_main_cli(file_a, file_b, capsys):

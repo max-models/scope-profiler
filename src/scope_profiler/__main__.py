@@ -22,6 +22,8 @@ Six subcommands:
   merged HDF5 profiling files, region by region, so a regression (or
   improvement) between two runs shows up in one table. See
   ``scope_profiler.diff``.
+- ``scope-profiler check a.h5 b.h5`` -- applies a regression budget and
+  returns a CI-friendly exit code.
 - ``scope-profiler import-native traces/ -o out.h5`` -- converts the trace
   files written by the Fortran region API
   (``scope_profiler/fortran/scope_profiler.f90``)
@@ -132,6 +134,13 @@ def _diff(argv):
     return diff_main(argv)
 
 
+def _check(argv):
+    """Handle ``scope-profiler check``: enforce a regression budget."""
+    from scope_profiler.diff import check_main
+
+    return check_main(argv)
+
+
 def _import_fortran(argv):
     """Handle ``scope-profiler import-native``: Fortran traces -> HDF5."""
     from scope_profiler.native_trace import TRACE_SUFFIX, convert_traces
@@ -205,6 +214,7 @@ _COMMANDS = {
     "export": _export,
     "inspect": _inspect,
     "diff": _diff,
+    "check": _check,
     "import-native": _import_fortran,
 }
 
@@ -251,6 +261,11 @@ def main(argv=None):
         add_help=False,
         help="Compare region statistics between two HDF5 profiling files "
         "(see `scope-profiler diff --help`)",
+    )
+    subparsers.add_parser(
+        "check",
+        add_help=False,
+        help="Fail on profiling regressions (see `scope-profiler check --help`)",
     )
     subparsers.add_parser(
         "import-native",
