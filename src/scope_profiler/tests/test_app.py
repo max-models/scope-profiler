@@ -1,7 +1,7 @@
 import socket
 import sys
-from types import SimpleNamespace
 from time import perf_counter_ns, sleep
+from types import SimpleNamespace
 
 import h5py
 import pytest
