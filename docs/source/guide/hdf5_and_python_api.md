@@ -319,7 +319,7 @@ name.
 
 ```{note}
 Everything below has a command-line equivalent that needs no code:
-`scope-profiler plot profiling_data.h5 -o figures/` writes the same charts
+`scope-profiler plot default profiling_data.h5 -o figures/` writes the same charts
 plus a statistics JSON. See {doc}`/guide/plot_cli` for a worked
 walkthrough with example figures, and {doc}`/cli` for the flag reference.
 ```
@@ -422,7 +422,7 @@ stats = write_region_statistics_json(runs, "stats.json")   # same dict, and a fi
 Both return per-file, per-region aggregates (`count`, `average`, `min`,
 `max`, `std`, `total`, all in seconds), per-rank statistics for each region,
 and the region names common to all inputs. This is the same document
-`scope-profiler plot -o ...` writes as `region_statistics.json`.
+`scope-profiler plot default -o ...` writes as `region_statistics.json`.
 
 ## Speedup graph from Python
 

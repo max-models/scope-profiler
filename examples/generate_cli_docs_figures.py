@@ -143,18 +143,16 @@ def main() -> None:
         figures_dir = os.path.join(work_dir, "figures")
 
         # Single run: gantt, flame, durations (total only), duration timeseries.
-        plot(["run_2.h5", "-o", "figures"], work_dir)
+        plot(["default", "run_2.h5", "-o", "figures"], work_dir)
 
-        # Also produce an avg plot for the docs illustration of
-        # --duration-metrics.
+        # Also produce an avg plot for the docs illustration of --metrics.
         plot(
             [
+                "durations",
                 "run_2.h5",
                 "-o",
                 "figures_avg",
-                "--plots",
-                "durations",
-                "--duration-metrics",
+                "--metrics",
                 "avg",
             ],
             work_dir,
@@ -162,7 +160,7 @@ def main() -> None:
 
         # Several runs: the speedup plot, on the total time per region.
         plot(
-            ["run_1.h5", "run_2.h5", "run_4.h5", "-o", "figures_scaling"],
+            ["default", "run_1.h5", "run_2.h5", "run_4.h5", "-o", "figures_scaling"],
             work_dir,
         )
 
@@ -197,6 +195,7 @@ def main() -> None:
         # Region/rank filtering, shown on the docs page next to the full chart.
         plot(
             [
+                "gantt",
                 "run_2.h5",
                 "-o",
                 "figures_filtered",

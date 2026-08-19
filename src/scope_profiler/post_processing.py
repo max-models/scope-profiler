@@ -297,7 +297,7 @@ def build_parser() -> argparse.ArgumentParser:
             help="Speedup x-axis field.",
         )
 
-    for kind, description in _PLOT_CATALOG.items():
+    for kind, (description, _is_default) in _PLOT_CATALOG.items():
         plot_parser = _build_plot_kind_parser(subparsers, kind, description)
         _add_common_plot_args(plot_parser)
         if kind == "durations":
