@@ -53,8 +53,8 @@ class Region:
         -------
         Dict[str, Any]
             Dictionary containing statistics: num_calls, total_duration,
-            average_duration, min_duration, max_duration, and std_duration.
-            Durations are in seconds.
+            average_duration, min_duration, max_duration, first_duration,
+            last_duration, and std_duration. Durations are in seconds.
         """
         return {
             "num_calls": self.num_calls,
@@ -62,6 +62,8 @@ class Region:
             "average_duration": self.average_duration,
             "min_duration": self.min_duration,
             "max_duration": self.max_duration,
+            "first_duration": self.first_duration,
+            "last_duration": self.last_duration,
             "std_duration": self.std_duration,
         }
 
@@ -199,6 +201,16 @@ class Region:
         return (
             float(np.max(self._durations)) / NS_PER_SECOND if self.has_timing else 0.0
         )
+
+    @property
+    def first_duration(self) -> float:
+        """Duration of the first recorded call, in seconds."""
+        return float(self._durations[0]) / NS_PER_SECOND if self.has_timing else 0.0
+
+    @property
+    def last_duration(self) -> float:
+        """Duration of the last recorded call, in seconds."""
+        return float(self._durations[-1]) / NS_PER_SECOND if self.has_timing else 0.0
 
     @property
     def std_duration(self) -> float:
