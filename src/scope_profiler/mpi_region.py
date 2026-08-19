@@ -101,6 +101,8 @@ class MPIRegion:
             "average_duration": self.average_duration,
             "min_duration": self.min_duration,
             "max_duration": self.max_duration,
+            "first_duration": self.first_duration,
+            "last_duration": self.last_duration,
             "std_duration": self.std_duration,
         }
 
@@ -296,6 +298,38 @@ class MPIRegion:
         """
         values = self.durations
         return float(np.max(values)) if values.size else 0.0
+
+    @property
+    def first_duration(self) -> float:
+        """
+        Get the duration of the call that started earliest across all ranks.
+
+        Returns
+        -------
+        float
+            Duration in seconds of the chronologically first call, or 0.0 if
+            no rank recorded timing.
+        """
+        timed = [region for region in self._regions.values() if region.has_timing]
+        if not timed:
+            return 0.0
+        return min(timed, key=lambda region: region.first_start_time).first_duration
+
+    @property
+    def last_duration(self) -> float:
+        """
+        Get the duration of the call that ended latest across all ranks.
+
+        Returns
+        -------
+        float
+            Duration in seconds of the chronologically last call, or 0.0 if no
+            rank recorded timing.
+        """
+        timed = [region for region in self._regions.values() if region.has_timing]
+        if not timed:
+            return 0.0
+        return max(timed, key=lambda region: region.last_end_time).last_duration
 
     @property
     def first_start_time(self) -> float:

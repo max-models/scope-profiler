@@ -13,7 +13,7 @@ import sys
 
 import numpy as np
 
-SORT_KEYS = ("total", "calls", "avg", "min", "max", "std", "name")
+SORT_KEYS = ("total", "calls", "avg", "min", "max", "first", "last", "std", "name")
 
 _COLUMNS = (
     ("name", "region"),
@@ -23,6 +23,8 @@ _COLUMNS = (
     ("avg", "avg [s]"),
     ("min", "min [s]"),
     ("max", "max [s]"),
+    ("first", "first [s]"),
+    ("last", "last [s]"),
     ("std", "std [s]"),
 )
 
@@ -45,6 +47,27 @@ def _region_durations(region, ranks=None) -> np.ndarray:
     return np.concatenate(values)
 
 
+def _first_last_durations(region, ranks=None):
+    """Duration of the chronologically first and last call, across ranks.
+
+    Pooling durations (as ``_region_durations`` does) loses call order across
+    ranks, so first/last are found from each rank's own first/last call
+    instead -- the earliest-starting rank supplies "first", the
+    latest-ending rank supplies "last".
+    """
+    selected = (
+        region.regions
+        if ranks is None
+        else {rank: region.regions[rank] for rank in ranks if rank in region.regions}
+    )
+    timed = [data for data in selected.values() if data.has_timing]
+    if not timed:
+        return None, None
+    first = min(timed, key=lambda data: data.first_start_time).first_duration
+    last = max(timed, key=lambda data: data.last_end_time).last_duration
+    return first, last
+
+
 def region_row(region, ranks=None) -> dict:
     """Collect the summary statistics shown for one region.
 
@@ -59,6 +82,7 @@ def region_row(region, ranks=None) -> dict:
         }
 
     durations = _region_durations(region, ranks)
+    first, last = _first_last_durations(region, ranks)
     return {
         "name": region.name,
         "num_ranks": len(per_rank),
@@ -67,6 +91,8 @@ def region_row(region, ranks=None) -> dict:
         "avg": float(np.mean(durations)) if durations.size else None,
         "min": float(np.min(durations)) if durations.size else None,
         "max": float(np.max(durations)) if durations.size else None,
+        "first": first,
+        "last": last,
         "std": float(np.std(durations)) if durations.size else None,
     }
 
@@ -154,6 +180,8 @@ def print_region_table(
             "avg": _format_duration(row["avg"]),
             "min": _format_duration(row["min"]),
             "max": _format_duration(row["max"]),
+            "first": _format_duration(row["first"]),
+            "last": _format_duration(row["last"]),
             "std": _format_duration(row["std"]),
         }
         for row in rows
@@ -168,6 +196,8 @@ def print_region_table(
         "avg": "",
         "min": "",
         "max": "",
+        "first": "",
+        "last": "",
         "std": "",
     }
 

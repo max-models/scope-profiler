@@ -62,6 +62,8 @@ def test_region_durations_are_seconds():
     assert region.min_duration == 2.0
     assert region.max_duration == 4.0
     assert region.std_duration == 1.0
+    assert region.first_duration == 2.0
+    assert region.last_duration == 4.0
     assert region.first_start_time == 0.0
     assert region.last_end_time == 14.0
     assert region.get_summary()["total_duration"] == 6.0
@@ -82,6 +84,8 @@ def test_region_without_any_calls_is_safe():
         "average_duration": 0.0,
         "min_duration": 0.0,
         "max_duration": 0.0,
+        "first_duration": 0.0,
+        "last_duration": 0.0,
         "std_duration": 0.0,
     }
 
@@ -105,6 +109,9 @@ def test_mpi_region_aggregates_over_ranks(sample_file):
     assert solve.total_durations() == pytest.approx({0: 5.0, 1: 8.0})
     assert solve.first_start_time == pytest.approx(2.0)
     assert solve.last_end_time == pytest.approx(9.0)
+    # rank 0 starts first (tied at t=2, rank 0 wins), rank 1 ends last (t=9).
+    assert solve.first_duration == pytest.approx(2.0)
+    assert solve.last_duration == pytest.approx(4.0)
     assert "solve" in repr(solve)
 
 

@@ -317,13 +317,48 @@ def _region_duration_values(
     return np.concatenate(durations)
 
 
-def _stats_from_values(values: np.ndarray) -> dict[str, float | int | None]:
+def _first_last_duration(
+    region,
+    ranks: list[int] | None = None,
+) -> tuple[float | None, float | None]:
+    """Duration of the chronologically first and last call, across ranks.
+
+    Pooling durations across ranks loses call order, so first/last are found
+    from each rank's own first/last call instead -- the earliest-starting
+    rank supplies "first", the latest-ending rank supplies "last".
+    """
+    if ranks is None:
+        selected = region.regions.values()
+    else:
+        selected = (region.regions[rank] for rank in ranks if rank in region.regions)
+    timed = [data for data in selected if data.has_timing]
+    if not timed:
+        return None, None
+    first = min(timed, key=lambda data: data.first_start_time).first_duration
+    last = max(timed, key=lambda data: data.last_end_time).last_duration
+    return first, last
+
+
+def _stats_from_values(
+    values: np.ndarray,
+    first: float | None = None,
+    last: float | None = None,
+) -> dict[str, float | int | None]:
+    """Compute the duration statistics shown in the region-statistics export.
+
+    ``first``/``last`` (the chronologically first/last call's duration) can't
+    be derived from ``values`` alone once several ranks have been pooled into
+    one array, since that loses call order -- callers that can determine them
+    (e.g. a single rank's own, order-preserving array) pass them in.
+    """
     if values.size == 0:
         return {
             "count": 0,
             "average_duration_seconds": None,
             "min_duration_seconds": None,
             "max_duration_seconds": None,
+            "first_duration_seconds": None,
+            "last_duration_seconds": None,
             "std_duration_seconds": None,
             "total_duration_seconds": None,
         }
@@ -333,6 +368,8 @@ def _stats_from_values(values: np.ndarray) -> dict[str, float | int | None]:
         "average_duration_seconds": float(np.mean(values)),
         "min_duration_seconds": float(np.min(values)),
         "max_duration_seconds": float(np.max(values)),
+        "first_duration_seconds": first,
+        "last_duration_seconds": last,
         "std_duration_seconds": float(np.std(values)),
         "total_duration_seconds": float(np.sum(values)),
     }
@@ -428,14 +465,24 @@ def collect_region_statistics(
         region_payload = {}
         for region in regions:
             values = _region_duration_values(region, selected_ranks)
+            first, last = _first_last_duration(region, selected_ranks)
             per_rank_stats = {}
             for rank in sorted(region.regions.keys()):
                 if selected_ranks is not None and rank not in selected_ranks:
                     continue
-                rank_values = region.regions[rank].durations
-                per_rank_stats[str(rank)] = _stats_from_values(rank_values)
+                rank_region = region.regions[rank]
+                rank_values = rank_region.durations
+                rank_first = (
+                    rank_region.first_duration if rank_region.has_timing else None
+                )
+                rank_last = (
+                    rank_region.last_duration if rank_region.has_timing else None
+                )
+                per_rank_stats[str(rank)] = _stats_from_values(
+                    rank_values, first=rank_first, last=rank_last
+                )
             region_payload[region.name] = {
-                **_stats_from_values(values),
+                **_stats_from_values(values, first=first, last=last),
                 "per_rank": per_rank_stats,
             }
 

@@ -62,7 +62,8 @@ def create_server() -> FastMCP:
             ranks: Restrict region statistics to these MPI ranks (default:
                 all ranks).
             sort: Region ordering: one of "total", "calls", "avg", "min",
-                "max", "std" (all descending) or "name" (alphabetical).
+                "max", "first", "last", "std" (all descending) or "name"
+                (alphabetical).
             top_n: Maximum number of regions to return, ranked by `sort`
                 (default: 20). Pass a larger number or 0/None for every
                 region matching the filters -- the response also reports
