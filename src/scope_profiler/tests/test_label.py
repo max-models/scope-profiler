@@ -80,7 +80,7 @@ def test_label_leads_the_summary_heading(tmp_path, capsys):
 
 def test_plot_label_overrides_the_stored_one(tmp_path):
     """`scope-profiler plot --label` renames runs for one report."""
-    from scope_profiler.post_processing import main
+    from scope_profiler.post_processing import export_main, main
 
     labelled = tmp_path / "a.h5"
     plain = tmp_path / "b.h5"
@@ -90,6 +90,7 @@ def test_plot_label_overrides_the_stored_one(tmp_path):
 
     main(
         [
+            "durations",
             str(labelled),
             str(plain),
             "-o",
@@ -98,9 +99,19 @@ def test_plot_label_overrides_the_stored_one(tmp_path):
             "128 ranks",
             "--label",
             "256 ranks",
-            "--export",
+        ]
+    )
+    export_main(
+        [
             "prof",
-            "--skip-plot-images",
+            str(labelled),
+            str(plain),
+            "-o",
+            str(output_dir),
+            "--label",
+            "128 ranks",
+            "--label",
+            "256 ranks",
         ]
     )
 

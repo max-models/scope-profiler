@@ -87,7 +87,7 @@ importer merges whatever it finds:
 ```bash
 mpirun -n 128 ./simulation
 scope-profiler import-native . -o profiling_data.h5
-scope-profiler plot profiling_data.h5 -o figures
+scope-profiler plot default profiling_data.h5 -o figures
 ```
 
 ## From Python

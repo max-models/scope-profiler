@@ -218,8 +218,8 @@ def create_server() -> FastMCP:
         `compare_profiles`, which return numbers directly usable in
         reasoning. Use this only when a human will actually look at the
         resulting image (e.g. attaching it to a PR description or a chat
-        message). Requires the `pproc` extra
-        (``pip install "scope-profiler[pproc]"``).
+        message). Requires the `plot` extra
+        (``pip install "scope-profiler[plot]"``).
 
         Args:
             file_paths: One path, or a list of paths, to profiling files.

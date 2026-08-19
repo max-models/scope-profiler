@@ -35,7 +35,7 @@ Builds and runs the program, then imports its trace:
   fortran:setup           1      1  5.0459e-05   5.0459e-05   5.0459e-05   5.0459e-05
 ```
 
-From there it is an ordinary profile — `scope-profiler plot build/profiling_data.h5 -o figures`
+From there it is an ordinary profile — `scope-profiler plot default build/profiling_data.h5 -o figures`
 and the rest.
 
 ## Python driving Fortran

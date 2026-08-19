@@ -58,7 +58,7 @@ def _get_canvas():
         from maxplotlib import Canvas
     except ImportError as exc:
         raise ImportError(
-            "maxplotlib is required for plotting. Install scope-profiler[pproc] "
+            "maxplotlib is required for plotting. Install scope-profiler[plot] "
             "or maxplotlibx (>= 0.1.5, for its gantt and flame charts)."
         ) from exc
     return Canvas

@@ -3,6 +3,8 @@
 import argparse
 import glob
 import os
+from dataclasses import dataclass
+from pathlib import Path
 
 from scope_profiler.h5reader import read_h5
 from scope_profiler.plotting_scripts import (
@@ -37,6 +39,14 @@ _PLOT_CATALOG: dict[str, tuple[str, bool]] = {
 _DEFAULT_PLOTS = frozenset(
     name for name, (_, is_default) in _PLOT_CATALOG.items() if is_default
 )
+_QUICK_PLOTS = frozenset({"durations", "speedup"})
+
+
+@dataclass(frozen=True)
+class OutputTargets:
+    directory: str | None
+    single_file: str | None
+    statistics_path: str | None
 
 
 def _plots_help() -> str:
@@ -99,11 +109,7 @@ def parse_region_groups(
     return groups
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="scope-profiler plot",
-        description="Render plots and export data from HDF5 profiling files.",
-    )
+def _add_input_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "files",
         nargs="+",
@@ -111,251 +117,291 @@ def build_parser() -> argparse.ArgumentParser:
         help="Paths or glob patterns for profiling_data.h5 files",
     )
 
-    selecting = parser.add_argument_group(
-        "Selecting data",
-        "Which files, regions and ranks feed every plot and export below.",
-    )
-    selecting.add_argument(
+
+def _add_selection_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
         "--label",
         action="append",
         default=None,
         metavar="LABEL",
         help=(
-            "Name for a file in the outputs, overriding the label its run was "
-            "given with setup(label=...) (and the file stem for runs without "
-            "one). Repeat once per file, in the order the files are listed: "
-            "--label '128 ranks' --label '256 ranks'"
+            "Name for a file in outputs. Repeat once per file, in the order "
+            "the files are listed."
         ),
     )
-    selecting.add_argument(
+    parser.add_argument(
         "--include",
         "-i",
         nargs="*",
         type=str,
         default=None,
-        help="Region names to include (optional; regex patterns)",
+        help="Region names to include (regex patterns).",
     )
-    selecting.add_argument(
+    parser.add_argument(
         "--exclude",
         "-e",
         nargs="*",
         type=str,
         default=None,
-        help="Region names to exclude (optional; regex patterns)",
+        help="Region names to exclude (regex patterns).",
     )
-    selecting.add_argument(
+    parser.add_argument(
         "--ranks",
         "-r",
         nargs="*",
         type=str,
         default=None,
-        help=(
-            "Ranks to include (optional; default: all). Supports "
-            "comma-separated values and ranges (e.g. 1-3,5)."
-        ),
+        help="Ranks to include. Supports comma-separated values and ranges.",
     )
 
-    plots = parser.add_argument_group(
-        "Choosing and rendering plots",
-        "What to draw, and where.",
-    )
-    plots.add_argument(
-        "--plots",
-        "-p",
-        nargs="*",
-        type=str,
-        choices=list(_PLOT_CATALOG),
-        default=None,
-        help=_plots_help(),
-    )
-    plots.add_argument(
-        "--show",
-        action="store_true",
-        help="Show plots interactively (default: do not show plots)",
-    )
-    plots.add_argument(
+
+def _add_plot_output_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
         "-o",
         "--output",
         type=str,
         help=(
-            "Directory where outputs are saved: one <name>_plot.png (or "
-            ".html for --backend plotly) per plot selected by --plots, plus "
-            "region_statistics.json."
+            "Output directory. For a single plot kind, this may also be a "
+            "target .png or .html file."
         ),
     )
-    plots.add_argument(
+    parser.add_argument(
+        "--show",
+        action="store_true",
+        help="Show plots interactively.",
+    )
+    parser.add_argument(
         "--backend",
         choices=["matplotlib", "plotly"],
         default="matplotlib",
-        help=(
-            "Renderer used for the plots (default: matplotlib). 'matplotlib' "
-            "writes static .png files; 'plotly' writes interactive .html "
-            "files instead, and makes --show open them in a browser."
-        ),
+        help="Renderer used for plots: static PNGs or interactive HTML.",
     )
-    plots.add_argument(
+    parser.add_argument(
         "--cmap",
         type=str,
         default=DEFAULT_CMAP,
-        help=(
-            "Name of the matplotlib colormap used to color regions/files in "
-            f"all plots (default: {DEFAULT_CMAP!r}). See "
-            "https://matplotlib.org/stable/users/explain/colors/colormaps.html"
-        ),
+        help=f"Matplotlib colormap used for regions/files (default: {DEFAULT_CMAP!r}).",
     )
 
-    tuning = parser.add_argument_group(
-        "Tuning individual plots",
-        "Each option only affects the plot(s) named in its own description; "
-        "picking a plot that ignores an option is harmless.",
-    )
-    tuning.add_argument(
-        "--duration-metrics",
+
+def _add_duration_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--metrics",
         nargs="*",
         type=str,
         choices=["avg", "min", "max", "total"],
         default=["total"],
         metavar="{avg,min,max,total}",
-        help=(
-            "[durations] Which duration statistics to draw as bar-chart "
-            "columns (default: total). Example: --duration-metrics avg max"
-        ),
+        help="Duration statistics to draw/export (default: total).",
     )
-    tuning.add_argument(
+    parser.add_argument(
         "--sort-by",
         choices=["name", "avg", "min", "max", "total"],
         default=None,
-        help=(
-            "[durations, likwid] Order the bar chart's regions by this "
-            "statistic, descending ('name' sorts alphabetically instead). "
-            "Default: keep regions in the order they first appeared."
-        ),
+        help="Order regions by this statistic, descending; name sorts alphabetically.",
     )
-    tuning.add_argument(
+    parser.add_argument(
         "--top-n",
         type=int,
         default=None,
         metavar="N",
-        help=(
-            "[durations, likwid] Keep only the top N regions (ranked by "
-            "--sort-by, or by descending total duration if --sort-by is not "
-            "given). Useful when a run has many regions."
-        ),
+        help="Keep only the top N regions.",
     )
-    tuning.add_argument(
+    parser.add_argument(
         "--combine-regions",
         nargs="*",
         type=str,
         default=None,
         metavar="NAME=PATTERN[,PATTERN...]",
-        help=(
-            "[durations] Merge several regions into a single bar. Each "
-            "value is 'NAME=PATTERN1,PATTERN2' where NAME is the combined "
-            "bar's label and the comma-separated PATTERNs are regexes "
-            "matched against region names (like --include). Repeat once per "
-            "group. A region matched by more than one group is claimed by "
-            "whichever group is given first. Example: --combine-regions "
-            "'setup=^setup:.*'"
-        ),
+        help="Merge regions into named bars using regex patterns.",
     )
-    tuning.add_argument(
+
+
+def _add_log_scale_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
         "--log-scale",
         action="store_true",
-        help=(
-            "[durations, timeseries, histogram, imbalance, likwid] Use a "
-            "logarithmic y-axis."
-        ),
+        help="Use a logarithmic y-axis where the plot supports it.",
     )
-    tuning.add_argument(
-        "--histogram-bins",
-        type=int,
-        default=30,
-        metavar="N",
-        help="[histogram] Number of duration bins (default: 30).",
+
+
+def _add_data_export_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--format",
+        choices=["csv", "json"],
+        default="csv",
+        help="Data export format (default: csv).",
     )
-    tuning.add_argument(
+
+
+def _add_common_plot_args(parser: argparse.ArgumentParser) -> None:
+    _add_input_args(parser)
+    _add_selection_args(parser)
+    _add_plot_output_args(parser)
+
+
+def _add_common_export_args(parser: argparse.ArgumentParser) -> None:
+    _add_input_args(parser)
+    _add_selection_args(parser)
+    parser.add_argument(
+        "-o",
+        "--output",
+        required=True,
+        type=str,
+        help="Output directory.",
+    )
+
+
+def _build_plot_kind_parser(
+    subparsers: argparse._SubParsersAction, kind: str, description: str
+) -> argparse.ArgumentParser:
+    parser = subparsers.add_parser(kind, help=description, description=description)
+    parser.set_defaults(plot_kind=kind)
+    return parser
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="scope-profiler plot",
+        description="Render plots from HDF5 profiling files.",
+    )
+    subparsers = parser.add_subparsers(dest="plot_kind", required=True)
+
+    list_parser = subparsers.add_parser(
+        "list",
+        help="List available plot kinds and presets.",
+        description="List available plot kinds and presets.",
+    )
+    list_parser.set_defaults(plot_kind="list")
+
+    for kind in ("default", "all", "quick"):
+        preset = _build_plot_kind_parser(
+            subparsers, kind, f"Render the {kind} plot preset."
+        )
+        _add_common_plot_args(preset)
+        _add_duration_args(preset)
+        _add_log_scale_arg(preset)
+        preset.add_argument("--bins", type=int, default=30, metavar="N")
+        preset.add_argument(
+            "--metric",
+            type=str,
+            default=None,
+            metavar="NAME",
+            help="LIKWID metric name; includes the likwid plot in the all preset.",
+        )
+        preset.add_argument(
+            "--x",
+            type=str,
+            default="num_ranks",
+            metavar="FIELD",
+            help="Speedup x-axis field.",
+        )
+
+    for kind, (description, _is_default) in _PLOT_CATALOG.items():
+        plot_parser = _build_plot_kind_parser(subparsers, kind, description)
+        _add_common_plot_args(plot_parser)
+        if kind == "durations":
+            _add_duration_args(plot_parser)
+            _add_log_scale_arg(plot_parser)
+        elif kind == "timeseries":
+            _add_log_scale_arg(plot_parser)
+        elif kind == "speedup":
+            plot_parser.add_argument(
+                "--x",
+                type=str,
+                default="num_ranks",
+                metavar="FIELD",
+                help="Speedup x-axis field.",
+            )
+        elif kind == "histogram":
+            plot_parser.add_argument(
+                "--bins",
+                type=int,
+                default=30,
+                metavar="N",
+                help="Number of duration bins.",
+            )
+            _add_log_scale_arg(plot_parser)
+        elif kind == "imbalance":
+            plot_parser.add_argument(
+                "--metric",
+                choices=["avg", "min", "max", "total"],
+                default="total",
+                help="Per-call duration statistic plotted per rank.",
+            )
+            _add_log_scale_arg(plot_parser)
+        elif kind == "likwid":
+            plot_parser.add_argument(
+                "--metric",
+                required=True,
+                type=str,
+                metavar="NAME",
+                help="LIKWID derived metric or raw event name, e.g. CPI.",
+            )
+            plot_parser.add_argument(
+                "--sort-by",
+                choices=["name", "avg", "min", "max", "total"],
+                default=None,
+                help="Order regions by this statistic.",
+            )
+            plot_parser.add_argument("--top-n", type=int, default=None, metavar="N")
+            _add_log_scale_arg(plot_parser)
+    return parser
+
+
+def build_export_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="scope-profiler export",
+        description="Export HDF5 profiling files to machine-readable formats.",
+    )
+    subparsers = parser.add_subparsers(dest="export_kind", required=True)
+
+    for kind, description in {
+        "prof": "Export cProfile/pstats files.",
+        "speedscope": "Export speedscope JSON files.",
+    }.items():
+        export_parser = subparsers.add_parser(kind, help=description)
+        export_parser.set_defaults(export_kind=kind)
+        _add_common_export_args(export_parser)
+
+    plot_data = subparsers.add_parser(
+        "plot-data",
+        help="Export the exact data behind plot kinds.",
+        description="Export the exact data behind plot kinds.",
+    )
+    plot_data.set_defaults(export_kind="plot-data")
+    _add_common_export_args(plot_data)
+    _add_data_export_args(plot_data)
+    plot_data.add_argument(
+        "--plots",
+        "-p",
+        nargs="*",
+        choices=list(_PLOT_CATALOG),
+        default=None,
+        help=_plots_help(),
+    )
+    _add_duration_args(plot_data)
+    plot_data.add_argument("--bins", type=int, default=30, metavar="N")
+    plot_data.add_argument(
         "--imbalance-metric",
         choices=["avg", "min", "max", "total"],
         default="total",
-        help=(
-            "[imbalance] Per-call duration statistic plotted per rank "
-            "(default: total, i.e. total time a rank spent in the region)."
-        ),
+        help="Per-call duration statistic exported for imbalance data.",
     )
-    tuning.add_argument(
+    plot_data.add_argument(
         "--likwid-metric",
         type=str,
         default=None,
         metavar="NAME",
-        help=(
-            "[likwid] Name of the LIKWID derived metric or raw event to "
-            "plot, e.g. 'CPI', 'MFlops/s'. Required when 'likwid' is in "
-            "--plots. Run `scope-profiler inspect` on a LIKWID-enabled file "
-            "to see the available names, or inspect "
-            "ProfilingResults.get_likwid_regions()."
-        ),
+        help="LIKWID metric name; required if likwid is selected.",
     )
-    tuning.add_argument(
-        "--speedup-x-field",
+    plot_data.add_argument(
+        "--x",
         type=str,
         default="num_ranks",
         metavar="FIELD",
-        help=(
-            "[speedup] What to plot on the x-axis (default: 'num_ranks'). "
-            "One of 'num_ranks', 'omp_num_threads', 'total_cores' "
-            "(num_ranks * omp_num_threads) — these are ordered numerically "
-            "with an ideal-scaling line — or any other metadata field name, "
-            "in which case files are kept in the order given on the command "
-            "line and no ideal-scaling line is drawn."
-        ),
+        help="Speedup x-axis field.",
     )
-
-    exporting = parser.add_argument_group(
-        "Exporting extra data",
-        "Machine-readable outputs alongside the plot images. All require -o/--output.",
-    )
-    exporting.add_argument(
-        "--export",
-        nargs="*",
-        type=str,
-        choices=["data", "prof", "speedscope"],
-        default=[],
-        metavar="{data,prof,speedscope}",
-        help=(
-            "'data': the exact numbers behind each plot selected by "
-            "--plots, as one <name>_data file per plot (see "
-            "--export-data-format). 'prof': one profile_rank<N>.prof per "
-            "exported rank, cProfile/pstats format (browse with `snakeviz "
-            "profile_rank0.prof`). 'speedscope': one profile.speedscope.json "
-            "covering every exported rank (browse at "
-            "https://www.speedscope.app). 'prof'/'speedscope' reconstruct "
-            "the call graph from region nesting and only cover the ranks "
-            "selected by --ranks (default: rank 0). "
-            "Example: --export data prof"
-        ),
-    )
-    exporting.add_argument(
-        "--export-data-format",
-        choices=["csv", "json"],
-        default="csv",
-        help=(
-            "File format for --export data (default: csv). 'json' also "
-            "includes a 'colors' map matching the colors used in each plot, "
-            "so the chart can be re-rendered (e.g. with Plotly) with "
-            "consistent colors."
-        ),
-    )
-    exporting.add_argument(
-        "--skip-plot-images",
-        action="store_true",
-        help=(
-            "Do not render/save the plot images themselves, only the "
-            "--export outputs. Useful when charts are rendered entirely "
-            "client-side (e.g. with Plotly) from exported data. Requires "
-            "--export to select at least one output."
-        ),
-    )
-
     return parser
 
 
@@ -385,31 +431,22 @@ def expand_file_patterns(
     return list(dict.fromkeys(expanded_files))
 
 
-def main(argv: list[str] | None = None):
-    """Main function for reading and summarizing profiling HDF5 data."""
-    parser = build_parser()
-    args = parser.parse_args(argv)
+def _print_plot_list() -> None:
+    print("presets:")
+    print("  default    " + ", ".join(sorted(_DEFAULT_PLOTS)))
+    print("  quick      " + ", ".join(sorted(_QUICK_PLOTS)))
+    print("  all        every plot except likwid, unless --metric is given")
+    print("\nplots:")
+    for name, (description, is_default) in _PLOT_CATALOG.items():
+        marker = "default" if is_default else "optional"
+        print(f"  {name:<10} {description} ({marker})")
+
+
+def _normalize_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     args.files = expand_file_patterns(args.files, parser)
-    args.combine_regions = parse_region_groups(args.combine_regions, parser)
-
-    want_export_data = "data" in args.export
-    want_export_prof = "prof" in args.export
-    want_export_speedscope = "speedscope" in args.export
-
-    if args.export and not args.output:
-        parser.error("--export requires -o/--output.")
-
-    if args.skip_plot_images and not args.export:
-        parser.error(
-            "--skip-plot-images requires --export to select at least one output."
-        )
-
-    selected_plots: set[str] = (
-        set(args.plots) if args.plots is not None else set(_DEFAULT_PLOTS)
+    args.combine_regions = parse_region_groups(
+        getattr(args, "combine_regions", None), parser
     )
-
-    if "likwid" in selected_plots and not args.likwid_metric:
-        parser.error("--plots likwid requires --likwid-metric.")
 
     if args.ranks:
         ranks = []
@@ -417,13 +454,9 @@ def main(argv: list[str] | None = None):
             ranks.extend(parse_ranks(spec))
         args.ranks = sorted(set(ranks))
 
-    runs = [read_h5(file_path) for file_path in args.files]
 
-    # Applied to the runs rather than passed down per plot: every output --
-    # chart legends and panel titles, the JSON statistics, the exported
-    # filenames -- names a run through ProfilingResults.display_label, so
-    # overriding it here covers all of them at once. The files themselves
-    # are not modified.
+def _load_runs(args: argparse.Namespace, parser: argparse.ArgumentParser):
+    runs = [read_h5(file_path) for file_path in args.files]
     if args.label is not None:
         if len(args.label) != len(runs):
             parser.error(
@@ -432,256 +465,425 @@ def main(argv: list[str] | None = None):
             )
         for run, label in zip(runs, args.label):
             run.label = label
+    return runs
 
-    # A file whose regions recorded no calls would produce empty charts.
-    # Report what is there and stop, rather than failing deep inside the
-    # plotting code.
-    if not any(
+
+def _has_timing_data(runs) -> bool:
+    """Return whether any selected file recorded timed region calls."""
+    return any(
         len(region[rank].durations)
         for run in runs
         for region in run.get_regions()
         for rank in region.regions
+    )
+
+
+def _report_no_timing_data(runs) -> None:
+    print("No timing data found - these files recorded no calls.\n")
+    for run in runs:
+        print(f"{run.file_path}:")
+        for region in run.get_regions():
+            total = sum(r.num_calls for r in region.regions.values())
+            print(f"  {region.name}: {total} calls")
+
+
+def _selected_plots(args: argparse.Namespace) -> set[str]:
+    kind = args.plot_kind
+    if kind == "default":
+        return set(_DEFAULT_PLOTS)
+    if kind == "quick":
+        return set(_QUICK_PLOTS)
+    if kind == "all":
+        plots = set(_PLOT_CATALOG)
+        if not args.metric:
+            plots.remove("likwid")
+        return plots
+    return {kind}
+
+
+def _plot_output_targets(
+    args: argparse.Namespace, selected_plots: set[str]
+) -> OutputTargets:
+    if not args.output:
+        return OutputTargets(directory=None, single_file=None, statistics_path=None)
+
+    output_path = Path(args.output)
+    ext = "html" if args.backend == "plotly" else "png"
+    is_single_plot_file = len(selected_plots) == 1 and output_path.suffix.lower() in {
+        ".png",
+        ".html",
+    }
+    if is_single_plot_file:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        return OutputTargets(
+            directory=None,
+            single_file=str(output_path),
+            statistics_path=None,
+        )
+
+    os.makedirs(args.output, exist_ok=True)
+    return OutputTargets(
+        directory=args.output,
+        single_file=None,
+        statistics_path=os.path.join(args.output, "region_statistics.json"),
+    )
+
+
+def _plot_path(
+    targets: OutputTargets,
+    selected_plots: set[str],
+    plot_name: str,
+    default_filename: str,
+    ext: str,
+) -> str | None:
+    if targets.single_file and selected_plots == {plot_name}:
+        return targets.single_file
+    if targets.directory:
+        return os.path.join(targets.directory, f"{default_filename}.{ext}")
+    return None
+
+
+def _data_path(
+    output_dir: str | None,
+    selected_plots: set[str],
+    plot_name: str,
+    filename: str,
+    fmt: str,
+) -> str | None:
+    if output_dir and plot_name in selected_plots:
+        return os.path.join(output_dir, f"{filename}.{fmt}")
+    return None
+
+
+def _plot_options(args: argparse.Namespace, name: str):
+    metric = getattr(args, "metric", None)
+    imbalance_metric = getattr(args, "imbalance_metric", "total")
+    return {
+        "duration_metrics": getattr(args, "metrics", ["total"]),
+        "sort_by": getattr(args, "sort_by", None),
+        "top_n": getattr(args, "top_n", None),
+        "combine_regions": getattr(args, "combine_regions", None),
+        "log_scale": getattr(args, "log_scale", False),
+        "histogram_bins": getattr(args, "bins", 30),
+        "imbalance_metric": (
+            metric if name == "imbalance" and metric else imbalance_metric
+        ),
+        "likwid_metric": (
+            metric if name == "likwid" else getattr(args, "likwid_metric", None)
+        ),
+        "speedup_x_field": getattr(args, "x", "num_ranks"),
+    }
+
+
+def _render_selected_plots(
+    args: argparse.Namespace,
+    runs,
+    selected_plots: set[str],
+    parser: argparse.ArgumentParser,
+    *,
+    output_targets: OutputTargets,
+    data_output_dir: str | None = None,
+    data_format: str = "csv",
+    render_images: bool = True,
+) -> list[str]:
+    if (
+        "likwid" in selected_plots
+        and not _plot_options(args, "likwid")["likwid_metric"]
     ):
-        print("No timing data found — these files recorded no calls.\n")
-        for run in runs:
-            print(f"{run.file_path}:")
-            for region in run.get_regions():
-                total = sum(r.num_calls for r in region.regions.values())
-                print(f"  {region.name}: {total} calls")
+        parser.error(
+            "likwid requires --metric for plots or --likwid-metric for plot-data."
+        )
+
+    ext = "html" if getattr(args, "backend", "matplotlib") == "plotly" else "png"
+    options = _plot_options(args, "")
+    saved: list[str] = []
+
+    def image_path(plot_name: str, filename: str) -> str | None:
+        if not render_images:
+            return None
+        return _plot_path(output_targets, selected_plots, plot_name, filename, ext)
+
+    if any(
+        plot_name in selected_plots
+        for plot_name in (
+            "gantt",
+            "flame",
+            "durations",
+            "timeseries",
+            "histogram",
+            "imbalance",
+        )
+    ) and not _has_timing_data(runs):
+        _report_no_timing_data(runs)
+        return []
+
+    gantt_data_path = _data_path(
+        data_output_dir, selected_plots, "gantt", "gantt_data", data_format
+    )
+    flame_data_path = _data_path(
+        data_output_dir, selected_plots, "flame", "flame_data", data_format
+    )
+    durations_data_path = _data_path(
+        data_output_dir, selected_plots, "durations", "durations_data", data_format
+    )
+    timeseries_data_path = _data_path(
+        data_output_dir,
+        selected_plots,
+        "timeseries",
+        "duration_timeseries_data",
+        data_format,
+    )
+    speedup_data_path = (
+        _data_path(
+            data_output_dir, selected_plots, "speedup", "speedup_data", data_format
+        )
+        if len(runs) > 1
+        else None
+    )
+    histogram_data_path = _data_path(
+        data_output_dir, selected_plots, "histogram", "histogram_data", data_format
+    )
+    imbalance_data_path = _data_path(
+        data_output_dir, selected_plots, "imbalance", "imbalance_data", data_format
+    )
+    likwid_data_path = _data_path(
+        data_output_dir, selected_plots, "likwid", "likwid_data", data_format
+    )
+
+    if "gantt" in selected_plots:
+        path = image_path("gantt", "gantt_plot")
+        plot_gantt(
+            runs,
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            cmap=args.cmap,
+            data_filepath=gantt_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
+        saved.extend(path for path in (path, gantt_data_path) if path)
+
+    if "flame" in selected_plots:
+        path = image_path("flame", "flame_plot")
+        plot_flame(
+            runs,
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            cmap=args.cmap,
+            data_filepath=flame_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
+        saved.extend(path for path in (path, flame_data_path) if path)
+
+    if "durations" in selected_plots:
+        path = image_path("durations", "durations_plot")
+        durations_paths = plot_durations(
+            runs,
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            metrics=options["duration_metrics"],
+            sort_by=options["sort_by"],
+            top_n=options["top_n"],
+            combine_regions=options["combine_regions"],
+            cmap=args.cmap,
+            log_scale=options["log_scale"],
+            data_filepath=durations_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
+        saved.extend(str(path) for path in durations_paths if path)
+        if durations_data_path:
+            saved.append(durations_data_path)
+
+    if "timeseries" in selected_plots:
+        path = image_path("timeseries", "duration_timeseries_plot")
+        plot_duration_timeseries(
+            runs,
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            cmap=args.cmap,
+            log_scale=options["log_scale"],
+            data_filepath=timeseries_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
+        saved.extend(path for path in (path, timeseries_data_path) if path)
+
+    if "histogram" in selected_plots:
+        path = image_path("histogram", "histogram_plot")
+        plot_duration_histogram(
+            runs,
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            bins=options["histogram_bins"],
+            cmap=args.cmap,
+            log_scale=options["log_scale"],
+            data_filepath=histogram_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
+        saved.extend(path for path in (path, histogram_data_path) if path)
+
+    if "imbalance" in selected_plots:
+        path = image_path("imbalance", "imbalance_plot")
+        plot_imbalance(
+            runs,
+            metric=options["imbalance_metric"],
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            cmap=args.cmap,
+            log_scale=options["log_scale"],
+            data_filepath=imbalance_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
+        saved.extend(path for path in (path, imbalance_data_path) if path)
+
+    if "likwid" in selected_plots:
+        path = image_path("likwid", "likwid_plot")
+        plot_likwid(
+            runs,
+            metric=_plot_options(args, "likwid")["likwid_metric"],
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            cmap=args.cmap,
+            log_scale=options["log_scale"],
+            data_filepath=likwid_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
+        saved.extend(path for path in (path, likwid_data_path) if path)
+
+    if len(runs) > 1 and "speedup" in selected_plots:
+        path = image_path("speedup", "speedup_plot")
+        plot_speedup(
+            runs,
+            x_field=options["speedup_x_field"],
+            ranks=args.ranks,
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            cmap=args.cmap,
+            data_filepath=speedup_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
+        saved.extend(path for path in (path, speedup_data_path) if path)
+
+    return saved
+
+
+def main(argv: list[str] | None = None):
+    """Render one plot kind or plot preset from HDF5 profiling data."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    if args.plot_kind == "list":
+        _print_plot_list()
         return
 
-    gantt_path = None
-    flame_path = None
-    durations_path = None
-    timeseries_path = None
-    speedup_path = None
-    histogram_path = None
-    imbalance_path = None
-    likwid_path = None
-    statistics_path = None
-    gantt_data_path = None
-    flame_data_path = None
-    durations_data_path = None
-    timeseries_data_path = None
-    speedup_data_path = None
-    histogram_data_path = None
-    imbalance_data_path = None
-    likwid_data_path = None
-    prof_path = None
-    prof_paths: list = []
-    speedscope_path = None
-    speedscope_paths: list = []
-    durations_paths: list = []
-    if args.output:
-        os.makedirs(args.output, exist_ok=True)
-        if not args.skip_plot_images:
-            # Plotly's native output is a self-contained interactive page;
-            # writing .png from it would additionally require kaleido.
-            ext = "html" if args.backend == "plotly" else "png"
-            if "gantt" in selected_plots:
-                gantt_path = os.path.join(args.output, f"gantt_plot.{ext}")
-            if "flame" in selected_plots:
-                flame_path = os.path.join(args.output, f"flame_plot.{ext}")
-            if "durations" in selected_plots:
-                durations_path = os.path.join(args.output, f"durations_plot.{ext}")
-            if "timeseries" in selected_plots:
-                timeseries_path = os.path.join(
-                    args.output, f"duration_timeseries_plot.{ext}"
-                )
-            if len(runs) > 1 and "speedup" in selected_plots:
-                speedup_path = os.path.join(args.output, f"speedup_plot.{ext}")
-            if "histogram" in selected_plots:
-                histogram_path = os.path.join(args.output, f"histogram_plot.{ext}")
-            if "imbalance" in selected_plots:
-                imbalance_path = os.path.join(args.output, f"imbalance_plot.{ext}")
-            if "likwid" in selected_plots:
-                likwid_path = os.path.join(args.output, f"likwid_plot.{ext}")
-        statistics_path = os.path.join(args.output, "region_statistics.json")
-        if want_export_data:
-            data_ext = args.export_data_format
-            if "gantt" in selected_plots:
-                gantt_data_path = os.path.join(args.output, f"gantt_data.{data_ext}")
-            if "flame" in selected_plots:
-                flame_data_path = os.path.join(args.output, f"flame_data.{data_ext}")
-            if "durations" in selected_plots:
-                durations_data_path = os.path.join(
-                    args.output, f"durations_data.{data_ext}"
-                )
-            if "timeseries" in selected_plots:
-                timeseries_data_path = os.path.join(
-                    args.output, f"duration_timeseries_data.{data_ext}"
-                )
-            if len(runs) > 1 and "speedup" in selected_plots:
-                speedup_data_path = os.path.join(
-                    args.output, f"speedup_data.{data_ext}"
-                )
-            if "histogram" in selected_plots:
-                histogram_data_path = os.path.join(
-                    args.output, f"histogram_data.{data_ext}"
-                )
-            if "imbalance" in selected_plots:
-                imbalance_data_path = os.path.join(
-                    args.output, f"imbalance_data.{data_ext}"
-                )
-            if "likwid" in selected_plots:
-                likwid_data_path = os.path.join(args.output, f"likwid_data.{data_ext}")
-        if want_export_prof:
-            prof_path = os.path.join(args.output, "profile.prof")
-        if want_export_speedscope:
-            speedscope_path = os.path.join(args.output, "profile.speedscope.json")
+    _normalize_args(args, parser)
+    runs = _load_runs(args, parser)
+    selected_plots = _selected_plots(args)
+    output_targets = _plot_output_targets(args, selected_plots)
 
-    # --skip-plot-images still needs the plotting functions to produce the
-    # --export data files, but an export-only run should not touch the
-    # plotting backend at all.
-    render_plots = not args.skip_plot_images or want_export_data
+    saved = _render_selected_plots(
+        args,
+        runs,
+        selected_plots,
+        parser,
+        output_targets=output_targets,
+        render_images=True,
+    )
 
-    if want_export_prof:
+    if output_targets.statistics_path:
+        write_region_statistics_json(
+            profiling_data=runs,
+            filepath=output_targets.statistics_path,
+            ranks=args.ranks,
+            include=args.include,
+            exclude=args.exclude,
+        )
+        saved.append(output_targets.statistics_path)
+
+    if args.output and not args.show:
+        print("Outputs saved to:\n  " + "\n  ".join(saved))
+
+
+def export_main(argv: list[str] | None = None):
+    """Export HDF5 profiling data without rendering plot images."""
+    parser = build_export_parser()
+    args = parser.parse_args(argv)
+    _normalize_args(args, parser)
+    runs = _load_runs(args, parser)
+    os.makedirs(args.output, exist_ok=True)
+
+    saved: list[str] = []
+    if args.export_kind == "prof":
         prof_paths = export_prof(
             profiling_data=runs,
-            filepath=prof_path,
+            filepath=os.path.join(args.output, "profile.prof"),
             ranks=args.ranks,
             include=args.include,
             exclude=args.exclude,
             verbose=False,
         )
-
-    if want_export_speedscope:
+        saved.extend(str(path) for path in prof_paths)
+    elif args.export_kind == "speedscope":
         speedscope_paths = export_speedscope(
             profiling_data=runs,
-            filepath=speedscope_path,
+            filepath=os.path.join(args.output, "profile.speedscope.json"),
             ranks=args.ranks,
             include=args.include,
             exclude=args.exclude,
             verbose=False,
         )
-
-    if render_plots:
-        if "gantt" in selected_plots:
-            plot_gantt(
-                profiling_data=runs,
-                filepath=gantt_path,
-                show=args.show,
-                include=args.include,
-                exclude=args.exclude,
-                ranks=args.ranks,
-                cmap=args.cmap,
-                data_filepath=gantt_data_path,
-                data_format=args.export_data_format,
-                backend=args.backend,
+        saved.extend(str(path) for path in speedscope_paths)
+    elif args.export_kind == "plot-data":
+        selected_plots = (
+            set(args.plots) if args.plots is not None else set(_DEFAULT_PLOTS)
+        )
+        if "likwid" in selected_plots and not args.likwid_metric:
+            parser.error("plot-data with likwid requires --likwid-metric.")
+        args.show = False
+        args.backend = "matplotlib"
+        args.cmap = DEFAULT_CMAP
+        saved.extend(
+            _render_selected_plots(
+                args,
+                runs,
+                selected_plots,
+                parser,
+                output_targets=OutputTargets(None, None, None),
+                data_output_dir=args.output,
+                data_format=args.format,
+                render_images=False,
             )
-
-        if "flame" in selected_plots:
-            plot_flame(
-                profiling_data=runs,
-                filepath=flame_path,
-                show=args.show,
-                include=args.include,
-                exclude=args.exclude,
-                ranks=args.ranks,
-                cmap=args.cmap,
-                data_filepath=flame_data_path,
-                data_format=args.export_data_format,
-                backend=args.backend,
-            )
-
-        if "durations" in selected_plots:
-            durations_paths = plot_durations(
-                profiling_data=runs,
-                filepath=durations_path,
-                show=args.show,
-                include=args.include,
-                exclude=args.exclude,
-                ranks=args.ranks,
-                metrics=args.duration_metrics,
-                sort_by=args.sort_by,
-                top_n=args.top_n,
-                combine_regions=args.combine_regions,
-                cmap=args.cmap,
-                log_scale=args.log_scale,
-                data_filepath=durations_data_path,
-                data_format=args.export_data_format,
-                backend=args.backend,
-            )
-
-        if "timeseries" in selected_plots:
-            plot_duration_timeseries(
-                profiling_data=runs,
-                filepath=timeseries_path,
-                show=args.show,
-                include=args.include,
-                exclude=args.exclude,
-                ranks=args.ranks,
-                cmap=args.cmap,
-                log_scale=args.log_scale,
-                data_filepath=timeseries_data_path,
-                data_format=args.export_data_format,
-                backend=args.backend,
-            )
-
-        if "histogram" in selected_plots:
-            plot_duration_histogram(
-                profiling_data=runs,
-                filepath=histogram_path,
-                show=args.show,
-                include=args.include,
-                exclude=args.exclude,
-                ranks=args.ranks,
-                bins=args.histogram_bins,
-                cmap=args.cmap,
-                log_scale=args.log_scale,
-                data_filepath=histogram_data_path,
-                data_format=args.export_data_format,
-                backend=args.backend,
-            )
-
-        if "imbalance" in selected_plots:
-            plot_imbalance(
-                profiling_data=runs,
-                metric=args.imbalance_metric,
-                filepath=imbalance_path,
-                show=args.show,
-                include=args.include,
-                exclude=args.exclude,
-                ranks=args.ranks,
-                cmap=args.cmap,
-                log_scale=args.log_scale,
-                data_filepath=imbalance_data_path,
-                data_format=args.export_data_format,
-                backend=args.backend,
-            )
-
-        if "likwid" in selected_plots:
-            plot_likwid(
-                profiling_data=runs,
-                metric=args.likwid_metric,
-                filepath=likwid_path,
-                show=args.show,
-                include=args.include,
-                exclude=args.exclude,
-                ranks=args.ranks,
-                cmap=args.cmap,
-                log_scale=args.log_scale,
-                data_filepath=likwid_data_path,
-                data_format=args.export_data_format,
-                backend=args.backend,
-            )
-
-        if len(runs) > 1 and "speedup" in selected_plots:
-            plot_speedup(
-                profiling_data=runs,
-                x_field=args.speedup_x_field,
-                ranks=args.ranks,
-                filepath=speedup_path,
-                show=args.show,
-                include=args.include,
-                exclude=args.exclude,
-                cmap=args.cmap,
-                data_filepath=speedup_data_path,
-                data_format=args.export_data_format,
-                backend=args.backend,
-            )
-
-    if statistics_path:
+        )
+        statistics_path = os.path.join(args.output, "region_statistics.json")
         write_region_statistics_json(
             profiling_data=runs,
             filepath=statistics_path,
@@ -689,41 +891,16 @@ def main(argv: list[str] | None = None):
             include=args.include,
             exclude=args.exclude,
         )
+        saved.append(statistics_path)
 
-    if args.output and not args.show:
-        saved = [
-            str(path)
-            for path in (
-                gantt_path,
-                flame_path,
-                *durations_paths,
-                timeseries_path,
-                speedup_path,
-                histogram_path,
-                imbalance_path,
-                likwid_path,
-                statistics_path,
-                gantt_data_path,
-                flame_data_path,
-                durations_data_path,
-                timeseries_data_path,
-                speedup_data_path,
-                histogram_data_path,
-                imbalance_data_path,
-                likwid_data_path,
-                *prof_paths,
-                *speedscope_paths,
-            )
-            if path
-        ]
-        print("Outputs saved to:\n  " + "\n  ".join(saved))
-        if prof_paths:
-            print(f"\nView a .prof file with: snakeviz {prof_paths[0]}")
-        if speedscope_paths:
-            print(
-                f"\nView {speedscope_paths[0]} at https://www.speedscope.app "
-                "(or: npx speedscope <file>)"
-            )
+    print("Outputs saved to:\n  " + "\n  ".join(saved))
+    if args.export_kind == "prof" and saved:
+        print(f"\nView a .prof file with: snakeviz {saved[0]}")
+    if args.export_kind == "speedscope" and saved:
+        print(
+            f"\nView {saved[0]} at https://www.speedscope.app "
+            "(or: npx speedscope <file>)"
+        )
 
 
 if __name__ == "__main__":

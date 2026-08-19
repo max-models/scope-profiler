@@ -82,7 +82,7 @@ jobs:
       - name: Test postprocessing
         run: |
           python3 src/scope_profiler/tests/examples.py
-          scope-profiler pproc profiling_data.h5 --show -o figures
+          scope-profiler plot default profiling_data.h5 --show -o figures
 
       # The Fortran tests in the suite above already compile and run the
       # module (gfortran ships on the runners). This adds the path a user
@@ -133,7 +133,7 @@ jobs:
       - name: Test postprocessing (MPI)
         run: |
           mpirun -n 2 python3 src/scope_profiler/tests/test_mpi.py
-          scope-profiler pproc profiling_data.h5 --show -o figures
+          scope-profiler plot default profiling_data.h5 --show -o figures
 
       # examples_pylikwid.py asserts that the hardware counters actually reach
       # the HDF5 file, so these runs cover the whole marker -> h5 path. Serial

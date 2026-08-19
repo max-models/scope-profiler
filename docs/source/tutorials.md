@@ -35,7 +35,7 @@ tutorials/*
 Notebooks 3, 4 and 6 need the plotting extra:
 
 ```bash
-pip install "scope-profiler[pproc]"
+pip install "scope-profiler[plot]"
 ```
 
 ## Example scripts

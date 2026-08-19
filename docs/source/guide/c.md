@@ -89,7 +89,7 @@ not collective and a rank that dies takes only its own trace with it:
 ```bash
 mpirun -n 128 ./simulation
 scope-profiler import-native . -o profiling_data.h5
-scope-profiler plot profiling_data.h5 -o figures
+scope-profiler plot default profiling_data.h5 -o figures
 ```
 
 ## Python calling C

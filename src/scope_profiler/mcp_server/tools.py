@@ -415,7 +415,7 @@ def plot_profile(
         from scope_profiler import plotting_scripts
     except ImportError as exc:
         raise ToolError(
-            "Plotting requires the 'pproc' extra: pip install 'scope-profiler[pproc]'"
+            "Plotting requires the 'plot' extra: pip install 'scope-profiler[plot]'"
         ) from exc
 
     plot_func = getattr(plotting_scripts, _PLOT_FUNCS[plot_type])
@@ -445,7 +445,7 @@ def plot_profile(
         )
     except ImportError as exc:
         raise ToolError(
-            "Plotting requires the 'pproc' extra: pip install 'scope-profiler[pproc]'"
+            "Plotting requires the 'plot' extra: pip install 'scope-profiler[plot]'"
         ) from exc
 
     # plot_durations() can write one file per requested duration metric and

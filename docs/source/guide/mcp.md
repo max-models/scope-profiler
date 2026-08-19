@@ -43,10 +43,10 @@ pip install "scope-profiler[mcp]"
 This is a separate extra from the base install: `pip install scope-profiler`
 alone does not pull in the `mcp` package, so normal profiling and the
 `scope-profiler` CLI are unaffected either way. `plot_profile` (see below)
-additionally needs the `pproc` extra, exactly as `scope-profiler plot` does:
+additionally needs the `plot` extra, exactly as `scope-profiler plot` does:
 
 ```bash
-pip install "scope-profiler[mcp,pproc]"
+pip install "scope-profiler[mcp,plot]"
 ```
 
 ## Starting the server
@@ -141,7 +141,7 @@ via the same functions `scope-profiler plot` uses, and returns the path it
 wrote. Most agent workflows should prefer the numbers from
 `inspect_profile`/`compare_profiles`; reach for this only when a human is
 going to look at the image afterwards (e.g. attaching it to a PR). Requires
-the `pproc` extra.
+the `plot` extra.
 
 ## Example: an agent judging a code change
 
