@@ -9,52 +9,32 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      packages: read
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/scope-profiler-ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      # LIKWID's marker API needs the msr kernel module, which the container
+      # has to be allowed to load into the (shared) host kernel.
+      options: --privileged
     strategy:
       matrix:
-        python-version: ["3.11", "3.12"]
+        include:
+          - python-version: "3.11"
+            venv: /opt/venvs/py311
+          - python-version: "3.12"
+            venv: /opt/venvs/py312
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        name: Set up Python ${{ matrix.python-version }}
-        with:
-          python-version: ${{ matrix.python-version }}
+      - name: Use Python ${{ matrix.python-version }} venv
+        run: echo "${{ matrix.venv }}/bin" >> "$GITHUB_PATH"
 
-      - name: Install MPI prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libopenmpi-dev openmpi-bin
-
-      - name: Install LIKWID
-        run: |
-          git clone https://github.com/RRZE-HPC/likwid.git
-          cd likwid
-          make && sudo make install
-          sudo modprobe msr
-          echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/likwid.conf
-          sudo ldconfig
-          likwid-perfctr -a
-
-      - name: Install pylikwid from source
-        run: |
-          git clone https://github.com/RRZE-HPC/pylikwid.git
-          cd pylikwid
-          python3 -m pip install --upgrade pip
-          python3 -m pip install setuptools
-          # Build extension, provide include/lib paths
-          python3 setup.py build_ext \
-          -I/usr/local/include \
-          -L/usr/local/lib \
-          -R/usr/local/lib
-          # Install it
-          python3 setup.py install
-
-      # - name: Install pylikwid from pypi
-      #   run: |
-      #     python3 -m pip install --upgrade pip
-      #     python3 -m pip install setuptools
-      #     python3 -m pip install pylikwid
+      - name: Load msr kernel module
+        run: modprobe msr
 
       - name: Verify pylikwid import
         run: |
