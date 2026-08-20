@@ -46,6 +46,39 @@ _COLUMNS = (
     ("imbalance", "imbalance [%]"),
 )
 
+REGION_TABLE_COLUMN_NAMES = tuple(key for key, _ in _COLUMNS)
+REGION_TABLE_COLUMNS = ("region", *REGION_TABLE_COLUMN_NAMES[1:])
+DEFAULT_REGION_TABLE_COLUMNS = ("region", "ranks", "calls", "total", "avg")
+_COLUMN_ALIASES = {"region": "name", "name": "name"}
+_COLUMN_ALIASES.update({key: key for key, _ in _COLUMNS if key != "name"})
+
+
+def normalize_region_table_columns(columns=None) -> tuple[tuple[str, str], ...]:
+    """Return validated ``(row_key, header)`` pairs for a region table."""
+    if columns is None:
+        columns = DEFAULT_REGION_TABLE_COLUMNS
+    if isinstance(columns, str):
+        columns = [columns]
+
+    by_key = dict(_COLUMNS)
+    normalized = []
+    unknown = []
+    for column in columns:
+        key = _COLUMN_ALIASES.get(column)
+        if key is None:
+            unknown.append(column)
+            continue
+        normalized.append((key, by_key[key]))
+
+    if unknown:
+        choices = ", ".join(REGION_TABLE_COLUMNS)
+        raise ValueError(
+            f"Unknown region summary column(s): {unknown}. Choices: {choices}"
+        )
+    if not normalized:
+        raise ValueError("At least one region summary column must be selected.")
+    return tuple(normalized)
+
 
 def _region_durations(region, ranks=None) -> np.ndarray:
     """Pool every recorded call duration of a region, in seconds.
@@ -184,6 +217,7 @@ def print_region_table(
     stream=None,
     suppress_notes: bool = False,
     total_time: float | None = None,
+    columns=None,
 ) -> None:
     """Print the aligned per-region statistics table.
 
@@ -203,8 +237,13 @@ def print_region_table(
         below the TOTAL row when given. Unlike that row -- which sums region
         durations and so can exceed the run's real duration when regions
         nest -- this is the run's own actual wall-clock time.
+    columns : list of str or str, optional
+        Region summary columns to print. Defaults to ``region``, ``ranks``,
+        ``calls``, ``total`` and ``avg``. The public name for the first column
+        is ``region``; ``name`` is accepted as an alias for Python callers.
     """
     stream = sys.stdout if stream is None else stream
+    selected_columns = normalize_region_table_columns(columns)
 
     if title:
         print(title, file=stream)
@@ -252,15 +291,19 @@ def print_region_table(
 
     widths = {
         key: max(len(header), max(len(row[key]) for row in [*formatted, total_row]))
-        for key, header in _COLUMNS
+        for key, header in selected_columns
     }
 
     def render(row):
-        cells = [f"{row['name']:<{widths['name']}}"]
-        cells += [f"{row[key]:>{widths[key]}}" for key, _ in _COLUMNS[1:]]
+        cells = []
+        for index, (key, _) in enumerate(selected_columns):
+            if index == 0 and key == "name":
+                cells.append(f"{row[key]:<{widths[key]}}")
+            else:
+                cells.append(f"{row[key]:>{widths[key]}}")
         return "  ".join(cells).rstrip()
 
-    header_line = render({key: header for key, header in _COLUMNS})
+    header_line = render({key: header for key, header in selected_columns})
     rule = "-" * len(header_line)
 
     print(f"  {header_line}", file=stream)
