@@ -93,6 +93,26 @@ class ProfilingResults:
         # before it existed, or from a run that set deactivate_file_output
         # and never called finalize(return_results=True) either.
         self._finalize_time = self._metadata_time("finalize_time_ns")
+        self._populate_exclusive_durations()
+
+    def _populate_exclusive_durations(self) -> None:
+        """Derive per-call exclusive durations from all recorded intervals."""
+        from scope_profiler.call_stack import build_call_stack
+
+        for rank in sorted(
+            {rank for region in self._region_dict.values() for rank in region.ranks}
+        ):
+            calls = build_call_stack(self._region_dict.values(), rank)
+            by_region = {
+                region.name: region.regions[rank]
+                for region in self._region_dict.values()
+                if rank in region.regions
+            }
+            for call in calls:
+                durations = by_region[call["name"]]._exclusive_durations
+                durations[call["call_index"]] = round(
+                    call["exclusive_duration"] * NS_PER_SECOND
+                )
 
     def _metadata_time(self, key: str) -> float | None:
         """Read a ``*_time_ns`` metadata field as seconds, or None if unusable."""
@@ -192,7 +212,9 @@ class ProfilingResults:
         List[dict]
             One dict per region (see
             :meth:`~scope_profiler.mpi_region.MPIRegion.get_summary`), ordered
-            by first start time. Durations are in seconds.
+            by first start time. ``inclusive_duration`` includes nested
+            regions; ``exclusive_duration`` excludes them. Durations are in
+            seconds.
         """
         return [
             self._summary_row(region)
@@ -204,6 +226,8 @@ class ProfilingResults:
         """Return the public aggregate summary, including rich statistics."""
         return {
             **region.get_summary(),
+            "inclusive_duration": region.inclusive_duration,
+            "exclusive_duration": region.exclusive_duration,
             "tags": region.tags,
             "p50_duration": region.p50_duration,
             "p95_duration": region.p95_duration,
@@ -265,6 +289,8 @@ class ProfilingResults:
                         "name": region.name,
                         "rank": rank,
                         **region[rank].get_summary(),
+                        "inclusive_duration": region[rank].inclusive_duration,
+                        "exclusive_duration": region[rank].exclusive_duration,
                         "p50_duration": region[rank].p50_duration,
                         "p95_duration": region[rank].p95_duration,
                         "p99_duration": region[rank].p99_duration,
