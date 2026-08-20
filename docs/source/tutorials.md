@@ -32,10 +32,10 @@ in any order and in any environment.
 tutorials/*
 ```
 
-Notebooks 3, 4 and 6 need the plotting extra:
+Notebooks 3, 4 and 6 need the post-processing extra:
 
 ```bash
-pip install "scope-profiler[plot]"
+pip install "scope-profiler[pproc]"
 ```
 
 ## Example scripts

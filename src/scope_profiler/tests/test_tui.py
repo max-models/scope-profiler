@@ -93,8 +93,9 @@ def test_region_details_include_ranks_calls_source_and_raw_hdf5(sample_file):
     calls = _find(solve, "Calls")
     assert "Rank" in node_detail_text(calls)
     rank_calls = _find(calls, "Rank 0")
-    assert "#  Start" in node_detail_text(rank_calls)
-    assert "2" in node_detail_text(rank_calls)
+    rank_call_details = node_detail_text(rank_calls)
+    assert all(column in rank_call_details for column in ("#", "Start", "Duration"))
+    assert "2" in rank_call_details
 
     start_times = _find(model.root, "start_times")
     assert "HDF5 dataset" in node_detail_text(start_times)
