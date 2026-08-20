@@ -157,9 +157,7 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
                         else None
                     ),
                     tags=tuple(
-                        _decode_attribute(attrs["tags"])
-                        if "tags" in attrs
-                        else ()
+                        _decode_attribute(attrs["tags"]) if "tags" in attrs else ()
                     ),
                 )
                 # Merge if region already exists (from another rank)

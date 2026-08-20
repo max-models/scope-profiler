@@ -262,7 +262,7 @@ class ProfilingResults:
             for rank in region.ranks:
                 rows.append(
                     {
-            "name": region.name,
+                        "name": region.name,
                         "rank": rank,
                         **region[rank].get_summary(),
                         "p50_duration": region[rank].p50_duration,

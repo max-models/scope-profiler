@@ -244,7 +244,9 @@ class ProfileManager:
             cls._region_cls = TimeOnlyProfileRegion
 
     @classmethod
-    def profile_region(cls, region_name, functions=None, tags=None) -> BaseProfileRegion:
+    def profile_region(
+        cls, region_name, functions=None, tags=None
+    ) -> BaseProfileRegion:
         """
         Get an existing ProfileRegion by name, or create a new one if it doesn't exist.
 
