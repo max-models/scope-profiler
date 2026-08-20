@@ -83,6 +83,10 @@ optional-dependencies.test = [
   "coverage",
   "pytest",
 ]
+
+optional-dependencies.tui = [
+  "textual>=0.86",
+]
 urls."Source" = "https://github.com/max-models/scope-profiler"
 
 scripts.scope-profiler = "scope_profiler.__main__:main"
