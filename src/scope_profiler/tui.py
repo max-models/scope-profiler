@@ -8,6 +8,7 @@ import linecache
 import re
 import subprocess
 import sys
+import webbrowser
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -367,7 +368,7 @@ def node_detail_text(node: BrowserNode) -> str:
             f"Plot: {payload.get('plot_name', 'likwid')}",
             payload["description"],
             "",
-            "Press g to show in Matplotlib or s to save as a PNG.",
+            "Press g for Matplotlib, p for Plotly in a browser, or s to save PNG.",
         ]
         if payload.get("plot_name") == "flame":
             lines.append("Press v to open the reconstructed profile in Snakeviz.")
@@ -656,7 +657,7 @@ def render_plot(
         "filepath": str(filepath) if filepath else None,
         "show": show,
         "verbose": False,
-        "backend": "matplotlib",
+        "backend": settings.get("backend", "matplotlib") or "matplotlib",
         "include": patterns("include"),
         "exclude": patterns("exclude"),
         "ranks": ranks,
@@ -751,6 +752,14 @@ def _build_textual_app_class():
             layout: vertical;
         }
 
+        Header {
+            height: 1;
+        }
+
+        Footer {
+            height: 2;
+        }
+
         #body {
             height: 1fr;
         }
@@ -802,7 +811,8 @@ def _build_textual_app_class():
         """
         BINDINGS = [
             ("q", "quit", "Quit"),
-            ("g", "show_plot", "Show plot"),
+            ("g", "show_matplotlib", "Show Matplotlib"),
+            ("p", "show_plotly", "Open Plotly"),
             ("s", "save_plot", "Save plot"),
             ("v", "show_snakeviz", "Open in Snakeviz"),
         ]
@@ -922,8 +932,9 @@ def _build_textual_app_class():
                 self._read_plot_settings()
                 self.notify("Plot settings applied.", timeout=3)
 
-        def _run_selected_plot(self, show: bool) -> None:
+        def _run_selected_plot(self, show: bool, backend: str = "matplotlib") -> None:
             self._read_plot_settings()
+            settings = {**self.plot_settings, "backend": backend}
             node = self.selected_browser_node
             if node is None or node.kind not in {"plot", "plot_likwid"}:
                 self.notify("Select an individual plot first.", severity="warning")
@@ -943,10 +954,10 @@ def _build_textual_app_class():
                 filepath = directory / f"{filename}.png"
             try:
                 if show:
-                    saved = self._show_plot_in_child_process(node)
+                    saved = self._show_plot_in_child_process(node, settings)
                 else:
                     saved = render_plot(
-                        node, filepath=filepath, show=False, settings=self.plot_settings
+                        node, filepath=filepath, show=False, settings=settings
                     )
             except (ImportError, RuntimeError, ValueError) as exc:
                 self.notify(str(exc), severity="error", timeout=8)
@@ -1013,7 +1024,9 @@ def _build_textual_app_class():
                 return
             self.notify(f"Opened {prof_paths[0]} in Snakeviz.", timeout=8)
 
-        def _show_plot_in_child_process(self, node: BrowserNode) -> None:
+        def _show_plot_in_child_process(
+            self, node: BrowserNode, settings: dict[str, Any]
+        ) -> None:
             """Render a real Matplotlib figure outside Textual's event loop."""
             viewer = _matplotlib_child_script()
             subprocess.Popen(
@@ -1024,13 +1037,41 @@ def _build_textual_app_class():
                     str(self.model.file_path),
                     node.payload["plot_name"],
                     node.payload.get("metric") or "",
-                    json.dumps(self.plot_settings),
+                        json.dumps(settings),
                 ],
                 start_new_session=True,
             )
 
-        def action_show_plot(self) -> None:
-            self._run_selected_plot(show=True)
+        def action_show_matplotlib(self) -> None:
+            self._run_selected_plot(show=True, backend="matplotlib")
+
+        def action_show_plotly(self) -> None:
+            self._open_plotly_browser()
+
+        def _open_plotly_browser(self) -> None:
+            node = self.selected_browser_node
+            if node is None or node.kind not in {"plot", "plot_likwid"}:
+                self.notify("Select an individual plot first.", severity="warning")
+                return
+            self._read_plot_settings()
+            settings = {**self.plot_settings, "backend": "plotly"}
+            directory = self.output_dir or (
+                self.model.file_path.parent / f"{self.model.file_path.stem}_plots"
+            )
+            directory.mkdir(parents=True, exist_ok=True)
+            filename = node.payload["plot_name"]
+            if node.payload.get("metric"):
+                filename += "_" + "_".join(
+                    part for part in node.payload["metric"].split() if part.isalnum()
+                )
+            filepath = directory / f"{filename}.html"
+            try:
+                render_plot(node, filepath=filepath, show=False, settings=settings)
+                webbrowser.open(filepath.resolve().as_uri())
+            except (ImportError, RuntimeError, ValueError, OSError) as exc:
+                self.notify(str(exc), severity="error", timeout=8)
+                return
+            self.notify(f"Opened {filepath} in the browser.", timeout=8)
 
         def action_save_plot(self) -> None:
             self._run_selected_plot(show=False)

@@ -185,6 +185,7 @@ def test_render_plot_passes_plot_settings(sample_file, monkeypatch):
             "sort_by": "avg",
             "top_n": "5",
             "log_scale": True,
+            "backend": "plotly",
         },
     )
 
@@ -196,6 +197,7 @@ def test_render_plot_passes_plot_settings(sample_file, monkeypatch):
     assert captured["sort_by"] == "avg"
     assert captured["top_n"] == 5
     assert captured["log_scale"] is True
+    assert captured["backend"] == "plotly"
 
 
 def test_matplotlib_child_script_is_valid_python():

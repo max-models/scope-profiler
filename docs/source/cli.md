@@ -12,8 +12,9 @@ reuses the plotting functions from `scope-profiler plot`:
 scope-profiler tui profiling_data.h5
 ```
 
-Select a plot and press `g` to display it with Matplotlib, or `s` to save it
-as a PNG. Saved plots go to `<file-stem>_plots/` by default; use
+Select a plot and press `g` to display it in a Matplotlib window, or `p` to
+open it as an interactive Plotly figure in a browser. Press `s` to save the
+Matplotlib version as PNG. Saved plots go to `<file-stem>_plots/` by default; use
 `--plot-output DIR` to choose another directory.
 
 For the Flame plot, press `v` to export the selected data to `.prof` format
