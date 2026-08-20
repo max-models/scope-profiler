@@ -68,7 +68,7 @@ def test_label_names_the_run_in_charts_and_statistics(tmp_path):
 
 
 def test_label_leads_the_summary_heading(tmp_path, capsys):
-    """Printed by finalize(), print_summary() and `scope-profiler pproc`."""
+    """Printed by finalize(), print_summary() and `scope-profiler inspect`."""
     results = _profile(tmp_path / "run.h5", label="128 ranks")
 
     results.print_summary()
@@ -78,9 +78,9 @@ def test_label_leads_the_summary_heading(tmp_path, capsys):
     assert "run.h5" in heading, "the path still identifies the file on disk"
 
 
-def test_pproc_label_overrides_the_stored_one(tmp_path, capsys):
-    """`scope-profiler pproc --label` renames runs for one report."""
-    from scope_profiler.post_processing import main
+def test_plot_label_overrides_the_stored_one(tmp_path):
+    """`scope-profiler plot --label` renames runs for one report."""
+    from scope_profiler.post_processing import export_main, main
 
     labelled = tmp_path / "a.h5"
     plain = tmp_path / "b.h5"
@@ -90,23 +90,30 @@ def test_pproc_label_overrides_the_stored_one(tmp_path, capsys):
 
     main(
         [
+            "durations",
             str(labelled),
             str(plain),
             "-o",
             str(output_dir),
-            "--summary",
             "--label",
             "128 ranks",
             "--label",
             "256 ranks",
-            "--export",
-            "prof",
         ]
     )
-
-    out = capsys.readouterr().out
-    assert "128 ranks - " in out and "256 ranks - " in out
-    assert "stored - " not in out
+    export_main(
+        [
+            "prof",
+            str(labelled),
+            str(plain),
+            "-o",
+            str(output_dir),
+            "--label",
+            "128 ranks",
+            "--label",
+            "256 ranks",
+        ]
+    )
 
     payload = json.loads(
         (output_dir / "region_statistics.json").read_text(encoding="utf-8")
@@ -120,7 +127,7 @@ def test_pproc_label_overrides_the_stored_one(tmp_path, capsys):
     assert read_h5(str(labelled)).label == "stored"
 
 
-def test_pproc_label_count_must_match_the_files(tmp_path):
+def test_plot_label_count_must_match_the_files(tmp_path):
     """Silently pairing them off by position would mislabel a whole report."""
     from scope_profiler.post_processing import main
 
@@ -132,7 +139,6 @@ def test_pproc_label_count_must_match_the_files(tmp_path):
             [
                 str(tmp_path / "a.h5"),
                 str(tmp_path / "b.h5"),
-                "--summary",
                 "--label",
                 "only-one",
             ]

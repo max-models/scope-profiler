@@ -88,13 +88,41 @@ class ProfilingResults:
         # downstream falls back to the first region entry, so an unreadable
         # value is ignored rather than fatal: a file is worth reading for its
         # timings even if this field is not.
-        self._run_start_time: float | None = None
-        start_time_ns = self._metadata.get("start_time_ns")
-        if start_time_ns is not None:
-            try:
-                self._run_start_time = float(start_time_ns) / NS_PER_SECOND
-            except (TypeError, ValueError):
-                self._run_start_time = None
+        self._run_start_time = self._metadata_time("start_time_ns")
+        # Recorded as the first thing finalize() does; absent in files from
+        # before it existed, or from a run that set deactivate_file_output
+        # and never called finalize(return_results=True) either.
+        self._finalize_time = self._metadata_time("finalize_time_ns")
+        self._populate_exclusive_durations()
+
+    def _populate_exclusive_durations(self) -> None:
+        """Derive per-call exclusive durations from all recorded intervals."""
+        from scope_profiler.call_stack import build_call_stack
+
+        for rank in sorted(
+            {rank for region in self._region_dict.values() for rank in region.ranks}
+        ):
+            calls = build_call_stack(self._region_dict.values(), rank)
+            by_region = {
+                region.name: region.regions[rank]
+                for region in self._region_dict.values()
+                if rank in region.regions
+            }
+            for call in calls:
+                durations = by_region[call["name"]]._exclusive_durations
+                durations[call["call_index"]] = round(
+                    call["exclusive_duration"] * NS_PER_SECOND
+                )
+
+    def _metadata_time(self, key: str) -> float | None:
+        """Read a ``*_time_ns`` metadata field as seconds, or None if unusable."""
+        value = self._metadata.get(key)
+        if value is None:
+            return None
+        try:
+            return float(value) / NS_PER_SECOND
+        except (TypeError, ValueError):
+            return None
 
     @classmethod
     def from_h5(
@@ -184,12 +212,34 @@ class ProfilingResults:
         List[dict]
             One dict per region (see
             :meth:`~scope_profiler.mpi_region.MPIRegion.get_summary`), ordered
-            by first start time. Durations are in seconds.
+            by first start time. ``inclusive_duration`` includes nested
+            regions; ``exclusive_duration`` excludes them. Durations are in
+            seconds.
         """
         return [
-            region.get_summary()
+            self._summary_row(region)
             for region in self.get_regions(include=include, exclude=exclude)
         ]
+
+    @staticmethod
+    def _summary_row(region: MPIRegion) -> dict:
+        """Return the public aggregate summary, including rich statistics."""
+        return {
+            **region.get_summary(),
+            "inclusive_duration": region.inclusive_duration,
+            "exclusive_duration": region.exclusive_duration,
+            "tags": region.tags,
+            "p50_duration": region.p50_duration,
+            "p95_duration": region.p95_duration,
+            "p99_duration": region.p99_duration,
+            "rank_imbalance": region.rank_imbalance,
+            "rank_imbalance_pct": region.rank_imbalance_pct,
+            # Short aliases match the summary-table column names.
+            "p50": region.p50_duration,
+            "p95": region.p95_duration,
+            "p99": region.p99_duration,
+            "imbalance": region.rank_imbalance_pct,
+        }
 
     def to_dataframe(
         self,
@@ -223,19 +273,28 @@ class ProfilingResults:
             import pandas as pd
         except ImportError as exc:
             raise ImportError(
-                "to_dataframe() requires pandas. Install scope-profiler[pproc] "
+                "to_dataframe() requires pandas. Install scope-profiler[plot] "
                 "or pandas directly."
             ) from exc
 
         regions = self.get_regions(include=include, exclude=exclude)
         if not per_rank:
-            return pd.DataFrame(region.get_summary() for region in regions)
+            return pd.DataFrame(self._summary_row(region) for region in regions)
 
         rows = []
         for region in regions:
             for rank in region.ranks:
                 rows.append(
-                    {"name": region.name, "rank": rank, **region[rank].get_summary()}
+                    {
+                        "name": region.name,
+                        "rank": rank,
+                        **region[rank].get_summary(),
+                        "inclusive_duration": region[rank].inclusive_duration,
+                        "exclusive_duration": region[rank].exclusive_duration,
+                        "p50_duration": region[rank].p50_duration,
+                        "p95_duration": region[rank].p95_duration,
+                        "p99_duration": region[rank].p99_duration,
+                    }
                 )
         return pd.DataFrame(rows)
 
@@ -324,7 +383,7 @@ class ProfilingResults:
         except ImportError as exc:
             raise ImportError(
                 "to_events_dataframe() requires pandas. Install "
-                "scope-profiler[pproc] or pandas directly."
+                "scope-profiler[plot] or pandas directly."
             ) from exc
 
         columns = ["name", "rank", "call_index", "start", "end", "duration"]
@@ -429,7 +488,11 @@ class ProfilingResults:
         if title is None:
             title = self.default_title()
         print_region_table(
-            rows, title=title, stream=stream, suppress_notes=suppress_notes
+            rows,
+            title=title,
+            stream=stream,
+            suppress_notes=suppress_notes,
+            total_time=self.total_time,
         )
 
     def default_title(self) -> str:
@@ -498,7 +561,7 @@ class ProfilingResults:
     def label(self, value: str | None) -> None:
         """Rename this run for the report being produced.
 
-        What ``scope-profiler pproc --label`` does: the file on disk keeps the
+        What ``scope-profiler plot --label`` does: the file on disk keeps the
         label the run was given (if any), while everything downstream of here
         uses the new one. Setting it to None or "" restores the fallback to the
         file stem.
@@ -668,7 +731,7 @@ class ProfilingResults:
         except ImportError as exc:
             raise ImportError(
                 "likwid_to_dataframe() requires pandas. Install "
-                "scope-profiler[pproc] or pandas directly."
+                "scope-profiler[plot] or pandas directly."
             ) from exc
 
         rows = []
@@ -843,6 +906,47 @@ class ProfilingResults:
         if not any(region.has_timing for region in self.get_regions()):
             return 0.0
         return self.maximum_end_time - self.minimum_start_time
+
+    @property
+    def finalize_time(self) -> float | None:
+        """
+        When ``finalize()`` was called, in seconds on the recording clock.
+
+        This is the ``finalize_time_ns`` metadata field, read as the first
+        thing ``ProfileManager.finalize()`` does -- before it spends any time
+        collecting or writing the run's data, so it marks the moment
+        finalize() was reached rather than the moment it returned.
+
+        Returns
+        -------
+        float or None
+            The registered finalize time, or None for runs without one (older
+            files, or a run that never reached finalize()).
+        """
+        return self._finalize_time
+
+    @property
+    def total_time(self) -> float | None:
+        """
+        Wall-clock seconds from ``setup()`` to ``finalize()``.
+
+        Unlike :attr:`time_span` (first region entry to last exit), this
+        covers the whole instrumented program: startup work before the first
+        region, gaps between regions, and any teardown after the last one but
+        before ``finalize()`` is called -- the number to report as "how long
+        did the run take" alongside the region breakdown.
+
+        Returns
+        -------
+        float or None
+            :attr:`finalize_time` minus :attr:`run_start_time`, or None if
+            either is missing -- an older file, or a run that set up
+            profiling (or called finalize) some other way than
+            ``ProfileManager.setup()``/``finalize()``.
+        """
+        if self._run_start_time is None or self._finalize_time is None:
+            return None
+        return self._finalize_time - self._run_start_time
 
     def get_regions(
         self,

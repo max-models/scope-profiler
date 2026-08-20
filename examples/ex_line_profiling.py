@@ -21,12 +21,12 @@ Decorator form (simplest)
   registered with line_profiler automatically.
 
 Context manager form
-  Pass the function(s) you want line-profiled via the ``functions`` keyword.
-  This is useful when you cannot or do not want to modify the function
-  definition::
+  The function containing the ``with`` block is line-profiled automatically,
+  so no decorator or ``functions=`` argument is needed::
 
-      with ProfileManager.profile_region("region", functions=[my_func]):
-          my_func()
+      def run_region():
+          with ProfileManager.profile_region("region"):
+              do_work()
 """
 
 import math
@@ -53,7 +53,7 @@ def compute(N=50_000):
 
 
 # ---------------------------------------------------------------------------
-# Pattern 2: context manager form with functions=
+# Pattern 2: context manager form (no decorator required)
 # ---------------------------------------------------------------------------
 
 
@@ -66,11 +66,15 @@ def allocate(N=100_000):
     return a, b
 
 
-compute()
+def run_allocate(N=100_000):
+    """The enclosing function is line-profiled automatically."""
+    with ProfileManager.profile_region("allocate"):
+        return allocate(N)
+        print("print allocate")
 
-# Pass functions=[allocate] so line_profiler knows which function to trace.
-with ProfileManager.profile_region("allocate", functions=[allocate]):
-    allocate()
+
+compute()
+run_allocate()
 
 # finalize() writes timing data to profiling_data.h5 and prints
 # both the region summaries and the line_profiler tables.

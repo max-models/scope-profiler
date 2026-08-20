@@ -18,6 +18,10 @@ class Region:
         self,
         start_times: np.ndarray,
         end_times: np.ndarray,
+        source_file: str | None = None,
+        source_lineno: int | None = None,
+        source_text: str | None = None,
+        tags=(),
     ) -> None:
         """
         Initialize a Region with timing information for multiple calls.
@@ -28,11 +32,23 @@ class Region:
             Start times of all calls in nanoseconds.
         end_times : np.ndarray
             End times of all calls in nanoseconds.
+        source_file, source_lineno, source_text : optional
+            Where this region is defined in user code, and its source text
+            (the ``with`` block or decorated function). None when not
+            captured, e.g. files written before this was recorded, or a
+            region created only via the recursive tracer.
         """
         self._start_times = start_times
         self._end_times = end_times
         self._durations = end_times - start_times
+        # A Region does not know about other regions, so until it is attached
+        # to ProfilingResults exclusive time defaults to inclusive time.
+        self._exclusive_durations = self._durations.copy()
         self._num_calls = len(self._durations)
+        self._source_file = source_file
+        self._source_lineno = source_lineno
+        self._source_text = source_text
+        self._tags = tuple(tags)
 
     def get_summary(self) -> Dict[str, Any]:
         """
@@ -42,17 +58,27 @@ class Region:
         -------
         Dict[str, Any]
             Dictionary containing statistics: num_calls, total_duration,
-            average_duration, min_duration, max_duration, and std_duration.
-            Durations are in seconds.
+            average_duration, min_duration, max_duration, first_duration,
+            last_duration, and std_duration. Durations are in seconds.
         """
         return {
             "num_calls": self.num_calls,
             "total_duration": self.total_duration,
+            "inclusive_duration": self.inclusive_duration,
+            "exclusive_duration": self.exclusive_duration,
             "average_duration": self.average_duration,
             "min_duration": self.min_duration,
             "max_duration": self.max_duration,
+            "first_duration": self.first_duration,
+            "last_duration": self.last_duration,
             "std_duration": self.std_duration,
         }
+
+    def _set_exclusive_durations(self, durations: np.ndarray) -> None:
+        """Set exclusive durations after nesting has been reconstructed."""
+        if len(durations) != self.num_calls:
+            raise ValueError("exclusive durations must match the call count")
+        self._exclusive_durations = np.asarray(durations, dtype=self._durations.dtype)
 
     def events(self, origin: float = 0.0) -> List[Dict[str, Any]]:
         """
@@ -89,6 +115,35 @@ class Region:
         return len(self._durations) > 0
 
     @property
+    def has_source(self) -> bool:
+        """Whether this region's call-site source was captured."""
+        return self._source_text is not None
+
+    @property
+    def source_file(self) -> str | None:
+        """Path of the file this region is defined in, or None if not captured."""
+        return self._source_file
+
+    @property
+    def source_lineno(self) -> int | None:
+        """Line the region's call site starts at, or None if not captured."""
+        return self._source_lineno
+
+    @property
+    def source_text(self) -> str | None:
+        """Source text of the region's ``with`` block or decorated function.
+
+        None if it was not captured -- either the file it came from is no
+        longer readable, or the file predates this being recorded.
+        """
+        return self._source_text
+
+    @property
+    def tags(self) -> tuple[str, ...]:
+        """User-defined tags attached to this region."""
+        return self._tags
+
+    @property
     def start_times_ns(self) -> np.ndarray:
         """Start times of all calls in nanoseconds, exactly as stored."""
         return self._start_times
@@ -102,6 +157,16 @@ class Region:
     def durations_ns(self) -> np.ndarray:
         """Duration of all calls in nanoseconds, as integers."""
         return self._durations
+
+    @property
+    def inclusive_durations_ns(self) -> np.ndarray:
+        """Inclusive duration of every call in nanoseconds."""
+        return self._durations
+
+    @property
+    def exclusive_durations_ns(self) -> np.ndarray:
+        """Exclusive duration of every call in nanoseconds."""
+        return self._exclusive_durations
 
     @property
     def start_times(self) -> np.ndarray:
@@ -133,6 +198,16 @@ class Region:
         return self._durations / NS_PER_SECOND
 
     @property
+    def inclusive_durations(self) -> np.ndarray:
+        """Inclusive duration of every call in seconds."""
+        return self.durations
+
+    @property
+    def exclusive_durations(self) -> np.ndarray:
+        """Exclusive duration of every call in seconds."""
+        return self._exclusive_durations / NS_PER_SECOND
+
+    @property
     def num_calls(self) -> int:
         """Number of recorded calls."""
         return self._num_calls
@@ -143,6 +218,25 @@ class Region:
         return (
             float(np.sum(self._durations)) / NS_PER_SECOND if self.has_timing else 0.0
         )
+
+    @property
+    def inclusive_duration(self) -> float:
+        """Total inclusive time, including nested regions, in seconds."""
+        return self.total_duration
+
+    @property
+    def total_exclusive_duration(self) -> float:
+        """Total time excluding nested regions, in seconds."""
+        return (
+            float(np.sum(self._exclusive_durations)) / NS_PER_SECOND
+            if self.has_timing
+            else 0.0
+        )
+
+    @property
+    def exclusive_duration(self) -> float:
+        """Alias for :attr:`total_exclusive_duration`."""
+        return self.total_exclusive_duration
 
     @property
     def average_duration(self) -> float:
@@ -166,11 +260,51 @@ class Region:
         )
 
     @property
+    def first_duration(self) -> float:
+        """Duration of the first recorded call, in seconds."""
+        return float(self._durations[0]) / NS_PER_SECOND if self.has_timing else 0.0
+
+    @property
+    def last_duration(self) -> float:
+        """Duration of the last recorded call, in seconds."""
+        return float(self._durations[-1]) / NS_PER_SECOND if self.has_timing else 0.0
+
+    @property
     def std_duration(self) -> float:
         """Standard deviation of durations in seconds."""
         return (
             float(np.std(self._durations)) / NS_PER_SECOND if self.has_timing else 0.0
         )
+
+    def percentile_duration(self, percentile: float) -> float:
+        """Return a duration percentile in seconds.
+
+        ``percentile`` follows :func:`numpy.percentile` and must be between
+        0 and 100. Empty regions return ``0.0`` for consistency with the
+        other duration statistics.
+        """
+        if not 0 <= percentile <= 100:
+            raise ValueError("percentile must be between 0 and 100")
+        return (
+            float(np.percentile(self._durations, percentile)) / NS_PER_SECOND
+            if self.has_timing
+            else 0.0
+        )
+
+    @property
+    def p50_duration(self) -> float:
+        """Median duration in seconds."""
+        return self.percentile_duration(50)
+
+    @property
+    def p95_duration(self) -> float:
+        """95th-percentile duration in seconds."""
+        return self.percentile_duration(95)
+
+    @property
+    def p99_duration(self) -> float:
+        """99th-percentile duration in seconds."""
+        return self.percentile_duration(99)
 
     def __len__(self) -> int:
         """Number of recorded calls."""

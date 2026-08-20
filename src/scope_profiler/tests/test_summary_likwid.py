@@ -1,12 +1,10 @@
-"""Tests for ``scope-profiler pproc --summary`` and its LIKWID counter table."""
+"""Tests for the LIKWID counter table renderer in ``scope_profiler.summary``."""
 
 import h5py
 import numpy as np
-import pytest
 
 from scope_profiler import read_h5
 from scope_profiler.likwid_data import LikwidRegionResult, write_likwid_results
-from scope_profiler.post_processing import main as pproc_main
 from scope_profiler.summary import likwid_tables, print_likwid_table
 
 
@@ -140,71 +138,3 @@ def test_counters_render_as_integers_not_exponents(tmp_path, capsys):
     assert "6.96175e+07" not in out
     # Derived metrics keep significant digits rather than being truncated.
     assert "2400" in out
-
-
-def test_pproc_summary_prints_both_tables(tmp_path, capsys):
-    """--summary prints the region table and the LIKWID table."""
-    path = _write(tmp_path / "d.h5", {0: [_result("solve")]})
-
-    pproc_main([str(path), "--summary"])
-    out = capsys.readouterr().out
-
-    assert "region" in out and "solve" in out
-    assert "LIKWID counters (rank 0, group CLOCK)" in out
-    assert "CAS_COUNT_RD:MBOX0C0" in out
-    assert "Clock [MHz]" in out
-
-
-def test_pproc_summary_without_likwid_prints_only_regions(tmp_path, capsys):
-    """No LIKWID data means no empty counter section."""
-    path = tmp_path / "d.h5"
-    with h5py.File(path, "w") as f:
-        grp = f.create_group("rank0/regions/solve")
-        grp.create_dataset("start_times", data=np.array([0], dtype=np.int64))
-        grp.create_dataset("end_times", data=np.array([10**9], dtype=np.int64))
-
-    pproc_main([str(path), "--summary"])
-    out = capsys.readouterr().out
-
-    assert "solve" in out
-    assert "LIKWID" not in out
-
-
-def test_pproc_summary_alone_renders_no_plots(tmp_path, capsys):
-    """A bare --summary is a text job; it must not write plot files."""
-    path = _write(tmp_path / "d.h5", {0: [_result("solve")]})
-    output = tmp_path / "figures"
-
-    pproc_main([str(path), "--summary"])
-    capsys.readouterr()
-    assert not output.exists()
-
-
-def test_pproc_summary_covers_every_file(tmp_path, capsys):
-    """Each input file gets its own pair of tables."""
-    first = _write(tmp_path / "a.h5", {0: [_result("solve")]})
-    second = _write(tmp_path / "b.h5", {0: [_result("solve")]})
-
-    pproc_main([str(first), str(second), "--summary"])
-    out = capsys.readouterr().out
-
-    assert out.count("LIKWID counters") == 2
-    assert "a.h5" in out and "b.h5" in out
-
-
-def test_pproc_summary_sort_orders_the_region_table(tmp_path, capsys):
-    """--summary-sort reorders regions without touching the counter table."""
-    path = _write(tmp_path / "d.h5", {0: [_result("zebra"), _result("alpha")]})
-
-    pproc_main([str(path), "--summary", "--summary-sort", "name"])
-    out = capsys.readouterr().out
-
-    region_block = out.split("LIKWID counters")[0]
-    assert region_block.index("alpha") < region_block.index("zebra")
-
-
-def test_pproc_summary_rejects_an_unknown_sort_key(tmp_path):
-    """Sort keys are validated by argparse rather than failing later."""
-    path = _write(tmp_path / "d.h5", {0: [_result("solve")]})
-    with pytest.raises(SystemExit):
-        pproc_main([str(path), "--summary", "--summary-sort", "nonsense"])

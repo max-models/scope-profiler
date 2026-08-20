@@ -11,11 +11,15 @@ from scope_profiler.__main__ import main as cli_main
 from scope_profiler.inspection import collect_file_metadata, inspect_file
 from scope_profiler.inspection import main as inspect_main
 from scope_profiler.inspection import write_metadata_json
+from scope_profiler.likwid_data import LikwidRegionResult, write_likwid_results
 
 NS = 1_000_000_000
 
 
-def _write_sample_h5(path, rank_regions, metadata=None):
+def _write_sample_h5(path, rank_regions, metadata=None, sources=None):
+    """``sources``: region name -> ``(source_file, source_lineno, source_text)``,
+    written onto that region's group on every rank that has it."""
+    sources = sources or {}
     with h5py.File(path, "w") as h5file:
         if metadata:
             meta_grp = h5file.create_group("metadata")
@@ -35,6 +39,12 @@ def _write_sample_h5(path, rank_regions, metadata=None):
                 region_group.create_dataset(
                     "end_times", data=np.asarray(ends, dtype=np.int64)
                 )
+                source = sources.get(region_name)
+                if source is not None:
+                    source_file, source_lineno, source_text = source
+                    region_group.attrs["source_file"] = source_file
+                    region_group.attrs["source_lineno"] = source_lineno
+                    region_group.attrs["source_text"] = source_text
 
 
 @pytest.fixture
@@ -176,6 +186,67 @@ def test_section_switches(sample_file, capsys):
     assert "Metadata" not in out and "Regions" in out
 
 
+def test_source_prints_captured_call_site(tmp_path, capsys):
+    path = tmp_path / "with_source.h5"
+    _write_sample_h5(
+        path,
+        {0: {"solve": ([0], [1 * NS])}},
+        sources={
+            "solve": (
+                "kernels.py",
+                12,
+                '    with ProfileManager.profile_region("solve"):\n        pass\n',
+            )
+        },
+    )
+
+    inspect_file(path, source=["solve"])
+    out = capsys.readouterr().out
+
+    assert "Source (1)" in out
+    assert "solve  (kernels.py:12)" in out
+    assert 'with ProfileManager.profile_region("solve")' in out
+
+
+def test_source_without_a_captured_region_says_so(sample_file, capsys):
+    inspect_file(sample_file, source=["solve"])
+    out = capsys.readouterr().out
+
+    assert "solve: source not captured" in out
+
+
+def test_source_of_an_unknown_region_lists_the_available_ones(sample_file, capsys):
+    inspect_file(sample_file, source=["nope"])
+    out = capsys.readouterr().out
+
+    assert "'nope': no such region" in out
+    assert "'setup'" in out and "'solve'" in out
+
+
+def test_source_prints_regardless_of_metadata_only(sample_file, capsys):
+    """--source is independent of --metadata-only/--regions-only."""
+    inspect_file(sample_file, show_regions=False, source=["solve"])
+    out = capsys.readouterr().out
+
+    assert "Regions" not in out
+    assert "Source (1)" in out
+
+
+def test_cli_source_flag(tmp_path, capsys):
+    path = tmp_path / "with_source.h5"
+    _write_sample_h5(
+        path,
+        {0: {"solve": ([0], [1 * NS])}},
+        sources={"solve": ("kernels.py", 3, "    with region():\n        pass\n")},
+    )
+
+    inspect_main([str(path), "--source", "solve"])
+    out = capsys.readouterr().out
+
+    assert "Source (1)" in out
+    assert "kernels.py:3" in out
+
+
 def test_file_without_regions_or_metadata(tmp_path, capsys):
     path = tmp_path / "empty.h5"
     _write_sample_h5(path, {})
@@ -199,7 +270,7 @@ def test_cli_accepts_multiple_files_and_globs(sample_file, capsys):
     inspect_main([str(sample_file), str(second)])
     assert capsys.readouterr().out.count("Metadata") == 2
 
-    # A glob covers both, and repeated paths are reported once (as in pproc).
+    # A glob covers both, and repeated paths are reported once (as in plot).
     inspect_main([str(sample_file.parent / "*.h5"), str(sample_file)])
     assert capsys.readouterr().out.count("Metadata") == 2
 
@@ -300,3 +371,54 @@ def test_inspect_listed_in_top_level_help(capsys):
         cli_main(["--help"])
 
     assert "inspect" in capsys.readouterr().out
+
+
+def _likwid_result(tag, group="CLOCK"):
+    """A minimal LIKWID result for one region on one rank."""
+    return LikwidRegionResult(
+        tag=tag,
+        group_id=0,
+        group_name=group,
+        cpus=[0],
+        times=np.full(1, 0.5),
+        call_counts=np.full(1, 3, dtype=np.int64),
+        event_names=["INSTR_RETIRED_ANY", "CAS_COUNT_RD"],
+        counter_names=["FIXC0", "MBOX0C0"],
+        events=np.array([[100.0], [10.0]]),
+        metric_names=["Clock [MHz]", "CPI"],
+        metrics=np.array([[2400.0], [0.5]]),
+        source="full_api",
+    )
+
+
+def _write_likwid_h5(path, tag="solve"):
+    """A merged-looking file with one timed region and its LIKWID counters."""
+    with h5py.File(path, "w") as h5file:
+        grp = h5file.create_group("rank0")
+        region_group = grp.create_group("regions").create_group(tag)
+        region_group.create_dataset("start_times", data=np.array([0], dtype=np.int64))
+        region_group.create_dataset("end_times", data=np.array([10**9], dtype=np.int64))
+        write_likwid_results(grp, [_likwid_result(tag)])
+    return path
+
+
+def test_inspect_prints_likwid_tables_when_present(tmp_path, capsys):
+    """inspect prints the LIKWID counter table alongside the region table."""
+    path = _write_likwid_h5(tmp_path / "d.h5")
+
+    inspect_file(path)
+    out = capsys.readouterr().out
+
+    assert "solve" in out
+    assert "LIKWID counters (rank 0, group CLOCK)" in out
+    assert "CAS_COUNT_RD" in out
+    assert "Clock [MHz]" in out
+
+
+def test_inspect_without_likwid_prints_only_regions(sample_file, capsys):
+    """Files recorded without LIKWID data print no counter section."""
+    inspect_file(sample_file)
+    out = capsys.readouterr().out
+
+    assert "solve" in out
+    assert "LIKWID" not in out

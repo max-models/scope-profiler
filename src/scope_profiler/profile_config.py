@@ -167,10 +167,12 @@ class ProfilingConfig:
         deactivate_file_output: bool = False,
         use_likwid: bool = False,
         use_line_profiler: bool = False,
+        use_nvtx: bool = False,
         recursive_profile: bool = False,
         buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
         label: str | None = None,
+        capture_region_source: bool = False,
     ):
         """Initialize the profiling configuration.
 
@@ -187,6 +189,8 @@ class ProfilingConfig:
             Enable LIKWID marker API if available.
         use_line_profiler : bool
             Enable line-by-line profiling via line_profiler.
+        use_nvtx : bool
+            Add NVTX ranges to profiled regions for NVIDIA Nsight tools.
         recursive_profile : bool
             Enable recursive profiling by default for decorated functions.
         buffer_limit : int
@@ -199,6 +203,22 @@ class ProfilingConfig:
             has to be named: chart legends, the summary heading, the JSON
             statistics. Defaults to None, in which case the output file's stem
             is used. Persisted as the ``label`` metadata field.
+        capture_region_source : bool
+            Record where each region is defined (see
+            :attr:`~scope_profiler.region.Region.source_text`), once per
+            distinct source file, the first time any of its regions is
+            created. Off by default: measured cost is driven almost entirely
+            by that file's total size (an ``ast.parse`` + one tree walk), not
+            by the number or size of the regions in it, and every rank pays
+            it independently and concurrently -- under a millisecond for a
+            typical file of a few hundred lines regardless of MPI rank count,
+            but tenths of a second *per rank* for a single ~10,000-line file
+            with many regions, compounding into whole seconds under
+            contention on a job with more ranks than idle cores (~0.3s at 8
+            ranks, ~2.9s at 64, measured on a shared, oversubscribed login
+            node with such a file). Set to True to enable it; for a typical,
+            modestly sized codebase the cost is negligible.
+
 
         Notes
         -----
@@ -224,9 +244,11 @@ class ProfilingConfig:
         self._deactivate_file_output = deactivate_file_output
         self._use_likwid = use_likwid
         self._use_line_profiler = use_line_profiler
+        self._use_nvtx = use_nvtx
         self._recursive_profile = recursive_profile
         self._buffer_limit = buffer_limit
         self._file_path = file_path
+        self._capture_region_source = capture_region_source
 
         # Local queries, not collectives: nothing here has to be reached by
         # every rank in lockstep. Rank 0 writes the whole output file at
@@ -382,6 +404,11 @@ class ProfilingConfig:
         return self._use_line_profiler
 
     @property
+    def use_nvtx(self) -> bool:
+        """Return whether NVTX annotations are enabled."""
+        return self._use_nvtx
+
+    @property
     def deactivate_file_output(self) -> bool:
         """Return whether the run writes no HDF5 file at all."""
         return self._deactivate_file_output
@@ -390,6 +417,11 @@ class ProfilingConfig:
     def recursive_profile(self) -> bool:
         """Return whether recursive decorator profiling is enabled by default."""
         return self._recursive_profile
+
+    @property
+    def capture_region_source(self) -> bool:
+        """Return whether a region's defining source is captured at creation."""
+        return self._capture_region_source
 
     @property
     def start_time_ns(self) -> int:

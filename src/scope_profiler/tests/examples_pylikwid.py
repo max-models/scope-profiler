@@ -13,7 +13,7 @@ this file usable as a smoke test on machines without LIKWID.
 
 import os
 
-from scope_profiler import ProfileManager, read_h5
+from scope_profiler import ProfileManager
 
 H5_PATH = "profiling_data_likwid.h5"
 
@@ -36,9 +36,13 @@ def test_pylikwid():
         with ProfileManager.profile_region("busy"):
             x += sum(i * i for i in range(200_000))
 
-    ProfileManager.finalize()
-
-    results = read_h5(H5_PATH)
+    # ``finalize()`` is collective, but non-root ranks return before rank 0
+    # has necessarily closed the merged HDF5 file. Requesting the in-memory
+    # result avoids having every rank race to reopen that file; rank 0's
+    # result is assembled from the same payload that was written to disk.
+    results = ProfileManager.finalize(return_results=True)
+    if not results.is_root:
+        return
 
     # Timing data is recorded regardless of whether LIKWID is active.
     assert "main" in results.region_names

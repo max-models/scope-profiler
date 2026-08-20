@@ -4,7 +4,7 @@ import pstats
 import pytest
 
 from scope_profiler import read_h5
-from scope_profiler.post_processing import main
+from scope_profiler.post_processing import export_main
 from scope_profiler.prof_export import build_pstats_dict, export_prof
 from scope_profiler.tests.test_post_processing import _write_sample_h5
 
@@ -158,14 +158,12 @@ def test_cli_export_prof_without_plots(tmp_path, capsys):
     _write_sample_h5(h5_file, _nested_file_data())
     out_dir = tmp_path / "figures"
 
-    main(
+    export_main(
         [
+            "prof",
             str(h5_file),
             "-o",
             str(out_dir),
-            "--export",
-            "prof",
-            "--skip-plot-images",
         ]
     )
 
@@ -178,15 +176,14 @@ def test_cli_export_prof_without_plots(tmp_path, capsys):
     assert {key[2] for key in stats} >= {"main", "setup", "solve", "assemble"}
 
 
-def test_cli_export_prof_alongside_plots(tmp_path):
+def test_cli_export_prof_with_rank_selection(tmp_path):
     h5_file = tmp_path / "profiling_data.h5"
     _write_sample_h5(h5_file, _nested_file_data())
     out_dir = tmp_path / "figures"
 
-    main([str(h5_file), "-o", str(out_dir), "--export", "prof", "--ranks", "0"])
+    export_main(["prof", str(h5_file), "-o", str(out_dir), "--ranks", "0"])
 
     assert (out_dir / "profile_rank0.prof").exists()
-    assert (out_dir / "flame_plot.png").exists()
 
 
 def test_cli_export_prof_requires_output(tmp_path):
@@ -194,7 +191,7 @@ def test_cli_export_prof_requires_output(tmp_path):
     _write_sample_h5(h5_file, _nested_file_data())
 
     with pytest.raises(SystemExit):
-        main([str(h5_file), "--export", "prof"])
+        export_main(["prof", str(h5_file)])
 
 
 def test_exported_prof_loads_in_snakeviz(tmp_path):

@@ -23,9 +23,13 @@ all through a single, unified API.
   events and derived metrics land in the same HDF5 file.
 - **Line profiler integration** --- enable `line_profiler` per-line stats on
   any decorated function with a single flag.
-- **CLI post-processing** --- `scope-profiler pproc` reads HDF5 output and
+- **CLI post-processing** --- `scope-profiler plot` reads HDF5 output and
   generates Gantt charts and exports region statistics JSON with
   region/rank filtering.
+- **MCP server** --- `scope-profiler-mcp` exposes structured profiling data
+  to AI coding agents such as Claude Code, so an agent can inspect a run,
+  benchmark a script and compare before/after profiles as part of its own
+  workflow. See {doc}`guide/mcp`.
 
 ## Quick example
 
@@ -59,7 +63,8 @@ quickstart
 guide/configuration
 guide/regions
 guide/hdf5_and_python_api
-guide/postprocessing_cli
+guide/plot_cli
+guide/mcp
 guide/mpi
 guide/likwid
 guide/line_profiler

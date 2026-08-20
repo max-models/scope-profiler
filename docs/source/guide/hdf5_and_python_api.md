@@ -6,7 +6,7 @@ other ranks hand it, so nothing is staged on disk per rank.
 
 This page covers the file layout and the Python API for reading and plotting
 it. The same charts are available from the command line without writing any
-code --- see {doc}`/guide/postprocessing_cli`.
+code --- see {doc}`/guide/plot_cli`.
 
 ## HDF5 file structure
 
@@ -20,7 +20,8 @@ profiling_data.h5
 │   └── regions/
 │       ├── region_a/
 │       │   ├── start_times   (int64, nanoseconds)
-│       │   └── end_times     (int64, nanoseconds)
+│       │   ├── end_times     (int64, nanoseconds)
+│       │   └── (attrs) source_file, source_lineno, source_text
 │       └── region_b/
 │           ├── start_times
 │           └── end_times
@@ -118,6 +119,30 @@ results.get_regions(include="solver.*")
 # Everything except IO regions
 results.get_regions(exclude="io.*")
 ```
+
+### Where a region is defined
+
+A region can record the source it was created from: the `with` block for
+the context-manager form, or the whole function body for the decorator form.
+It is off by default -- turn it on with `capture_region_source=True` (see
+{doc}`configuration` for what it costs and why it isn't on unconditionally):
+
+```python
+ProfileManager.setup(capture_region_source=True)
+...
+region = results.get_region("solve")
+print(f"{region.source_file}:{region.source_lineno}")
+print(region.source_text)
+```
+
+`region.has_source` is `False` when it was never enabled, for a file written
+before this feature existed, or for a region created only by the recursive
+tracer (`recursive_profile=True`) or `scope-profiler run`, none of which have
+one call site to point at. If the same region name is used at more than one
+call site, the source of whichever call created it first is kept -- their
+timings are pooled together under that one name either way. The same
+information is available without writing any Python, via
+`scope-profiler inspect --source`; see {doc}`/cli`.
 
 ### Post-processing in the script that produced the data
 
@@ -294,8 +319,8 @@ name.
 
 ```{note}
 Everything below has a command-line equivalent that needs no code:
-`scope-profiler pproc profiling_data.h5 -o figures/` writes the same charts
-plus a statistics JSON. See {doc}`/guide/postprocessing_cli` for a worked
+`scope-profiler plot default profiling_data.h5 -o figures/` writes the same charts
+plus a statistics JSON. See {doc}`/guide/plot_cli` for a worked
 walkthrough with example figures, and {doc}`/cli` for the flag reference.
 ```
 
@@ -397,7 +422,7 @@ stats = write_region_statistics_json(runs, "stats.json")   # same dict, and a fi
 Both return per-file, per-region aggregates (`count`, `average`, `min`,
 `max`, `std`, `total`, all in seconds), per-rank statistics for each region,
 and the region names common to all inputs. This is the same document
-`scope-profiler pproc -o ...` writes as `region_statistics.json`.
+`scope-profiler plot default -o ...` writes as `region_statistics.json`.
 
 ## Speedup graph from Python
 

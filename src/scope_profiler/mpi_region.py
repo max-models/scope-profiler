@@ -50,6 +50,44 @@ class MPIRegion:
         """Whether any rank recorded timestamps for this region."""
         return any(region.has_timing for region in self._regions.values())
 
+    def _first_captured(self, attr: str):
+        """First non-None value of ``attr`` across ranks, in rank order.
+
+        Every rank that created this region from the same code path captured
+        the same source, so any one of them stands in for the region as a
+        whole.
+        """
+        for rank in self.ranks:
+            value = getattr(self._regions[rank], attr)
+            if value is not None:
+                return value
+        return None
+
+    @property
+    def has_source(self) -> bool:
+        """Whether any rank captured this region's call-site source."""
+        return self.source_text is not None
+
+    @property
+    def source_file(self) -> str | None:
+        """Path of the file this region is defined in, or None if not captured."""
+        return self._first_captured("source_file")
+
+    @property
+    def source_lineno(self) -> int | None:
+        """Line the region's call site starts at, or None if not captured."""
+        return self._first_captured("source_lineno")
+
+    @property
+    def source_text(self) -> str | None:
+        """Source text of the region's ``with`` block or decorated function."""
+        return self._first_captured("source_text")
+
+    @property
+    def tags(self) -> tuple[str, ...]:
+        """User-defined tags attached to this region."""
+        return self._first_captured("tags") or ()
+
     def get_summary(self) -> Dict[str, Any]:
         """
         Return statistics aggregated over every rank.
@@ -65,9 +103,13 @@ class MPIRegion:
             "num_ranks": len(self._regions),
             "num_calls": self.num_calls,
             "total_duration": self.total_duration,
+            "inclusive_duration": self.inclusive_duration,
+            "exclusive_duration": self.exclusive_duration,
             "average_duration": self.average_duration,
             "min_duration": self.min_duration,
             "max_duration": self.max_duration,
+            "first_duration": self.first_duration,
+            "last_duration": self.last_duration,
             "std_duration": self.std_duration,
         }
 
@@ -125,6 +167,23 @@ class MPIRegion:
         """
         values = [
             region.durations for region in self._regions.values() if region.has_timing
+        ]
+        if not values:
+            return np.array([], dtype=float)
+        return np.concatenate(values)
+
+    @property
+    def inclusive_durations(self) -> np.ndarray:
+        """Inclusive durations pooled across ranks, in seconds."""
+        return self.durations
+
+    @property
+    def exclusive_durations(self) -> np.ndarray:
+        """Exclusive durations pooled across ranks, in seconds."""
+        values = [
+            region.exclusive_durations
+            for region in self._regions.values()
+            if region.has_timing
         ]
         if not values:
             return np.array([], dtype=float)
@@ -210,6 +269,21 @@ class MPIRegion:
         return sum(region.total_duration for region in self._regions.values())
 
     @property
+    def inclusive_duration(self) -> float:
+        """Total inclusive time across ranks, in seconds."""
+        return self.total_duration
+
+    @property
+    def total_exclusive_duration(self) -> float:
+        """Total time excluding nested regions, across ranks, in seconds."""
+        return sum(region.total_exclusive_duration for region in self._regions.values())
+
+    @property
+    def exclusive_duration(self) -> float:
+        """Alias for :attr:`total_exclusive_duration`."""
+        return self.total_exclusive_duration
+
+    @property
     def average_duration(self) -> float:
         """
         Get the mean duration over every call on every rank.
@@ -238,6 +312,47 @@ class MPIRegion:
         values = self.durations
         return float(np.std(values)) if values.size else 0.0
 
+    def percentile_duration(self, percentile: float) -> float:
+        """Return a pooled duration percentile across all ranks."""
+        if not 0 <= percentile <= 100:
+            raise ValueError("percentile must be between 0 and 100")
+        values = self.durations
+        return float(np.percentile(values, percentile)) if values.size else 0.0
+
+    @property
+    def p50_duration(self) -> float:
+        """Median duration across all ranks, in seconds."""
+        return self.percentile_duration(50)
+
+    @property
+    def p95_duration(self) -> float:
+        """95th-percentile duration across all ranks, in seconds."""
+        return self.percentile_duration(95)
+
+    @property
+    def p99_duration(self) -> float:
+        """99th-percentile duration across all ranks, in seconds."""
+        return self.percentile_duration(99)
+
+    @property
+    def rank_imbalance(self) -> float:
+        """Maximum per-rank total divided by the mean per-rank total.
+
+        A value of 1.0 means perfectly balanced ranks. Values are ``0.0``
+        when no calls were recorded or only one rank has timing data.
+        """
+        totals = [region.total_duration for region in self._regions.values()]
+        totals = [total for total in totals if total > 0]
+        if len(totals) < 2:
+            return 0.0
+        return float(max(totals) / np.mean(totals))
+
+    @property
+    def rank_imbalance_pct(self) -> float:
+        """Excess of the slowest rank over the mean, as a percentage."""
+        ratio = self.rank_imbalance
+        return (ratio - 1.0) * 100.0 if ratio else 0.0
+
     @property
     def min_duration(self) -> float:
         """
@@ -263,6 +378,38 @@ class MPIRegion:
         """
         values = self.durations
         return float(np.max(values)) if values.size else 0.0
+
+    @property
+    def first_duration(self) -> float:
+        """
+        Get the duration of the call that started earliest across all ranks.
+
+        Returns
+        -------
+        float
+            Duration in seconds of the chronologically first call, or 0.0 if
+            no rank recorded timing.
+        """
+        timed = [region for region in self._regions.values() if region.has_timing]
+        if not timed:
+            return 0.0
+        return min(timed, key=lambda region: region.first_start_time).first_duration
+
+    @property
+    def last_duration(self) -> float:
+        """
+        Get the duration of the call that ended latest across all ranks.
+
+        Returns
+        -------
+        float
+            Duration in seconds of the chronologically last call, or 0.0 if no
+            rank recorded timing.
+        """
+        timed = [region for region in self._regions.values() if region.has_timing]
+        if not timed:
+            return 0.0
+        return max(timed, key=lambda region: region.last_end_time).last_duration
 
     @property
     def first_start_time(self) -> float:

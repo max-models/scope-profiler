@@ -2,25 +2,28 @@
 
 Also runnable as ``python -m scope_profiler <command> ...``.
 
-Five subcommands:
+Six subcommands:
 
 - ``scope-profiler run script.py [args...]`` -- profiles a script's function
   calls without requiring any decorators or context managers in the script
   itself, similar to ``python -m cProfile``. By default only the script's
   own code is instrumented (the standard library and installed packages are
   skipped) to keep overhead low; pass ``--all`` to trace everything.
-- ``scope-profiler pproc file.h5 [...]`` -- reads merged HDF5 profiling
-  output and renders Gantt/flame/duration/speedup charts, or prints the
-  numbers instead with ``--summary`` (which also tabulates LIKWID hardware
-  counters when the run recorded any). See ``scope_profiler.post_processing``
-  for its full set of options.
+- ``scope-profiler plot <kind> file.h5 [...]`` -- reads merged HDF5 profiling
+  output and renders Gantt/flame/duration/speedup charts. See
+  ``scope_profiler.post_processing`` for its full set of options.
+- ``scope-profiler export <kind> file.h5 [...]`` -- writes plot data,
+  cProfile/pstats files, or speedscope JSON without rendering charts.
 - ``scope-profiler inspect file.h5 [...]`` -- prints the run metadata and a
-  per-region statistics table for merged HDF5 profiling output, without
-  producing any plots. See ``scope_profiler.inspection``.
+  per-region statistics table (including LIKWID hardware counters, when the
+  run recorded any) for merged HDF5 profiling output, without producing any
+  plots. See ``scope_profiler.inspection``.
 - ``scope-profiler diff a.h5 b.h5`` -- compares region statistics between two
   merged HDF5 profiling files, region by region, so a regression (or
   improvement) between two runs shows up in one table. See
   ``scope_profiler.diff``.
+- ``scope-profiler check a.h5 b.h5`` -- applies a regression budget and
+  returns a CI-friendly exit code.
 - ``scope-profiler import-native traces/ -o out.h5`` -- converts the trace
   files written by the Fortran region API
   (``scope_profiler/fortran/scope_profiler.f90``)
@@ -103,11 +106,18 @@ def _run(argv):
         ProfileManager.finalize(verbose=not args.quiet)
 
 
-def _pproc(argv):
-    """Handle ``scope-profiler pproc``: delegate to the post-processing CLI."""
-    from scope_profiler.post_processing import main as pproc_main
+def _plot(argv):
+    """Handle ``scope-profiler plot``: delegate to the post-processing CLI."""
+    from scope_profiler.post_processing import main as plot_main
 
-    return pproc_main(argv)
+    return plot_main(argv)
+
+
+def _export(argv):
+    """Handle ``scope-profiler export``: delegate to the export CLI."""
+    from scope_profiler.post_processing import export_main
+
+    return export_main(argv)
 
 
 def _inspect(argv):
@@ -122,6 +132,13 @@ def _diff(argv):
     from scope_profiler.diff import main as diff_main
 
     return diff_main(argv)
+
+
+def _check(argv):
+    """Handle ``scope-profiler check``: enforce a regression budget."""
+    from scope_profiler.diff import check_main
+
+    return check_main(argv)
 
 
 def _import_fortran(argv):
@@ -193,9 +210,11 @@ def _import_fortran(argv):
 
 _COMMANDS = {
     "run": _run,
-    "pproc": _pproc,
+    "plot": _plot,
+    "export": _export,
     "inspect": _inspect,
     "diff": _diff,
+    "check": _check,
     "import-native": _import_fortran,
 }
 
@@ -220,10 +239,16 @@ def main(argv=None):
         help="Run and profile a script (see `scope-profiler run --help`)",
     )
     subparsers.add_parser(
-        "pproc",
+        "plot",
         add_help=False,
         help="Post-process and plot HDF5 profiling data "
-        "(see `scope-profiler pproc --help`)",
+        "(see `scope-profiler plot --help`)",
+    )
+    subparsers.add_parser(
+        "export",
+        add_help=False,
+        help="Export HDF5 profiling data without rendering charts "
+        "(see `scope-profiler export --help`)",
     )
     subparsers.add_parser(
         "inspect",
@@ -236,6 +261,11 @@ def main(argv=None):
         add_help=False,
         help="Compare region statistics between two HDF5 profiling files "
         "(see `scope-profiler diff --help`)",
+    )
+    subparsers.add_parser(
+        "check",
+        add_help=False,
+        help="Fail on profiling regressions (see `scope-profiler check --help`)",
     )
     subparsers.add_parser(
         "import-native",

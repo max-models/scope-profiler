@@ -10,6 +10,7 @@ from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.plotting_scripts import (
     _duration_timeseries,
     available_likwid_metrics,
+    collect_region_statistics,
     plot_duration_histogram,
     plot_duration_timeseries,
     plot_durations,
@@ -19,7 +20,7 @@ from scope_profiler.plotting_scripts import (
     plot_likwid,
     plot_speedup,
 )
-from scope_profiler.post_processing import main
+from scope_profiler.post_processing import export_main, main
 from scope_profiler.results import ProfilingResults
 
 
@@ -447,23 +448,14 @@ def test_post_processing_cli_supports_multiple_files(tmp_path):
     _write_sample_h5(file_two, _sample_file_data(2, 50, 100))
     _write_sample_h5(file_four, _sample_file_data(4, 25, 50))
 
-    main([str(file_one), str(file_two), str(file_four), "-o", str(output_dir)])
+    main(["quick", str(file_one), str(file_two), str(file_four), "-o", str(output_dir)])
 
-    gantt_plot = output_dir / "gantt_plot.png"
-    flame_plot = output_dir / "flame_plot.png"
-    timeseries_plot = output_dir / "duration_timeseries_plot.png"
     speedup_plot = output_dir / "speedup_plot.png"
     stats_json = output_dir / "region_statistics.json"
 
-    assert gantt_plot.exists()
-    assert gantt_plot.stat().st_size > 0
-    assert flame_plot.exists()
-    assert flame_plot.stat().st_size > 0
     durations_plot = output_dir / "durations_plot.png"
     assert durations_plot.exists()
     assert durations_plot.stat().st_size > 0
-    assert timeseries_plot.exists()
-    assert timeseries_plot.stat().st_size > 0
     assert speedup_plot.exists()
     assert speedup_plot.stat().st_size > 0
     assert stats_json.exists()
@@ -477,6 +469,17 @@ def test_post_processing_cli_supports_multiple_files(tmp_path):
     assert payload["files"][2]["region_statistics"]["setup"]["count"] == 4
 
 
+def test_post_processing_cli_requires_plot_kind(tmp_path, capsys):
+    """The old direct-file plot form has been replaced by plot kind subcommands."""
+    file_one = tmp_path / "run_1.h5"
+    _write_sample_h5(file_one, _sample_file_data(1, 100, 200))
+
+    with pytest.raises(SystemExit):
+        main([str(file_one)])
+
+    assert "invalid choice" in capsys.readouterr().err
+
+
 def test_post_processing_cli_supports_wildcard_file_patterns(tmp_path):
     file_one = tmp_path / "file_1.h5"
     file_two = tmp_path / "file_2.h5"
@@ -486,17 +489,11 @@ def test_post_processing_cli_supports_wildcard_file_patterns(tmp_path):
     _write_sample_h5(file_two, _sample_file_data(2, 50, 100))
 
     wildcard_pattern = str(tmp_path / "file_*.h5")
-    main([wildcard_pattern, "-o", str(output_dir)])
+    main(["quick", wildcard_pattern, "-o", str(output_dir)])
 
-    gantt_plot = output_dir / "gantt_plot.png"
-    flame_plot = output_dir / "flame_plot.png"
     speedup_plot = output_dir / "speedup_plot.png"
     stats_json = output_dir / "region_statistics.json"
 
-    assert gantt_plot.exists()
-    assert gantt_plot.stat().st_size > 0
-    assert flame_plot.exists()
-    assert flame_plot.stat().st_size > 0
     durations_plot = output_dir / "durations_plot.png"
     assert durations_plot.exists()
     assert durations_plot.stat().st_size > 0
@@ -578,6 +575,31 @@ def test_plot_durations_export_data_json(tmp_path):
     assert {bar["metric"] for bar in payload["bars"]} == {"avg", "min", "max", "total"}
 
 
+def test_collect_region_statistics_includes_total_time(tmp_path):
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(
+        file_path,
+        {0: {"solve": ([100 * 1_000_000_000], [130 * 1_000_000_000])}},
+        metadata={
+            "start_time_ns": 80 * 1_000_000_000,
+            "finalize_time_ns": 140 * 1_000_000_000,
+        },
+    )
+
+    payload = collect_region_statistics(read_h5(file_path))
+
+    assert payload["files"][0]["total_time_seconds"] == pytest.approx(60.0)
+
+
+def test_collect_region_statistics_total_time_none_without_metadata(tmp_path):
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
+
+    payload = collect_region_statistics(read_h5(file_path))
+
+    assert payload["files"][0]["total_time_seconds"] is None
+
+
 def test_plot_durations_sort_by_and_top_n(tmp_path):
     file_path = tmp_path / "run.h5"
     # "solve" totals more than "setup" for every rank, so descending sort by
@@ -624,6 +646,113 @@ def test_plot_durations_log_scale_renders(tmp_path):
     )
 
     assert out_file.stat().st_size > 0
+
+
+def test_plot_durations_combine_regions_pools_stats(tmp_path):
+    file_path = tmp_path / "run.h5"
+    ns = 1_000_000_000
+    _write_sample_h5(
+        file_path,
+        {
+            0: {
+                "setup: read_input": ([0], [10 * ns]),
+                "setup: init_grid": ([10 * ns], [15 * ns]),
+                "solve": ([15 * ns], [35 * ns]),
+            }
+        },
+    )
+    results = read_h5(file_path)
+    data_file = tmp_path / "durations_data.json"
+
+    plot_durations(
+        results,
+        filepath=tmp_path / "durations_plot.png",
+        show=False,
+        verbose=False,
+        metrics=["total", "avg"],
+        combine_regions={"setup": ["^setup:.*"]},
+        data_filepath=data_file,
+        data_format="json",
+    )
+
+    payload = json.loads(data_file.read_text(encoding="utf-8"))
+    bars = {
+        (bar["region"], bar["metric"]): bar["value_seconds"] for bar in payload["bars"]
+    }
+    assert {bar["region"] for bar in payload["bars"]} == {"setup", "solve"}
+    assert bars[("setup", "total")] == pytest.approx(15.0)
+    assert bars[("setup", "avg")] == pytest.approx(7.5)
+    assert bars[("solve", "total")] == pytest.approx(20.0)
+
+
+def test_plot_durations_combine_regions_no_match_raises(tmp_path):
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
+    results = read_h5(file_path)
+
+    with pytest.raises(ValueError, match="matched no regions"):
+        plot_durations(
+            results,
+            filepath=tmp_path / "durations_plot.png",
+            show=False,
+            verbose=False,
+            combine_regions={"nope": ["^does_not_exist.*"]},
+        )
+
+
+def test_plot_durations_combine_regions_name_collision_raises(tmp_path):
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
+    results = read_h5(file_path)
+
+    with pytest.raises(ValueError, match="collide"):
+        plot_durations(
+            results,
+            filepath=tmp_path / "durations_plot.png",
+            show=False,
+            verbose=False,
+            combine_regions={"solve": ["^setup$"]},
+        )
+
+
+def test_post_processing_cli_combine_regions(tmp_path):
+    file_path = tmp_path / "run.h5"
+    output_dir = tmp_path / "figures"
+    _write_sample_h5(
+        file_path,
+        {
+            0: {
+                "setup: read_input": ([0], [10]),
+                "setup: init_grid": ([10], [15]),
+                "solve": ([15], [35]),
+            }
+        },
+    )
+
+    main(
+        [
+            "durations",
+            str(file_path),
+            "-o",
+            str(output_dir),
+            "--combine-regions",
+            "setup=^setup:.*",
+        ]
+    )
+
+    plot_file = output_dir / "durations_plot.png"
+    assert plot_file.exists()
+    assert plot_file.stat().st_size > 0
+
+
+def test_post_processing_cli_combine_regions_bad_spec_errors(tmp_path, capsys):
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
+
+    with pytest.raises(SystemExit):
+        main(["durations", str(file_path), "--combine-regions", "not-a-valid-spec"])
+
+    assert "NAME=PATTERN" in capsys.readouterr().err
 
 
 def test_plot_duration_histogram_export_data_json(tmp_path):
@@ -754,7 +883,7 @@ def test_post_processing_cli_plots_likwid_requires_metric(tmp_path):
     _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
 
     with pytest.raises(SystemExit):
-        main([str(file_path), "-o", str(tmp_path / "figures"), "--plots", "likwid"])
+        main(["likwid", str(file_path), "-o", str(tmp_path / "figures")])
 
 
 def test_post_processing_cli_new_plots_and_options(tmp_path):
@@ -762,26 +891,19 @@ def test_post_processing_cli_new_plots_and_options(tmp_path):
     output_dir = tmp_path / "figures"
     _write_sample_h5(file_path, _sample_file_data(2, 10, 20))
 
+    main(["durations", str(file_path), "-o", str(output_dir), "--sort-by", "total"])
     main(
         [
+            "histogram",
             str(file_path),
             "-o",
             str(output_dir),
-            "--plots",
-            "durations",
-            "histogram",
-            "imbalance",
-            "--sort-by",
-            "total",
-            "--top-n",
-            "1",
             "--log-scale",
-            "--histogram-bins",
+            "--bins",
             "5",
-            "--imbalance-metric",
-            "avg",
         ]
     )
+    main(["imbalance", str(file_path), "-o", str(output_dir), "--metric", "avg"])
 
     for name in ("durations_plot.png", "histogram_plot.png", "imbalance_plot.png"):
         plot_file = output_dir / name
@@ -820,22 +942,22 @@ def test_post_processing_cli_export_data_format_json(tmp_path):
     _write_sample_h5(file_one, _sample_file_data(1, 100, 200))
     _write_sample_h5(file_two, _sample_file_data(2, 50, 100))
 
-    main(
+    export_main(
         [
+            "plot-data",
             str(file_one),
             str(file_two),
             "-o",
             str(output_dir),
-            "--export",
-            "data",
-            "--export-data-format",
+            "--format",
             "json",
+            "--plots",
+            "durations",
+            "speedup",
         ]
     )
 
     for name in (
-        "gantt_data.json",
-        "flame_data.json",
         "durations_data.json",
         "speedup_data.json",
     ):
@@ -845,7 +967,7 @@ def test_post_processing_cli_export_data_format_json(tmp_path):
         assert not (output_dir / name.replace(".json", ".csv")).exists()
 
 
-def test_post_processing_cli_skip_plot_images(tmp_path):
+def test_post_processing_cli_export_plot_data_without_images(tmp_path):
     file_one = tmp_path / "run_1.h5"
     file_two = tmp_path / "run_2.h5"
     output_dir = tmp_path / "figures"
@@ -853,23 +975,22 @@ def test_post_processing_cli_skip_plot_images(tmp_path):
     _write_sample_h5(file_one, _sample_file_data(1, 100, 200))
     _write_sample_h5(file_two, _sample_file_data(2, 50, 100))
 
-    main(
+    export_main(
         [
+            "plot-data",
             str(file_one),
             str(file_two),
             "-o",
             str(output_dir),
-            "--export",
-            "data",
-            "--export-data-format",
+            "--format",
             "json",
-            "--skip-plot-images",
+            "--plots",
+            "durations",
+            "speedup",
         ]
     )
 
     for name in (
-        "gantt_data.json",
-        "flame_data.json",
         "durations_data.json",
         "speedup_data.json",
         "region_statistics.json",
@@ -879,10 +1000,12 @@ def test_post_processing_cli_skip_plot_images(tmp_path):
     assert list(output_dir.glob("*.png")) == []
 
 
-def test_post_processing_cli_skip_plot_images_requires_export(tmp_path):
+def test_post_processing_cli_single_plot_can_write_file(tmp_path):
     file_one = tmp_path / "run_1.h5"
-    output_dir = tmp_path / "figures"
+    output_file = tmp_path / "duration.png"
     _write_sample_h5(file_one, _sample_file_data(1, 100, 200))
 
-    with pytest.raises(SystemExit):
-        main([str(file_one), "-o", str(output_dir), "--skip-plot-images"])
+    main(["durations", str(file_one), "-o", str(output_file)])
+
+    assert output_file.exists()
+    assert output_file.stat().st_size > 0

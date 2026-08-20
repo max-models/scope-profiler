@@ -1,9 +1,10 @@
 """CLI entry point for ``scope-profiler inspect``: summarize a profiling file.
 
 Prints the run metadata in full and a one-line-per-region overview of the
-timing data, without producing any plots. The metadata can also be exported
-to JSON, either from the CLI (``--export-metadata``) or with
-:func:`write_metadata_json`.
+timing data, plus a LIKWID hardware-counter table per rank and event group
+when the run recorded any, without producing any plots. The metadata can
+also be exported to JSON, either from the CLI (``--export-metadata``) or
+with :func:`write_metadata_json`.
 """
 
 import argparse
@@ -16,7 +17,12 @@ import numpy as np
 
 from scope_profiler.h5reader import read_h5
 from scope_profiler.results import ProfilingResults
-from scope_profiler.summary import SORT_KEYS, print_region_table, region_rows
+from scope_profiler.summary import (
+    SORT_KEYS,
+    print_likwid_tables,
+    print_region_table,
+    region_rows,
+)
 
 # Metadata is printed in these groups, in this order, so the fields that
 # identify a run come first and the sprawling environment variables last.
@@ -25,6 +31,7 @@ from scope_profiler.summary import SORT_KEYS, print_region_table, region_rows
 _RUN_FIELDS = (
     "timestamp",
     "start_time_ns",
+    "finalize_time_ns",
     "user",
     "hostname",
     "working_directory",
@@ -127,6 +134,33 @@ def _print_metadata(metadata: dict, full: bool, stream) -> None:
     print(file=stream)
 
 
+def _print_region_sources(results, names, stream) -> None:
+    """Print the captured call-site source of each region in ``names``.
+
+    An unknown name gets the same "available regions" hint
+    :meth:`~scope_profiler.results.ProfilingResults.get_region` would raise,
+    printed rather than raised so one bad name in a longer ``--source`` list
+    does not stop the rest from printing.
+    """
+    print(f"Source ({len(names)})", file=stream)
+    for name in names:
+        if name not in results:
+            print(
+                f"  {name!r}: no such region. Available regions: "
+                f"{results.region_names}",
+                file=stream,
+            )
+            continue
+        region = results.get_region(name)
+        if not region.has_source:
+            print(f"  {name}: source not captured", file=stream)
+            continue
+        print(f"  {name}  ({region.source_file}:{region.source_lineno})", file=stream)
+        for line in region.source_text.rstrip("\n").splitlines():
+            print(f"    {line}", file=stream)
+    print(file=stream)
+
+
 def inspect_file(
     file_path,
     include=None,
@@ -136,6 +170,7 @@ def inspect_file(
     show_metadata: bool = True,
     show_regions: bool = True,
     full: bool = False,
+    source: list | None = None,
     stream=None,
 ) -> None:
     """Print a summary of one profiling HDF5 file.
@@ -155,6 +190,11 @@ def inspect_file(
         Sections to print (both default to True).
     full : bool, optional
         Print long metadata values in full instead of clipping them.
+    source : list of str, optional
+        Region names to print the captured call-site source of (the ``with``
+        block or decorated function that defines each region -- see
+        ``ProfileManager.profile_region`` and issue #161). Printed after the
+        region table, regardless of ``include``/``exclude``.
     stream : file-like, optional
         Where to write (default: stdout).
     """
@@ -170,6 +210,8 @@ def inspect_file(
     )
     if span is not None:
         headline += f", {span:.6g} s wall clock"
+    if results.total_time is not None:
+        headline += f", {results.total_time:.6g} s total (setup to finalize)"
 
     print("=" * 78, file=stream)
     if results.label is not None:
@@ -182,13 +224,22 @@ def inspect_file(
     if show_metadata:
         _print_metadata(results.metadata, full=full, stream=stream)
 
-    if not show_regions:
-        return
+    if show_regions:
+        rows = region_rows(
+            results, include=include, exclude=exclude, ranks=ranks, sort=sort
+        )
+        print_region_table(
+            rows,
+            title=f"Regions ({len(rows)})",
+            stream=stream,
+            total_time=results.total_time,
+        )
+        print_likwid_tables(
+            results, include=include, exclude=exclude, ranks=ranks, stream=stream
+        )
 
-    rows = region_rows(
-        results, include=include, exclude=exclude, ranks=ranks, sort=sort
-    )
-    print_region_table(rows, title=f"Regions ({len(rows)})", stream=stream)
+    if source:
+        _print_region_sources(results, source, stream)
 
 
 def _json_safe(value):
@@ -312,6 +363,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print long metadata values (PATH, LD_LIBRARY_PATH, ...) in full",
     )
     parser.add_argument(
+        "--source",
+        nargs="+",
+        metavar="NAME",
+        help=(
+            "Print the captured call-site source (the 'with' block or "
+            "decorated function that defines it) of these regions"
+        ),
+    )
+    parser.add_argument(
         "--export-metadata",
         metavar="PATH",
         help="Also write the metadata of every inspected file to this JSON file",
@@ -363,6 +423,7 @@ def main(argv: list | None = None):
             show_metadata=not args.regions_only,
             show_regions=not args.metadata_only,
             full=args.full,
+            source=args.source,
         )
         printed += 1
 

@@ -7,7 +7,7 @@ write the *same* format, so a program built from either -- or both -- lands in
 one profile. This module turns those files into the same
 :class:`~scope_profiler.results.ProfilingResults` -- and the same HDF5 layout
 -- a Python run produces, so a Fortran run gets the whole post-processing
-stack (summaries, plots, exporters, ``pproc``) for free.
+stack (summaries, plots, exporters, ``plot``) for free.
 
 Trace layout, little- or big-endian, as written by ``sp_finalize``::
 
@@ -293,7 +293,7 @@ def convert_traces(inputs, output_path, label: str | None = None):
     """Convert Fortran traces into a standard scope-profiler HDF5 file.
 
     The result is indistinguishable from one a Python run wrote, so
-    ``scope-profiler pproc`` / ``inspect`` and :func:`~scope_profiler.read_h5`
+    ``scope-profiler plot`` / ``inspect`` and :func:`~scope_profiler.read_h5`
     work on it directly.
 
     Parameters

@@ -62,9 +62,22 @@ def test_region_durations_are_seconds():
     assert region.min_duration == 2.0
     assert region.max_duration == 4.0
     assert region.std_duration == 1.0
+    assert region.first_duration == 2.0
+    assert region.last_duration == 4.0
     assert region.first_start_time == 0.0
     assert region.last_end_time == 14.0
     assert region.get_summary()["total_duration"] == 6.0
+    assert region.p50_duration == pytest.approx(3.0)
+    assert region.p95_duration == pytest.approx(3.9)
+    assert region.p99_duration == pytest.approx(3.98)
+
+
+def test_region_percentile_rejects_invalid_values():
+    region = Region(np.array([0], dtype=np.int64), np.array([NS], dtype=np.int64))
+    with pytest.raises(ValueError):
+        region.percentile_duration(-1)
+    with pytest.raises(ValueError):
+        region.percentile_duration(101)
 
 
 def test_region_without_any_calls_is_safe():
@@ -79,9 +92,13 @@ def test_region_without_any_calls_is_safe():
     assert region.get_summary() == {
         "num_calls": 0,
         "total_duration": 0.0,
+        "inclusive_duration": 0.0,
+        "exclusive_duration": 0.0,
         "average_duration": 0.0,
         "min_duration": 0.0,
         "max_duration": 0.0,
+        "first_duration": 0.0,
+        "last_duration": 0.0,
         "std_duration": 0.0,
     }
 
@@ -105,7 +122,14 @@ def test_mpi_region_aggregates_over_ranks(sample_file):
     assert solve.total_durations() == pytest.approx({0: 5.0, 1: 8.0})
     assert solve.first_start_time == pytest.approx(2.0)
     assert solve.last_end_time == pytest.approx(9.0)
+    # rank 0 starts first (tied at t=2, rank 0 wins), rank 1 ends last (t=9).
+    assert solve.first_duration == pytest.approx(2.0)
+    assert solve.last_duration == pytest.approx(4.0)
     assert "solve" in repr(solve)
+    assert solve.p50_duration == pytest.approx(3.5)
+    assert solve.p95_duration == pytest.approx(4.0)
+    assert solve.rank_imbalance == pytest.approx(8.0 / 6.5)
+    assert solve.rank_imbalance_pct == pytest.approx((8.0 / 6.5 - 1) * 100)
 
 
 def test_mpi_region_unknown_rank_lists_available(sample_file):
@@ -142,6 +166,8 @@ def test_reader_summary(sample_file):
     assert [row["name"] for row in summary] == ["setup", "solve"]
     assert summary[1]["num_calls"] == 4
     assert summary[1]["total_duration"] == pytest.approx(13.0)
+    assert summary[1]["p95"] == pytest.approx(4.0)
+    assert summary[1]["imbalance"] == pytest.approx((8.0 / 6.5 - 1) * 100)
 
     # Filters use the same regex semantics as get_regions().
     assert [row["name"] for row in results.summary(include="sol")] == ["solve"]
@@ -154,6 +180,23 @@ def test_reader_print_summary(sample_file, capsys):
     out = capsys.readouterr().out
     assert "region" in out and "total [s]" in out
     assert "setup" in out and "solve" in out
+    # sample_file carries no start_time_ns/finalize_time_ns, so total_time is
+    # undefined and print_summary must not claim a number for it.
+    assert "Total time" not in out
+
+
+def test_reader_print_summary_shows_total_time_when_available(tmp_path, capsys):
+    path = tmp_path / "with_finalize.h5"
+    _write_sample_h5(
+        path,
+        {0: {"solve": ([100 * NS], [130 * NS])}},
+        metadata={"start_time_ns": 80 * NS, "finalize_time_ns": 140 * NS},
+    )
+
+    read_h5(path).print_summary()
+
+    out = capsys.readouterr().out
+    assert "Total time (setup to finalize): 60 s" in out
 
 
 def test_reader_print_summary_sort_by_min_and_std(sample_file):
@@ -358,6 +401,44 @@ def test_startup_time_measures_the_gap_before_the_first_region(tmp_path):
     assert read_h5(path).startup_time == pytest.approx(20.0)
 
 
+def test_total_time_spans_setup_to_finalize(tmp_path):
+    """total_time covers startup and teardown that time_span misses."""
+    path = tmp_path / "with_finalize.h5"
+    _write_sample_h5(
+        path,
+        # 20 s of startup before the first region, 10 s of teardown after
+        # the last one, so total_time (60 s) must exceed time_span (30 s).
+        {0: {"solve": ([100 * NS], [130 * NS])}},
+        metadata={"start_time_ns": 80 * NS, "finalize_time_ns": 140 * NS},
+    )
+
+    results = read_h5(path)
+
+    assert results.finalize_time == pytest.approx(140.0)
+    assert results.time_span == pytest.approx(30.0)
+    assert results.total_time == pytest.approx(60.0)
+
+
+def test_total_time_none_without_start_or_finalize_time(tmp_path):
+    """Older files (or a run that skipped setup()/finalize()) report None."""
+    path = tmp_path / "no_start.h5"
+    _write_sample_h5(path, {0: {"solve": ([100 * NS], [110 * NS])}})
+
+    results = read_h5(path)
+
+    assert results.finalize_time is None
+    assert results.total_time is None
+
+    # A registered start with no matching finalize time is still incomplete.
+    path_start_only = tmp_path / "start_only.h5"
+    _write_sample_h5(
+        path_start_only,
+        {0: {"solve": ([100 * NS], [110 * NS])}},
+        metadata={"start_time_ns": 80 * NS},
+    )
+    assert read_h5(path_start_only).total_time is None
+
+
 def test_reader_time_span_without_regions(tmp_path):
     """A run that profiled nothing still answers the timeline queries."""
     path = tmp_path / "empty.h5"
@@ -444,6 +525,34 @@ def test_reader_call_stack(tmp_path):
 
     # A filtered stack renests around what is left.
     assert [call["depth"] for call in results.call_stack(exclude="inner")] == [0, 1]
+
+
+def test_nested_regions_expose_inclusive_and_exclusive_time(tmp_path):
+    path = tmp_path / "nested_durations.h5"
+    _write_sample_h5(
+        path,
+        {
+            0: {
+                "outer": ([0], [100]),
+                "first": ([10], [30]),
+                "second": ([50], [80]),
+            }
+        },
+    )
+
+    results = read_h5(path)
+
+    assert results["outer"].inclusive_duration == pytest.approx(100e-9)
+    assert results["outer"].exclusive_duration == pytest.approx(50e-9)
+    assert results["first"].inclusive_duration == pytest.approx(20e-9)
+    assert results["first"].exclusive_duration == pytest.approx(20e-9)
+    assert results.summary(include="outer")[0]["exclusive_duration"] == pytest.approx(
+        50e-9
+    )
+
+    outer_call = results.call_stack()[0]
+    assert outer_call["inclusive_duration"] == pytest.approx(100e-9)
+    assert outer_call["exclusive_duration"] == pytest.approx(50e-9)
 
 
 def test_top_level_exports_and_lazy_plotting():

@@ -2,6 +2,8 @@
 
 from time import sleep
 
+import pytest
+
 from scope_profiler import ProfileManager, read_h5
 
 
@@ -93,3 +95,44 @@ def test_finalize_inside_an_open_region(tmp_path):
     assert region.num_calls == 1
     assert region.ptr == 1
     assert region.get_durations_numpy()[0] > 0
+
+
+def test_session_finalizes_and_returns_results(tmp_path):
+    out = tmp_path / "session.h5"
+    with ProfileManager.session(
+        file_path=str(out), verbose=False, return_results=True
+    ) as run:
+        _run("step", 2)
+
+    assert run.results is not None
+    assert run.results["step"].num_calls == 2
+    assert read_h5(str(out))["step"].num_calls == 2
+
+
+def test_session_finalizes_when_body_raises(tmp_path):
+    out = tmp_path / "session-error.h5"
+    with pytest.raises(RuntimeError):
+        with ProfileManager.session(file_path=str(out), verbose=False):
+            _run("step", 1)
+            raise RuntimeError("expected")
+
+    assert read_h5(str(out))["step"].num_calls == 1
+
+
+def test_region_tags_round_trip_and_must_be_consistent(tmp_path):
+    out = tmp_path / "tags.h5"
+    ProfileManager.setup(file_path=str(out))
+
+    with ProfileManager.profile_region("solve", tags=("compute", "hot")):
+        pass
+    # Omitting tags means "unspecified", which is convenient for shared
+    # helpers that use a region name already configured by the caller.
+    with ProfileManager.profile_region("solve"):
+        pass
+    with pytest.raises(ValueError, match="already has tags"):
+        ProfileManager.profile_region("solve", tags=["io"])
+
+    results = ProfileManager.finalize(verbose=False, return_results=True)
+    assert results["solve"].tags == ("compute", "hot")
+    assert results.summary()[0]["tags"] == ("compute", "hot")
+    assert read_h5(str(out))["solve"].tags == ("compute", "hot")

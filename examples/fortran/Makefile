@@ -58,7 +58,7 @@ EXTENSION := kernels$(EXT_SUFFIX)
 mixed: $(EXTENSION)
 
 $(EXTENSION): kernels.f90 $(SP_MODULE)
-	$(PYTHON) -m numpy.f2py -c $(SP_MODULE) kernels.f90 -m kernels --quiet
+	$(PYTHON) -m numpy.f2py -c $(SP_MODULE) kernels.f90 -m kernels --quiet --backend meson
 
 run-mixed: mixed
 	$(PYTHON) run_mixed.py

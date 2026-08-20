@@ -13,7 +13,21 @@ import sys
 
 import numpy as np
 
-SORT_KEYS = ("total", "calls", "avg", "min", "max", "std", "name")
+SORT_KEYS = (
+    "total",
+    "calls",
+    "avg",
+    "min",
+    "max",
+    "first",
+    "last",
+    "std",
+    "p50",
+    "p95",
+    "p99",
+    "imbalance",
+    "name",
+)
 
 _COLUMNS = (
     ("name", "region"),
@@ -23,7 +37,13 @@ _COLUMNS = (
     ("avg", "avg [s]"),
     ("min", "min [s]"),
     ("max", "max [s]"),
+    ("first", "first [s]"),
+    ("last", "last [s]"),
     ("std", "std [s]"),
+    ("p50", "p50 [s]"),
+    ("p95", "p95 [s]"),
+    ("p99", "p99 [s]"),
+    ("imbalance", "imbalance [%]"),
 )
 
 
@@ -45,6 +65,27 @@ def _region_durations(region, ranks=None) -> np.ndarray:
     return np.concatenate(values)
 
 
+def _first_last_durations(region, ranks=None):
+    """Duration of the chronologically first and last call, across ranks.
+
+    Pooling durations (as ``_region_durations`` does) loses call order across
+    ranks, so first/last are found from each rank's own first/last call
+    instead -- the earliest-starting rank supplies "first", the
+    latest-ending rank supplies "last".
+    """
+    selected = (
+        region.regions
+        if ranks is None
+        else {rank: region.regions[rank] for rank in ranks if rank in region.regions}
+    )
+    timed = [data for data in selected.values() if data.has_timing]
+    if not timed:
+        return None, None
+    first = min(timed, key=lambda data: data.first_start_time).first_duration
+    last = max(timed, key=lambda data: data.last_end_time).last_duration
+    return first, last
+
+
 def region_row(region, ranks=None) -> dict:
     """Collect the summary statistics shown for one region.
 
@@ -59,6 +100,7 @@ def region_row(region, ranks=None) -> dict:
         }
 
     durations = _region_durations(region, ranks)
+    first, last = _first_last_durations(region, ranks)
     return {
         "name": region.name,
         "num_ranks": len(per_rank),
@@ -67,8 +109,33 @@ def region_row(region, ranks=None) -> dict:
         "avg": float(np.mean(durations)) if durations.size else None,
         "min": float(np.min(durations)) if durations.size else None,
         "max": float(np.max(durations)) if durations.size else None,
+        "first": first,
+        "last": last,
         "std": float(np.std(durations)) if durations.size else None,
+        "p50": float(np.percentile(durations, 50)) if durations.size else None,
+        "p95": float(np.percentile(durations, 95)) if durations.size else None,
+        "p99": float(np.percentile(durations, 99)) if durations.size else None,
+        "imbalance": (
+            region.rank_imbalance_pct
+            if ranks is None
+            else _rank_imbalance_pct(region, ranks)
+        ),
     }
+
+
+def _rank_imbalance_pct(region, ranks=None) -> float:
+    """Compute slowest-rank total excess over the selected-rank mean."""
+    selected = (
+        region.regions
+        if ranks is None
+        else {rank: region.regions[rank] for rank in ranks if rank in region.regions}
+    )
+    totals = [
+        data.total_duration for data in selected.values() if data.total_duration > 0
+    ]
+    if len(totals) < 2:
+        return 0.0
+    return (max(totals) / float(np.mean(totals)) - 1.0) * 100.0
 
 
 def region_rows(
@@ -112,7 +179,11 @@ def _format_duration(value) -> str:
 
 
 def print_region_table(
-    rows, title=None, stream=None, suppress_notes: bool = False
+    rows,
+    title=None,
+    stream=None,
+    suppress_notes: bool = False,
+    total_time: float | None = None,
 ) -> None:
     """Print the aligned per-region statistics table.
 
@@ -126,6 +197,12 @@ def print_region_table(
         Where to write (default: stdout).
     suppress_notes : bool, optional
         Don't print the explanatory notes below the table (default: False).
+    total_time : float, optional
+        Wall-clock seconds from ``setup()`` to ``finalize()`` (see
+        :attr:`~scope_profiler.results.ProfilingResults.total_time`), printed
+        below the TOTAL row when given. Unlike that row -- which sums region
+        durations and so can exceed the run's real duration when regions
+        nest -- this is the run's own actual wall-clock time.
     """
     stream = sys.stdout if stream is None else stream
 
@@ -144,7 +221,13 @@ def print_region_table(
             "avg": _format_duration(row["avg"]),
             "min": _format_duration(row["min"]),
             "max": _format_duration(row["max"]),
+            "first": _format_duration(row["first"]),
+            "last": _format_duration(row["last"]),
             "std": _format_duration(row["std"]),
+            "p50": _format_duration(row["p50"]),
+            "p95": _format_duration(row["p95"]),
+            "p99": _format_duration(row["p99"]),
+            "imbalance": _format_duration(row["imbalance"]),
         }
         for row in rows
     ]
@@ -158,7 +241,13 @@ def print_region_table(
         "avg": "",
         "min": "",
         "max": "",
+        "first": "",
+        "last": "",
         "std": "",
+        "p50": "",
+        "p95": "",
+        "p99": "",
+        "imbalance": "",
     }
 
     widths = {
@@ -187,6 +276,8 @@ def print_region_table(
             print(f"\n  {note}", file=stream)
     print(f"  {rule}", file=stream)
     print(f"  {render(total_row)}", file=stream)
+    if total_time is not None:
+        print(f"\n  Total time (setup to finalize): {total_time:.6g} s", file=stream)
 
     notes = []
     if len(rows) > 1:

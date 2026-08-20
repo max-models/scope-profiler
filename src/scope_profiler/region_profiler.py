@@ -1,8 +1,12 @@
 """Profile region classes implementing the strategy pattern for different profiling modes."""
 
+import ast
 import functools
+import inspect
+import linecache
+import types
 from time import perf_counter_ns
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 import numpy as np
 
@@ -10,6 +14,81 @@ from scope_profiler.profile_config import ProfilingConfig
 
 if TYPE_CHECKING:
     pass
+
+
+# Parsed module ASTs, memoized by filename. Capturing a region's source only
+# runs once per region name (see BaseProfileRegion.set_source), but a file can
+# define many regions, so the parse itself is cached rather than repeated.
+_AST_CACHE: Dict[str, Optional[ast.Module]] = {}
+
+
+def _parsed_module(filename: str) -> Optional[ast.Module]:
+    """Parse ``filename`` into an AST, memoized by filename.
+
+    Returns None for anything that cannot be parsed (a REPL frame, a frozen
+    module, a file that no longer exists), so callers fall back gracefully
+    instead of raising.
+    """
+    if filename not in _AST_CACHE:
+        try:
+            text = "".join(linecache.getlines(filename))
+            _AST_CACHE[filename] = ast.parse(text, filename=filename) if text else None
+        except (OSError, SyntaxError, ValueError):
+            _AST_CACHE[filename] = None
+    return _AST_CACHE[filename]
+
+
+# Lineno -> With node, memoized by filename. Keeping this separate from
+# _AST_CACHE means a file with many regions costs one ast.walk() in total
+# (done the first time any region in it is captured), not one per region: the
+# naive approach -- walking the whole tree again for every new region name --
+# turned out to cost hundreds of microseconds per region on a file of a few
+# hundred lines (measured in test_source_capture_is_a_one_time_per_name_cost),
+# which is fine once but not once per distinct name in a busy file.
+_WITH_NODE_CACHE: Dict[str, Dict[int, ast.With]] = {}
+
+
+def _with_nodes(filename: str) -> Dict[int, ast.With]:
+    """Every ``with`` statement in ``filename``, indexed by its start line."""
+    if filename not in _WITH_NODE_CACHE:
+        tree = _parsed_module(filename)
+        nodes: Dict[int, ast.With] = {}
+        if tree is not None:
+            for node in ast.walk(tree):
+                if isinstance(node, ast.With):
+                    nodes[node.lineno] = node
+        _WITH_NODE_CACHE[filename] = nodes
+    return _WITH_NODE_CACHE[filename]
+
+
+def call_site_source(filename: str, lineno: int) -> Optional[str]:
+    """Source text of the ``with`` block starting at ``lineno`` in ``filename``.
+
+    Falls back to just the call-site line when the enclosing ``with``
+    statement cannot be located (e.g. the file cannot be parsed), so a region
+    still gets *some* location information rather than none.
+    """
+    node = _with_nodes(filename).get(lineno)
+    if node is not None:
+        end_lineno = getattr(node, "end_lineno", node.lineno)
+        lines = linecache.getlines(filename)[node.lineno - 1 : end_lineno]
+        if lines:
+            return "".join(lines)
+    return linecache.getline(filename, lineno) or None
+
+
+def function_source(func) -> Optional[Tuple[str, int, str]]:
+    """Source file, starting line and text of a decorated function.
+
+    Returns None when the source cannot be recovered (e.g. a function defined
+    interactively or via ``exec``).
+    """
+    try:
+        lines, first_lineno = inspect.getsourcelines(func)
+        filename = inspect.getsourcefile(func) or func.__code__.co_filename
+    except (OSError, TypeError):
+        return None
+    return filename, first_lineno, "".join(lines)
 
 
 def _import_pylikwid():
@@ -43,6 +122,49 @@ def _import_line_profiler():
     return LineProfiler
 
 
+def _function_for_frame(frame):
+    """Build a function object suitable for line_profiler from an active frame.
+
+    A context manager receives a frame rather than a function object. Existing
+    module/local references are preferred; the fallback reconstructs a small
+    function with the same code and closure values so nested functions work as
+    well. line_profiler only uses the function's code metadata when registering
+    it, so the reconstructed function is never called.
+    """
+    code = frame.f_code
+    for namespace in (frame.f_locals, frame.f_globals):
+        for value in namespace.values():
+            if isinstance(value, types.FunctionType) and value.__code__ is code:
+                return value
+
+    if code.co_freevars:
+
+        def make_cell(value):
+            return (lambda: value).__closure__[0]
+
+        closure = tuple(
+            make_cell(frame.f_locals.get(name)) for name in code.co_freevars
+        )
+    else:
+        closure = None
+    try:
+        return types.FunctionType(code, frame.f_globals, code.co_name, closure=closure)
+    except (TypeError, ValueError):
+        return None
+
+
+def _import_nvtx():
+    """Import NVTX lazily, with an actionable optional-dependency error."""
+    try:
+        import nvtx
+    except ImportError as exc:
+        raise ImportError(
+            "NVTX annotations requested but nvtx is not installed. Install "
+            "scope-profiler[nvtx], or nvtx directly."
+        ) from exc
+    return nvtx
+
+
 # Shared read-only stand-in for the timing buffers of regions that never record
 # timestamps. Handing out one module-level array keeps `start_times`/`end_times`
 # valid attributes (and the derived properties empty) at zero per-region cost.
@@ -71,13 +193,17 @@ class BaseProfileRegion:
         "_scope_ptr_stack",
         "_push_scope",
         "_pop_scope",
+        "source_file",
+        "source_lineno",
+        "source_text",
+        "tags",
     )
 
     # Subclasses that never write timestamps set this to False so no per-region
     # buffers are allocated.
     _records_time = True
 
-    def __init__(self, region_name: str, config: ProfilingConfig):
+    def __init__(self, region_name: str, config: ProfilingConfig, tags=()):
         """Initialize a profiling region.
 
         Parameters
@@ -90,6 +216,7 @@ class BaseProfileRegion:
         """
         self.region_name = region_name
         self.config = config
+        self.tags = tuple(tags)
         # Calls already copied out by an earlier finalize(); `num_calls` adds
         # this to `ptr` rather than being incremented on every entry, which
         # takes one attribute write out of the hot path.
@@ -127,6 +254,32 @@ class BaseProfileRegion:
         self._scope_ptr_stack = []
         self._push_scope = self._scope_ptr_stack.append
         self._pop_scope = self._scope_ptr_stack.pop
+
+        # Where this region is defined in user code, set once via
+        # set_source() (see ProfileManager._capture_region_source and the
+        # decorator path in ProfileManager.profile). None until then, and for
+        # regions whose source could not be recovered at all.
+        self.source_file = None
+        self.source_lineno = None
+        self.source_text = None
+
+    def set_source(self, filename, lineno, text) -> None:
+        """Record where this region is defined, the first time it is called.
+
+        First writer wins: a region name reused at more than one call site
+        keeps only the first location, matching how their timings are already
+        pooled together under one name (see issue #161).
+        """
+        if self.source_text is not None or filename is None:
+            return
+        self.source_file = filename
+        self.source_lineno = lineno
+        self.source_text = text
+
+    @property
+    def has_source(self) -> bool:
+        """Whether this region's call-site source was captured."""
+        return self.source_text is not None
 
     def _grow(self) -> None:
         """Double the timestamp buffers, preserving already-recorded slots.
@@ -287,6 +440,52 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
         self.end_times[self._pop_scope()] = perf_counter_ns()
 
 
+# NVTX region: time + NVIDIA Nsight annotation
+class NVTXProfileRegion(TimeOnlyProfileRegion):
+    """Region that records CPU time and emits an NVTX range.
+
+    NVTX is an annotation API, not a GPU timing API. Nsight Systems and
+    Nsight Compute consume the ranges and correlate them with GPU work. The
+    normal CPU timestamps are retained in the scope-profiler result.
+    """
+
+    __slots__ = ("_nvtx",)
+
+    def __init__(self, region_name: str, config: ProfilingConfig, tags=()):
+        super().__init__(region_name, config, tags=tags)
+        self._nvtx = _import_nvtx()
+
+    def wrap(self, func):
+        """Wrap a function with both CPU timing and an NVTX range."""
+        wrapped = super().wrap(func)
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            self._nvtx.push_range(self.region_name)
+            try:
+                return wrapped(*args, **kwargs)
+            finally:
+                self._nvtx.pop_range()
+
+        return wrapper
+
+    def __enter__(self):
+        """Record CPU start time and push an NVTX range."""
+        self._nvtx.push_range(self.region_name)
+        try:
+            return super().__enter__()
+        except BaseException:
+            self._nvtx.pop_range()
+            raise
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Pop the NVTX range after recording CPU end time."""
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self._nvtx.pop_range()
+
+
 # Full region: time + LIKWID
 class FullProfileRegion(BaseProfileRegion):
     """Region that records both timing and LIKWID metrics, and writes to HDF5.
@@ -297,9 +496,9 @@ class FullProfileRegion(BaseProfileRegion):
 
     __slots__ = ("likwid_marker_start", "likwid_marker_stop")
 
-    def __init__(self, region_name: str, config: ProfilingConfig):
+    def __init__(self, region_name: str, config: ProfilingConfig, tags=()):
         """Initialize timing buffers, HDF5 paths, and LIKWID callbacks."""
-        super().__init__(region_name, config)
+        super().__init__(region_name, config, tags=tags)
         pylikwid = _import_pylikwid()
         self.likwid_marker_start = pylikwid.markerstartregion
         self.likwid_marker_stop = pylikwid.markerstopregion
@@ -359,13 +558,14 @@ class LineProfilerRegion(BaseProfileRegion):
     profiled while the context is active.
     """
 
-    __slots__ = ("_line_profiler",)
+    __slots__ = ("_line_profiler", "_registered_codes")
 
-    def __init__(self, region_name: str, config: ProfilingConfig):
+    def __init__(self, region_name: str, config: ProfilingConfig, tags=()):
         """Initialize timing buffers and line_profiler instance."""
-        super().__init__(region_name, config)
+        super().__init__(region_name, config, tags=tags)
         LineProfiler = _import_line_profiler()
         self._line_profiler = LineProfiler()
+        self._registered_codes = set()
 
     def wrap(self, func):
         """Wrap a function to measure execution time and collect line-by-line stats."""
@@ -394,6 +594,12 @@ class LineProfilerRegion(BaseProfileRegion):
 
     def __enter__(self):
         """Reserve this scope's slot, record start time, and enable line profiler."""
+        frame = inspect.currentframe().f_back
+        if frame.f_code not in self._registered_codes:
+            func = _function_for_frame(frame)
+            if func is not None:
+                self._line_profiler.add_function(func)
+                self._registered_codes.add(frame.f_code)
         slot = self.ptr
         if slot >= self.capacity:
             self._grow()

@@ -15,7 +15,7 @@ in any order and in any environment.
    regions, `MPIRegion` vs `Region`, summaries, DataFrames, filtering, metadata
    and JSON export.
 3. **Visualizing results** --- Gantt, flame, duration and speedup charts, plus
-   the equivalent `scope-profiler pproc` invocations.
+   the equivalent `scope-profiler plot` invocations.
 4. **Profiling modes** --- what each `setup()` option records, recursive and
    line-by-line profiling, the zero-instrumentation CLI, MPI and LIKWID.
 5. **Custom analysis** --- one level below the summaries: `events()` and the
@@ -35,7 +35,7 @@ tutorials/*
 Notebooks 3, 4 and 6 need the plotting extra:
 
 ```bash
-pip install "scope-profiler[pproc]"
+pip install "scope-profiler[plot]"
 ```
 
 ## Example scripts
@@ -49,6 +49,8 @@ scripts:
   one decorated entrypoint using `recursive_profile=True`.
 - **`ex_cli_profiling.py`** --- an uninstrumented script, profiled with
   `scope-profiler run` (no decorators or setup calls needed).
+- **`ex_region_source.py`** --- reads back the source code a region was
+  defined with, both from Python and via `scope-profiler inspect --source`.
 - **`benchmark_overhead.py`** --- measures per-call overhead of every
   profiling mode and produces a bar chart.
 

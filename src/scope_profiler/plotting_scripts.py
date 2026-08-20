@@ -58,7 +58,7 @@ def _get_canvas():
         from maxplotlib import Canvas
     except ImportError as exc:
         raise ImportError(
-            "maxplotlib is required for plotting. Install scope-profiler[pproc] "
+            "maxplotlib is required for plotting. Install scope-profiler[plot] "
             "or maxplotlibx (>= 0.1.5, for its gantt and flame charts)."
         ) from exc
     return Canvas
@@ -317,13 +317,48 @@ def _region_duration_values(
     return np.concatenate(durations)
 
 
-def _stats_from_values(values: np.ndarray) -> dict[str, float | int | None]:
+def _first_last_duration(
+    region,
+    ranks: list[int] | None = None,
+) -> tuple[float | None, float | None]:
+    """Duration of the chronologically first and last call, across ranks.
+
+    Pooling durations across ranks loses call order, so first/last are found
+    from each rank's own first/last call instead -- the earliest-starting
+    rank supplies "first", the latest-ending rank supplies "last".
+    """
+    if ranks is None:
+        selected = region.regions.values()
+    else:
+        selected = (region.regions[rank] for rank in ranks if rank in region.regions)
+    timed = [data for data in selected if data.has_timing]
+    if not timed:
+        return None, None
+    first = min(timed, key=lambda data: data.first_start_time).first_duration
+    last = max(timed, key=lambda data: data.last_end_time).last_duration
+    return first, last
+
+
+def _stats_from_values(
+    values: np.ndarray,
+    first: float | None = None,
+    last: float | None = None,
+) -> dict[str, float | int | None]:
+    """Compute the duration statistics shown in the region-statistics export.
+
+    ``first``/``last`` (the chronologically first/last call's duration) can't
+    be derived from ``values`` alone once several ranks have been pooled into
+    one array, since that loses call order -- callers that can determine them
+    (e.g. a single rank's own, order-preserving array) pass them in.
+    """
     if values.size == 0:
         return {
             "count": 0,
             "average_duration_seconds": None,
             "min_duration_seconds": None,
             "max_duration_seconds": None,
+            "first_duration_seconds": None,
+            "last_duration_seconds": None,
             "std_duration_seconds": None,
             "total_duration_seconds": None,
         }
@@ -333,6 +368,8 @@ def _stats_from_values(values: np.ndarray) -> dict[str, float | int | None]:
         "average_duration_seconds": float(np.mean(values)),
         "min_duration_seconds": float(np.min(values)),
         "max_duration_seconds": float(np.max(values)),
+        "first_duration_seconds": first,
+        "last_duration_seconds": last,
         "std_duration_seconds": float(np.std(values)),
         "total_duration_seconds": float(np.sum(values)),
     }
@@ -428,14 +465,24 @@ def collect_region_statistics(
         region_payload = {}
         for region in regions:
             values = _region_duration_values(region, selected_ranks)
+            first, last = _first_last_duration(region, selected_ranks)
             per_rank_stats = {}
             for rank in sorted(region.regions.keys()):
                 if selected_ranks is not None and rank not in selected_ranks:
                     continue
-                rank_values = region.regions[rank].durations
-                per_rank_stats[str(rank)] = _stats_from_values(rank_values)
+                rank_region = region.regions[rank]
+                rank_values = rank_region.durations
+                rank_first = (
+                    rank_region.first_duration if rank_region.has_timing else None
+                )
+                rank_last = (
+                    rank_region.last_duration if rank_region.has_timing else None
+                )
+                per_rank_stats[str(rank)] = _stats_from_values(
+                    rank_values, first=rank_first, last=rank_last
+                )
             region_payload[region.name] = {
-                **_stats_from_values(values),
+                **_stats_from_values(values, first=first, last=last),
                 "per_rank": per_rank_stats,
             }
 
@@ -444,6 +491,7 @@ def collect_region_statistics(
                 "label": label,
                 "file_path": str(Path(run.file_path).resolve()),
                 "num_ranks": run.num_ranks,
+                "total_time_seconds": run.total_time,
                 "region_statistics": region_payload,
             }
         )
@@ -858,14 +906,27 @@ _DURATION_METRICS: dict[str, tuple[str, str]] = {
 }
 
 
-def _region_metric_value(
-    region,
-    metric_key: str,
+def _pooled_metric_value(
+    run: ProfilingResults,
+    member_names: list[str],
+    stat_key: str,
     ranks: list[int] | None = None,
 ) -> float:
-    values = _region_duration_values(region, ranks=ranks)
+    """Compute one duration statistic pooling several regions' calls together.
+
+    Used both for ordinary bars (a single-element ``member_names``) and for
+    combined bars (:func:`_group_regions`), where every call from every
+    member region is pooled into one array before the statistic is taken --
+    the same way it would be if the member regions' calls had all been
+    recorded under one region name.
+    """
+    parts = [
+        _region_duration_values(run.get_region(name), ranks=ranks)
+        for name in member_names
+    ]
+    values = np.concatenate(parts) if parts else np.array([], dtype=float)
     stats = _stats_from_values(values)
-    stat_value = stats[metric_key]
+    stat_value = stats[stat_key]
     return float("nan") if stat_value is None else stat_value
 
 
@@ -876,12 +937,70 @@ def _metric_filepath(filepath: str, metric_key: str, single_metric: bool) -> str
     return f"{base}_{metric_key}{ext}"
 
 
+def _group_regions(
+    region_names: list[str],
+    combine_regions: dict[str, list[str] | str] | None,
+) -> tuple[list[str], dict[str, list[str]]]:
+    """Collapse regions matching a pattern into a single combined bar.
+
+    ``combine_regions`` maps a display name (e.g. ``"setup"``) to one or more
+    regex patterns (matched the same way as ``include``); every region in
+    ``region_names`` matching one of a group's patterns is pooled into a
+    single bar under that display name, in the position of its first match.
+    A region matching patterns from more than one group is claimed by
+    whichever group is listed first. Regions matching no group pass through
+    unchanged, one bar each.
+
+    Returns the ordered list of bar display names, plus a ``{display_name:
+    [member region names]}`` map used to pool each bar's underlying data.
+    """
+    members: dict[str, list[str]] = {name: [name] for name in region_names}
+    if not combine_regions:
+        return list(region_names), members
+
+    claimed: dict[str, str] = {}
+    for group_name, patterns in combine_regions.items():
+        matches = [
+            name
+            for name in region_names
+            if name not in claimed and _name_selected(name, include=patterns)
+        ]
+        if not matches:
+            raise ValueError(
+                f"combine_regions group {group_name!r} matched no regions "
+                f"(patterns: {patterns})."
+            )
+        for name in matches:
+            claimed[name] = group_name
+        members[group_name] = matches
+
+    display_names = []
+    seen_groups = set()
+    for name in region_names:
+        group_name = claimed.get(name)
+        if group_name is None:
+            display_names.append(name)
+        elif group_name not in seen_groups:
+            display_names.append(group_name)
+            seen_groups.add(group_name)
+
+    duplicates = {name for name in display_names if display_names.count(name) > 1}
+    if duplicates:
+        raise ValueError(
+            f"combine_regions group name(s) {sorted(duplicates)} collide with "
+            "an existing region name or another group; pick different names."
+        )
+
+    return display_names, members
+
+
 def _sort_and_limit_region_names(
     region_names: list[str],
     runs: Sequence[ProfilingResults],
     ranks: list[int] | None,
     sort_by: str | None,
     top_n: int | None,
+    members: dict[str, list[str]] | None = None,
 ) -> list[str]:
     """Order region names by a duration statistic and/or keep only the top N.
 
@@ -891,9 +1010,15 @@ def _sort_and_limit_region_names(
     first file. ``sort_by="name"`` sorts alphabetically instead. Neither
     argument reorders anything when both are ``None``, which keeps the
     default the same natural (first-appearance) order as before.
+
+    ``members`` maps each entry of ``region_names`` to the underlying region
+    name(s) whose calls should be pooled for scoring (see
+    :func:`_group_regions`); it defaults to each name mapping to itself.
     """
     if sort_by is None and top_n is None:
         return region_names
+    if members is None:
+        members = {name: [name] for name in region_names}
 
     if sort_by is None or sort_by == "name":
         ordered = sorted(region_names)
@@ -907,7 +1032,7 @@ def _sort_and_limit_region_names(
 
         def _score(name: str) -> float:
             values = [
-                _region_metric_value(run.get_region(name), stat_key, ranks=ranks)
+                _pooled_metric_value(run, members[name], stat_key, ranks=ranks)
                 for run in runs
             ]
             finite = [value for value in values if np.isfinite(value)]
@@ -929,6 +1054,7 @@ def plot_durations(
     metrics: list[str] | str | None = None,
     sort_by: str | None = None,
     top_n: int | None = None,
+    combine_regions: dict[str, list[str] | str] | None = None,
     filepath: str | None = None,
     show: bool = False,
     verbose: bool = True,
@@ -942,6 +1068,13 @@ def plot_durations(
 
     Parameters
     ----------
+    combine_regions : dict[str, list[str] | str], optional
+        Merge several regions into a single bar, e.g. ``{"setup": ["setup:
+        .*"]}`` combines every ``setup: ...`` region into one bar named
+        "setup", pooling their calls the same way ``sort_by`` and the other
+        duration statistics pool a single region's calls. Each value is one
+        or more regex patterns (matched like ``include``); a region matching
+        several groups is claimed by whichever group is listed first.
     backend : str
         Backend to use for rendering: "matplotlib" (default) or "plotly".
 
@@ -982,8 +1115,9 @@ def plot_durations(
     region_names = _common_region_names(runs, include=include, exclude=exclude)
     if not region_names:
         raise ValueError("No regions matched the selected filters.")
+    region_names, region_members = _group_regions(region_names, combine_regions)
     region_names = _sort_and_limit_region_names(
-        region_names, runs, ranks, sort_by, top_n
+        region_names, runs, ranks, sort_by, top_n, members=region_members
     )
 
     if verbose:
@@ -1006,7 +1140,9 @@ def plot_durations(
 
         values = [
             [
-                _region_metric_value(run.get_region(region_name), stat_key, ranks=ranks)
+                _pooled_metric_value(
+                    run, region_members[region_name], stat_key, ranks=ranks
+                )
                 for region_name in region_names
             ]
             for run in runs

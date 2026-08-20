@@ -7,6 +7,7 @@ import site
 import sys
 import sysconfig
 import threading
+from time import perf_counter_ns
 from types import FrameType
 from typing import TYPE_CHECKING, Callable, Dict, NamedTuple
 
@@ -18,7 +19,10 @@ from scope_profiler.region_profiler import (
     DisabledProfileRegion,
     FullProfileRegion,
     LineProfilerRegion,
+    NVTXProfileRegion,
     TimeOnlyProfileRegion,
+    call_site_source,
+    function_source,
 )
 
 if TYPE_CHECKING:  # imported lazily in read_results() to keep imports cheap
@@ -45,6 +49,47 @@ class RankPayload(NamedTuple):
 
     likwid_environment: dict
     """This rank's ``LIKWID_*`` environment, stored with its counters."""
+
+    sources: dict | None = None
+    """Region name -> ``(source_file, source_lineno, source_text)``.
+
+    Only present for regions whose call site could be captured (see
+    ``ProfileManager._capture_region_source``); a name missing here simply
+    has no recorded source, e.g. one created only by the recursive tracer.
+
+    Defaults to None rather than ``{}``: a NamedTuple's default is built once
+    and shared by every instance that omits the argument, so a mutable
+    default here would hand every such payload the *same* dict object.
+    Nothing mutates it in place today, but callers should read it via
+    ``payload.sources or {}`` rather than relying on that.
+    """
+
+    tags: dict | None = None
+    """Region name -> tuple of user-defined string tags."""
+
+
+class _ProfilingSession:
+    """Context manager backing :meth:`ProfileManager.session`."""
+
+    def __init__(self, manager, setup_kwargs, verbose, return_results, native_traces):
+        self._manager = manager
+        self._setup_kwargs = setup_kwargs
+        self._verbose = verbose
+        self._return_results = return_results
+        self._native_traces = native_traces
+        self.results = None
+
+    def __enter__(self):
+        self._manager.setup(**self._setup_kwargs)
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.results = self._manager.finalize(
+            verbose=self._verbose,
+            return_results=self._return_results,
+            native_traces=self._native_traces,
+        )
+        return False
 
 
 class ProfileManager:
@@ -193,11 +238,15 @@ class ProfileManager:
             cls._region_cls = LineProfilerRegion
         elif cfg.use_likwid:
             cls._region_cls = FullProfileRegion
+        elif cfg.use_nvtx:
+            cls._region_cls = NVTXProfileRegion
         else:
             cls._region_cls = TimeOnlyProfileRegion
 
     @classmethod
-    def profile_region(cls, region_name, functions=None) -> BaseProfileRegion:
+    def profile_region(
+        cls, region_name, functions=None, tags=None
+    ) -> BaseProfileRegion:
         """
         Get an existing ProfileRegion by name, or create a new one if it doesn't exist.
 
@@ -214,6 +263,10 @@ class ProfileManager:
                 with ProfileManager.profile_region("my_region", functions=[my_func]):
                     my_func()
 
+        tags : iterable of str, optional
+            User-defined labels persisted with the region. Reusing a region
+            name with a different non-None tag set raises ``ValueError``.
+
         Returns
         -------
         ProfileRegion : The ProfileRegion instance.
@@ -225,12 +278,65 @@ class ProfileManager:
         # runs per call event under recursive profiling.
         region = cls._regions.get(region_name)
         if region is None:
-            region = cls._region_cls(region_name, config=cls.get_config())
+            # Keep the overwhelmingly common untagged lookup on the original
+            # hot path: tags are metadata, not per-event work.
+            normalized_tags = () if tags is None else tuple(tags)
+            region = cls._region_cls(
+                region_name, config=cls.get_config(), tags=normalized_tags or ()
+            )
             cls._regions[region_name] = region
+            cls._capture_region_source(region)
+        elif tags is not None:
+            normalized_tags = tuple(tags)
+            if region.tags != normalized_tags:
+                raise ValueError(
+                    f"region {region_name!r} already has tags {region.tags!r}; "
+                    f"cannot reuse it with {normalized_tags!r}"
+                )
         if functions is not None:
             for func in functions:
                 region.add_function(func)
         return region
+
+    @classmethod
+    def _capture_region_source(cls, region: BaseProfileRegion) -> None:
+        """Record a freshly created region's call site, if it has one.
+
+        Runs exactly once per region name, at creation, so it never touches
+        the per-call hot path. Only meaningful for a direct
+        ``with ProfileManager.profile_region(...):`` call: internal callers
+        (the decorator, the recursive tracer, ``run_script``) are skipped by
+        the module check, since their own frame is inside scope_profiler
+        itself rather than user code. The decorator path instead records the
+        decorated function's source directly (see ``profile``), which is
+        richer than its one-line decoration site.
+
+        Also skipped for a disabled region: ``deactivate_profiling=True``
+        promises near-zero setup cost, and the source of a region that will
+        never report any data is not worth even a one-time AST parse. Same
+        for ``capture_region_source=False`` (see ``setup()``): both skip this
+        before it ever reads a file from disk.
+
+        This assumes the call site is exactly two frames up. A user helper
+        that itself wraps ``profile_region(...)`` (rather than calling it
+        directly in a ``with``) shifts that: the captured location becomes
+        the helper's own call to ``profile_region``, not the ``with`` at the
+        helper's call site. There is no reliable way to see through an
+        arbitrary wrapper from here, so this is a known limitation of the
+        direct-call form, same as e.g. the stdlib ``logging`` module's
+        caller detection.
+        """
+        if (
+            isinstance(region, DisabledProfileRegion)
+            or not cls._config.capture_region_source
+        ):
+            return
+        frame = sys._getframe(2)  # profile_region() -> here -> caller
+        if cls._is_internal_frame(frame):
+            return
+        filename = frame.f_code.co_filename
+        lineno = frame.f_lineno
+        region.set_source(filename, lineno, call_site_source(filename, lineno))
 
     @classmethod
     def profile(
@@ -273,9 +379,7 @@ class ProfileManager:
             _bound = [None, None]  # [region, wrapped_func]
             recursive_override = recursive
 
-            region = cls.profile_region(name)
-            _bound[0] = region
-            _bound[1] = region.wrap(func)
+            cls._bind_decorated_region(name, func, _bound)
             cls._decorated_codes.add(func.__code__)
 
             # Register so set_config() can rebind without a per-call check.
@@ -402,6 +506,41 @@ class ProfileManager:
             )
         return snapshot
 
+    @classmethod
+    def _snapshot_sources(cls, names) -> Dict[str, tuple]:
+        """Call-site source of every named region that captured one.
+
+        Parameters
+        ----------
+        names : iterable of str
+            Region names to look up (normally ``_snapshot_regions()``'s keys).
+
+        Returns
+        -------
+        dict
+            Region name -> ``(source_file, source_lineno, source_text)``,
+            omitting names with no captured source.
+        """
+        sources = {}
+        for name in names:
+            region = cls._regions.get(name)
+            if region is not None and region.source_text is not None:
+                sources[name] = (
+                    region.source_file,
+                    region.source_lineno,
+                    region.source_text,
+                )
+        return sources
+
+    @classmethod
+    def _snapshot_tags(cls, names) -> Dict[str, tuple]:
+        """Tags of every named region, including explicitly empty tag sets."""
+        return {
+            name: tuple(cls._regions[name].tags)
+            for name in names
+            if name in cls._regions
+        }
+
     class _ResultAccumulator:
         """Builds a ProfilingResults from per-rank payloads, one at a time.
 
@@ -422,8 +561,20 @@ class ProfileManager:
 
             if payload.likwid:
                 self._likwid[rank] = payload.likwid
+            sources = payload.sources or {}
+            tags = payload.tags or {}
             for name, (starts, ends) in payload.regions.items():
-                self._per_region.setdefault(name, {})[rank] = Region(starts, ends)
+                source_file, source_lineno, source_text = sources.get(
+                    name, (None, None, None)
+                )
+                self._per_region.setdefault(name, {})[rank] = Region(
+                    starts,
+                    ends,
+                    source_file=source_file,
+                    source_lineno=source_lineno,
+                    source_text=source_text,
+                    tags=tags.get(name, ()),
+                )
 
         def build(self):
             """Return the assembled :class:`ProfilingResults`.
@@ -658,6 +809,13 @@ class ProfileManager:
         """
         config = cls.get_config()
 
+        # Read on the same clock as start_time_ns, and as the very first
+        # thing here, so total_time (see ProfilingResults.total_time) reports
+        # the program's own setup()-to-finalize() span rather than including
+        # whatever this call itself goes on to spend collecting and writing
+        # the run's data.
+        config.metadata["finalize_time_ns"] = perf_counter_ns()
+
         if config.deactivate_profiling:
             if return_results:
                 from scope_profiler.results import ProfilingResults
@@ -680,6 +838,8 @@ class ProfileManager:
         # both what gets written and what gets returned, so the file and the
         # in-memory results are assembled from the same bytes.
         snapshot = cls._snapshot_regions() if need_payload else {}
+        sources = cls._snapshot_sources(snapshot) if need_payload else {}
+        tags = cls._snapshot_tags(snapshot) if need_payload else {}
 
         # The data is safely copied, so the run boundary can be marked now: a
         # second finalize() in this process then reports only its own events.
@@ -711,6 +871,8 @@ class ProfileManager:
             regions=snapshot,
             likwid={result.tag: result for result in likwid_results},
             likwid_environment=likwid_environment,
+            sources=sources,
+            tags=tags,
         )
 
         # 3. Move every rank's payload to rank 0, which writes it straight into
@@ -806,10 +968,12 @@ class ProfileManager:
         deactivate_file_output: bool = False,
         use_likwid: bool = False,
         use_line_profiler: bool = False,
+        use_nvtx: bool = False,
         recursive_profile: bool = False,
         buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
         label: str | None = None,
+        capture_region_source: bool = False,
     ):
         """
         Initialize and configure the profiling system.
@@ -834,6 +998,9 @@ class ProfileManager:
             Enable LIKWID hardware counter collection (default: False).
         use_line_profiler : bool, optional
             Enable line-by-line profiling via line_profiler (default: False).
+        use_nvtx : bool, optional
+            Add NVTX ranges to profiled regions for NVIDIA Nsight tools
+            (default: False). Requires ``scope-profiler[nvtx]``.
         recursive_profile : bool, optional
             Enable recursive profiling for all decorated functions by default
             (default: False). This can be overridden per decorator with
@@ -856,6 +1023,23 @@ class ProfileManager:
 
             It is stored in the output file as the ``label`` metadata field,
             so it survives into every later post-processing step.
+        capture_region_source : bool, optional
+            Record where each region is defined -- the ``with`` block or the
+            decorated function -- once per distinct source file, the first
+            time any of its regions is created (default: False). See
+            :attr:`~scope_profiler.region.Region.source_text`. Off by
+            default because the cost, while cheap for a typical file, is not
+            always: it is one ``ast.parse`` + tree walk of that file, so it
+            tracks the file's total size, not the size or number of the
+            regions in it -- under a millisecond for a typical few-hundred-
+            line file, but tenths of a second per rank for one containing
+            thousands of lines across many regions. Every rank pays that
+            independently, so it can compound to whole seconds under
+            contention on a job with more ranks than idle cores (measured:
+            ~0.3s/rank at 8 ranks, ~2.9s/rank at 64, for a single
+            ~10,000-line file, on a shared/oversubscribed node)::
+
+                ProfileManager.setup(capture_region_source=True)
 
         Notes
         -----
@@ -873,12 +1057,41 @@ class ProfileManager:
             deactivate_file_output=deactivate_file_output,
             use_likwid=use_likwid,
             use_line_profiler=use_line_profiler,
+            use_nvtx=use_nvtx,
             recursive_profile=recursive_profile,
             buffer_limit=buffer_limit,
             file_path=file_path,
             label=label,
+            capture_region_source=capture_region_source,
         )
         cls.set_config(config=config)
+
+    @classmethod
+    def session(
+        cls,
+        *,
+        verbose: bool = True,
+        return_results: bool = False,
+        native_traces=None,
+        **setup_kwargs,
+    ):
+        """Return a context manager that sets up and finalizes profiling.
+
+        All keyword arguments other than ``verbose``, ``return_results`` and
+        ``native_traces`` are passed to :meth:`setup`. Finalization runs even
+        when the profiled block raises; the original exception is preserved.
+
+        When ``return_results=True``, the context object exposes the finalized
+        :class:`~scope_profiler.results.ProfilingResults` as ``results``::
+
+            with ProfileManager.session(return_results=True, verbose=False) as run:
+                with ProfileManager.profile_region("solve"):
+                    solve()
+            results = run.results
+        """
+        return _ProfilingSession(
+            cls, setup_kwargs, verbose, return_results, native_traces
+        )
 
     @classmethod
     def set_config(cls, config: ProfilingConfig) -> None:
@@ -897,9 +1110,27 @@ class ProfileManager:
         # This is the only place rebinding happens — there is no per-call check.
         for name, entries in cls._decorators.items():
             for func, _bound in entries:
-                region = cls.profile_region(name)
-                _bound[0] = region
-                _bound[1] = region.wrap(func)
+                cls._bind_decorated_region(name, func, _bound)
+
+    @classmethod
+    def _bind_decorated_region(cls, name: str, func, _bound: list) -> BaseProfileRegion:
+        """Resolve ``name``'s region, capture ``func``'s source, and bind it into ``_bound``.
+
+        Shared between the initial ``@ProfileManager.profile`` decoration and
+        ``set_config()``'s rebind, since a config change replaces every region
+        object (see ``set_config``) and the new one starts with no source of
+        its own -- skipping this on rebind would silently drop it.
+        """
+        region = cls.profile_region(name)
+        if cls._config.capture_region_source and not isinstance(
+            region, DisabledProfileRegion
+        ):
+            source = function_source(func)
+            if source is not None:
+                region.set_source(*source)
+        _bound[0] = region
+        _bound[1] = region.wrap(func)
+        return region
 
     @classmethod
     def get_config(cls) -> ProfilingConfig:

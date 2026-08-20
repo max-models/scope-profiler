@@ -1,5 +1,7 @@
 import socket
+import sys
 from time import perf_counter_ns, sleep
+from types import SimpleNamespace
 
 import h5py
 import pytest
@@ -10,6 +12,7 @@ from scope_profiler.region_profiler import (
     DisabledProfileRegion,
     FullProfileRegion,
     LineProfilerRegion,
+    NVTXProfileRegion,
     TimeOnlyProfileRegion,
 )
 
@@ -107,6 +110,26 @@ def test_all_region_types():
     durations = region.get_durations_numpy()
     assert durations[0] > 0
 
+    # NVTX region: CPU timing plus an NVTX range.
+    calls = []
+    fake_nvtx = SimpleNamespace(
+        push_range=lambda name: calls.append(("push", name)),
+        pop_range=lambda: calls.append(("pop",)),
+    )
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setitem(sys.modules, "nvtx", fake_nvtx)
+    try:
+        ProfileManager.setup(
+            use_nvtx=True,
+            deactivate_file_output=True,
+        )
+        assert ProfileManager._region_cls is NVTXProfileRegion
+        with ProfileManager.profile_region("nvtx_region"):
+            sleep(0.001)
+        assert calls == [("push", "nvtx_region"), ("pop",)]
+    finally:
+        monkeypatch.undo()
+
     # Full region (time + LIKWID)
     try:
         ProfileManager._region_cls = FullProfileRegion
@@ -181,6 +204,27 @@ def test_line_profiler_context_manager():
     # Verify line_profiler captured stats for the registered function
     stats = region.get_stats()
     assert len(stats.timings) > 0
+
+    ProfileManager.finalize(verbose=False)
+
+
+def test_line_profiler_context_manager_profiles_caller_without_functions():
+    pytest.importorskip("line_profiler")
+    ProfileManager.setup(use_line_profiler=True)
+
+    def work(n=500):
+        total = 0
+        with ProfileManager.profile_region("lp_scope_only"):
+            for i in range(n):
+                total += i
+        return total
+
+    work()
+
+    region = ProfileManager.get_region("lp_scope_only")
+    stats = region.get_stats()
+    assert len(stats.timings) > 0
+    assert any("work" in str(key) for key in stats.timings)
 
     ProfileManager.finalize(verbose=False)
 
@@ -393,6 +437,48 @@ def test_setup_registers_the_run_start_time(tmp_path):
     startup = results.minimum_start_time - results.run_start_time
     assert startup >= 0.01
     assert results.events()[0]["start"] == pytest.approx(startup)
+
+
+def test_finalize_registers_the_finalize_time(tmp_path):
+    """finalize() records its own call time, and total_time spans setup->finalize."""
+    file_path = tmp_path / "finalize_time.h5"
+    ProfileManager.setup(file_path=str(file_path))
+
+    sleep(0.01)  # un-instrumented startup, invisible to time_span
+    with ProfileManager.profile_region("step"):
+        sleep(0.001)
+    sleep(0.01)  # un-instrumented teardown, also invisible to time_span
+
+    before = perf_counter_ns()
+    ProfileManager.finalize(verbose=False)
+    after = perf_counter_ns()
+    results = ProfileManager.read_results()
+
+    recorded = results.metadata["finalize_time_ns"]
+    assert before <= recorded <= after
+    assert results.finalize_time == pytest.approx(recorded / 1e9)
+
+    assert results.total_time == pytest.approx(
+        results.finalize_time - results.run_start_time
+    )
+    # The un-instrumented startup and teardown make total_time the larger span.
+    assert results.total_time > results.time_span
+    assert results.total_time >= 0.02
+
+
+def test_finalize_return_results_also_carries_total_time(tmp_path):
+    """The in-memory path (deactivate_file_output=True) gets it too."""
+    ProfileManager.setup(deactivate_file_output=True)
+    with ProfileManager.profile_region("step"):
+        sleep(0.001)
+
+    results = ProfileManager.finalize(return_results=True, verbose=False)
+
+    assert results.run_start_time is not None
+    assert results.finalize_time is not None
+    assert results.total_time == pytest.approx(
+        results.finalize_time - results.run_start_time
+    )
 
 
 def test_read_results_before_finalize_raises(tmp_path):

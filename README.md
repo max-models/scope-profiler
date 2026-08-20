@@ -131,7 +131,7 @@ write_metadata_json("profiling_data.h5", "metadata.json")
 
 ## Example plots
 
-`scope-profiler pproc` turns an HDF5 profiling file into Gantt, flame,
+`scope-profiler plot` turns an HDF5 profiling file into Gantt, flame,
 duration, and speedup charts (see [Flame graphs](#flame-graphs) below for
 details). The plots here come from `examples/generate_readme_figures.py`, a
 small mock timestep loop with nested and self-recursive regions, and are
@@ -197,7 +197,7 @@ call sp_finalize()
 ```
 
 ```bash
-scope-profiler import-native . -o profiling_data.h5   # then pproc/inspect as usual
+scope-profiler import-native . -o profiling_data.h5   # then plot/inspect as usual
 ```
 
 Both are one self-contained file (Fortran 2008, or C99 with an `extern "C"`
@@ -324,6 +324,19 @@ solve.num_calls                   # summed over ranks
 solve.total_duration              # seconds
 solve.average_durations()         # {rank: seconds}, for load imbalance
 solve[0].durations                # every call on rank 0, as a numpy array
+solve.p50_duration                # median call duration, in seconds
+solve.p95_duration                # 95th-percentile call duration
+solve.rank_imbalance_pct          # slowest rank over mean, as a percentage
+```
+
+Regions can carry lightweight user-defined tags for downstream analysis:
+
+```python
+with ProfileManager.profile_region("solve", tags=("compute", "hot")):
+    solve()
+
+results = ProfileManager.finalize(return_results=True)
+results["solve"].tags  # ("compute", "hot")
 ```
 
 `summary()` returns the same table as a list of dicts, and `to_dataframe()`
@@ -333,6 +346,24 @@ with `per_rank=True`):
 ```python
 frame = results.to_dataframe().sort_values("total_duration", ascending=False)
 per_rank = results.to_dataframe(per_rank=True)
+```
+
+Summary rows and dataframes also include `p50`, `p95`, `p99`, and
+`imbalance` (the slowest rank's total time above the per-rank mean). These
+statistics are useful when averages hide tail latency or MPI load imbalance.
+
+### Safe profiling sessions
+
+Use `ProfileManager.session()` when profiling should always be finalized,
+including when the profiled code raises:
+
+```python
+with ProfileManager.session(file_path="run.h5", verbose=False,
+                            return_results=True) as run:
+    with ProfileManager.profile_region("solve"):
+        solve()
+
+results = run.results
 ```
 
 `include` / `exclude` regexes select regions in `get_regions()`, `summary()`,
@@ -397,11 +428,11 @@ graph, with recursion showing up as a narrowing tower of frames - as with
 
 ![Flame graph of a mock timestep loop](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/flame_plot.png)
 
-`scope-profiler pproc` generates `flame_plot.png` alongside the Gantt chart
+`scope-profiler plot` generates `flame_plot.png` alongside the Gantt chart
 for every run:
 
 ```bash
-scope-profiler pproc profiling_data.h5 --show -o figures
+scope-profiler plot default profiling_data.h5 --show -o figures
 ```
 
 Or programmatically:
@@ -419,7 +450,7 @@ different [matplotlib colormap](https://matplotlib.org/stable/users/explain/colo
 than the default `tab20`:
 
 ```bash
-scope-profiler pproc profiling_data.h5 --cmap viridis -o figures
+scope-profiler plot default profiling_data.h5 --cmap viridis -o figures
 ```
 
 By default the flame graph covers rank 0, since it represents a single
@@ -447,35 +478,32 @@ The JSON payload additionally includes a `colors` map (region or file label
 to `#rrggbb`) matching the colors used in the matplotlib plot, so a
 JavaScript charting library like Plotly can reproduce the same look.
 
-`scope-profiler pproc --export data` does the same for every selected plot in
+`scope-profiler export plot-data` does the same for selected plot kinds in
 one run, writing `gantt_data`, `flame_data`, `durations_data`, and (for
-multiple input files) `speedup_data` alongside the PNGs. Pass
-`--export-data-format json` to get `.json` files instead of the default
-`.csv`:
+multiple input files) `speedup_data`. Pass `--format json` to get `.json`
+files instead of the default `.csv`:
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures --export data
-scope-profiler pproc profiling_data.h5 -o figures --export data --export-data-format json
+scope-profiler export plot-data profiling_data.h5 -o data
+scope-profiler export plot-data profiling_data.h5 -o data --format json
 ```
 
-Pass `--skip-plot-images` (requires `--export`) to skip rendering the PNGs
-entirely and only write the exported data plus `region_statistics.json` —
-useful when a website renders charts client-side (e.g. with Plotly) straight
-from the JSON:
+Use `--plots` to restrict the exported data, useful when a website renders
+charts client-side (e.g. with Plotly) straight from the JSON:
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures \
-  --export data --export-data-format json --skip-plot-images
+scope-profiler export plot-data profiling_data.h5 -o data \
+  --plots durations timeseries --format json
 ```
 
 ### Viewing a run in snakeviz
 
-`--export prof` writes the profile in the `.prof` format of the standard
+`scope-profiler export prof` writes the profile in the `.prof` format of the standard
 library's `cProfile`, so a run can be explored with
 [snakeviz](https://jiffyclub.github.io/snakeviz/) or `python -m pstats`:
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures --export prof --skip-plot-images
+scope-profiler export prof profiling_data.h5 -o figures
 snakeviz figures/profile_rank0.prof
 ```
 
@@ -486,15 +514,31 @@ written per exported rank, since `.prof` has no notion of ranks — see
 
 ### Viewing a run in speedscope
 
-`--export speedscope` writes the run as a
+`scope-profiler export speedscope` writes the run as a
 [speedscope](https://www.speedscope.app) JSON file. Unlike `.prof`, it keeps
 every individual call, so the timeline shows the run as it happened:
 
 ```bash
-scope-profiler pproc profiling_data.h5 -o figures --export speedscope --skip-plot-images
+scope-profiler export speedscope profiling_data.h5 -o figures
 npx speedscope figures/profile.speedscope.json  # or drop the file on speedscope.app
 ```
 
 One file is written per input, holding one profile per exported rank, all
 sharing a time origin so ranks stay aligned. See
 [the CLI docs](docs/source/cli.md) for details.
+
+## MCP server for AI coding agents
+
+```bash
+pip install "scope-profiler[mcp]"
+scope-profiler-mcp
+```
+
+`scope-profiler-mcp` exposes `inspect_profile`, `compare_profiles`,
+`run_profile` and `plot_profile` as [MCP](https://modelcontextprotocol.io)
+tools, so an agent such as Claude Code can inspect a run, benchmark a
+script, and check whether a code change made it faster or slower using
+structured data rather than parsed terminal output. It is a thin adapter
+over the same API described above -- see
+[the MCP guide](docs/source/guide/mcp.md) for installation, configuring
+Claude Code, and the full tool reference.

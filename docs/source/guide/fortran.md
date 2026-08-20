@@ -3,7 +3,7 @@
 scope-profiler ships a Fortran module with the same region model as the Python
 API. A Fortran program marks regions, writes a small trace file per rank, and
 `scope-profiler import-native` turns those traces into the usual HDF5 output —
-so a Fortran run gets the same summaries, charts, exporters and `pproc`
+so a Fortran run gets the same summaries, charts, exporters and `plot`
 workflow as a Python one.
 
 The module is deliberately undemanding: plain Fortran 2008 with
@@ -87,7 +87,7 @@ importer merges whatever it finds:
 ```bash
 mpirun -n 128 ./simulation
 scope-profiler import-native . -o profiling_data.h5
-scope-profiler pproc profiling_data.h5 -o figures
+scope-profiler plot default profiling_data.h5 -o figures
 ```
 
 ## From Python
@@ -128,7 +128,7 @@ Build the kernels however you already do (f2py, ctypes, Cython, a hand-written
 extension), compiling `scope_profiler.f90` in alongside them:
 
 ```bash
-python -m numpy.f2py -c scope_profiler.f90 kernels.f90 -m kernels
+python -m numpy.f2py -c scope_profiler.f90 kernels.f90 -m kernels --backend meson
 ```
 
 Then let `finalize()` fold the Fortran trace in:

@@ -36,6 +36,12 @@ def test_mpi():
         assert results.is_root
         assert results.num_ranks == from_disk.num_ranks
         assert results.summary() == from_disk.summary()
+        # finalize_time_ns/start_time_ns are only rank 0's clock readings
+        # (like every other run-level metadata field), so total_time is only
+        # meaningful -- and only checked -- here, and must match the file.
+        assert results.total_time is not None
+        assert results.total_time > results.time_span
+        assert results.total_time == from_disk.total_time
     else:
         # Empty and non-root, so the output calls above are no-ops here.
         assert not results.is_root

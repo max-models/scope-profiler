@@ -1,9 +1,12 @@
-# Post-processing with the CLI
+# Plotting with the CLI
 
-`scope-profiler pproc` turns one or more `profiling_data.h5` files into
-charts, an aggregate statistics JSON, and — on request — exports for external
-profile viewers. It covers the same ground as the plotting functions described
-in {doc}`/guide/hdf5_and_python_api`, without writing any code.
+`scope-profiler plot` turns one or more `profiling_data.h5` files into
+charts and an aggregate statistics JSON. `scope-profiler export` writes the
+same plot data and external viewer formats without rendering images. Together
+they cover the same ground as the plotting functions described in
+{doc}`/guide/hdf5_and_python_api`, without writing any code. For text/JSON
+summaries instead of figures — including LIKWID hardware counters — see
+`scope-profiler inspect` in {doc}`/cli`.
 
 This page walks through the command with a concrete example. For the complete
 list of flags, see {doc}`/cli`.
@@ -37,10 +40,10 @@ this page, is `examples/generate_cli_docs_figures.py`.
 
 ## Basic usage
 
-Point `pproc` at a file and give it an output directory:
+Choose a plot preset and give it an output directory:
 
 ```bash
-scope-profiler pproc run_2.h5 -o figures
+scope-profiler plot default run_2.h5 -o figures
 ```
 
 ```text
@@ -59,13 +62,16 @@ Outputs saved to:
 Without `-o/--output` nothing is written; use `--show` to open the charts
 interactively instead. The two can be combined.
 
-## Text summary
+## Text summary instead of figures
 
-`--summary` prints the numbers instead of drawing them, which is often all
-you need over ssh:
+`plot` is for figures; for the numbers over ssh (or anywhere a plot isn't
+needed), use `scope-profiler inspect` instead — it prints the same
+per-region statistics table `ProfileManager.finalize()` renders, plus a
+LIKWID hardware counter table per rank and event group when the run recorded
+any:
 
 ```bash
-scope-profiler pproc run_2.h5 --summary
+scope-profiler inspect run_2.h5
 ```
 
 ```text
@@ -79,16 +85,10 @@ run_2.h5  (2 rank(s))
   TOTAL                    5    0.32744
 ```
 
-This is the same table `ProfileManager.finalize()` and
-{doc}`scope-profiler inspect <../cli>` render. `--summary-sort` reorders it
-(`total`, `calls`, `avg`, `min`, `max`, `std` or `name`), and `--include`/`--exclude`/
-`--ranks` narrow it as they do for the charts.
-
-On its own `--summary` produces no plots --- the summary is the whole job.
-Combine it with `--show` or `-o/--output` to get both.
-
-If the run recorded LIKWID hardware counters, they follow as a separate table
-per rank and event group; see {doc}`likwid`.
+`--sort` reorders it (`total`, `calls`, `avg`, `min`, `max`, `std` or
+`name`), and `--include`/`--exclude`/`--ranks` narrow it as `plot`'s do for
+the charts. See {doc}`likwid` for the LIKWID counter table, and {doc}`/cli`
+for the full flag list.
 
 ## Gantt chart
 
@@ -123,10 +123,10 @@ rank 0 only; pass `--ranks` to render more (one panel each).
 ## Duration bar charts
 
 One bar chart is written per duration statistic. By default only `total` time
-is shown; `--duration-metrics` selects which statistics to include:
+is shown; `--metrics` selects which statistics to include:
 
 ```bash
-scope-profiler pproc run_2.h5 -o figures --duration-metrics avg total
+scope-profiler plot durations run_2.h5 -o figures --metrics avg total
 ```
 
 ```{image} /_static/figures/cli/durations_plot_avg.png
@@ -167,7 +167,7 @@ per file (Gantt, flame) or groups the files together (durations), and a
 speedup plot is added:
 
 ```bash
-scope-profiler pproc run_1.h5 run_2.h5 run_4.h5 -o figures_scaling
+scope-profiler plot default run_1.h5 run_2.h5 run_4.h5 -o figures_scaling
 ```
 
 ```{image} /_static/figures/cli/speedup_plot.png
@@ -181,20 +181,20 @@ solver behaves as designed: `solve` and `assemble` scale well, `io` is serial
 and flat, and `halo_exchange` gets *slower* with more ranks, dragging
 `timestep` below the ideal line.
 
-The x-axis is the MPI rank count by default. `--speedup-x-field` switches it to
+The x-axis is the MPI rank count by default. `--x` switches it to
 `omp_num_threads` or `total_cores` (both read from the run metadata), or to
 any other metadata field — in which case the files stay in the order given on
 the command line and no ideal-scaling line is drawn:
 
 ```bash
-scope-profiler pproc omp_*.h5 -o figures_scaling --speedup-x-field omp_num_threads
+scope-profiler plot speedup omp_*.h5 -o figures_scaling --x omp_num_threads
 ```
 
 Files can also be selected with wildcards. Quote the pattern to let
 scope-profiler expand it rather than the shell:
 
 ```bash
-scope-profiler pproc "runs/run_*.h5" -o figures_scaling
+scope-profiler plot default "runs/run_*.h5" -o figures_scaling
 ```
 
 ### Naming the runs
@@ -202,14 +202,14 @@ scope-profiler pproc "runs/run_*.h5" -o figures_scaling
 Each run is named after its `label` --- set with
 `ProfileManager.setup(label=...)`, see {doc}`configuration` --- or, for runs
 that set none, after its file's stem. That name is what appears in chart
-legends and panel titles, the summary headings, `region_statistics.json` and
-the exported `.prof` / speedscope filenames.
+legends and panel titles, `region_statistics.json` and the exported `.prof` /
+speedscope filenames.
 
 `--label` overrides it for one invocation, once per file, in the order the
 files are given:
 
 ```bash
-scope-profiler pproc run_1.h5 run_2.h5 run_4.h5 -o figures_scaling \
+scope-profiler plot default run_1.h5 run_2.h5 run_4.h5 -o figures_scaling \
     --label "1 rank" --label "2 ranks" --label "4 ranks"
 ```
 
@@ -218,19 +218,20 @@ in a filename, spaces and other awkward characters become underscores.
 
 ## Selecting which plots to generate
 
-By default all five plots are generated. `--plots` (short: `-p`) restricts
-the run to any subset:
+Use a named plot kind for a single chart, or a preset for a common group:
 
 ```bash
 # only the total-time bar chart and the speedup comparison
-scope-profiler pproc run_1.h5 run_2.h5 run_4.h5 -o figures \
-    --plots durations speedup
+scope-profiler plot quick run_1.h5 run_2.h5 run_4.h5 -o figures
+
+# just the Gantt chart, written to a specific file
+scope-profiler plot gantt run_2.h5 -o gantt.png
 ```
 
-Available plot names: `gantt`, `flame`, `durations`, `timeseries`, `speedup`.
-Omitting `--plots` is equivalent to passing all five. Filtering applies before
-any chart is drawn, so skipping charts you do not need also speeds up the
-run.
+Run `scope-profiler plot list` to see the available names. The built-in
+presets are `default` (`gantt`, `flame`, `durations`, `timeseries`, and
+`speedup` when applicable), `quick` (`durations` and `speedup`), and `all`
+(every plot except LIKWID unless `--metric` is given).
 
 ## Filtering regions and ranks
 
@@ -239,7 +240,7 @@ names, and `--ranks` selects ranks — as individual values, dash ranges, or a
 mix (`0,2,4-7` expands to 0, 2, 4, 5, 6, 7):
 
 ```bash
-scope-profiler pproc run_2.h5 -o figures_filtered \
+scope-profiler plot gantt run_2.h5 -o figures_filtered \
     --include solve assemble \
     --ranks 0
 ```
@@ -250,8 +251,8 @@ scope-profiler pproc run_2.h5 -o figures_filtered \
 ```
 
 Filtering applies to every output of the run, including
-`region_statistics.json` and the exports below. On a large run it is also the
-quickest way to make the charts readable again.
+`region_statistics.json`. On a large run it is also the quickest way to make
+the charts readable again.
 
 ## Region statistics JSON
 
@@ -301,7 +302,7 @@ long runs where a static Gantt chart becomes a smear. With `--show`, the
 pages open in a browser:
 
 ```bash
-scope-profiler pproc run_2.h5 -o figures_html --backend plotly
+scope-profiler plot default run_2.h5 -o figures_html --backend plotly
 ```
 
 The matplotlib backend (the default) writes `.png` and needs no extra
@@ -310,11 +311,12 @@ beyond Plotly itself.
 
 ## Exporting the data behind the charts
 
-`--export data` writes the exact series each chart was drawn from, so the
-figures can be reproduced — or re-styled elsewhere — without the HDF5 files:
+`scope-profiler export plot-data` writes the exact series each chart was drawn
+from, so the figures can be reproduced — or re-styled elsewhere — without the
+HDF5 files:
 
 ```bash
-scope-profiler pproc run_2.h5 -o figures --export data
+scope-profiler export plot-data run_2.h5 -o data
 ```
 
 ```text
@@ -333,27 +335,25 @@ run_2,1,setup,0.0,0.038490875
 run_2,0,timestep,0.039737417,0.106206750
 ```
 
-`--export-data-format json` writes JSON instead, including a `colors` map
+`--format json` writes JSON instead, including a `colors` map
 matching the colors used in the plots, so a re-rendered chart keeps the same
-region colors. If only the data is wanted, `--skip-plot-images` skips
-rendering the images altogether:
+region colors:
 
 ```bash
-scope-profiler pproc run_2.h5 -o data --export data --export-data-format json \
-    --skip-plot-images
+scope-profiler export plot-data run_2.h5 -o data --format json
 ```
 
 ## Exporting to external profile viewers
 
-`--export` also writes the run in formats other tools understand:
+`scope-profiler export` also writes the run in formats other tools understand:
 
 ```bash
 # cProfile/pstats format, one file per exported rank
-scope-profiler pproc run_2.h5 -o figures --export prof --skip-plot-images
+scope-profiler export prof run_2.h5 -o figures
 snakeviz figures/profile_rank0.prof
 
 # speedscope, one file holding one profile per exported rank
-scope-profiler pproc run_2.h5 -o figures --export speedscope --skip-plot-images
+scope-profiler export speedscope run_2.h5 -o figures
 npx speedscope figures/profile.speedscope.json
 ```
 
@@ -365,7 +365,7 @@ partially overlapping regions and recursion.
 ## Files without timing data
 
 A run that entered no region records nothing to plot. Rather than failing
-inside the plotting code, `pproc` reports what is there and stops:
+inside the plotting code, `plot` reports what is there and stops:
 
 ```text
 No timing data found — these files recorded no calls.
@@ -380,7 +380,7 @@ python examples/generate_cli_docs_figures.py
 ```
 
 The script runs the mock solver at 1, 2 and 4 ranks (via `mpirun`, if
-available), invokes the `pproc` commands shown above, and copies the
+available), invokes the `plot` commands shown above, and copies the
 resulting PNGs into `figures/cli/`, which the docs build picks up as
 `_static/figures/cli/`. Pass `--keep DIR` to also keep the HDF5 files and the
 raw CLI output around.
