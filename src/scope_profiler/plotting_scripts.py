@@ -154,12 +154,16 @@ def _render(
     show: bool,
     backend: str,
     plotly_layout: dict | None = None,
+    x_tick_rotation: float | None = None,
 ) -> None:
     """Save and/or display a canvas."""
     if backend == "plotly":
         fig = canvas.plot_plotly(show=False)
-        if plotly_layout:
-            fig.update_layout(**plotly_layout)
+        layout = dict(plotly_layout or {})
+        if x_tick_rotation is not None:
+            layout["xaxis_tickangle"] = x_tick_rotation
+        if layout:
+            fig.update_layout(**layout)
         if filepath:
             if Path(filepath).suffix.lower() in {".html", ".htm"}:
                 fig.write_html(filepath)
@@ -174,6 +178,30 @@ def _render(
                     ) from exc
         if show:
             fig.show()
+        return
+
+    if x_tick_rotation is not None and backend == "matplotlib":
+        # maxplotlib does not currently expose tick-label rotation through
+        # its backend-neutral Canvas API, so rotate the labels after the
+        # Matplotlib figure has been materialized and before saving/showing.
+        fig, axes = canvas.plot(backend="matplotlib", savefig=bool(filepath))
+        for axis in np.asarray(axes).reshape(-1):
+            for label in axis.get_xticklabels():
+                label.set_rotation(x_tick_rotation)
+                # Anchor the end of each vertical label at the tick so the
+                # text grows upward into the figure instead of below it.
+                label.set_ha("right")
+        if filepath:
+            savefig_kwargs = {}
+            if getattr(canvas, "dpi", None) is not None:
+                savefig_kwargs["dpi"] = canvas.dpi
+            fig.savefig(filepath, **savefig_kwargs)
+        if show:
+            import matplotlib.pyplot as plt
+
+            plt.show()
+        else:
+            _close_matplotlib_figure(canvas)
         return
 
     if filepath:
@@ -1129,7 +1157,13 @@ def plot_durations(
     num_readers = len(runs)
     colors = _get_cmap_colors(cmap, max(num_readers, 1))
     fig_width = max(10, 0.85 * len(region_names) + 2)
-    fig_height = max(4.5, 2.5 + 0.35 * num_readers)
+    # Angled tick labels consume space below the axes in proportion to the
+    # longest region name. Grow both the figure and its bottom margin so long
+    # labels remain inside the exported figure without reserving excessive
+    # space for short names.
+    label_space = max(0.8, 0.06 * max(map(len, region_names), default=0) + 0.25)
+    fig_height = max(4.5, 2.5 + 0.35 * num_readers, 3.0 + label_space)
+    bottom_margin = (label_space + 0.25) / fig_height
     width = min(0.8 / max(num_readers, 1), 0.35)
 
     saved_paths: list[str] = []
@@ -1153,7 +1187,10 @@ def plot_durations(
                 for region_name, value in zip(region_names, file_values):
                     data_rows.append([label, region_name, metric_key, value])
 
-        canvas = Canvas(figsize=(fig_width, fig_height))
+        canvas = Canvas(
+            figsize=(fig_width, fig_height),
+            gridspec_kw={"bottom": bottom_margin},
+        )
 
         # Create grouped bar chart
         x_positions = np.arange(len(region_names))
@@ -1187,7 +1224,13 @@ def plot_durations(
             )
             saved_paths.append(metric_filepath)
 
-        _render(canvas, metric_filepath, show, backend)
+        _render(
+            canvas,
+            metric_filepath,
+            show,
+            backend,
+            x_tick_rotation=45,
+        )
 
     if data_filepath:
         if data_format == "json":

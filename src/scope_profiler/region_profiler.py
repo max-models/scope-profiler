@@ -558,7 +558,7 @@ class LineProfilerRegion(BaseProfileRegion):
     profiled while the context is active.
     """
 
-    __slots__ = ("_line_profiler", "_registered_codes")
+    __slots__ = ("_line_profiler", "_registered_codes", "_manual_line_timings")
 
     def __init__(self, region_name: str, config: ProfilingConfig, tags=()):
         """Initialize timing buffers and line_profiler instance."""
@@ -566,6 +566,7 @@ class LineProfilerRegion(BaseProfileRegion):
         LineProfiler = _import_line_profiler()
         self._line_profiler = LineProfiler()
         self._registered_codes = set()
+        self._manual_line_timings = {}
 
     def wrap(self, func):
         """Wrap a function to measure execution time and collect line-by-line stats."""
@@ -594,7 +595,10 @@ class LineProfilerRegion(BaseProfileRegion):
 
     def __enter__(self):
         """Reserve this scope's slot, record start time, and enable line profiler."""
-        frame = inspect.currentframe().f_back
+        return self.enter_frame(inspect.currentframe().f_back)
+
+    def enter_frame(self, frame):
+        """Enter this region while registering ``frame`` with line_profiler."""
         if frame.f_code not in self._registered_codes:
             func = _function_for_frame(frame)
             if func is not None:
@@ -608,6 +612,52 @@ class LineProfilerRegion(BaseProfileRegion):
         self.start_times[slot] = perf_counter_ns()
         self._line_profiler.enable_by_count()
         return self
+
+    def enter_timing_only(self):
+        """Enter this region without registering or enabling line_profiler."""
+        slot = self.ptr
+        if slot >= self.capacity:
+            self._grow()
+        self.ptr = slot + 1
+        self._push_scope(slot)
+        self.start_times[slot] = perf_counter_ns()
+        return self
+
+    def record_line_timing(self, frame, lineno: int, duration_ns: int) -> None:
+        """Record one line timing sample from recursive CLI tracing."""
+        if duration_ns <= 0:
+            return
+        code = frame.f_code
+        key = (
+            code.co_filename,
+            int(code.co_firstlineno),
+            getattr(code, "co_qualname", None) or code.co_name,
+        )
+        by_line = self._manual_line_timings.setdefault(key, {})
+        hits, elapsed = by_line.get(int(lineno), (0, 0.0))
+        by_line[int(lineno)] = (hits + 1, elapsed + float(duration_ns))
+
+    def manual_line_records(self, unit: float = 1e-9) -> list:
+        """Return manually traced line timings in the persisted record shape."""
+        records = []
+        for (filename, first_lineno, function), by_line in sorted(
+            self._manual_line_timings.items()
+        ):
+            line_numbers = np.asarray(sorted(by_line), dtype=np.int64)
+            hits = np.asarray([by_line[int(line)][0] for line in line_numbers])
+            times = np.asarray([by_line[int(line)][1] for line in line_numbers])
+            records.append(
+                {
+                    "filename": str(filename),
+                    "function": str(function),
+                    "first_lineno": int(first_lineno),
+                    "line_numbers": line_numbers,
+                    "hits": hits,
+                    "times": times,
+                    "unit": unit,
+                }
+            )
+        return records
 
     def __exit__(self, exc_type, exc_value, traceback):
         """Disable the line profiler and record the end time at this scope's slot."""

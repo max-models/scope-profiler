@@ -11,7 +11,9 @@ from scope_profiler.profile_manager import RankPayload
 NS = 1_000_000_000
 
 
-def payload(regions=None, likwid=None, environment=None) -> RankPayload:
+def payload(
+    regions=None, likwid=None, environment=None, line_profile=None
+) -> RankPayload:
     """A RankPayload with plain int64 timestamp arrays."""
     return RankPayload(
         regions={
@@ -23,6 +25,7 @@ def payload(regions=None, likwid=None, environment=None) -> RankPayload:
         },
         likwid=likwid or {},
         likwid_environment=environment or {},
+        line_profile=line_profile,
     )
 
 
@@ -38,6 +41,32 @@ def test_rank_group_holds_the_recorded_timestamps(tmp_path):
         # The reader recovers metadata from the top level, never from a rank.
         assert "metadata" not in handle["rank0"]
         assert handle["metadata"].attrs["hostname"] == "node0"
+
+
+def test_line_profile_round_trips(tmp_path):
+    path = tmp_path / "line_profile.h5"
+    record = {
+        "region": "solve",
+        "filename": "app.py",
+        "function": "solve",
+        "first_lineno": 10,
+        "line_numbers": np.asarray([11, 12], dtype=np.int64),
+        "hits": np.asarray([1, 5], dtype=np.int64),
+        "times": np.asarray([10.0, 25.0]),
+        "unit": 1e-9,
+    }
+    with ProfilingWriter(path) as writer:
+        writer.write_rank(0, payload({"solve": ([0], [NS])}, line_profile=[record]))
+
+    with h5py.File(path, "r") as handle:
+        group = handle["rank0/line_profile/0"]
+        assert group.attrs["function"] == "solve"
+        assert group["line_numbers"][()].tolist() == [11, 12]
+
+    loaded = read_h5(path).line_profile[0][0]
+    assert loaded["filename"] == "app.py"
+    assert loaded["hits"].tolist() == [1, 5]
+    assert loaded["unit"] == pytest.approx(1e-9)
 
 
 def test_datasets_are_contiguous_and_exactly_sized(tmp_path):

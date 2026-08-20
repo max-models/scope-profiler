@@ -67,6 +67,9 @@ class RankPayload(NamedTuple):
     tags: dict | None = None
     """Region name -> tuple of user-defined string tags."""
 
+    line_profile: list | None = None
+    """Line-profiler records for this rank, when line profiling is enabled."""
+
 
 class _ProfilingSession:
     """Context manager backing :meth:`ProfileManager.session`."""
@@ -191,8 +194,9 @@ class ProfileManager:
         root_frame: FrameType,
         prev_profiler,
         only_user_code: bool = False,
+        active_calls: dict | None = None,
     ):
-        active_calls = {}
+        active_calls = {} if active_calls is None else active_calls
 
         def tracer(frame: FrameType, event: str, arg):
             if event == "call":
@@ -208,7 +212,10 @@ class ProfileManager:
                     pass
                 else:
                     region = cls.profile_region(cls._frame_region_name(frame))
-                    region.__enter__()
+                    if isinstance(region, LineProfilerRegion):
+                        region.enter_timing_only()
+                    else:
+                        region.__enter__()
                     active_calls[frame] = region
             elif event == "return":
                 region = active_calls.pop(frame, None)
@@ -467,17 +474,58 @@ class ProfileManager:
 
         region = cls.profile_region(region_name)
         prev_profiler = sys.getprofile()
+        prev_tracer = sys.gettrace()
+        active_calls = {}
         tracer = cls._get_recursive_tracer(
             root_frame=sys._getframe(),
             prev_profiler=prev_profiler,
             only_user_code=only_user_code,
+            active_calls=active_calls,
         )
+        line_states = {}
+
+        def flush_line(frame, now):
+            state = line_states.get(frame)
+            region = active_calls.get(frame)
+            if state is None or not isinstance(region, LineProfilerRegion):
+                return
+            lineno, started = state
+            region.record_line_timing(frame, lineno, now - started)
+
+        def line_tracer(frame: FrameType, event: str, arg):
+            if prev_tracer is not None:
+                prev_tracer(frame, event, arg)
+
+            region = active_calls.get(frame)
+            if not isinstance(region, LineProfilerRegion):
+                return line_tracer
+
+            now = perf_counter_ns()
+            if event == "line":
+                flush_line(frame, now)
+                line_states[frame] = (frame.f_lineno, now)
+            elif event in ("return", "exception"):
+                flush_line(frame, now)
+                line_states.pop(frame, None)
+            return line_tracer
+
+        if isinstance(region, LineProfilerRegion):
+            sys.settrace(line_tracer)
         sys.setprofile(tracer)
         try:
-            with region:
-                runpy.run_path(script_path, run_name="__main__")
+            if isinstance(region, LineProfilerRegion):
+                region.enter_timing_only()
+                try:
+                    runpy.run_path(script_path, run_name="__main__")
+                finally:
+                    region.__exit__(None, None, None)
+            else:
+                with region:
+                    runpy.run_path(script_path, run_name="__main__")
         finally:
             sys.setprofile(prev_profiler)
+            if isinstance(region, LineProfilerRegion):
+                sys.settrace(prev_tracer)
 
     @classmethod
     def _snapshot_regions(cls) -> Dict[str, tuple]:
@@ -554,6 +602,7 @@ class ProfileManager:
             self._config = config
             self._per_region: Dict[str, dict] = {}
             self._likwid: Dict[int, dict] = {}
+            self._line_profile: Dict[int, list] = {}
 
         def add(self, rank: int, payload: "RankPayload") -> None:
             """Fold one rank's payload into the result set."""
@@ -561,6 +610,8 @@ class ProfileManager:
 
             if payload.likwid:
                 self._likwid[rank] = payload.likwid
+            if payload.line_profile:
+                self._line_profile[rank] = payload.line_profile
             sources = payload.sources or {}
             tags = payload.tags or {}
             for name, (starts, ends) in payload.regions.items():
@@ -596,6 +647,7 @@ class ProfileManager:
                 metadata=self._config.metadata,
                 num_ranks=self._config._size,
                 likwid=self._likwid,
+                line_profile=self._line_profile,
                 file_path=self._config.file_path,
             )
 
@@ -740,6 +792,40 @@ class ProfileManager:
         )
 
     @classmethod
+    def _snapshot_line_profile(cls) -> list:
+        """Copy line-profiler timings into MPI/HDF5-safe plain records."""
+        records = []
+        for region_name, region in cls.get_all_regions().items():
+            if not isinstance(region, LineProfilerRegion):
+                continue
+            for record in region.manual_line_records(unit=1e-9):
+                records.append({"region": region_name, **record})
+            stats = region.get_stats()
+            unit = float(getattr(stats, "unit", 1.0))
+            for (filename, first_lineno, function), timings in stats.timings.items():
+                if not timings:
+                    continue
+                records.append(
+                    {
+                        "region": region_name,
+                        "filename": str(filename),
+                        "function": str(function),
+                        "first_lineno": int(first_lineno),
+                        "line_numbers": np.asarray(
+                            [int(row[0]) for row in timings], dtype=np.int64
+                        ),
+                        "hits": np.asarray(
+                            [int(row[1]) for row in timings], dtype=np.int64
+                        ),
+                        "times": np.asarray(
+                            [float(row[2]) for row in timings], dtype=float
+                        ),
+                        "unit": unit,
+                    }
+                )
+        return records
+
+    @classmethod
     def finalize(
         cls,
         verbose: bool = True,
@@ -840,6 +926,7 @@ class ProfileManager:
         snapshot = cls._snapshot_regions() if need_payload else {}
         sources = cls._snapshot_sources(snapshot) if need_payload else {}
         tags = cls._snapshot_tags(snapshot) if need_payload else {}
+        line_profile = cls._snapshot_line_profile() if need_payload else None
 
         # The data is safely copied, so the run boundary can be marked now: a
         # second finalize() in this process then reports only its own events.
@@ -873,6 +960,7 @@ class ProfileManager:
             likwid_environment=likwid_environment,
             sources=sources,
             tags=tags,
+            line_profile=line_profile,
         )
 
         # 3. Move every rank's payload to rank 0, which writes it straight into

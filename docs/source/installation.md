@@ -22,7 +22,7 @@ with the bracket syntax:
 | `nvtx`          | `pip install "scope-profiler[nvtx]"`          | NVTX ranges for NVIDIA Nsight profiling                                                  |
 | `mcp`           | `pip install "scope-profiler[mcp]"`           | The `scope-profiler-mcp` server, for AI coding agents (see {doc}`guide/mcp`)          |
 | `mpi`           | `pip install "scope-profiler[mpi]"`           | MPI support via [mpi4py](https://mpi4py.readthedocs.io/)                             |
-| `plot`          | `pip install "scope-profiler[plot]"`          | Plotting and post-processing (`scope-profiler plot`, `to_dataframe()`)               |
+| `pproc`         | `pip install "scope-profiler[pproc]"`         | Plotting, post-processing, and TUI browsing (`scope-profiler plot`, `scope-profiler tui`, `to_dataframe()`) |
 | `dev`           | `pip install "scope-profiler[dev]"`           | All of the above plus linting, formatting, and docs tools                            |
 
 The base install pulls in only `h5py` and `numpy`. Recording timings, writing

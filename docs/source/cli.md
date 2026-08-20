@@ -11,7 +11,7 @@ Profile a script's function calls without modifying it, similar to
 low; pass `--all` to trace everything.
 
 ```text
-usage: scope-profiler run [-h] [-o OUTFILE] [-q] [--all]
+usage: scope-profiler run [-h] [-o OUTFILE] [-q] [--all] [--line-profile]
                           [--buffer-limit BUFFER_LIMIT]
                           script ...
 ```
@@ -21,6 +21,7 @@ usage: scope-profiler run [-h] [-o OUTFILE] [-q] [--all]
 | `-o`, `--outfile`    | Path to the merged HDF5 output file (default: `profiling_data.h5`)   |
 | `-q`, `--quiet`      | Suppress the per-region summary printed after the run                |
 | `--all`              | Also instrument standard-library/installed-package calls (default: only the script's own code) |
+| `--line-profile`     | Also collect line-by-line timings via `line_profiler` (requires `scope-profiler[line-profiler]`) |
 | `--buffer-limit`     | Initial buffer capacity per region; grows as needed (default: 1024)     |
 
 ```bash
@@ -263,8 +264,8 @@ usage: scope-profiler plot [-h]
 | `kind`   | One of `default`, `all`, `quick`, or a plot kind |
 | `files`  | Path(s) or glob patterns for `profiling_data.h5` files |
 
-`default` renders `gantt`, `flame`, `durations`, `timeseries`, and `speedup`
-when several files are passed. `quick` renders `durations` and `speedup`.
+`default` renders `gantt` and the total `durations` plot. `quick` renders
+`durations` and `speedup`.
 `all` renders every plot except `likwid`; pass `--metric` to include `likwid`.
 
 ### Selecting data
@@ -397,8 +398,12 @@ called from several places and recursion behave as described above.
 **Save plots for a single file:**
 
 ```bash
-scope-profiler plot default profiling_data.h5 -o figures/
+scope-profiler plot profiling_data.h5 -o figures/
 ```
+
+Omitting the plot kind selects the default preset (`gantt` and total
+`durations`). The explicit equivalent is `scope-profiler plot default
+profiling_data.h5 -o figures/`.
 
 **Compare multiple files:**
 
@@ -416,7 +421,7 @@ scope-profiler plot default "files/file_*.h5" -o figures/
 **Display interactively with region filtering:**
 
 ```bash
-scope-profiler plot default profiling_data.h5 --show \
+scope-profiler plot profiling_data.h5 --show \
     --include "solver.*" "rhs.*" \
     --exclude "io"
 ```

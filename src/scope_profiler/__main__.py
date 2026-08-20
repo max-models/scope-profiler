@@ -18,6 +18,11 @@ Six subcommands:
   per-region statistics table (including LIKWID hardware counters, when the
   run recorded any) for merged HDF5 profiling output, without producing any
   plots. See ``scope_profiler.inspection``.
+- ``scope-profiler tui file.h5`` -- opens an interactive Textual browser for
+  metadata, region statistics, per-rank calls, LIKWID counters and the raw
+  HDF5 tree.
+- ``scope-profiler line-profile file.h5 [...]`` -- prints persisted
+  line-profiler timings from an HDF5 profile.
 - ``scope-profiler diff a.h5 b.h5`` -- compares region statistics between two
   merged HDF5 profiling files, region by region, so a regression (or
   improvement) between two runs shows up in one table. See
@@ -63,6 +68,12 @@ def _parse_run_args(argv):
         "(default: only the script's own code)",
     )
     parser.add_argument(
+        "--line-profile",
+        action="store_true",
+        help="Also collect line-by-line timings via line_profiler "
+        "(requires scope-profiler[line-profiler])",
+    )
+    parser.add_argument(
         "--buffer-limit",
         type=int,
         default=1024,
@@ -91,7 +102,7 @@ def _run(argv):
     ProfileManager.setup(
         recursive_profile=True,
         use_likwid=False,
-        use_line_profiler=False,
+        use_line_profiler=args.line_profile,
         buffer_limit=args.buffer_limit,
         file_path=args.outfile,
     )
@@ -125,6 +136,20 @@ def _inspect(argv):
     from scope_profiler.inspection import main as inspect_main
 
     return inspect_main(argv)
+
+
+def _tui(argv):
+    """Handle ``scope-profiler tui``: open the interactive HDF5 browser."""
+    from scope_profiler.tui import main as tui_main
+
+    return tui_main(argv)
+
+
+def _line_profile(argv):
+    """Handle ``scope-profiler line-profile``."""
+    from scope_profiler.line_profile_cli import main as line_profile_main
+
+    return line_profile_main(argv)
 
 
 def _diff(argv):
@@ -213,6 +238,8 @@ _COMMANDS = {
     "plot": _plot,
     "export": _export,
     "inspect": _inspect,
+    "tui": _tui,
+    "line-profile": _line_profile,
     "diff": _diff,
     "check": _check,
     "import-native": _import_fortran,
@@ -255,6 +282,18 @@ def main(argv=None):
         add_help=False,
         help="Print metadata and region statistics of HDF5 profiling data "
         "(see `scope-profiler inspect --help`)",
+    )
+    subparsers.add_parser(
+        "tui",
+        add_help=False,
+        help="Interactively browse HDF5 profiling data "
+        "(see `scope-profiler tui --help`)",
+    )
+    subparsers.add_parser(
+        "line-profile",
+        add_help=False,
+        help="Print persisted line-profiler timings from HDF5 data "
+        "(see `scope-profiler line-profile --help`)",
     )
     subparsers.add_parser(
         "diff",

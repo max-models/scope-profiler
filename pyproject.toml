@@ -5,7 +5,7 @@ requires = [ "setuptools", "wheel" ]
 
 [project]
 name = "scope-profiler"
-version = "0.3.0"
+version = "0.3.1"
 description = "Profile code regions in python, optionally with LIKWID markers."
 readme = "README.md"
 keywords = [ "python" ]
@@ -53,20 +53,22 @@ optional-dependencies.mpi = [
   "mpi4py",
 ]
 
-optional-dependencies.plot = [
+optional-dependencies.pproc = [
   "ipykernel",
   "jupyterlab",
   "matplotlib",
   "maxplotlibx >= 0.1.6",
   "pandas",
   "snakeviz",
+  "tabulate",
+  "textual>=0.86",
 ]
 
 optional-dependencies.dev = [
   "black[jupyter]",
   "isort",
   "ruff",
-  "scope-profiler[docs,fortran,line-profiler,mcp,mpi,nvtx,plot,test]",
+  "scope-profiler[docs,fortran,line-profiler,mcp,mpi,nvtx,pproc,test,tui]",
 ]
 # https://medium.com/@pratikdomadiya123/build-project-documentation-quickly-with-the-sphinx-python-2a9732b66594
 optional-dependencies.docs = [
@@ -77,11 +79,16 @@ optional-dependencies.docs = [
   "pyproject-fmt",
   "sphinx",
   "sphinx-book-theme",
-  "scope-profiler[line-profiler,plot]",
+  "scope-profiler[line-profiler,pproc,tui]",
 ]
 optional-dependencies.test = [
   "coverage",
   "pytest",
+]
+
+optional-dependencies.tui = [
+  "tabulate",
+  "textual>=0.86",
 ]
 urls."Source" = "https://github.com/max-models/scope-profiler"
 

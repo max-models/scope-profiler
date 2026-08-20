@@ -91,6 +91,22 @@ def write_regions(
             region_grp.attrs.create("tags", list(tags[name]), dtype=h5py.string_dtype())
 
 
+def write_line_profile(group, records: list | None) -> None:
+    """Write copied line-profiler records for one rank."""
+    if not records:
+        return
+    profile_grp = group.create_group("line_profile")
+    for index, record in enumerate(records):
+        function_grp = profile_grp.create_group(str(index))
+        for key in ("region", "filename", "function"):
+            function_grp.attrs[key] = record[key]
+        function_grp.attrs["first_lineno"] = record["first_lineno"]
+        function_grp.attrs["unit"] = record["unit"]
+        function_grp.create_dataset("line_numbers", data=record["line_numbers"])
+        function_grp.create_dataset("hits", data=record["hits"])
+        function_grp.create_dataset("times", data=record["times"])
+
+
 def write_rank_payload(h5file, rank: int, payload) -> bool:
     """Write one rank's payload into ``rank<N>``.
 
@@ -111,7 +127,7 @@ def write_rank_payload(h5file, rank: int, payload) -> bool:
     bool
         True if a group was created, False if the payload was empty.
     """
-    if not payload.regions and not payload.likwid:
+    if not payload.regions and not payload.likwid and not payload.line_profile:
         return False
 
     # create_group, not require_group: each rank is written exactly once, so a
@@ -125,6 +141,7 @@ def write_rank_payload(h5file, rank: int, payload) -> bool:
             payload.likwid.values(),
             environment=payload.likwid_environment,
         )
+    write_line_profile(group, payload.line_profile)
     return True
 
 

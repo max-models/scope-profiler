@@ -229,6 +229,58 @@ def test_line_profiler_context_manager_profiles_caller_without_functions():
     ProfileManager.finalize(verbose=False)
 
 
+def test_recursive_line_profiler_records_traced_frame_lines(tmp_path, monkeypatch):
+    added_functions = []
+
+    class FakeStats:
+        unit = 1e-9
+        timings = {}
+
+    class FakeLineProfiler:
+        def add_function(self, func):
+            added_functions.append(func.__name__)
+
+        def enable_by_count(self):
+            pass
+
+        def disable_by_count(self):
+            pass
+
+        def get_stats(self):
+            return FakeStats()
+
+    monkeypatch.setattr(
+        "scope_profiler.region_profiler._import_line_profiler",
+        lambda: FakeLineProfiler,
+    )
+    script = tmp_path / "script.py"
+    script.write_text(
+        "def target():\n"
+        "    total = 0\n"
+        "    for i in range(3):\n"
+        "        total += i\n"
+        "    return total\n"
+        "\n"
+        "target()\n",
+        encoding="utf-8",
+    )
+
+    try:
+        ProfileManager.setup(use_line_profiler=True, deactivate_file_output=True)
+        ProfileManager.run_script(str(script))
+        records = ProfileManager._snapshot_line_profile()
+    finally:
+        ProfileManager._reset()
+
+    assert "tracer" not in added_functions
+    assert "run_script" not in added_functions
+    assert any(record["function"] == "target" for record in records)
+    target = next(record for record in records if record["function"] == "target")
+    assert target["line_numbers"].size > 0
+    assert target["hits"].size == target["line_numbers"].size
+    assert target["times"].size == target["line_numbers"].size
+
+
 def test_frame_region_name_without_co_qualname():
     """Python 3.10 code objects have no co_qualname; naming must still work.
 

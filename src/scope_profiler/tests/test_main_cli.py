@@ -5,7 +5,7 @@ import pytest
 from scope_profiler import __version__
 from scope_profiler.__main__ import _COMMANDS
 from scope_profiler.__main__ import main as cli_main
-from scope_profiler.post_processing import _PLOT_CATALOG
+from scope_profiler.post_processing import _DEFAULT_PLOTS, _PLOT_CATALOG
 
 
 def test_version_flag_prints_version_and_exits(capsys):
@@ -34,6 +34,52 @@ def test_help_lists_plot_export_and_not_pproc(capsys):
     assert "plot" in out
     assert "export" in out
     assert "pproc" not in out
+
+
+def test_run_help_lists_line_profile_flag(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main(["run", "--help"])
+
+    assert exc_info.value.code == 0
+    assert "--line-profile" in capsys.readouterr().out
+
+
+def test_run_line_profile_flag_is_passed_to_setup(tmp_path, monkeypatch):
+    script = tmp_path / "script.py"
+    script.write_text("print('hello')\n", encoding="utf-8")
+    calls = {}
+
+    def fake_setup(**kwargs):
+        calls["setup"] = kwargs
+
+    def fake_run_script(path, script_args=None, only_user_code=True):
+        calls["run_script"] = {
+            "path": path,
+            "script_args": script_args,
+            "only_user_code": only_user_code,
+        }
+
+    def fake_finalize(verbose=True):
+        calls["finalize"] = {"verbose": verbose}
+
+    monkeypatch.setattr("scope_profiler.__main__.ProfileManager.setup", fake_setup)
+    monkeypatch.setattr(
+        "scope_profiler.__main__.ProfileManager.run_script", fake_run_script
+    )
+    monkeypatch.setattr(
+        "scope_profiler.__main__.ProfileManager.finalize", fake_finalize
+    )
+
+    cli_main(["run", "--line-profile", "--all", "-q", str(script), "--", "arg"])
+
+    assert calls["setup"]["use_line_profiler"] is True
+    assert calls["setup"]["recursive_profile"] is True
+    assert calls["run_script"] == {
+        "path": str(script),
+        "script_args": ["arg"],
+        "only_user_code": False,
+    }
+    assert calls["finalize"] == {"verbose": False}
 
 
 def test_pproc_is_not_a_command(capsys):
@@ -74,6 +120,10 @@ def test_plot_kind_help_does_not_crash(plot_kind, capsys):
 
     assert exc_info.value.code == 0
     assert f"scope-profiler plot {plot_kind}" in capsys.readouterr().out
+
+
+def test_default_plot_preset_is_gantt_and_total_durations():
+    assert _DEFAULT_PLOTS == {"gantt", "durations"}
 
 
 @pytest.mark.parametrize("export_kind", ["prof", "speedscope", "plot-data"])
