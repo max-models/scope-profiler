@@ -66,6 +66,26 @@ def _read_likwid_group(group) -> dict:
     return results
 
 
+def _read_line_profile_group(group) -> list:
+    """Read one rank's persisted line-profiler records."""
+    records = []
+    for function_grp in group.values():
+        attrs = function_grp.attrs
+        records.append(
+            {
+                "region": _decode_attribute(attrs.get("region", "")),
+                "filename": _decode_attribute(attrs.get("filename", "")),
+                "function": _decode_attribute(attrs.get("function", "")),
+                "first_lineno": int(attrs.get("first_lineno", 0)),
+                "line_numbers": function_grp["line_numbers"][()],
+                "hits": function_grp["hits"][()],
+                "times": function_grp["times"][()],
+                "unit": float(attrs.get("unit", 1.0)),
+            }
+        )
+    return records
+
+
 def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
     """
     Parse a merged profiling file into :class:`ProfilingResults` arguments.
@@ -98,6 +118,7 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
     metadata: dict = {}
     # rank -> {tag: LikwidRegionResult}; empty unless the run used LIKWID.
     likwid: dict[int, dict[str, LikwidRegionResult]] = {}
+    line_profile: dict[int, list] = {}
     if not file_path.exists():
         raise FileNotFoundError(f"HDF5 file not found: {file_path}")
 
@@ -130,6 +151,10 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
 
             if LIKWID_GROUP in rank_group:
                 likwid[rank] = _read_likwid_group(rank_group[LIKWID_GROUP])
+            if "line_profile" in rank_group:
+                line_profile[rank] = _read_line_profile_group(
+                    rank_group["line_profile"]
+                )
 
             if "regions" not in rank_group:
                 continue
@@ -176,6 +201,7 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
         "metadata": metadata,
         "num_ranks": num_ranks,
         "likwid": likwid,
+        "line_profile": line_profile,
         "file_path": file_path,
     }
 
