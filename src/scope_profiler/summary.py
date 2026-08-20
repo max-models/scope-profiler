@@ -12,6 +12,7 @@ import re
 import sys
 
 import numpy as np
+from tabulate import tabulate
 
 SORT_KEYS = (
     "total",
@@ -289,36 +290,21 @@ def print_region_table(
         "imbalance": "",
     }
 
-    widths = {
-        key: max(len(header), max(len(row[key]) for row in [*formatted, total_row]))
-        for key, header in selected_columns
-    }
-
-    def render(row):
-        cells = []
-        for index, (key, _) in enumerate(selected_columns):
-            if index == 0 and key == "name":
-                cells.append(f"{row[key]:<{widths[key]}}")
-            else:
-                cells.append(f"{row[key]:>{widths[key]}}")
-        return "  ".join(cells).rstrip()
-
-    header_line = render({key: header for key, header in selected_columns})
-    rule = "-" * len(header_line)
-
-    print(f"  {header_line}", file=stream)
-    print(f"  {rule}", file=stream)
-    for row in formatted:
-        print(f"  {render(row)}", file=stream)
+    headers = [header for _, header in selected_columns]
+    table_rows = [
+        [row[key] for key, _ in selected_columns] for row in formatted
+    ]
+    table_rows.append([total_row[key] for key, _ in selected_columns])
+    for line in tabulate(
+        table_rows,
+        headers=headers,
+        tablefmt="plain",
+        disable_numparse=True,
+    ).splitlines():
+        print(f"  {line}", file=stream)
     if not suppress_notes:
-        notes = [
-            "Durations are in seconds.",
-            "TOTAL row sums over all ranks.",
-        ]
-        for note in notes:
-            print(f"\n  {note}", file=stream)
-    print(f"  {rule}", file=stream)
-    print(f"  {render(total_row)}", file=stream)
+        print("\n  Durations are in seconds.", file=stream)
+        print("  TOTAL row sums over all ranks.", file=stream)
     if total_time is not None:
         print(f"\n  Total time (setup to finalize): {total_time:.6g} s", file=stream)
 
@@ -511,42 +497,22 @@ def print_likwid_table(table, title=None, stream=None) -> None:
         title += f", group {table['group']})" if table["group"] else ")"
 
     sections = [(heading, rows) for heading, rows in table["sections"] if rows]
-    all_rows = [row for _, rows in sections for row in rows]
-
-    name_width = max(
-        [len(name) for name, _ in all_rows]
-        + [len(heading) for heading, _ in sections]
-        + [len("counter")]
-    )
-    cell_widths = [
-        max(
-            len(label),
-            max((len(_format_counter(values[i])) for _, values in all_rows), default=0),
-        )
-        for i, label in enumerate(columns)
-    ]
-
-    def render(name, cells):
-        out = [f"{name:<{name_width}}"]
-        out += [f"{cell:>{cell_widths[i]}}" for i, cell in enumerate(cells)]
-        return "  ".join(out).rstrip()
-
-    header_line = render("counter", list(columns))
-    rule = "-" * len(header_line)
 
     print(title, file=stream)
-    print(f"  {header_line}", file=stream)
-    print(f"  {rule}", file=stream)
     for index, (heading, rows) in enumerate(sections):
-        if index:
-            print(f"  {rule}", file=stream)
         if heading:
             print(f"  {heading}", file=stream)
-        for name, values in rows:
-            print(
-                f"  {render(name, [_format_counter(v) for v in values])}", file=stream
-            )
-    print(f"  {rule}", file=stream)
+        table_rows = [
+            [name, *[_format_counter(value) for value in values]]
+            for name, values in rows
+        ]
+        for line in tabulate(
+            table_rows,
+            headers=("counter", *columns),
+            tablefmt="plain",
+            disable_numparse=True,
+        ).splitlines():
+            print(f"  {line}", file=stream)
     print(file=stream)
 
 
