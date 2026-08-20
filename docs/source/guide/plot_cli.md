@@ -48,14 +48,10 @@ scope-profiler plot default run_2.h5 -o figures
 
 ```text
 Plotting Gantt chart for ranks: [0, 1]
-Plotting flame graph for: run_2 (rank 0)
 Plotting duration comparison (total) for files: run_2
-Plotting duration over time for files: run_2
 Outputs saved to:
   figures/gantt_plot.png
-  figures/flame_plot.png
   figures/durations_plot.png
-  figures/duration_timeseries_plot.png
   figures/region_statistics.json
 ```
 
@@ -229,8 +225,8 @@ scope-profiler plot gantt run_2.h5 -o gantt.png
 ```
 
 Run `scope-profiler plot list` to see the available names. The built-in
-presets are `default` (`gantt`, `flame`, `durations`, `timeseries`, and
-`speedup` when applicable), `quick` (`durations` and `speedup`), and `all`
+presets are `default` (`gantt` and total `durations`), `quick` (`durations`
+and `speedup`), and `all`
 (every plot except LIKWID unless `--metric` is given).
 
 ## Filtering regions and ranks
