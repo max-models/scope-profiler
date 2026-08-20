@@ -117,3 +117,22 @@ def test_session_finalizes_when_body_raises(tmp_path):
             raise RuntimeError("expected")
 
     assert read_h5(str(out))["step"].num_calls == 1
+
+
+def test_region_tags_round_trip_and_must_be_consistent(tmp_path):
+    out = tmp_path / "tags.h5"
+    ProfileManager.setup(file_path=str(out))
+
+    with ProfileManager.profile_region("solve", tags=("compute", "hot")):
+        pass
+    # Omitting tags means "unspecified", which is convenient for shared
+    # helpers that use a region name already configured by the caller.
+    with ProfileManager.profile_region("solve"):
+        pass
+    with pytest.raises(ValueError, match="already has tags"):
+        ProfileManager.profile_region("solve", tags=["io"])
+
+    results = ProfileManager.finalize(verbose=False, return_results=True)
+    assert results["solve"].tags == ("compute", "hot")
+    assert results.summary()[0]["tags"] == ("compute", "hot")
+    assert read_h5(str(out))["solve"].tags == ("compute", "hot")

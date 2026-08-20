@@ -83,6 +83,11 @@ class MPIRegion:
         """Source text of the region's ``with`` block or decorated function."""
         return self._first_captured("source_text")
 
+    @property
+    def tags(self) -> tuple[str, ...]:
+        """User-defined tags attached to this region."""
+        return self._first_captured("tags") or ()
+
     def get_summary(self) -> Dict[str, Any]:
         """
         Return statistics aggregated over every rank.

@@ -64,6 +64,9 @@ class RankPayload(NamedTuple):
     ``payload.sources or {}`` rather than relying on that.
     """
 
+    tags: dict | None = None
+    """Region name -> tuple of user-defined string tags."""
+
 
 class _ProfilingSession:
     """Context manager backing :meth:`ProfileManager.session`."""
@@ -241,7 +244,7 @@ class ProfileManager:
             cls._region_cls = TimeOnlyProfileRegion
 
     @classmethod
-    def profile_region(cls, region_name, functions=None) -> BaseProfileRegion:
+    def profile_region(cls, region_name, functions=None, tags=None) -> BaseProfileRegion:
         """
         Get an existing ProfileRegion by name, or create a new one if it doesn't exist.
 
@@ -258,6 +261,10 @@ class ProfileManager:
                 with ProfileManager.profile_region("my_region", functions=[my_func]):
                     my_func()
 
+        tags : iterable of str, optional
+            User-defined labels persisted with the region. Reusing a region
+            name with a different non-None tag set raises ``ValueError``.
+
         Returns
         -------
         ProfileRegion : The ProfileRegion instance.
@@ -267,11 +274,19 @@ class ProfileManager:
         # every lookup of an existing region would construct (and discard) a
         # full region object, including its preallocated timing buffers. This
         # runs per call event under recursive profiling.
+        normalized_tags = None if tags is None else tuple(tags)
         region = cls._regions.get(region_name)
         if region is None:
-            region = cls._region_cls(region_name, config=cls.get_config())
+            region = cls._region_cls(
+                region_name, config=cls.get_config(), tags=normalized_tags or ()
+            )
             cls._regions[region_name] = region
             cls._capture_region_source(region)
+        elif normalized_tags is not None and region.tags != normalized_tags:
+            raise ValueError(
+                f"region {region_name!r} already has tags {region.tags!r}; "
+                f"cannot reuse it with {normalized_tags!r}"
+            )
         if functions is not None:
             for func in functions:
                 region.add_function(func)
@@ -511,6 +526,15 @@ class ProfileManager:
                 )
         return sources
 
+    @classmethod
+    def _snapshot_tags(cls, names) -> Dict[str, tuple]:
+        """Tags of every named region, including explicitly empty tag sets."""
+        return {
+            name: tuple(cls._regions[name].tags)
+            for name in names
+            if name in cls._regions
+        }
+
     class _ResultAccumulator:
         """Builds a ProfilingResults from per-rank payloads, one at a time.
 
@@ -532,6 +556,7 @@ class ProfileManager:
             if payload.likwid:
                 self._likwid[rank] = payload.likwid
             sources = payload.sources or {}
+            tags = payload.tags or {}
             for name, (starts, ends) in payload.regions.items():
                 source_file, source_lineno, source_text = sources.get(
                     name, (None, None, None)
@@ -542,6 +567,7 @@ class ProfileManager:
                     source_file=source_file,
                     source_lineno=source_lineno,
                     source_text=source_text,
+                    tags=tags.get(name, ()),
                 )
 
         def build(self):
@@ -807,6 +833,7 @@ class ProfileManager:
         # in-memory results are assembled from the same bytes.
         snapshot = cls._snapshot_regions() if need_payload else {}
         sources = cls._snapshot_sources(snapshot) if need_payload else {}
+        tags = cls._snapshot_tags(snapshot) if need_payload else {}
 
         # The data is safely copied, so the run boundary can be marked now: a
         # second finalize() in this process then reports only its own events.
@@ -839,6 +866,7 @@ class ProfileManager:
             likwid={result.tag: result for result in likwid_results},
             likwid_environment=likwid_environment,
             sources=sources,
+            tags=tags,
         )
 
         # 3. Move every rank's payload to rank 0, which writes it straight into
