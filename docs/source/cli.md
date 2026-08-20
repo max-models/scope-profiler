@@ -16,6 +16,9 @@ Select a plot and press `g` to display it with Matplotlib, or `s` to save it
 as a PNG. Saved plots go to `<file-stem>_plots/` by default; use
 `--plot-output DIR` to choose another directory.
 
+For the Flame plot, press `v` to export the selected data to `.prof` format
+and open it in Snakeviz (`pip install snakeviz`).
+
 When a plot is selected, its settings panel shows the regions matched by the
 include/exclude filters as you type. It also supports rank ranges, colormap,
 log scale, duration metrics, duration sorting and top-N selection, histogram

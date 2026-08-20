@@ -29,13 +29,14 @@ from scope_profiler.plotting_scripts import (
     plot_imbalance,
     plot_likwid,
 )
+from scope_profiler.prof_export import export_prof
 from scope_profiler.summary import region_row, region_rows
 
 
 _PLOT_CATALOG = {
     "gantt": "Per-rank timeline of recorded calls",
-    "flame": "Reconstructed nested call-stack flame graph",
     "durations": "Duration statistics by region",
+    "flame": "Reconstructed nested call-stack flame graph",
     "timeseries": "Duration of each call over time",
     "histogram": "Call-duration distribution by region",
     "imbalance": "Per-rank duration comparison",
@@ -368,6 +369,8 @@ def node_detail_text(node: BrowserNode) -> str:
             "",
             "Press g to show in Matplotlib or s to save as a PNG.",
         ]
+        if payload.get("plot_name") == "flame":
+            lines.append("Press v to open the reconstructed profile in Snakeviz.")
         if payload.get("metric"):
             lines.append(f"Metric: {payload['metric']}")
         return "\n".join(lines)
@@ -779,6 +782,7 @@ def _build_textual_app_class():
             border: solid $accent;
             padding: 0 1;
             display: none;
+            overflow-y: auto;
         }
 
         #selected-regions {
@@ -800,6 +804,7 @@ def _build_textual_app_class():
             ("q", "quit", "Quit"),
             ("g", "show_plot", "Show plot"),
             ("s", "save_plot", "Save plot"),
+            ("v", "show_snakeviz", "Open in Snakeviz"),
         ]
 
         def __init__(self, model: BrowserModel, output_dir: str | Path | None = None):
@@ -950,6 +955,63 @@ def _build_textual_app_class():
                 self.notify(f"Saved {saved}", timeout=8)
             else:
                 self.notify("Plot opened in Matplotlib.", timeout=5)
+
+        def action_show_snakeviz(self) -> None:
+            node = self.selected_browser_node
+            if (
+                node is None
+                or node.kind != "plot"
+                or node.payload.get("plot_name") != "flame"
+            ):
+                self.notify("Select the Flame plot first.", severity="warning")
+                return
+
+            def split_patterns(key: str) -> list[str] | None:
+                values = [
+                    item.strip()
+                    for item in str(self.plot_settings.get(key, "")).split(",")
+                    if item.strip()
+                ]
+                return values or None
+
+            ranks = None
+            rank_text = self.plot_settings.get("ranks", "").strip()
+            if rank_text:
+                ranks = []
+                for spec in rank_text.split(","):
+                    ranks.extend(parse_ranks(spec.strip()))
+                ranks = sorted(set(ranks))
+
+            directory = self.output_dir or (
+                self.model.file_path.parent / f"{self.model.file_path.stem}_plots"
+            )
+            directory.mkdir(parents=True, exist_ok=True)
+            try:
+                prof_paths = export_prof(
+                    self.model.results,
+                    directory / "profile.prof",
+                    ranks=ranks,
+                    include=split_patterns("include"),
+                    exclude=split_patterns("exclude"),
+                    verbose=False,
+                )
+                if not prof_paths:
+                    raise ValueError("No profile data was exported.")
+                subprocess.Popen(
+                    ["snakeviz", str(prof_paths[0])],
+                    start_new_session=True,
+                )
+            except FileNotFoundError:
+                self.notify(
+                    "Snakeviz is not installed. Install it with `pip install snakeviz`.",
+                    severity="error",
+                    timeout=8,
+                )
+                return
+            except (RuntimeError, ValueError, OSError) as exc:
+                self.notify(str(exc), severity="error", timeout=8)
+                return
+            self.notify(f"Opened {prof_paths[0]} in Snakeviz.", timeout=8)
 
         def _show_plot_in_child_process(self, node: BrowserNode) -> None:
             """Render a real Matplotlib figure outside Textual's event loop."""
