@@ -48,6 +48,7 @@ class ProfilingResults:
         metadata: dict | None = None,
         num_ranks: int | None = None,
         likwid: Dict[int, Dict[str, LikwidRegionResult]] | None = None,
+        line_profile: Dict[int, list] | None = None,
         file_path: str | Path = "",
         is_root: bool = True,
     ) -> None:
@@ -77,6 +78,7 @@ class ProfilingResults:
         self._region_dict = dict(regions)
         self._metadata = dict(metadata or {})
         self._likwid = dict(likwid or {})
+        self._line_profile = dict(line_profile or {})
         self._file_path = Path(file_path)
         if num_ranks is None:
             ranks = {rank for region in self._region_dict.values() for rank in region}
@@ -622,6 +624,16 @@ class ProfilingResults:
             etc.), or an empty dict if the run recorded none.
         """
         return self._metadata
+
+    @property
+    def line_profile(self) -> Dict[int, list]:
+        """Persisted line-profiler records keyed by rank.
+
+        Each record contains ``region``, ``filename``, ``function``,
+        ``first_lineno``, ``line_numbers``, ``hits``, ``times`` and ``unit``.
+        The elapsed seconds for a line are ``times * unit``.
+        """
+        return self._line_profile
 
     @property
     def num_ranks(self) -> int:
