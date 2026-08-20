@@ -142,6 +142,13 @@ for record in results.line_profile.get(0, []):
 Each record is associated with its region, source file, and function. The
 stored `times` values use the `unit` reported by `line_profiler`.
 
+The same data can be printed from the command line:
+
+```bash
+scope-profiler line-profile profiling_data.h5
+scope-profiler line-profile profiling_data.h5 --rank 0 --function solve
+```
+
 ## Overhead considerations
 
 Line profiling adds ~40 µs per call because `line_profiler` instruments
