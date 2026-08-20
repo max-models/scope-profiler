@@ -469,15 +469,18 @@ def test_post_processing_cli_supports_multiple_files(tmp_path):
     assert payload["files"][2]["region_statistics"]["setup"]["count"] == 4
 
 
-def test_post_processing_cli_requires_plot_kind(tmp_path, capsys):
-    """The old direct-file plot form has been replaced by plot kind subcommands."""
+def test_post_processing_cli_defaults_when_plot_kind_is_omitted(tmp_path):
     file_one = tmp_path / "run_1.h5"
     _write_sample_h5(file_one, _sample_file_data(1, 100, 200))
+    output_dir = tmp_path / "figures"
 
-    with pytest.raises(SystemExit):
-        main([str(file_one)])
+    main([str(file_one), "-o", str(output_dir)])
 
-    assert "invalid choice" in capsys.readouterr().err
+    assert (output_dir / "gantt_plot.png").exists()
+    assert (output_dir / "durations_plot.png").exists()
+    assert not (output_dir / "flame_plot.png").exists()
+    assert not (output_dir / "duration_timeseries_plot.png").exists()
+    assert not (output_dir / "speedup_plot.png").exists()
 
 
 def test_post_processing_cli_supports_wildcard_file_patterns(tmp_path):

@@ -5,7 +5,7 @@ import pytest
 from scope_profiler import __version__
 from scope_profiler.__main__ import _COMMANDS
 from scope_profiler.__main__ import main as cli_main
-from scope_profiler.post_processing import _PLOT_CATALOG
+from scope_profiler.post_processing import _DEFAULT_PLOTS, _PLOT_CATALOG
 
 
 def test_version_flag_prints_version_and_exits(capsys):
@@ -74,6 +74,10 @@ def test_plot_kind_help_does_not_crash(plot_kind, capsys):
 
     assert exc_info.value.code == 0
     assert f"scope-profiler plot {plot_kind}" in capsys.readouterr().out
+
+
+def test_default_plot_preset_is_gantt_and_total_durations():
+    assert _DEFAULT_PLOTS == {"gantt", "durations"}
 
 
 @pytest.mark.parametrize("export_kind", ["prof", "speedscope", "plot-data"])

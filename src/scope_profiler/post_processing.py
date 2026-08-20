@@ -3,6 +3,7 @@
 import argparse
 import glob
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -28,10 +29,10 @@ from scope_profiler.speedscope_export import export_speedscope
 # so the three can never drift out of sync.
 _PLOT_CATALOG: dict[str, tuple[str, bool]] = {
     "gantt": ("per-rank timeline of every call", True),
-    "flame": ("reconstructed call-stack flame graph", True),
+    "flame": ("reconstructed call-stack flame graph", False),
     "durations": ("bar chart of duration statistics per region", True),
-    "timeseries": ("duration per call over wall-clock time", True),
-    "speedup": ("scaling across multiple files (2+ files only)", True),
+    "timeseries": ("duration per call over wall-clock time", False),
+    "speedup": ("scaling across multiple files (2+ files only)", False),
     "histogram": ("call-duration distribution per region", False),
     "imbalance": ("per-rank duration comparison, to spot stragglers", False),
     "likwid": ("one LIKWID hardware-counter metric (needs --likwid-metric)", False),
@@ -799,7 +800,18 @@ def _render_selected_plots(
 def main(argv: list[str] | None = None):
     """Render one plot kind or plot preset from HDF5 profiling data."""
     parser = build_parser()
-    args = parser.parse_args(argv)
+    plot_argv = list(sys.argv[1:] if argv is None else argv)
+    # Keep the concise form ``scope-profiler plot FILE [OPTIONS]`` as an
+    # alias for the default preset. Explicit plot kinds continue to work as
+    # subcommands, e.g. ``scope-profiler plot gantt FILE``.
+    plot_kinds = {"list", "default", "all", "quick", *_PLOT_CATALOG}
+    if (
+        plot_argv
+        and not plot_argv[0].startswith("-")
+        and plot_argv[0] not in plot_kinds
+    ):
+        plot_argv.insert(0, "default")
+    args = parser.parse_args(plot_argv)
 
     if args.plot_kind == "list":
         _print_plot_list()
