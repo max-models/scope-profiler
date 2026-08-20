@@ -39,7 +39,8 @@ glance.
 usage: scope-profiler inspect [-h] [--include INCLUDE [INCLUDE ...]]
                               [--exclude EXCLUDE [EXCLUDE ...]]
                               [--ranks RANKS [RANKS ...]]
-                              [--sort {total,calls,avg,min,max,std,name}] [--full]
+                              [--sort {total,calls,avg,min,max,first,last,std,p50,p95,p99,imbalance,name}] [--full]
+                              [--columns {region,ranks,calls,total,avg,min,max,first,last,std,p50,p95,p99,imbalance} [...]]
                               [--source NAME [NAME ...]]
                               [--metadata-only | --regions-only]
                               files [files ...]
@@ -50,7 +51,8 @@ usage: scope-profiler inspect [-h] [--include INCLUDE [INCLUDE ...]]
 | `--include`       | Only report regions matching these regex patterns                       |
 | `--exclude`       | Skip regions matching these regex patterns                              |
 | `--ranks`         | Restrict region statistics to these ranks, e.g. `0 2` or `0-3`          |
-| `--sort`          | Order regions by `total` (default), `calls`, `avg`, `min`, `max`, `std` or `name` |
+| `--sort`          | Order regions by any region-table statistic, or by `name` alphabetically |
+| `--columns`       | Restrict the region table to selected columns, e.g. `region ranks calls total avg` |
 | `--full`          | Print long metadata values (`PATH`, `LD_LIBRARY_PATH`, ...) in full     |
 | `--source`        | Print the captured call-site source (the `with` block or decorated function that defines it) of these regions |
 | `--export-metadata` | Also write the metadata of every inspected file to this JSON file     |
@@ -61,6 +63,7 @@ usage: scope-profiler inspect [-h] [--include INCLUDE [INCLUDE ...]]
 ```bash
 scope-profiler inspect profiling_data.h5
 scope-profiler inspect 'run_*.h5' --regions-only --sort calls
+scope-profiler inspect profiling_data.h5 --regions-only --columns region ranks calls total avg
 scope-profiler inspect profiling_data.h5 --export-metadata metadata.json --quiet
 scope-profiler inspect profiling_data.h5 --source solve assemble
 ```

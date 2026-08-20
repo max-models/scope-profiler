@@ -263,6 +263,28 @@ def test_cli_entry_point(sample_file, capsys):
     assert "Metadata" in capsys.readouterr().out
 
 
+def test_cli_accepts_region_table_columns(sample_file, capsys):
+    inspect_main(
+        [
+            str(sample_file),
+            "--regions-only",
+            "--columns",
+            "region",
+            "ranks",
+            "calls",
+            "total",
+            "avg",
+        ]
+    )
+    out = capsys.readouterr().out
+    header = next(line for line in out.splitlines() if "total [s]" in line)
+
+    assert "total [s]" in header and "avg [s]" in header
+    assert "min [s]" not in header
+    assert "imbalance [%]" not in header
+    assert "setup" in out and "solve" in out and "TOTAL" in out
+
+
 def test_cli_accepts_multiple_files_and_globs(sample_file, capsys):
     second = sample_file.parent / "second_run.h5"
     _write_sample_h5(second, {0: {"setup": ([0], [1 * NS])}}, metadata={"user": "max"})

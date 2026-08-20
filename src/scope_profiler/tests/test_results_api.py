@@ -185,6 +185,24 @@ def test_reader_print_summary(sample_file, capsys):
     assert "Total time" not in out
 
 
+def test_reader_print_summary_accepts_columns(sample_file, capsys):
+    read_h5(sample_file).print_summary(
+        columns=["region", "ranks", "calls", "total", "avg"]
+    )
+
+    out = capsys.readouterr().out
+    header = next(line for line in out.splitlines() if "region" in line)
+
+    assert "region" in header
+    assert "ranks" in header
+    assert "calls" in header
+    assert "total [s]" in header
+    assert "avg [s]" in header
+    assert "min [s]" not in header
+    assert "imbalance [%]" not in header
+    assert "setup" in out and "solve" in out and "TOTAL" in out
+
+
 def test_reader_print_summary_shows_total_time_when_available(tmp_path, capsys):
     path = tmp_path / "with_finalize.h5"
     _write_sample_h5(
