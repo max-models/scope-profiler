@@ -32,7 +32,10 @@ def print_line_profile(file_path, ranks=None, function=None, region=None, stream
                 file=stream,
             )
             total_time = float(record["times"].sum())
-            print("line        hits       time [s]   per hit [s]  % time  source", file=stream)
+            print(
+                "line        hits       time [s]   per hit [s]  % time  source",
+                file=stream,
+            )
             for line, hits, elapsed in zip(
                 record["line_numbers"], record["hits"], record["times"]
             ):
