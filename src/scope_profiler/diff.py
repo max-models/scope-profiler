@@ -169,7 +169,7 @@ def print_diff_table(rows, metric: str = "total", title=None, stream=None) -> No
     for line in tabulate(
         table_rows,
         headers=[header for _, header in columns],
-        tablefmt="plain",
+        tablefmt="rounded_outline",
         disable_numparse=True,
     ).splitlines():
         print(f"  {line}", file=stream)

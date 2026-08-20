@@ -48,7 +48,7 @@ def print_line_profile(file_path, ranks=None, function=None, region=None, stream
             for table_line in tabulate(
                 table_rows,
                 headers=("line", "hits", "time [s]", "per hit [s]", "% time", "source"),
-                tablefmt="plain",
+                tablefmt="rounded_outline",
                 disable_numparse=True,
             ).splitlines():
                 print(table_line, file=stream)

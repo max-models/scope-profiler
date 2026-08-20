@@ -300,7 +300,7 @@ def _line_table(headers, rows) -> str:
     return tabulate(
         rows,
         headers=headers,
-        tablefmt="plain",
+        tablefmt="rounded_outline",
         disable_numparse=True,
     )
 

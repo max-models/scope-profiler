@@ -14,6 +14,21 @@ import sys
 import numpy as np
 from tabulate import tabulate
 
+
+def _print_table(rows, headers, stream, title=None) -> None:
+    """Print a rounded, header-separated table."""
+    lines = tabulate(
+        rows,
+        headers=headers,
+        tablefmt="rounded_outline",
+        disable_numparse=True,
+    ).splitlines()
+    if title:
+        width = max(len(line) for line in lines)
+        print(f"  {title.center(width - 4)}", file=stream)
+    for line in lines:
+        print(f"  {line}", file=stream)
+
 SORT_KEYS = (
     "total",
     "calls",
@@ -246,9 +261,9 @@ def print_region_table(
     stream = sys.stdout if stream is None else stream
     selected_columns = normalize_region_table_columns(columns)
 
-    if title:
-        print(title, file=stream)
     if not rows:
+        if title:
+            print(title, file=stream)
         print("  (no regions recorded)", file=stream)
         return
 
@@ -295,19 +310,10 @@ def print_region_table(
         [row[key] for key, _ in selected_columns] for row in formatted
     ]
     table_rows.append([total_row[key] for key, _ in selected_columns])
-    for line in tabulate(
-        table_rows,
-        headers=headers,
-        tablefmt="plain",
-        disable_numparse=True,
-    ).splitlines():
-        print(f"  {line}", file=stream)
+    _print_table(table_rows, headers, stream, title=title)
     if not suppress_notes:
         print("\n  Durations are in seconds.", file=stream)
         print("  TOTAL row sums over all ranks.", file=stream)
-    if total_time is not None:
-        print(f"\n  Total time (setup to finalize): {total_time:.6g} s", file=stream)
-
     notes = []
     if len(rows) > 1:
         # Nested regions are counted in both the inner and the outer row, so
@@ -506,13 +512,7 @@ def print_likwid_table(table, title=None, stream=None) -> None:
             [name, *[_format_counter(value) for value in values]]
             for name, values in rows
         ]
-        for line in tabulate(
-            table_rows,
-            headers=("counter", *columns),
-            tablefmt="plain",
-            disable_numparse=True,
-        ).splitlines():
-            print(f"  {line}", file=stream)
+        _print_table(table_rows, ("counter", *columns), stream)
     print(file=stream)
 
 
