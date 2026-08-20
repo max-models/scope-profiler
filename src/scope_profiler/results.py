@@ -204,6 +204,7 @@ class ProfilingResults:
         """Return the public aggregate summary, including rich statistics."""
         return {
             **region.get_summary(),
+            "tags": region.tags,
             "p50_duration": region.p50_duration,
             "p95_duration": region.p95_duration,
             "p99_duration": region.p99_duration,

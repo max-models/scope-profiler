@@ -21,6 +21,7 @@ class Region:
         source_file: str | None = None,
         source_lineno: int | None = None,
         source_text: str | None = None,
+        tags=(),
     ) -> None:
         """
         Initialize a Region with timing information for multiple calls.
@@ -44,6 +45,7 @@ class Region:
         self._source_file = source_file
         self._source_lineno = source_lineno
         self._source_text = source_text
+        self._tags = tuple(tags)
 
     def get_summary(self) -> Dict[str, Any]:
         """
@@ -124,6 +126,11 @@ class Region:
         longer readable, or the file predates this being recorded.
         """
         return self._source_text
+
+    @property
+    def tags(self) -> tuple[str, ...]:
+        """User-defined tags attached to this region."""
+        return self._tags
 
     @property
     def start_times_ns(self) -> np.ndarray:

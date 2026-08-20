@@ -164,13 +164,14 @@ class BaseProfileRegion:
         "source_file",
         "source_lineno",
         "source_text",
+        "tags",
     )
 
     # Subclasses that never write timestamps set this to False so no per-region
     # buffers are allocated.
     _records_time = True
 
-    def __init__(self, region_name: str, config: ProfilingConfig):
+    def __init__(self, region_name: str, config: ProfilingConfig, tags=()):
         """Initialize a profiling region.
 
         Parameters
@@ -183,6 +184,7 @@ class BaseProfileRegion:
         """
         self.region_name = region_name
         self.config = config
+        self.tags = tuple(tags)
         # Calls already copied out by an earlier finalize(); `num_calls` adds
         # this to `ptr` rather than being incremented on every entry, which
         # takes one attribute write out of the hot path.
@@ -417,8 +419,8 @@ class NVTXProfileRegion(TimeOnlyProfileRegion):
 
     __slots__ = ("_nvtx",)
 
-    def __init__(self, region_name: str, config: ProfilingConfig):
-        super().__init__(region_name, config)
+    def __init__(self, region_name: str, config: ProfilingConfig, tags=()):
+        super().__init__(region_name, config, tags=tags)
         self._nvtx = _import_nvtx()
 
     def wrap(self, func):
@@ -462,9 +464,9 @@ class FullProfileRegion(BaseProfileRegion):
 
     __slots__ = ("likwid_marker_start", "likwid_marker_stop")
 
-    def __init__(self, region_name: str, config: ProfilingConfig):
+    def __init__(self, region_name: str, config: ProfilingConfig, tags=()):
         """Initialize timing buffers, HDF5 paths, and LIKWID callbacks."""
-        super().__init__(region_name, config)
+        super().__init__(region_name, config, tags=tags)
         pylikwid = _import_pylikwid()
         self.likwid_marker_start = pylikwid.markerstartregion
         self.likwid_marker_stop = pylikwid.markerstopregion
@@ -526,9 +528,9 @@ class LineProfilerRegion(BaseProfileRegion):
 
     __slots__ = ("_line_profiler",)
 
-    def __init__(self, region_name: str, config: ProfilingConfig):
+    def __init__(self, region_name: str, config: ProfilingConfig, tags=()):
         """Initialize timing buffers and line_profiler instance."""
-        super().__init__(region_name, config)
+        super().__init__(region_name, config, tags=tags)
         LineProfiler = _import_line_profiler()
         self._line_profiler = LineProfiler()
 

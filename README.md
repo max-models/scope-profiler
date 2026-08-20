@@ -329,6 +329,16 @@ solve.p95_duration                # 95th-percentile call duration
 solve.rank_imbalance_pct          # slowest rank over mean, as a percentage
 ```
 
+Regions can carry lightweight user-defined tags for downstream analysis:
+
+```python
+with ProfileManager.profile_region("solve", tags=("compute", "hot")):
+    solve()
+
+results = ProfileManager.finalize(return_results=True)
+results["solve"].tags  # ("compute", "hot")
+```
+
 `summary()` returns the same table as a list of dicts, and `to_dataframe()`
 returns it as a pandas DataFrame (one row per region, or per region and rank
 with `per_rank=True`):
