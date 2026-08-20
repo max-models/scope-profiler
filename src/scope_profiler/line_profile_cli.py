@@ -1,6 +1,7 @@
 """CLI for displaying line-profiler records persisted in HDF5 files."""
 
 import argparse
+import linecache
 import re
 import sys
 
@@ -30,15 +31,18 @@ def print_line_profile(file_path, ranks=None, function=None, region=None, stream
                 f"({record['filename']}:{record['first_lineno']})",
                 file=stream,
             )
-            print("line        hits       time [s]   per hit [s]", file=stream)
+            total_time = float(record["times"].sum())
+            print("line        hits       time [s]   per hit [s]  % time  source", file=stream)
             for line, hits, elapsed in zip(
                 record["line_numbers"], record["hits"], record["times"]
             ):
                 seconds = float(elapsed) * unit
                 per_hit = seconds / int(hits) if hits else 0.0
+                percent = float(elapsed) / total_time * 100 if total_time else 0.0
+                source = linecache.getline(record["filename"], int(line)).rstrip()
                 print(
                     f"{int(line):4d} {int(hits):11d} {seconds:14.6g} "
-                    f"{per_hit:14.6g}",
+                    f"{per_hit:14.6g} {percent:7.2f}  {source}",
                     file=stream,
                 )
 
