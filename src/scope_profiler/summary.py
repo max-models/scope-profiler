@@ -23,11 +23,26 @@ def _print_table(rows, headers, stream, title=None) -> None:
         tablefmt="rounded_outline",
         disable_numparse=True,
     ).splitlines()
+    colors_enabled = bool(getattr(stream, "isatty", lambda: False)())
     if title:
         width = max(len(line) for line in lines)
-        print(f"  {title.center(width - 4)}", file=stream)
+        centered_title = title.center(width - 4)
+        if colors_enabled:
+            centered_title = f"\033[1;36m{centered_title}\033[0m"
+        print(f"  {centered_title}", file=stream)
+    content_index = -1
     for line in lines:
+        if line.startswith("│"):
+            content_index += 1
+            if colors_enabled and content_index == len(rows):
+                line = f"\033[1m{line}\033[0m"
         print(f"  {line}", file=stream)
+
+
+def _print_heading(text, stream) -> None:
+    if getattr(stream, "isatty", lambda: False)():
+        text = f"\033[1;36m{text}\033[0m"
+    print(text, file=stream)
 
 SORT_KEYS = (
     "total",
@@ -504,10 +519,10 @@ def print_likwid_table(table, title=None, stream=None) -> None:
 
     sections = [(heading, rows) for heading, rows in table["sections"] if rows]
 
-    print(title, file=stream)
+    _print_heading(title, stream)
     for index, (heading, rows) in enumerate(sections):
         if heading:
-            print(f"  {heading}", file=stream)
+            _print_heading(f"  {heading}", stream)
         table_rows = [
             [name, *[_format_counter(value) for value in values]]
             for name, values in rows
