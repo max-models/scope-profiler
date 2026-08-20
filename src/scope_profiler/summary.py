@@ -26,10 +26,12 @@ def _print_table(rows, headers, stream, title=None) -> None:
     colors_enabled = bool(getattr(stream, "isatty", lambda: False)())
     if title:
         width = max(len(line) for line in lines)
-        centered_title = title.center(width - 4)
+        centered_title = title.center(width - 4).lstrip()
         if colors_enabled:
             centered_title = f"\033[1;36m{centered_title}\033[0m"
-        print(f"  {centered_title}", file=stream)
+        # Keep the heading flush-left so labels are immediately visible and
+        # can be consumed reliably by callers parsing summary output.
+        print(centered_title, file=stream)
     content_index = -1
     for line in lines:
         if line.startswith("│"):
