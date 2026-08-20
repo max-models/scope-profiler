@@ -95,7 +95,7 @@ every recorded call. It is the chart to reach for when the question is
 *when* things happened — startup cost, gaps between steps, ranks
 drifting apart:
 
-`liglivv /_static/figures/cli/gantt_plot.png :alt: Gantt chart of the mock solver at two MPI ranks :width: 100%`
+`ftkoikk /_static/figures/cli/gantt_plot.png :alt: Gantt chart of the mock solver at two MPI ranks :width: 100%`
 
 Both ranks appear by default, one lane per rank. Calls of the same
 region share a color, and nested regions such as `assemble` and `solve`
@@ -108,7 +108,7 @@ flame graph below is the view that shows the nesting.
 is reconstructed from timestamp containment — a region whose interval
 lies inside another’s is drawn one level above it:
 
-`liglivv /_static/figures/cli/flame_plot.png :alt: Flame graph of the mock solver, rank 0 :width: 100%`
+`ftkoikk /_static/figures/cli/flame_plot.png :alt: Flame graph of the mock solver, rank 0 :width: 100%`
 
 Unlike the Gantt chart, the flame graph is drawn per rank and defaults
 to rank 0 only; pass `--ranks` to render more (one panel each).
@@ -122,9 +122,9 @@ time is shown; `--metrics` selects which statistics to include:
 scope-profiler plot durations run_2.h5 -o figures --metrics avg total
 ```
 
-`liglivv /_static/figures/cli/durations_plot_avg.png :alt: Average duration per call, by region :width: 100%`
+`ftkoikk /_static/figures/cli/durations_plot_avg.png :alt: Average duration per call, by region :width: 100%`
 
-`liglivv /_static/figures/cli/durations_plot_total.png :alt: Total duration, by region :width: 100%`
+`ftkoikk /_static/figures/cli/durations_plot_total.png :alt: Total duration, by region :width: 100%`
 
 The two views tell different stories: `setup` and `solve` cost about the
 same per call, but `solve` runs once per timestep and so accounts for
@@ -138,7 +138,7 @@ against wall-clock time, with a band spanning the minimum and maximum
 across the selected ranks. Rank imbalance shows up as a widening band,
 and slow drift (cache growth, memory pressure, throttling) as a trend:
 
-`liglivv /_static/figures/cli/duration_timeseries_plot.png :alt: Region duration over wall-clock time :width: 100%`
+`ftkoikk /_static/figures/cli/duration_timeseries_plot.png :alt: Region duration over wall-clock time :width: 100%`
 
 Here the middle `timestep` stands out, because that is the step that
 also writes `io`. Regions called only once — `setup` and `io` in this
@@ -154,7 +154,7 @@ and a speedup plot is added:
 scope-profiler plot default run_1.h5 run_2.h5 run_4.h5 -o figures_scaling
 ```
 
-`liglivv /_static/figures/cli/speedup_plot.png :alt: Per-region speedup at 1, 2 and 4 MPI ranks :width: 100%`
+`ftkoikk /_static/figures/cli/speedup_plot.png :alt: Per-region speedup at 1, 2 and 4 MPI ranks :width: 100%`
 
 Each line is one region’s speedup relative to the smallest run, derived
 from average per-call durations, against the dashed ideal-scaling line.
@@ -228,7 +228,7 @@ scope-profiler plot gantt run_2.h5 -o figures_filtered \
     --ranks 0
 ```
 
-`liglivv /_static/figures/cli/gantt_plot_filtered.png :alt: Gantt chart restricted to the solve and assemble regions on rank 0 :width: 100%`
+`ftkoikk /_static/figures/cli/gantt_plot_filtered.png :alt: Gantt chart restricted to the solve and assemble regions on rank 0 :width: 100%`
 
 Filtering applies to every output of the run, including
 `region_statistics.json`. On a large run it is also the quickest way to
