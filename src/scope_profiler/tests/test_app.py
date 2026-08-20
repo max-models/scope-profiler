@@ -208,6 +208,27 @@ def test_line_profiler_context_manager():
     ProfileManager.finalize(verbose=False)
 
 
+def test_line_profiler_context_manager_profiles_caller_without_functions():
+    pytest.importorskip("line_profiler")
+    ProfileManager.setup(use_line_profiler=True)
+
+    def work(n=500):
+        total = 0
+        with ProfileManager.profile_region("lp_scope_only"):
+            for i in range(n):
+                total += i
+        return total
+
+    work()
+
+    region = ProfileManager.get_region("lp_scope_only")
+    stats = region.get_stats()
+    assert len(stats.timings) > 0
+    assert any("work" in str(key) for key in stats.timings)
+
+    ProfileManager.finalize(verbose=False)
+
+
 def test_frame_region_name_without_co_qualname():
     """Python 3.10 code objects have no co_qualname; naming must still work.
 

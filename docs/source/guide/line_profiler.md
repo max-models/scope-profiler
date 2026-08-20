@@ -21,8 +21,8 @@ ProfileManager.setup(use_line_profiler=True)
 ```
 
 This selects `LineProfilerRegion` for all regions. Each region records
-nanosecond timestamps **and** enables `line_profiler` tracing for every
-function registered via the `@ProfileManager.profile` decorator.
+nanosecond timestamps and enables `line_profiler` tracing for decorated
+functions and for the function containing a `with` scope.
 
 ## Example
 
@@ -53,8 +53,15 @@ def allocate(N=100_000):
     return a, b
 
 
+def run_scope_only():
+    with ProfileManager.profile_region("scope_only"):
+        total = sum(range(100_000))
+    return total
+
+
 compute()
 allocate()
+run_scope_only()
 ProfileManager.finalize()
 ```
 
@@ -100,10 +107,10 @@ The line-by-line table shows, for each source line:
 - **Decorator** (`@ProfileManager.profile`) --- automatically registers
   the function with `line_profiler`. This is the primary use case.
 - **Context manager** (`with ProfileManager.profile_region()`) ---
-  enables/disables the profiler around the block. Any functions
-  previously registered via the decorator path will be profiled while
-  the context is active. The code inside the `with` block itself is
-  **not** line-profiled (line_profiler needs a function reference).
+  enables/disables the profiler around the block and automatically registers
+  the active caller function. Lines executed in the scope are included even
+  when the function is not decorated. Passing `functions=[...]` remains
+  useful when the scope should also profile other functions it calls.
 
 ## Accessing stats programmatically
 
