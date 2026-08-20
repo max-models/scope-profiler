@@ -106,14 +106,20 @@ def test_inspect_prints_metadata_and_regions(sample_file, capsys):
 
     # Region table with overall stats
     assert "Regions (2)" in out
-    assert "total [s]" in out and "avg [s]" in out and "std [s]" in out
+    header = next(line for line in out.splitlines() if "total [s]" in line)
+    assert "total [s]" in header and "avg [s]" in header
+    assert "min [s]" not in header and "std [s]" not in header
     assert "setup" in out and "solve" in out
     assert "TOTAL" in out
 
 
 def test_region_statistics_are_seconds(sample_file, capsys):
     """solve: 2 s + 3 s on rank 0, 4 s + 4 s on rank 1."""
-    inspect_file(sample_file, include="solve")
+    inspect_file(
+        sample_file,
+        include="solve",
+        columns=["region", "ranks", "calls", "total", "avg", "min", "max"],
+    )
     line = next(
         line for line in capsys.readouterr().out.splitlines() if "solve" in line
     )

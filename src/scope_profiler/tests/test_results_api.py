@@ -178,7 +178,9 @@ def test_reader_print_summary(sample_file, capsys):
     read_h5(sample_file).print_summary()
 
     out = capsys.readouterr().out
-    assert "region" in out and "total [s]" in out
+    header = next(line for line in out.splitlines() if "region" in line)
+    assert "region" in header and "total [s]" in header and "avg [s]" in header
+    assert "min [s]" not in header and "std [s]" not in header
     assert "setup" in out and "solve" in out
     # sample_file carries no start_time_ns/finalize_time_ns, so total_time is
     # undefined and print_summary must not claim a number for it.

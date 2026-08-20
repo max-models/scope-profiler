@@ -52,7 +52,7 @@ usage: scope-profiler inspect [-h] [--include INCLUDE [INCLUDE ...]]
 | `--exclude`       | Skip regions matching these regex patterns                              |
 | `--ranks`         | Restrict region statistics to these ranks, e.g. `0 2` or `0-3`          |
 | `--sort`          | Order regions by any region-table statistic, or by `name` alphabetically |
-| `--columns`       | Restrict the region table to selected columns, e.g. `region ranks calls total avg` |
+| `--columns`       | Restrict the region table to selected columns; default is `region ranks calls total avg` |
 | `--full`          | Print long metadata values (`PATH`, `LD_LIBRARY_PATH`, ...) in full     |
 | `--source`        | Print the captured call-site source (the `with` block or decorated function that defines it) of these regions |
 | `--export-metadata` | Also write the metadata of every inspected file to this JSON file     |
@@ -98,13 +98,13 @@ Metadata
     python/3.11.7
 
 Regions (4)
-  region    ranks  calls  total [s]    avg [s]     min [s]    max [s]      std [s]
-  --------------------------------------------------------------------------------
-  timestep      2      8   0.139235  0.0174044   0.0165256  0.0176325  0.000338551
-  solve         2      8  0.0991292  0.0123911   0.0115046  0.0125382  0.000335212
-  setup         2      2  0.0473326  0.0236663   0.0222938  0.0250388   0.00137254
-  assemble      2      8  0.0399496  0.0049937  0.00484729  0.0050345   5.5882e-05
-  --------------------------------------------------------------------------------
+  region    ranks  calls  total [s]    avg [s]
+  ---------------------------------------------
+  timestep      2      8   0.139235  0.0174044
+  solve         2      8  0.0991292  0.0123911
+  setup         2      2  0.0473326  0.0236663
+  assemble      2      8  0.0399496  0.0049937
+  ---------------------------------------------
   TOTAL               26   0.325647
 ```
 

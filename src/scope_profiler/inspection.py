@@ -198,7 +198,8 @@ def inspect_file(
         ``ProfileManager.profile_region`` and issue #161). Printed after the
         region table, regardless of ``include``/``exclude``.
     columns : list of str or str, optional
-        Region summary columns to print. Defaults to all columns.
+        Region summary columns to print. Defaults to ``region``, ``ranks``,
+        ``calls``, ``total`` and ``avg``.
     stream : file-like, optional
         Where to write (default: stdout).
     """
@@ -366,7 +367,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--columns",
         nargs="+",
         choices=REGION_TABLE_COLUMNS,
-        help="Region table columns to print (default: all)",
+        help="Region table columns to print (default: region ranks calls total avg)",
     )
     parser.add_argument(
         "--full",

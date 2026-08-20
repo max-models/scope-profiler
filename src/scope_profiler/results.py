@@ -475,8 +475,9 @@ class ProfilingResults:
         stream : file-like, optional
             Where to write (default: stdout).
         columns : list of str or str, optional
-            Region summary columns to print. Defaults to all columns. Use
-            ``region`` for the region-name column.
+            Region summary columns to print. Defaults to ``region``,
+            ``ranks``, ``calls``, ``total`` and ``avg``. Use ``region`` for
+            the region-name column.
 
         Notes
         -----

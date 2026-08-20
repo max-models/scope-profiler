@@ -441,7 +441,9 @@ def test_finalize_prints_the_shared_summary_table(tmp_path, capsys):
     results.print_summary(title=f"{file_path}  (1 rank(s))")
     assert printed == capsys.readouterr().out
 
-    assert "region" in printed and "std [s]" in printed
+    header = next(line for line in printed.splitlines() if "region" in line)
+    assert "region" in header and "avg [s]" in header
+    assert "min [s]" not in header and "std [s]" not in header
     assert "outer" in printed and "inner" in printed
     assert "TOTAL" in printed
     # The old per-region block format is gone.

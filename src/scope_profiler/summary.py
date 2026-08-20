@@ -48,6 +48,7 @@ _COLUMNS = (
 
 REGION_TABLE_COLUMN_NAMES = tuple(key for key, _ in _COLUMNS)
 REGION_TABLE_COLUMNS = ("region", *REGION_TABLE_COLUMN_NAMES[1:])
+DEFAULT_REGION_TABLE_COLUMNS = ("region", "ranks", "calls", "total", "avg")
 _COLUMN_ALIASES = {"region": "name", "name": "name"}
 _COLUMN_ALIASES.update({key: key for key, _ in _COLUMNS if key != "name"})
 
@@ -55,7 +56,7 @@ _COLUMN_ALIASES.update({key: key for key, _ in _COLUMNS if key != "name"})
 def normalize_region_table_columns(columns=None) -> tuple[tuple[str, str], ...]:
     """Return validated ``(row_key, header)`` pairs for a region table."""
     if columns is None:
-        return _COLUMNS
+        columns = DEFAULT_REGION_TABLE_COLUMNS
     if isinstance(columns, str):
         columns = [columns]
 
@@ -237,9 +238,9 @@ def print_region_table(
         durations and so can exceed the run's real duration when regions
         nest -- this is the run's own actual wall-clock time.
     columns : list of str or str, optional
-        Region summary columns to print. Defaults to all columns. The public
-        name for the first column is ``region``; ``name`` is accepted as an
-        alias for Python callers.
+        Region summary columns to print. Defaults to ``region``, ``ranks``,
+        ``calls``, ``total`` and ``avg``. The public name for the first column
+        is ``region``; ``name`` is accepted as an alias for Python callers.
     """
     stream = sys.stdout if stream is None else stream
     selected_columns = normalize_region_table_columns(columns)
