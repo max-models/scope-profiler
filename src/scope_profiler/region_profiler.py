@@ -4,6 +4,7 @@ import ast
 import functools
 import inspect
 import linecache
+import types
 from time import perf_counter_ns
 from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
@@ -119,6 +120,37 @@ def _import_line_profiler():
         ) from exc
 
     return LineProfiler
+
+
+def _function_for_frame(frame):
+    """Build a function object suitable for line_profiler from an active frame.
+
+    A context manager receives a frame rather than a function object. Existing
+    module/local references are preferred; the fallback reconstructs a small
+    function with the same code and closure values so nested functions work as
+    well. line_profiler only uses the function's code metadata when registering
+    it, so the reconstructed function is never called.
+    """
+    code = frame.f_code
+    for namespace in (frame.f_locals, frame.f_globals):
+        for value in namespace.values():
+            if isinstance(value, types.FunctionType) and value.__code__ is code:
+                return value
+
+    if code.co_freevars:
+
+        def make_cell(value):
+            return (lambda: value).__closure__[0]
+
+        closure = tuple(
+            make_cell(frame.f_locals.get(name)) for name in code.co_freevars
+        )
+    else:
+        closure = None
+    try:
+        return types.FunctionType(code, frame.f_globals, code.co_name, closure=closure)
+    except (TypeError, ValueError):
+        return None
 
 
 def _import_nvtx():
@@ -526,13 +558,14 @@ class LineProfilerRegion(BaseProfileRegion):
     profiled while the context is active.
     """
 
-    __slots__ = ("_line_profiler",)
+    __slots__ = ("_line_profiler", "_registered_codes")
 
     def __init__(self, region_name: str, config: ProfilingConfig, tags=()):
         """Initialize timing buffers and line_profiler instance."""
         super().__init__(region_name, config, tags=tags)
         LineProfiler = _import_line_profiler()
         self._line_profiler = LineProfiler()
+        self._registered_codes = set()
 
     def wrap(self, func):
         """Wrap a function to measure execution time and collect line-by-line stats."""
@@ -561,6 +594,12 @@ class LineProfilerRegion(BaseProfileRegion):
 
     def __enter__(self):
         """Reserve this scope's slot, record start time, and enable line profiler."""
+        frame = inspect.currentframe().f_back
+        if frame.f_code not in self._registered_codes:
+            func = _function_for_frame(frame)
+            if func is not None:
+                self._line_profiler.add_function(func)
+                self._registered_codes.add(frame.f_code)
         slot = self.ptr
         if slot >= self.capacity:
             self._grow()
