@@ -73,7 +73,6 @@ def test_browser_model_exposes_major_sections(sample_file):
         "Overview",
         "Metadata",
         "Regions",
-        "Line Profile",
         "Raw HDF5",
     ]
 
@@ -86,15 +85,18 @@ def test_region_details_include_ranks_calls_source_and_raw_hdf5(sample_file):
 
     solve = _find(model.root, "solve")
     assert solve is not None
-    assert {"Summary", "Rank 0", "Rank 1", "Source"} <= {
+    assert {"Summary", "Calls", "Source"} <= {
         child.label for child in solve.children
     }
+    assert "Rank 0" not in {child.label for child in solve.children}
     assert "Calls: 2" in node_detail_text(solve)
     assert "kernels.py:7" in node_detail_text(_find(solve, "Source"))
 
-    calls = _find(_find(solve, "Rank 0"), "Calls")
-    assert "#  Start" in node_detail_text(calls)
-    assert "2" in node_detail_text(calls)
+    calls = _find(solve, "Calls")
+    assert "Rank" in node_detail_text(calls)
+    rank_calls = _find(calls, "Rank 0")
+    assert "#  Start" in node_detail_text(rank_calls)
+    assert "2" in node_detail_text(rank_calls)
 
     start_times = _find(model.root, "start_times")
     assert "HDF5 dataset" in node_detail_text(start_times)
@@ -104,20 +106,20 @@ def test_region_details_include_ranks_calls_source_and_raw_hdf5(sample_file):
 def test_line_profile_records_are_clickable(line_profile_file):
     model = build_browser_model(line_profile_file)
 
-    line_profile = _find(model.root, "Line Profile")
+    assert [child.label for child in model.root.children] == [
+        "Overview",
+        "Metadata",
+        "Regions",
+        "Raw HDF5",
+    ]
+
+    solve = _find(_find(model.root, "Regions"), "solve")
+    line_profile = _find(solve, "Line Profile")
     assert line_profile is not None
-    assert "Rank  Records  Total" in node_detail_text(line_profile)
+    assert "Function" in node_detail_text(line_profile)
 
-    rank = _find(line_profile, "Rank 0 (1 record(s))")
-    assert "solve" in node_detail_text(rank)
-
-    region = rank.children[0]
-    assert region.label == "solve"
-    assert "Function  Location" in node_detail_text(region)
-
-    record = region.children[0]
-    assert record.label == "solve"
-    details = node_detail_text(record)
+    rank = _find(line_profile, "Rank 0")
+    details = node_detail_text(rank)
     assert "Rank 0 | solve | solve" in details
     assert "Line" in details and "Hits" in details and "Time [s]" in details
     assert "----" not in details

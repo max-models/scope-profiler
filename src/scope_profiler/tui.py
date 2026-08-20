@@ -99,45 +99,48 @@ def _line_profile_label(record: dict) -> str:
     return str(record["function"])
 
 
-def _build_line_profile_node(results) -> BrowserNode:
-    rank_children = []
+def _line_profile_by_region(results) -> dict:
+    by_region = defaultdict(lambda: defaultdict(list))
     for rank, records in sorted(results.line_profile.items()):
-        by_region = defaultdict(list)
         for record in records:
-            by_region[record["region"]].append(record)
+            by_region[record["region"]][rank].append(record)
+    return by_region
 
-        region_children = []
-        for region, region_records in sorted(by_region.items()):
-            function_children = [
+
+def _build_region_line_profile_node(region_name: str, by_rank: dict) -> BrowserNode:
+    rank_children = []
+    all_records = []
+    for rank, records in sorted(by_rank.items()):
+        all_records.extend({**record, "rank": rank} for record in records)
+        if len(records) == 1:
+            rank_children.append(
                 BrowserNode(
-                    _line_profile_label(record),
+                    f"Rank {rank}",
                     "line_profile_record",
-                    {"rank": rank, "record": record},
-                )
-                for record in region_records
-            ]
-            region_children.append(
-                BrowserNode(
-                    str(region),
-                    "line_profile_region",
-                    {"rank": rank, "region": region, "records": region_records},
-                    function_children,
+                    {"rank": rank, "record": records[0]},
                 )
             )
-
+            continue
         rank_children.append(
             BrowserNode(
                 f"Rank {rank} ({len(records)} record(s))",
                 "line_profile_rank",
                 {"rank": rank, "records": records},
-                region_children,
+                [
+                    BrowserNode(
+                        _line_profile_label(record),
+                        "line_profile_record",
+                        {"rank": rank, "record": record},
+                    )
+                    for record in records
+                ],
             )
         )
 
     return BrowserNode(
         "Line Profile",
-        "line_profile",
-        {"line_profile": results.line_profile},
+        "line_profile_region",
+        {"region": region_name, "records": all_records},
         rank_children,
     )
 
@@ -161,22 +164,27 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
 
     region_children = []
     sorted_rows = {row["name"]: row for row in region_rows(results, sort="total")}
+    line_profile_by_region = _line_profile_by_region(results)
     for region in results.get_regions():
-        rank_children = [
+        calls_children = [
             BrowserNode(
                 f"Rank {rank}",
-                "rank_region",
+                "rank_calls",
                 {"region": region, "rank": rank},
-                [BrowserNode("Calls", "rank_calls", {"region": region, "rank": rank})],
             )
             for rank in region.ranks
         ]
         extra_children = [
             BrowserNode("Summary", "region_summary", {"region": region}),
-            *rank_children,
+            BrowserNode("Calls", "region_calls", {"region": region}, calls_children),
         ]
         if region.has_source:
             extra_children.append(BrowserNode("Source", "source", {"region": region}))
+        line_profile = line_profile_by_region.pop(region.name, None)
+        if line_profile:
+            extra_children.append(
+                _build_region_line_profile_node(region.name, line_profile)
+            )
         likwid_children = []
         for rank, by_region in sorted(results.get_likwid_regions().items()):
             counters = by_region.get(region.name)
@@ -197,6 +205,16 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
                 extra_children,
             )
         )
+    for region_name, by_rank in sorted(line_profile_by_region.items()):
+        line_profile_node = _build_region_line_profile_node(str(region_name), by_rank)
+        region_children.append(
+            BrowserNode(
+                str(region_name),
+                "line_profile_region",
+                line_profile_node.payload,
+                line_profile_node.children,
+            )
+        )
 
     with h5py.File(path, "r") as h5file:
         raw_node = _build_raw_h5_node("/", h5file)
@@ -214,7 +232,6 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
                 metadata_children,
             ),
             BrowserNode("Regions", "regions", {"results": results}, region_children),
-            _build_line_profile_node(results),
             BrowserNode("Raw HDF5", "h5_group", raw_node.payload, raw_node.children),
         ],
     )
@@ -344,6 +361,7 @@ def node_detail_text(node: BrowserNode) -> str:
         records = payload["records"]
         rows = [
             (
+                record.get("rank", payload.get("rank", "-")),
                 record["function"],
                 f"{record['filename']}:{record['first_lineno']}",
                 len(record["line_numbers"]),
@@ -351,9 +369,11 @@ def node_detail_text(node: BrowserNode) -> str:
             )
             for record in records
         ]
-        return (
-            f"Line profile rank {payload['rank']} | {payload['region']}\n\n"
-            + _line_table(("Function", "Location", "Lines", "Total"), rows)
+        title = f"Line profile | {payload['region']}"
+        if "rank" in payload:
+            title = f"Line profile rank {payload['rank']} | {payload['region']}"
+        return title + "\n\n" + _line_table(
+            ("Rank", "Function", "Location", "Lines", "Total"), rows
         )
 
     if kind == "line_profile_record":
@@ -427,6 +447,14 @@ def node_detail_text(node: BrowserNode) -> str:
         return f"{region.name} on rank {rank}\n\n" + _line_table(
             ("Metric", "Value"), rows
         )
+
+    if kind == "region_calls":
+        region = payload["region"]
+        rows = []
+        for rank in region.ranks:
+            events = region.events(ranks=rank, origin=0.0)
+            rows.append((rank, len(events)))
+        return f"Calls | {region.name}\n\n" + _line_table(("Rank", "Calls"), rows)
 
     if kind == "rank_calls":
         region = payload["region"]
