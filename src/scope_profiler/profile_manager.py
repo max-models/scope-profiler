@@ -194,8 +194,9 @@ class ProfileManager:
         root_frame: FrameType,
         prev_profiler,
         only_user_code: bool = False,
+        active_calls: dict | None = None,
     ):
-        active_calls = {}
+        active_calls = {} if active_calls is None else active_calls
 
         def tracer(frame: FrameType, event: str, arg):
             if event == "call":
@@ -211,7 +212,10 @@ class ProfileManager:
                     pass
                 else:
                     region = cls.profile_region(cls._frame_region_name(frame))
-                    region.__enter__()
+                    if isinstance(region, LineProfilerRegion):
+                        region.enter_timing_only()
+                    else:
+                        region.__enter__()
                     active_calls[frame] = region
             elif event == "return":
                 region = active_calls.pop(frame, None)
@@ -470,17 +474,58 @@ class ProfileManager:
 
         region = cls.profile_region(region_name)
         prev_profiler = sys.getprofile()
+        prev_tracer = sys.gettrace()
+        active_calls = {}
         tracer = cls._get_recursive_tracer(
             root_frame=sys._getframe(),
             prev_profiler=prev_profiler,
             only_user_code=only_user_code,
+            active_calls=active_calls,
         )
+        line_states = {}
+
+        def flush_line(frame, now):
+            state = line_states.get(frame)
+            region = active_calls.get(frame)
+            if state is None or not isinstance(region, LineProfilerRegion):
+                return
+            lineno, started = state
+            region.record_line_timing(frame, lineno, now - started)
+
+        def line_tracer(frame: FrameType, event: str, arg):
+            if prev_tracer is not None:
+                prev_tracer(frame, event, arg)
+
+            region = active_calls.get(frame)
+            if not isinstance(region, LineProfilerRegion):
+                return line_tracer
+
+            now = perf_counter_ns()
+            if event == "line":
+                flush_line(frame, now)
+                line_states[frame] = (frame.f_lineno, now)
+            elif event in ("return", "exception"):
+                flush_line(frame, now)
+                line_states.pop(frame, None)
+            return line_tracer
+
+        if isinstance(region, LineProfilerRegion):
+            sys.settrace(line_tracer)
         sys.setprofile(tracer)
         try:
-            with region:
-                runpy.run_path(script_path, run_name="__main__")
+            if isinstance(region, LineProfilerRegion):
+                region.enter_timing_only()
+                try:
+                    runpy.run_path(script_path, run_name="__main__")
+                finally:
+                    region.__exit__(None, None, None)
+            else:
+                with region:
+                    runpy.run_path(script_path, run_name="__main__")
         finally:
             sys.setprofile(prev_profiler)
+            if isinstance(region, LineProfilerRegion):
+                sys.settrace(prev_tracer)
 
     @classmethod
     def _snapshot_regions(cls) -> Dict[str, tuple]:
@@ -753,9 +798,13 @@ class ProfileManager:
         for region_name, region in cls.get_all_regions().items():
             if not isinstance(region, LineProfilerRegion):
                 continue
+            for record in region.manual_line_records(unit=1e-9):
+                records.append({"region": region_name, **record})
             stats = region.get_stats()
             unit = float(getattr(stats, "unit", 1.0))
             for (filename, first_lineno, function), timings in stats.timings.items():
+                if not timings:
+                    continue
                 records.append(
                     {
                         "region": region_name,

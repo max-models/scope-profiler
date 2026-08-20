@@ -11,7 +11,7 @@ Profile a script's function calls without modifying it, similar to
 low; pass `--all` to trace everything.
 
 ```text
-usage: scope-profiler run [-h] [-o OUTFILE] [-q] [--all]
+usage: scope-profiler run [-h] [-o OUTFILE] [-q] [--all] [--line-profile]
                           [--buffer-limit BUFFER_LIMIT]
                           script ...
 ```
@@ -21,6 +21,7 @@ usage: scope-profiler run [-h] [-o OUTFILE] [-q] [--all]
 | `-o`, `--outfile`    | Path to the merged HDF5 output file (default: `profiling_data.h5`)   |
 | `-q`, `--quiet`      | Suppress the per-region summary printed after the run                |
 | `--all`              | Also instrument standard-library/installed-package calls (default: only the script's own code) |
+| `--line-profile`     | Also collect line-by-line timings via `line_profiler` (requires `scope-profiler[line-profiler]`) |
 | `--buffer-limit`     | Initial buffer capacity per region; grows as needed (default: 1024)     |
 
 ```bash

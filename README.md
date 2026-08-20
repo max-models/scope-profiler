@@ -258,7 +258,8 @@ script's own code is instrumented (the standard library and installed
 packages are skipped) to keep overhead low; pass `--all` to trace
 everything. Results are written to `profiling_data.h5` by default
 (`-o`/`--outfile` to change it), and a per-region summary is printed unless
-`-q`/`--quiet` is given.
+`-q`/`--quiet` is given. Pass `--line-profile` to also persist line-by-line
+timings for the traced functions; this requires `scope-profiler[line-profiler]`.
 
 See `examples/ex_cli_profiling.py` for a script with no scope-profiler
 imports at all, run with:
