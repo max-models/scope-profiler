@@ -85,6 +85,7 @@ optional-dependencies.test = [
 ]
 
 optional-dependencies.tui = [
+  "tabulate",
   "textual>=0.86",
 ]
 urls."Source" = "https://github.com/max-models/scope-profiler"

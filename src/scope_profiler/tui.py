@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import linecache
 import sys
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -89,6 +91,57 @@ def _build_raw_h5_node(name: str, obj) -> BrowserNode:
     )
 
 
+def _line_profile_total_seconds(record: dict) -> float:
+    return float(np.sum(record["times"])) * float(record["unit"])
+
+
+def _line_profile_label(record: dict) -> str:
+    return str(record["function"])
+
+
+def _build_line_profile_node(results) -> BrowserNode:
+    rank_children = []
+    for rank, records in sorted(results.line_profile.items()):
+        by_region = defaultdict(list)
+        for record in records:
+            by_region[record["region"]].append(record)
+
+        region_children = []
+        for region, region_records in sorted(by_region.items()):
+            function_children = [
+                BrowserNode(
+                    _line_profile_label(record),
+                    "line_profile_record",
+                    {"rank": rank, "record": record},
+                )
+                for record in region_records
+            ]
+            region_children.append(
+                BrowserNode(
+                    str(region),
+                    "line_profile_region",
+                    {"rank": rank, "region": region, "records": region_records},
+                    function_children,
+                )
+            )
+
+        rank_children.append(
+            BrowserNode(
+                f"Rank {rank} ({len(records)} record(s))",
+                "line_profile_rank",
+                {"rank": rank, "records": records},
+                region_children,
+            )
+        )
+
+    return BrowserNode(
+        "Line Profile",
+        "line_profile",
+        {"line_profile": results.line_profile},
+        rank_children,
+    )
+
+
 def build_browser_model(file_path: str | Path) -> BrowserModel:
     """Load one HDF5 profile and build the selectable TUI navigation tree."""
     results = read_h5(file_path)
@@ -161,6 +214,7 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
                 metadata_children,
             ),
             BrowserNode("Regions", "regions", {"results": results}, region_children),
+            _build_line_profile_node(results),
             BrowserNode("Raw HDF5", "h5_group", raw_node.payload, raw_node.children),
         ],
     )
@@ -172,6 +226,20 @@ def _duration(value) -> str:
 
 
 def _line_table(headers, rows) -> str:
+    rows = list(rows)
+    try:
+        from tabulate import tabulate
+    except ImportError:
+        tabulate = None
+
+    if tabulate is not None:
+        return tabulate(
+            rows,
+            headers=headers,
+            tablefmt="plain",
+            disable_numparse=True,
+        )
+
     text_rows = [[str(cell) for cell in row] for row in rows]
     widths = [
         max(len(header), *(len(row[index]) for row in text_rows))
@@ -182,7 +250,6 @@ def _line_table(headers, rows) -> str:
             header.ljust(widths[index]) for index, header in enumerate(headers)
         )
     ]
-    lines.append("  ".join("-" * width for width in widths))
     lines.extend(
         "  ".join(cell.ljust(widths[index]) for index, cell in enumerate(row))
         for row in text_rows
@@ -244,6 +311,81 @@ def node_detail_text(node: BrowserNode) -> str:
                 )
                 for row in rows
             ),
+        )
+
+    if kind == "line_profile":
+        line_profile = payload["line_profile"]
+        if not line_profile:
+            return "No line-profiler records stored in this file."
+        rows = []
+        for rank, records in sorted(line_profile.items()):
+            total = sum(_line_profile_total_seconds(record) for record in records)
+            rows.append((rank, len(records), f"{total:.6g} s"))
+        return _line_table(("Rank", "Records", "Total"), rows)
+
+    if kind == "line_profile_rank":
+        records = payload["records"]
+        if not records:
+            return "No line-profiler records stored for this rank."
+        by_region = defaultdict(list)
+        for record in records:
+            by_region[record["region"]].append(record)
+        rows = []
+        for region, region_records in sorted(by_region.items()):
+            total = sum(
+                _line_profile_total_seconds(record) for record in region_records
+            )
+            rows.append((region, len(region_records), f"{total:.6g} s"))
+        return f"Line profile rank {payload['rank']}\n\n" + _line_table(
+            ("Region", "Functions", "Total"), rows
+        )
+
+    if kind == "line_profile_region":
+        records = payload["records"]
+        rows = [
+            (
+                record["function"],
+                f"{record['filename']}:{record['first_lineno']}",
+                len(record["line_numbers"]),
+                f"{_line_profile_total_seconds(record):.6g} s",
+            )
+            for record in records
+        ]
+        return (
+            f"Line profile rank {payload['rank']} | {payload['region']}\n\n"
+            + _line_table(("Function", "Location", "Lines", "Total"), rows)
+        )
+
+    if kind == "line_profile_record":
+        record = payload["record"]
+        unit = float(record["unit"])
+        total_raw = float(np.sum(record["times"]))
+        rows = []
+        for line, hits, elapsed in zip(
+            record["line_numbers"], record["hits"], record["times"]
+        ):
+            seconds = float(elapsed) * unit
+            hits = int(hits)
+            per_hit = seconds / hits if hits else 0.0
+            percent = float(elapsed) / total_raw * 100 if total_raw else 0.0
+            source = linecache.getline(record["filename"], int(line)).strip()
+            rows.append(
+                (
+                    int(line),
+                    hits,
+                    f"{seconds:.6g}",
+                    f"{per_hit:.6g}",
+                    f"{percent:.2f}",
+                    source,
+                )
+            )
+        header = (
+            f"Rank {payload['rank']} | {record['region']} | {record['function']}\n"
+            f"{record['filename']}:{record['first_lineno']}\n"
+            f"Total: {_line_profile_total_seconds(record):.6g} s"
+        )
+        return header + "\n\n" + _line_table(
+            ("Line", "Hits", "Time [s]", "Per hit [s]", "%", "Source"), rows
         )
 
     if kind in {"region", "region_summary"}:
@@ -370,6 +512,7 @@ def node_detail_text(node: BrowserNode) -> str:
 
 def _build_textual_app_class():
     try:
+        from rich.text import Text
         from textual.app import App, ComposeResult
         from textual.containers import Horizontal
         from textual.widgets import Footer, Header, Static, Tree
@@ -395,13 +538,17 @@ def _build_textual_app_class():
             width: 36%;
             min-width: 28;
             border: solid $accent;
+            padding: 0 1;
+            overflow: hidden;
         }
 
         #detail {
             width: 1fr;
             border: solid $accent;
             padding: 1 2;
-            overflow: auto;
+            overflow-x: auto;
+            overflow-y: auto;
+            text-wrap: nowrap;
         }
         """
         BINDINGS = [("q", "quit", "Quit")]
@@ -410,11 +557,16 @@ def _build_textual_app_class():
             super().__init__()
             self.model = model
 
+        def _detail(self, node: BrowserNode):
+            return Text(node_detail_text(node), no_wrap=True)
+
         def compose(self) -> ComposeResult:
             yield Header(show_clock=True)
             with Horizontal(id="body"):
                 yield Tree(self.model.root.label, id="nav")
-                yield Static(node_detail_text(self.model.root.children[0]), id="detail")
+                yield Static(
+                    self._detail(self.model.root.children[0]), id="detail"
+                )
             yield Footer()
 
         def on_mount(self) -> None:
@@ -423,7 +575,12 @@ def _build_textual_app_class():
             self._populate_tree(tree.root, self.model.root.children)
             tree.root.expand()
             if tree.root.children:
-                tree.root.children[0].select()
+                first = tree.root.children[0]
+                if hasattr(tree, "select_node"):
+                    tree.select_node(first)
+                else:
+                    tree.move_cursor(first)
+                self.query_one("#detail", Static).update(self._detail(first.data))
 
         def _populate_tree(self, tree_node, browser_nodes) -> None:
             for browser_node in browser_nodes:
@@ -434,7 +591,7 @@ def _build_textual_app_class():
         def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
             node = event.node.data
             if isinstance(node, BrowserNode):
-                self.query_one("#detail", Static).update(node_detail_text(node))
+                self.query_one("#detail", Static).update(self._detail(node))
 
     return H5BrowserApp
 
