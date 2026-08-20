@@ -6,8 +6,10 @@ import argparse
 import json
 import linecache
 import re
+import socket
 import subprocess
 import sys
+from urllib.parse import quote
 import webbrowser
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -737,6 +739,7 @@ def _build_textual_app_class():
         from rich.text import Text
         from textual.app import App, ComposeResult
         from textual.containers import Horizontal, Vertical
+        from textual.suggester import Suggester
         from textual.widgets import Button, Checkbox, Footer, Header, Input, Static, Tree
     except ImportError as exc:
         raise RuntimeError(
@@ -746,6 +749,22 @@ def _build_textual_app_class():
 
     class H5BrowserApp(App):
         """Textual application for browsing a profile file."""
+
+        class RegionSuggester(Suggester):
+            """Complete the current comma-separated region filter token."""
+
+            def __init__(self, region_names: list[str]):
+                super().__init__(case_sensitive=False)
+                self.region_names = region_names
+
+            async def get_suggestion(self, value: str) -> str | None:
+                prefix, _, token = value.rpartition(",")
+                token = token.strip().casefold()
+                for name in self.region_names:
+                    if name.casefold().startswith(token):
+                        separator = f"{prefix}, " if prefix else ""
+                        return separator + name
+                return None
 
         CSS = """
         Screen {
@@ -839,6 +858,10 @@ def _build_textual_app_class():
             return Text(node_detail_text(node), no_wrap=True)
 
         def compose(self) -> ComposeResult:
+            region_names = [
+                region.name for region in self.model.results.get_regions()
+            ]
+            region_suggester = self.RegionSuggester(region_names)
             yield Header(show_clock=True)
             with Horizontal(id="body"):
                 yield Tree(self.model.root.label, id="nav")
@@ -846,8 +869,8 @@ def _build_textual_app_class():
                     yield Static(self._detail(self.model.root.children[0]), id="detail")
                     with Vertical(id="settings"):
                         yield Static("Plot settings", id="settings-title")
-                        yield Input(placeholder="Include regions (comma-separated)", id="include", classes="setting")
-                        yield Input(placeholder="Exclude regions (comma-separated)", id="exclude", classes="setting")
+                        yield Input(placeholder="Include regions (comma-separated)", id="include", classes="setting", suggester=region_suggester)
+                        yield Input(placeholder="Exclude regions (comma-separated)", id="exclude", classes="setting", suggester=region_suggester)
                         yield Static("Selected regions", classes="setting")
                         yield Static("All regions", id="selected-regions", classes="setting")
                         yield Input(placeholder="Ranks (e.g. 0,2-4)", id="ranks", classes="setting")
@@ -1008,10 +1031,24 @@ def _build_textual_app_class():
                 )
                 if not prof_paths:
                     raise ValueError("No profile data was exported.")
+                with socket.socket() as probe:
+                    probe.bind(("127.0.0.1", 0))
+                    port = probe.getsockname()[1]
                 subprocess.Popen(
-                    ["snakeviz", str(prof_paths[0])],
+                    [
+                        "snakeviz",
+                        "--server",
+                        "--hostname",
+                        "127.0.0.1",
+                        "--port",
+                        str(port),
+                        str(prof_paths[0]),
+                    ],
                     start_new_session=True,
                 )
+                profile_url = quote(str(prof_paths[0]), safe="")
+                url = f"http://127.0.0.1:{port}/snakeviz/{profile_url}"
+                self.set_timer(1.0, lambda: webbrowser.open(url))
             except FileNotFoundError:
                 self.notify(
                     "Snakeviz is not installed. Install it with `pip install snakeviz`.",
@@ -1022,7 +1059,7 @@ def _build_textual_app_class():
             except (RuntimeError, ValueError, OSError) as exc:
                 self.notify(str(exc), severity="error", timeout=8)
                 return
-            self.notify(f"Opened {prof_paths[0]} in Snakeviz.", timeout=8)
+            self.notify(f"Opened {url} for {prof_paths[0]} in Snakeviz.", timeout=8)
 
         def _show_plot_in_child_process(
             self, node: BrowserNode, settings: dict[str, Any]

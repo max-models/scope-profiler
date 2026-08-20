@@ -66,6 +66,24 @@ profiling_data.h5  (1 rank(s))
 `finalize()` prints the same table as `scope-profiler inspect` and
 `ProfilingResults.print_summary()`. Pass `verbose=False` to suppress it.
 
+## Interactive TUI
+
+Browse a profiling file with the optional Textual interface:
+
+```bash
+pip install "scope-profiler[pproc]"
+scope-profiler tui profiling_data.h5
+```
+
+The plot settings include autocomplete for region filters. Type in the
+include or exclude field and accept the suggested region name; multiple
+regions can be entered as a comma-separated list. The selected-region preview
+updates as the filters change.
+
+Use `g` for a Matplotlib figure, `p` for an interactive Plotly browser view,
+`s` to save a PNG, and `v` on the Flame plot to open the exported profile in
+Snakeviz.
+
 ## Inspecting a profiling file
 
 `scope-profiler inspect` prints what is inside an HDF5 profiling file: the

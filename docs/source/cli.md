@@ -23,8 +23,9 @@ and open it in Snakeviz (`pip install snakeviz`).
 When a plot is selected, its settings panel shows the regions matched by the
 include/exclude filters as you type. It also supports rank ranges, colormap,
 log scale, duration metrics, duration sorting and top-N selection, histogram
-bin count, and imbalance metric. Press **Apply settings** before displaying or
-saving the plot.
+bin count, and imbalance metric. The include and exclude fields autocomplete
+region names from the loaded profile and accept comma-separated values. Press
+**Apply settings** before displaying or saving the plot.
 
 Available plot types include Gantt, flame, durations, timeseries, histogram,
 imbalance, and any LIKWID metrics recorded in the file. Install the optional
