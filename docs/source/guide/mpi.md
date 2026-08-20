@@ -1,3 +1,5 @@
+
+
 # MPI support
 
 scope-profiler is MPI-aware out of the box. When the process is launched
@@ -7,58 +9,59 @@ collection and merging.
 
 ## Installation
 
-```bash
+``` bash
 pip install "scope-profiler[mpi]"
 ```
 
 ## How it works
 
-0. **Launcher detection** --- before anything MPI-related happens,
-   scope-profiler checks whether this process was started by
-   `mpirun`/`mpiexec`/`srun` or an equivalent launcher, by looking for the
-   per-rank environment variables those launchers export
-   (`OMPI_COMM_WORLD_RANK`, `PMI_RANK`, `PMIX_RANK`, ...). If none is
-   present, `mpi4py` is never imported and no MPI call is ever made --- a
-   plain `python script.py` run pays nothing for MPI support, not even
-   `MPI_Init`. The one exception is an application that already imported
-   `mpi4py` and initialized MPI itself; then the existing communicator is
-   used.
+0.  **Launcher detection** — before anything MPI-related happens,
+    scope-profiler checks whether this process was started by
+    `mpirun`/`mpiexec`/`srun` or an equivalent launcher, by looking for
+    the per-rank environment variables those launchers export
+    (`OMPI_COMM_WORLD_RANK`, `PMI_RANK`, `PMIX_RANK`, …). If none is
+    present, `mpi4py` is never imported and no MPI call is ever made — a
+    plain `python script.py` run pays nothing for MPI support, not even
+    `MPI_Init`. The one exception is an application that already
+    imported `mpi4py` and initialized MPI itself; then the existing
+    communicator is used.
 
-1. **Setup** --- `ProfilingConfig` reads `COMM_WORLD` for rank and size.
-   That is a local query, not a collective: `setup()` issues no MPI call
-   of its own and creates no temporary directory. Nothing happens before
-   then: importing scope-profiler touches MPI not at all, so a process
-   that merely imports the library --- a child forked from a rank, say ---
-   never joins the job.
+1.  **Setup** — `ProfilingConfig` reads `COMM_WORLD` for rank and size.
+    That is a local query, not a collective: `setup()` issues no MPI
+    call of its own and creates no temporary directory. Nothing happens
+    before then: importing scope-profiler touches MPI not at all, so a
+    process that merely imports the library — a child forked from a
+    rank, say — never joins the job.
 
-2. **Recording** --- each rank accumulates its own timestamps in memory.
-   Nothing is written per rank, so no shared filesystem is involved.
+2.  **Recording** — each rank accumulates its own timestamps in memory.
+    Nothing is written per rank, so no shared filesystem is involved.
 
-3. **Finalize** --- `ProfileManager.finalize()` is collective. Each rank
-   other than 0 sends its recorded data to rank 0 as a single tagged
-   point-to-point message; rank 0 takes one rank at a time, writes it
-   into the single output file as
-   `rank<N>/regions/<name>/{start_times,end_times}`, and drops it before
-   taking the next. Its peak memory is therefore one rank's data plus the
-   open file, not the whole job's --- which is what makes this work at
-   thousands of ranks.
+3.  **Finalize** — `ProfileManager.finalize()` is collective. Each rank
+    other than 0 sends its recorded data to rank 0 as a single tagged
+    point-to-point message; rank 0 takes one rank at a time, writes it
+    into the single output file as
+    `rank<N>/regions/<name>/{start_times,end_times}`, and drops it
+    before taking the next. Its peak memory is therefore one rank’s data
+    plus the open file, not the whole job’s — which is what makes this
+    work at thousands of ranks.
 
-   A rank that entered no region simply has no `rank<N>` group. And
-   because every rank must reach `finalize()`, one that dies first leaves
-   the job waiting rather than quietly dropping its data from the output.
+    A rank that entered no region simply has no `rank<N>` group. And
+    because every rank must reach `finalize()`, one that dies first
+    leaves the job waiting rather than quietly dropping its data from
+    the output.
 
-   The transport deliberately uses no MPI collective at all --- not even
-   `MPI_Comm_dup`. With `use_likwid=True` every rank reads its counters
-   back in a subprocess, and Open MPI does not support forking from a rank
-   using its shared-memory transport; a collective afterwards can segfault,
-   while point-to-point traffic survives.
+    The transport deliberately uses no MPI collective at all — not even
+    `MPI_Comm_dup`. With `use_likwid=True` every rank reads its counters
+    back in a subprocess, and Open MPI does not support forking from a
+    rank using its shared-memory transport; a collective afterwards can
+    segfault, while point-to-point traffic survives.
 
 ## Example
 
-The code is identical to the serial case --- no MPI-specific API calls
-are needed:
+The code is identical to the serial case — no MPI-specific API calls are
+needed:
 
-```python
+``` python
 # mpi_example.py
 from scope_profiler import ProfileManager
 
@@ -77,7 +80,7 @@ ProfileManager.finalize()
 
 Run with MPI:
 
-```bash
+``` bash
 mpirun -n 4 python mpi_example.py
 ```
 
@@ -88,7 +91,7 @@ The output `profiling_data.h5` will contain groups `rank0` through
 
 The Gantt chart CLI and Python API support rank selection:
 
-```bash
+``` bash
 # Show all ranks
 scope-profiler plot default profiling_data.h5 --show
 
@@ -101,7 +104,7 @@ scope-profiler plot default profiling_data.h5 --show --ranks 0-3
 
 From Python:
 
-```python
+``` python
 from scope_profiler import read_h5
 
 results = read_h5("profiling_data.h5")
@@ -124,18 +127,19 @@ for rank_id in region.ranks:
 
 If the run was not started by an MPI launcher, or `mpi4py` is not
 installed, scope-profiler silently falls back to single-rank mode. No
-code changes are needed --- the API is identical.
+code changes are needed — the API is identical.
 
 ## Overriding the detection
 
 If a launcher is not recognized (or you want to profile an MPI-enabled
 build as if it were serial), force the decision from the environment:
 
-```bash
+``` bash
 SCOPE_PROFILER_MPI=1 ./my_launcher python my_script.py   # always use MPI.COMM_WORLD
 SCOPE_PROFILER_MPI=0 mpirun -n 4 python my_script.py     # never touch MPI
 ```
 
-This is deliberately not a `setup()` parameter: the choice belongs to how the
-job is launched, not to the code being profiled. With `SCOPE_PROFILER_MPI=1`
-and no `mpi4py` installed, the run falls back to single-rank mode.
+This is deliberately not a `setup()` parameter: the choice belongs to
+how the job is launched, not to the code being profiled. With
+`SCOPE_PROFILER_MPI=1` and no `mpi4py` installed, the run falls back to
+single-rank mode.

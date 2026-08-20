@@ -7,7 +7,12 @@ from scope_profiler.__main__ import main as cli_main
 from scope_profiler.h5writer import ProfilingWriter
 from scope_profiler.profile_manager import RankPayload
 from scope_profiler.tests.test_inspection import _write_sample_h5
-from scope_profiler.tui import build_browser_model, node_detail_text
+from scope_profiler.tui import (
+    _matplotlib_child_script,
+    build_browser_model,
+    node_detail_text,
+    render_plot,
+)
 
 NS = 1_000_000_000
 
@@ -71,6 +76,7 @@ def test_browser_model_exposes_major_sections(sample_file):
 
     assert [child.label for child in model.root.children] == [
         "Overview",
+        "Plots",
         "Metadata",
         "Regions",
         "Raw HDF5",
@@ -87,7 +93,8 @@ def test_region_details_include_ranks_calls_source_and_raw_hdf5(sample_file):
     assert solve is not None
     assert {"Summary", "Calls", "Source"} <= {child.label for child in solve.children}
     assert "Rank 0" not in {child.label for child in solve.children}
-    assert "Calls: 2" in node_detail_text(solve)
+    solve_details = node_detail_text(solve)
+    assert "Calls" in solve_details and "2" in solve_details
     assert "kernels.py:7" in node_detail_text(_find(solve, "Source"))
 
     calls = _find(solve, "Calls")
@@ -107,6 +114,7 @@ def test_line_profile_records_are_clickable(line_profile_file):
 
     assert [child.label for child in model.root.children] == [
         "Overview",
+        "Plots",
         "Metadata",
         "Regions",
         "Raw HDF5",
@@ -124,6 +132,79 @@ def test_line_profile_records_are_clickable(line_profile_file):
     assert "----" not in details
     assert "11" in details and "1e-08" in details
     assert "total = 0" in details
+
+
+def test_plot_section_exposes_existing_plot_kinds(sample_file):
+    model = build_browser_model(sample_file)
+    plots = _find(model.root, "Plots")
+
+    assert [child.label for child in plots.children] == [
+        "Gantt",
+        "Durations",
+        "Flame",
+        "Timeseries",
+        "Histogram",
+        "Imbalance",
+    ]
+    assert "Matplotlib" in node_detail_text(plots.children[0])
+
+
+def test_render_plot_dispatches_to_existing_renderer(
+    sample_file, monkeypatch, tmp_path
+):
+    model = build_browser_model(sample_file)
+    plot = _find(model.root, "Durations")
+    calls = []
+
+    def fake_plot(results, **kwargs):
+        calls.append((results, kwargs))
+
+    monkeypatch.setattr("scope_profiler.tui.plot_durations", fake_plot)
+    output = tmp_path / "durations.png"
+
+    assert render_plot(plot, filepath=output) == str(output)
+    assert calls[0][0] is model.results
+    assert calls[0][1]["filepath"] == str(output)
+    assert calls[0][1]["show"] is False
+
+
+def test_render_plot_passes_plot_settings(sample_file, monkeypatch):
+    model = build_browser_model(sample_file)
+    plot = _find(model.root, "Durations")
+    captured = {}
+
+    def fake_plot(results, **kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr("scope_profiler.tui.plot_durations", fake_plot)
+    render_plot(
+        plot,
+        settings={
+            "include": "solve,setup",
+            "exclude": "debug",
+            "ranks": "0,2-3",
+            "cmap": "viridis",
+            "metrics": "avg,max",
+            "sort_by": "avg",
+            "top_n": "5",
+            "log_scale": True,
+            "backend": "plotly",
+        },
+    )
+
+    assert captured["include"] == ["solve", "setup"]
+    assert captured["exclude"] == ["debug"]
+    assert captured["ranks"] == [0, 2, 3]
+    assert captured["cmap"] == "viridis"
+    assert captured["metrics"] == ["avg", "max"]
+    assert captured["sort_by"] == "avg"
+    assert captured["top_n"] == 5
+    assert captured["log_scale"] is True
+    assert captured["backend"] == "plotly"
+
+
+def test_matplotlib_child_script_is_valid_python():
+    compile(_matplotlib_child_script(), "<matplotlib-child>", "exec")
 
 
 def test_tui_help_does_not_require_textual(capsys):

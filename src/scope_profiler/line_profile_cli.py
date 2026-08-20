@@ -5,6 +5,8 @@ import linecache
 import re
 import sys
 
+from tabulate import tabulate
+
 from scope_profiler.h5reader import read_h5
 
 
@@ -32,10 +34,7 @@ def print_line_profile(file_path, ranks=None, function=None, region=None, stream
                 file=stream,
             )
             total_time = float(record["times"].sum())
-            print(
-                "line        hits       time [s]   per hit [s]  % time  source",
-                file=stream,
-            )
+            table_rows = []
             for line, hits, elapsed in zip(
                 record["line_numbers"], record["hits"], record["times"]
             ):
@@ -43,11 +42,23 @@ def print_line_profile(file_path, ranks=None, function=None, region=None, stream
                 per_hit = seconds / int(hits) if hits else 0.0
                 percent = float(elapsed) / total_time * 100 if total_time else 0.0
                 source = linecache.getline(record["filename"], int(line)).rstrip()
-                print(
-                    f"{int(line):4d} {int(hits):11d} {seconds:14.6g} "
-                    f"{per_hit:14.6g} {percent:7.2f}  {source}",
-                    file=stream,
+                table_rows.append(
+                    [
+                        int(line),
+                        int(hits),
+                        f"{seconds:.6g}",
+                        f"{per_hit:.6g}",
+                        f"{percent:.2f}",
+                        source,
+                    ]
                 )
+            for table_line in tabulate(
+                table_rows,
+                headers=("line", "hits", "time [s]", "per hit [s]", "% time", "source"),
+                tablefmt="rounded_outline",
+                disable_numparse=True,
+            ).splitlines():
+                print(table_line, file=stream)
 
     if record_count == 0:
         print("\nNo line-profile records matched.", file=stream)

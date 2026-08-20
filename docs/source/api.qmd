@@ -1,11 +1,10 @@
-
-
 # API reference
 
 ## ProfileManager
 
-The main entry point for all profiling operations. All methods are class
-methods on a singleton — there is no need to instantiate the class.
+The main entry point for all profiling operations. All methods are
+class methods on a singleton --- there is no need to instantiate the
+class.
 
 ```{eval-rst}
 .. autoclass:: scope_profiler.profile_manager.ProfileManager
@@ -71,7 +70,7 @@ construct one directly for advanced use cases.
 
 Everything in this section is importable from the package root:
 
-``` python
+```python
 from scope_profiler import (
     build_call_stack,
     read_h5,
@@ -81,15 +80,15 @@ from scope_profiler import (
 )
 ```
 
-All durations and timestamps exposed here are in **seconds**; the HDF5
-file stores nanoseconds.
+All durations and timestamps exposed here are in **seconds**; the HDF5 file
+stores nanoseconds.
 
 ### ProfilingResults
 
-The post-processing API itself, and the only type the analysis layer
-has. `ProfilingResults.from_h5()` builds one from a merged file, and
-`ProfileManager.finalize(return_results=True)` builds the same thing
-straight from memory.
+The post-processing API itself, and the only type the analysis layer has.
+`ProfilingResults.from_h5()` builds one from a merged file, and
+`ProfileManager.finalize(return_results=True)` builds the same thing straight
+from memory.
 
 ```{eval-rst}
 .. autoclass:: scope_profiler.results.ProfilingResults
@@ -108,8 +107,8 @@ interchangeable.
 
 ### Native (C and Fortran) traces
 
-Reading what the C and Fortran region APIs write – they share one
-format; see {doc}`guide/c` and {doc}`guide/fortran`.
+Reading what the C and Fortran region APIs write -- they share one format; see
+{doc}`guide/c` and {doc}`guide/fortran`.
 
 ```{eval-rst}
 .. autofunction:: scope_profiler.native_trace.load_traces
@@ -147,9 +146,9 @@ format; see {doc}`guide/c` and {doc}`guide/fortran`.
 ### Call stack reconstruction
 
 Regions record no call graph, so nesting is recovered from timestamp
-containment. `ProfilingResults.call_stack()` is the usual entry point;
-the functions below operate on its result and let you walk the
-reconstructed tree when building your own nested visualisation.
+containment. `ProfilingResults.call_stack()` is the usual entry point; the
+functions below operate on its result and let you walk the reconstructed tree
+when building your own nested visualisation.
 
 ```{eval-rst}
 .. autofunction:: scope_profiler.call_stack.build_call_stack

@@ -123,7 +123,7 @@ def test_region_statistics_are_seconds(sample_file, capsys):
     line = next(
         line for line in capsys.readouterr().out.splitlines() if "solve" in line
     )
-    fields = line.split()
+    fields = [field.strip() for field in line.strip("│ ").split("│")]
 
     assert fields[0] == "solve"
     assert fields[1] == "2"  # ranks
@@ -150,17 +150,17 @@ def test_long_metadata_values_are_clipped_unless_full(sample_file, capsys):
 def test_sorting(sample_file, capsys):
     inspect_file(sample_file, sort="total")
     ordered = [
-        line.split()[0]
+        line.strip("│ ").split("│")[0].strip()
         for line in capsys.readouterr().out.splitlines()
-        if line.startswith("  setup") or line.startswith("  solve")
+        if "│ setup" in line or "│ solve" in line
     ]
     assert ordered == ["solve", "setup"]  # solve: 13 s, setup: 4 s
 
     inspect_file(sample_file, sort="name")
     ordered = [
-        line.split()[0]
+        line.strip("│ ").split("│")[0].strip()
         for line in capsys.readouterr().out.splitlines()
-        if line.startswith("  setup") or line.startswith("  solve")
+        if "│ setup" in line or "│ solve" in line
     ]
     assert ordered == ["setup", "solve"]
 
@@ -179,7 +179,8 @@ def test_include_exclude_and_ranks(sample_file, capsys):
     line = next(
         line for line in capsys.readouterr().out.splitlines() if "solve" in line
     )
-    assert line.split()[1:3] == ["1", "2"]
+    fields = [field.strip() for field in line.strip("│ ").split("│")]
+    assert fields[1:3] == ["1", "2"]
 
 
 def test_section_switches(sample_file, capsys):

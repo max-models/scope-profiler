@@ -1,0 +1,127 @@
+# Fortran examples
+
+One Fortran kernel library, driven two ways.
+
+`kernels.f90` is a small Jacobi smoother that marks regions **inside itself** —
+the shape a real kernel library takes, where the caller neither knows nor cares
+what is instrumented in there. The same file is then used by:
+
+- **`standalone.f90`** — a pure Fortran program. No Python at run time; the
+  trace is converted afterwards with `scope-profiler import-native`.
+- **`run_mixed.py`** — a Python driver that calls the very same kernels through
+  f2py, so both languages record into **one** profile with one call stack.
+
+## Requirements
+
+| | needs |
+| --- | --- |
+| `standalone` | a Fortran compiler |
+| `mixed` | a Fortran compiler, plus `meson` and `ninja` (`pip install "scope-profiler[fortran]"`) |
+
+## Standalone Fortran
+
+```bash
+make run-standalone
+```
+
+Builds and runs the program, then imports its trace:
+
+```
+  region              ranks  calls   total [s]      avg [s]      min [s]      max [s]
+  fortran:timestep        1     20   0.0044892   0.00022446  0.000159416  0.000395708
+  fortran:residual        1    100  0.00326042  3.26042e-05   2.3291e-05   5.7458e-05
+  fortran:checkpoint      1      5  0.00132121  0.000264242    5.025e-05  0.000468333
+  fortran:stencil         1    100   0.0010702   1.0702e-05    7.541e-06   2.0792e-05
+  fortran:setup           1      1  5.0459e-05   5.0459e-05   5.0459e-05   5.0459e-05
+```
+
+From there it is an ordinary profile — `scope-profiler plot default build/profiling_data.h5 -o figures`
+and the rest.
+
+## Python driving Fortran
+
+```bash
+make run-mixed
+```
+
+Builds the kernels into an extension module with f2py and runs the Python
+driver. Both sides record; `finalize(native_traces=...)` folds the Fortran
+trace into the Python run's output, and one file comes out:
+
+```
+  region              ranks  calls    total [s]      avg [s]
+  python:setup            1      1    0.0162926    0.0162926
+  python:timestep         1     20   0.00585875  0.000292938
+  python:call_solver      1     20   0.00459034  0.000229517
+  fortran:residual        1    100   0.00358171  3.58171e-05
+  python:checkpoint       1      4    0.0012335  0.000308375
+  fortran:checkpoint      1      4   0.00122908  0.000307271
+  fortran:stencil         1    100  0.000557165  5.57165e-06
+```
+
+Because both APIs read the same clock, the call stack is a single tree across
+the language boundary:
+
+```
+  python:setup                   17.444 ms   [python]
+  python:timestep                 0.540 ms   [python]
+    python:call_solver              0.532 ms   [python]
+      fortran:stencil                 0.006 ms   [fortran]
+      fortran:residual                0.044 ms   [fortran]
+```
+
+It also writes `figures/gantt.png` and a speedscope trace, where the
+`fortran:` bars sit visibly inside the `python:` ones.
+
+## Two rules for mixing
+
+1. **Call the Fortran `sp_finalize()` before `ProfileManager.finalize()`** —
+   the trace has to exist by the time Python reads it. In `run_mixed.py` that
+   is `kernels.stop_profiling()`.
+2. **Give the two sides distinct region names.** A name recorded by both
+   raises rather than silently double-counting a wrapper and the region inside
+   it. Hence the `python:` / `fortran:` prefixes.
+
+## Under MPI
+
+Nothing changes structurally: pass the rank to `sp_init` so each process
+writes its own trace, and each rank folds in the one matching itself.
+
+```fortran
+call MPI_Comm_rank(MPI_COMM_WORLD, my_rank, ierr)
+call start_profiling("trace", my_rank)
+```
+
+`standalone.f90` takes the rank as an optional argument for exactly this
+reason. To build it against MPI, point `FC` at your wrapper:
+
+```bash
+make standalone FC=mpifort
+mpirun -n 4 ./build/standalone       # add MPI_Init/MPI_Finalize to the program
+scope-profiler import-native build -o profiling_data.h5
+```
+
+For the mixed case, the Python driver already knows its rank from
+`ProfileManager.get_config()`, and `run_mixed.py` passes it through.
+
+## An f2py trap worth knowing
+
+f2py does **not** resolve named kind parameters. A procedure declared with
+`real(dp)` where `dp = kind(1.0d0)` — or `real(real64)` from
+`iso_fortran_env` — builds fine, runs fine, records its regions correctly, and
+returns **garbage** for the value:
+
+```
+  with_named_kind          3.0 -> -1.1754943508222875e-38
+  with_literal_kind        3.0 -> 6.0
+  with_double_precision    3.0 -> 6.0
+```
+
+So `kernels.f90` spells its interfaces `double precision`. Use a literal kind
+in anything f2py has to wrap.
+
+## Cleaning up
+
+```bash
+make clean
+```
