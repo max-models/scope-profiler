@@ -124,6 +124,31 @@ stats = region.get_stats()
 region.print_stats()
 ```
 
+Line-profiler data is also persisted in the HDF5 output. After reopening a
+run, access the rank-local records through `ProfilingResults.line_profile`:
+
+```python
+from scope_profiler import read_h5
+
+results = read_h5("profiling_data.h5")
+for record in results.line_profile.get(0, []):
+    seconds_per_unit = record["unit"]
+    for line, hits, elapsed in zip(
+        record["line_numbers"], record["hits"], record["times"]
+    ):
+        print(record["function"], line, hits, elapsed * seconds_per_unit)
+```
+
+Each record is associated with its region, source file, and function. The
+stored `times` values use the `unit` reported by `line_profiler`.
+
+The same data can be printed from the command line:
+
+```bash
+scope-profiler line-profile profiling_data.h5
+scope-profiler line-profile profiling_data.h5 --rank 0 --function solve
+```
+
 ## Overhead considerations
 
 Line profiling adds ~40 µs per call because `line_profiler` instruments
