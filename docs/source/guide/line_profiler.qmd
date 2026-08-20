@@ -1,15 +1,12 @@
-
-
 # Line-by-line profiling
 
-scope-profiler can integrate
-[line_profiler](https://github.com/pyutils/line_profiler) to give you
-per-source-line timing breakdowns of decorated functions, alongside the
-usual region-level statistics.
+scope-profiler can integrate [line_profiler](https://github.com/pyutils/line_profiler)
+to give you per-source-line timing breakdowns of decorated functions,
+alongside the usual region-level statistics.
 
 ## Installation
 
-``` bash
+```bash
 pip install "scope-profiler[line-profiler]"
 ```
 
@@ -17,7 +14,7 @@ pip install "scope-profiler[line-profiler]"
 
 Pass `use_line_profiler=True` to `setup()`:
 
-``` python
+```python
 from scope_profiler import ProfileManager
 
 ProfileManager.setup(use_line_profiler=True)
@@ -29,7 +26,7 @@ functions and for the function containing a `with` scope.
 
 ## Example
 
-``` python
+```python
 import math
 import random
 
@@ -70,7 +67,7 @@ ProfileManager.finalize()
 
 Output:
 
-``` text
+```text
 profiling_data.h5  (1 rank(s))
   region    ranks  calls  total [s]   avg [s]
   -------------------------------------------
@@ -99,26 +96,25 @@ Line #      Hits         Time  Per Hit   % Time  Line Contents
 The line-by-line table shows, for each source line:
 
 | Column      | Meaning                                        |
-|-------------|------------------------------------------------|
+| ----------- | ---------------------------------------------- |
 | **Hits**    | Number of times the line was executed          |
 | **Time**    | Total time spent on that line (in timer units) |
 | **Per Hit** | Average time per execution                     |
-| **% Time**  | Fraction of the function’s total time          |
+| **% Time**  | Fraction of the function's total time          |
 
-## Decorator vs. context manager
+## Decorator vs. context manager
 
-- **Decorator** (`@ProfileManager.profile`) — automatically registers
+- **Decorator** (`@ProfileManager.profile`) --- automatically registers
   the function with `line_profiler`. This is the primary use case.
-- **Context manager** (`with ProfileManager.profile_region()`) —
-  enables/disables the profiler around the block and automatically
-  registers the active caller function. Lines executed in the scope are
-  included even when the function is not decorated. Passing
-  `functions=[...]` remains useful when the scope should also profile
-  other functions it calls.
+- **Context manager** (`with ProfileManager.profile_region()`) ---
+  enables/disables the profiler around the block and automatically registers
+  the active caller function. Lines executed in the scope are included even
+  when the function is not decorated. Passing `functions=[...]` remains
+  useful when the scope should also profile other functions it calls.
 
 ## Accessing stats programmatically
 
-``` python
+```python
 region = ProfileManager.get_region("compute")
 
 # Get the line_profiler stats object
@@ -128,11 +124,10 @@ stats = region.get_stats()
 region.print_stats()
 ```
 
-Line-profiler data is also persisted in the HDF5 output. After reopening
-a run, access the rank-local records through
-`ProfilingResults.line_profile`:
+Line-profiler data is also persisted in the HDF5 output. After reopening a
+run, access the rank-local records through `ProfilingResults.line_profile`:
 
-``` python
+```python
 from scope_profiler import read_h5
 
 results = read_h5("profiling_data.h5")
@@ -144,12 +139,12 @@ for record in results.line_profile.get(0, []):
         print(record["function"], line, hits, elapsed * seconds_per_unit)
 ```
 
-Each record is associated with its region, source file, and function.
-The stored `times` values use the `unit` reported by `line_profiler`.
+Each record is associated with its region, source file, and function. The
+stored `times` values use the `unit` reported by `line_profiler`.
 
 The same data can be printed from the command line:
 
-``` bash
+```bash
 scope-profiler line-profile profiling_data.h5
 scope-profiler line-profile profiling_data.h5 --rank 0 --function solve
 ```
@@ -158,5 +153,5 @@ scope-profiler line-profile profiling_data.h5 --rank 0 --function solve
 
 Line profiling adds ~40 µs per call because `line_profiler` instruments
 every source line in the function. It is designed for **targeted
-debugging**, not for always-on use in hot loops. See {doc}`overhead` for
-benchmark data.
+debugging**, not for always-on use in hot loops. See {doc}`overhead`
+for benchmark data.

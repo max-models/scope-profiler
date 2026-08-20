@@ -1,5 +1,3 @@
-
-
 # Quickstart
 
 This page walks through the core workflow: **setup**, **instrument**,
@@ -7,11 +5,11 @@ This page walks through the core workflow: **setup**, **instrument**,
 
 ## 1. Setup
 
-Call `ProfileManager.setup()` once at the start of your program to
-configure the profiling system. All regions created afterwards — even in
-other modules — share this configuration.
+Call `ProfileManager.setup()` once at the start of your program to configure
+the profiling system. All regions created afterwards --- even in other
+modules --- share this configuration.
 
-``` python
+```python
 from scope_profiler import ProfileManager
 
 ProfileManager.setup(
@@ -25,16 +23,16 @@ ProfileManager.setup(
 
 Use `@ProfileManager.profile` to wrap an entire function:
 
-``` python
+```python
 @ProfileManager.profile("matrix_multiply")
 def matrix_multiply(a, b):
     return a @ b
 ```
 
-The decorator also works without an explicit name — it uses the function
+The decorator also works without an explicit name --- it uses the function
 name by default:
 
-``` python
+```python
 @ProfileManager.profile
 def matrix_multiply(a, b):
     return a @ b
@@ -42,7 +40,7 @@ def matrix_multiply(a, b):
 
 To include nested Python calls made by a decorated function:
 
-``` python
+```python
 ProfileManager.setup(recursive_profile=True)
 
 @ProfileManager.profile("solver_step")
@@ -54,7 +52,7 @@ def solver_step():
 
 Use `ProfileManager.profile_region()` for finer-grained control:
 
-``` python
+```python
 for step in range(num_steps):
     with ProfileManager.profile_region("time_step"):
         evolve(state, dt)
@@ -70,13 +68,13 @@ The two styles can be mixed freely.
 Call `finalize()` when profiling is done. This writes all buffered data,
 merges per-rank HDF5 files, and prints a summary:
 
-``` python
+```python
 ProfileManager.finalize()
 ```
 
 Output:
 
-``` text
+```text
 profiling_data.h5  (1 rank(s))
   region           ranks  calls   total [s]     avg [s]
   ------------------------------------------------------
@@ -86,23 +84,22 @@ profiling_data.h5  (1 rank(s))
   TOTAL                     1100         ...
 ```
 
-The same table is available from `ProfilingResults.print_summary()` and
-from `scope-profiler inspect`; pass `verbose=False` to `finalize()` to
-suppress it.
+The same table is available from `ProfilingResults.print_summary()` and from
+`scope-profiler inspect`; pass `verbose=False` to `finalize()` to suppress it.
 
 ## 4. Inspect the data
 
-After finalization the timing data is saved to `profiling_data.h5`
-(default). Use the built-in CLI to generate a Gantt chart:
+After finalization the timing data is saved to `profiling_data.h5` (default).
+Use the built-in CLI to generate a Gantt chart:
 
-``` bash
+```bash
 scope-profiler plot default profiling_data.h5 --show
 ```
 
 See {doc}`/guide/plot_cli` for the other charts and exports it can
 produce. Or load the data programmatically:
 
-``` python
+```python
 from scope_profiler import read_h5
 
 results = read_h5("profiling_data.h5")
@@ -118,7 +115,7 @@ for region in results:
 
 ## Complete example
 
-``` python
+```python
 from scope_profiler import ProfileManager
 
 ProfileManager.setup(
@@ -135,11 +132,11 @@ main()
 ProfileManager.finalize()
 ```
 
-``` bash
+```bash
 python example.py
 ```
 
-``` text
+```text
 profiling_data.h5  (1 rank(s))
   region     ranks  calls    total [s]      avg [s]
   --------------------------------------------------

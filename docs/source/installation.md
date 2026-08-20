@@ -1,10 +1,13 @@
+
+
 # Installation
 
 ## Basic install
 
-Install the latest release from [PyPI](https://pypi.org/project/scope-profiler/):
+Install the latest release from
+[PyPI](https://pypi.org/project/scope-profiler/):
 
-```bash
+``` bash
 pip install scope-profiler
 ```
 
@@ -12,31 +15,32 @@ This pulls in the only hard dependencies: **numpy** and **h5py**.
 
 ## Optional extras
 
-scope-profiler ships several optional dependency groups that you can install
-with the bracket syntax:
+scope-profiler ships several optional dependency groups that you can
+install with the bracket syntax:
 
-| Extra           | Install command                               | What it adds                                                                         |
-| --------------- | --------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `likwid`        | `pip install "scope-profiler[likwid]"`        | LIKWID hardware counters via [pylikwid](https://github.com/RRZE-HPC/pylikwid)         |
+| Extra | Install command | What it adds |
+|----|----|----|
+| `likwid` | `pip install "scope-profiler[likwid]"` | LIKWID hardware counters via [pylikwid](https://github.com/RRZE-HPC/pylikwid) |
 | `line-profiler` | `pip install "scope-profiler[line-profiler]"` | Line-by-line profiling via [line_profiler](https://github.com/pyutils/line_profiler) |
-| `nvtx`          | `pip install "scope-profiler[nvtx]"`          | NVTX ranges for NVIDIA Nsight profiling                                                  |
-| `mcp`           | `pip install "scope-profiler[mcp]"`           | The `scope-profiler-mcp` server, for AI coding agents (see {doc}`guide/mcp`)          |
-| `mpi`           | `pip install "scope-profiler[mpi]"`           | MPI support via [mpi4py](https://mpi4py.readthedocs.io/)                             |
-| `pproc`         | `pip install "scope-profiler[pproc]"`         | Plotting, post-processing, and TUI browsing (`scope-profiler plot`, `scope-profiler tui`, `to_dataframe()`) |
-| `dev`           | `pip install "scope-profiler[dev]"`           | All of the above plus linting, formatting, and docs tools                            |
+| `nvtx` | `pip install "scope-profiler[nvtx]"` | NVTX ranges for NVIDIA Nsight profiling |
+| `mcp` | `pip install "scope-profiler[mcp]"` | The `scope-profiler-mcp` server, for AI coding agents (see {doc}`guide/mcp`) |
+| `mpi` | `pip install "scope-profiler[mpi]"` | MPI support via [mpi4py](https://mpi4py.readthedocs.io/) |
+| `pproc` | `pip install "scope-profiler[pproc]"` | Plotting, post-processing, and TUI browsing (`scope-profiler plot`, `scope-profiler tui`, `to_dataframe()`) |
+| `dev` | `pip install "scope-profiler[dev]"` | All of the above plus linting, formatting, and docs tools |
 
-The base install pulls in only `h5py` and `numpy`. Recording timings, writing
-HDF5 and `scope-profiler inspect` all work with that alone; the extras are
-needed only for the features they name. `use_line_profiler=True` raises a
-clear `ImportError` if the `line-profiler` extra is not installed, as
-`use_likwid=True` does for `pylikwid`.
+The base install pulls in only `h5py` and `numpy`. Recording timings,
+writing HDF5 and `scope-profiler inspect` all work with that alone; the
+extras are needed only for the features they name.
+`use_line_profiler=True` raises a clear `ImportError` if the
+`line-profiler` extra is not installed, as `use_likwid=True` does for
+`pylikwid`.
 
 ## Development install
 
 Clone the repository and install in editable mode with all development
 dependencies:
 
-```bash
+``` bash
 git clone https://github.com/max-models/scope-profiler.git
 cd scope-profiler
 pip install -e ".[dev]"
@@ -47,39 +51,40 @@ pip install -e ".[dev]"
 LIKWID hardware counter support requires the
 [LIKWID](https://github.com/RRZE-HPC/likwid) library and the
 [pylikwid](https://github.com/RRZE-HPC/pylikwid) Python bindings to be
-installed on the system. See the
-[LIKWID documentation](https://github.com/RRZE-HPC/likwid/wiki) for
-build instructions.
+installed on the system. See the [LIKWID
+documentation](https://github.com/RRZE-HPC/likwid/wiki) for build
+instructions.
 
-`pip install "scope-profiler[likwid]"` installs the `pylikwid` bindings, but
-they build against an existing LIKWID installation --- install (or
+`pip install "scope-profiler[likwid]"` installs the `pylikwid` bindings,
+but they build against an existing LIKWID installation — install (or
 `module load`) LIKWID first.
 
-`pylikwid` is linked against `liblikwid.so`, and many cluster modules put
-`likwid-perfctr` on `PATH` without adding the library to `LD_LIBRARY_PATH`,
-which makes `import pylikwid` fail with
-`ImportError: liblikwid.so.5: cannot open shared object file`. scope-profiler
-recovers from this on its own: it locates the library via `LIKWID_HOME` /
-`LIKWID_ROOT` (or the prefix of `likwid-perfctr` on `PATH`) and loads it
-before importing the bindings, so `module load likwid` is enough.
+`pylikwid` is linked against `liblikwid.so`, and many cluster modules
+put `likwid-perfctr` on `PATH` without adding the library to
+`LD_LIBRARY_PATH`, which makes `import pylikwid` fail with
+`ImportError: liblikwid.so.5: cannot open shared object file`.
+scope-profiler recovers from this on its own: it locates the library via
+`LIKWID_HOME` / `LIKWID_ROOT` (or the prefix of `likwid-perfctr` on
+`PATH`) and loads it before importing the bindings, so
+`module load likwid` is enough.
 
 If LIKWID lives somewhere none of those point to, set the loader path
 yourself before starting Python:
 
-```bash
+``` bash
 export LD_LIBRARY_PATH="/path/to/likwid/lib:$LD_LIBRARY_PATH"
 python -c "import pylikwid"
 ```
 
-Counters are only recorded when the process is started under LIKWID's marker
-mode --- `likwid-perfctr -C 0 -g CLOCK -m python script.py`, or
+Counters are only recorded when the process is started under LIKWID’s
+marker mode — `likwid-perfctr -C 0 -g CLOCK -m python script.py`, or
 `likwid-mpirun ... -marker`. Run the script plainly and the marker calls
-become no-ops: the timings are still recorded, there are simply no counters.
-See {doc}`guide/likwid`.
+become no-ops: the timings are still recorded, there are simply no
+counters. See {doc}`guide/likwid`.
 
 ## Verify installation
 
-```python
+``` python
 >>> from scope_profiler import ProfileManager
 >>> ProfileManager.setup()
 >>> with ProfileManager.profile_region("test"):

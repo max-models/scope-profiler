@@ -1,5 +1,3 @@
-
-
 # Profiling regions
 
 A **region** is the fundamental unit of measurement in scope-profiler.
@@ -8,11 +6,11 @@ start/end timestamp pair and increments the call counter.
 
 ## Creating regions
 
-### Decorator — `@ProfileManager.profile`
+### Decorator --- `@ProfileManager.profile`
 
 Ideal for wrapping entire functions:
 
-``` python
+```python
 from scope_profiler import ProfileManager
 
 @ProfileManager.profile("solver")
@@ -22,30 +20,30 @@ def solve(A, b):
 
 Without an explicit name the function name is used:
 
-``` python
+```python
 @ProfileManager.profile
 def solve(A, b):
     return np.linalg.solve(A, b)
 # region name: "solve"
 ```
 
-You can recursively profile nested Python function calls from a
-decorated entrypoint:
+You can recursively profile nested Python function calls from a decorated
+entrypoint:
 
-``` python
+```python
 @ProfileManager.profile("solve", recursive=True)
 def solve(A, b):
     return run_pipeline(A, b)
 ```
 
-Nested calls are stored as additional regions using fully-qualified
-names such as `my_module.run_pipeline`.
+Nested calls are stored as additional regions using fully-qualified names
+such as `my_module.run_pipeline`.
 
-### Context manager — `ProfileManager.profile_region()`
+### Context manager --- `ProfileManager.profile_region()`
 
 Ideal for profiling a section of code inside a function:
 
-``` python
+```python
 def time_step(state, dt):
     with ProfileManager.profile_region("rhs_evaluation"):
         rhs = compute_rhs(state)
@@ -56,11 +54,11 @@ def time_step(state, dt):
 
 ### Mixing both
 
-Decorators and context managers can be mixed freely. They share the same
-region registry, so using the same name in both places accumulates into
-a single region:
+Decorators and context managers can be mixed freely. They share the
+same region registry, so using the same name in both places accumulates
+into a single region:
 
-``` python
+```python
 @ProfileManager.profile("compute")
 def compute_batch(data):
     for chunk in data:
@@ -85,21 +83,21 @@ same name return the existing instance. This means:
 
 Regions can be nested arbitrarily:
 
-``` python
+```python
 with ProfileManager.profile_region("outer"):
     with ProfileManager.profile_region("inner"):
         work()
 ```
 
 Each region independently records its own timestamps. The library does
-**not** compute parent-child relationships — that can be done in
+**not** compute parent-child relationships --- that can be done in
 post-processing by comparing the recorded intervals.
 
 ## Accessing region data at runtime
 
 Before calling `finalize()`, you can inspect in-memory data:
 
-``` python
+```python
 region = ProfileManager.get_region("solver")
 
 # Number of completed calls
@@ -111,7 +109,7 @@ durations = region.get_durations_numpy()
 
 All registered regions:
 
-``` python
+```python
 for name, region in ProfileManager.get_all_regions().items():
     print(f"{name}: {region.num_calls} calls")
 ```

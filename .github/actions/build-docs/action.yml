@@ -23,6 +23,9 @@ runs:
         sudo apt-get update
         sudo apt-get install -y pandoc
 
+    - name: Install Quarto
+      uses: quarto-dev/quarto-actions/setup@v2
+
     - name: Install Python dependencies
       shell: bash
       run: |

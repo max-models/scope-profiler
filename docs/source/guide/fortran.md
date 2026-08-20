@@ -1,23 +1,25 @@
+
+
 # Profiling Fortran code
 
-scope-profiler ships a Fortran module with the same region model as the Python
-API. A Fortran program marks regions, writes a small trace file per rank, and
-`scope-profiler import-native` turns those traces into the usual HDF5 output —
-so a Fortran run gets the same summaries, charts, exporters and `plot`
-workflow as a Python one.
+scope-profiler ships a Fortran module with the same region model as the
+Python API. A Fortran program marks regions, writes a small trace file
+per rank, and `scope-profiler import-native` turns those traces into the
+usual HDF5 output — so a Fortran run gets the same summaries, charts,
+exporters and `plot` workflow as a Python one.
 
 The module is deliberately undemanding: plain Fortran 2008 with
-`iso_c_binding`, one file, no preprocessor flags, no HDF5, no MPI, nothing to
-link beyond libc.
+`iso_c_binding`, one file, no preprocessor flags, no HDF5, no MPI,
+nothing to link beyond libc.
 
-The trace format is shared with {doc}`the C API <c>`, so a program built from
-both lands in a single profile.
+The trace format is shared with {doc}`the C API <c>`, so a program built
+from both lands in a single profile.
 
 ## Getting the source
 
 It ships inside the installed package:
 
-```bash
+``` bash
 gfortran -c $(python -c "import scope_profiler.native_trace as t; print(t.fortran_source_path())")
 ```
 
@@ -26,7 +28,7 @@ or from a checkout, `src/scope_profiler/fortran/scope_profiler.f90`. A
 
 ## Marking regions
 
-```fortran
+``` fortran
 program simulation
    use scope_profiler
    implicit none
@@ -51,17 +53,17 @@ program simulation
 end program simulation
 ```
 
-`sp_begin_name("solve")` / `sp_end_name("solve")` take the name directly, which
-reads better in cold code; they look the name up on every call, so prefer the
-handle form in hot loops.
+`sp_begin_name("solve")` / `sp_end_name("solve")` take the name
+directly, which reads better in cold code; they look the name up on
+every call, so prefer the handle form in hot loops.
 
-Regions may nest, and a region may re-enter itself recursively — each entry
-reserves its own slot, exactly as in the Python API.
+Regions may nest, and a region may re-enter itself recursively — each
+entry reserves its own slot, exactly as in the Python API.
 
 ## The API
 
 | Call | Purpose |
-| --- | --- |
+|----|----|
 | `sp_init(prefix [, rank])` | Start profiling. `rank` (default 0) gives each MPI rank its own trace file. |
 | `sp_region(name)` | Handle for a region name, created on first use. |
 | `sp_begin(id)` / `sp_end(id)` | Enter and leave a region. |
@@ -73,18 +75,18 @@ reserves its own slot, exactly as in the Python API.
 
 ## Under MPI
 
-Pass each rank's id so the traces do not collide:
+Pass each rank’s id so the traces do not collide:
 
-```fortran
+``` fortran
 call MPI_Comm_rank(MPI_COMM_WORLD, my_rank, ierr)
 call sp_init("profile", rank=my_rank)
 ```
 
-Every rank writes its own file; nothing is communicated, so `sp_finalize()` is
-not collective and a rank that dies takes only its own trace with it. The
-importer merges whatever it finds:
+Every rank writes its own file; nothing is communicated, so
+`sp_finalize()` is not collective and a rank that dies takes only its
+own trace with it. The importer merges whatever it finds:
 
-```bash
+``` bash
 mpirun -n 128 ./simulation
 scope-profiler import-native . -o profiling_data.h5
 scope-profiler plot default profiling_data.h5 -o figures
@@ -92,7 +94,7 @@ scope-profiler plot default profiling_data.h5 -o figures
 
 ## From Python
 
-```python
+``` python
 from scope_profiler.native_trace import load_traces, convert_traces
 
 results = load_traces("run_dir")            # -> ProfilingResults, as usual
@@ -102,38 +104,40 @@ results.to_dataframe()
 convert_traces("run_dir", "profiling_data.h5", label="128 ranks")
 ```
 
-`load_traces` returns the very same `ProfilingResults` a Python run produces,
-so every method, `plot_*` function and exporter works on it unchanged.
+`load_traces` returns the very same `ProfilingResults` a Python run
+produces, so every method, `plot_*` function and exporter works on it
+unchanged.
 
 ## One timeline with Python
 
-The module reads the same OS clock CPython's `time.perf_counter_ns()` uses —
-`CLOCK_MONOTONIC` on Linux, `CLOCK_UPTIME_RAW` on macOS — and picks it by
-probing at run time rather than by compile-time platform macros, which
-gfortran does not reliably define.
+The module reads the same OS clock CPython’s `time.perf_counter_ns()`
+uses — `CLOCK_MONOTONIC` on Linux, `CLOCK_UPTIME_RAW` on macOS — and
+picks it by probing at run time rather than by compile-time platform
+macros, which gfortran does not reliably define.
 
-That means Fortran and Python regions recorded in the same process tree share
-an epoch: a Python driver's timestamps and its Fortran kernels' timestamps are
-directly comparable, and can be read on one timeline.
+That means Fortran and Python regions recorded in the same process tree
+share an epoch: a Python driver’s timestamps and its Fortran kernels’
+timestamps are directly comparable, and can be read on one timeline.
 
 ## Python calling Fortran
 
-The case this is really for: a Python driver over Fortran kernels, where both
-sides mark regions and you want **one** profile. Because the two APIs read the
-same clock, their timestamps are directly comparable — the Fortran regions nest
-inside the Python region that called them, and `call_stack()` sees a single
-tree spanning both languages.
+The case this is really for: a Python driver over Fortran kernels, where
+both sides mark regions and you want **one** profile. Because the two
+APIs read the same clock, their timestamps are directly comparable — the
+Fortran regions nest inside the Python region that called them, and
+`call_stack()` sees a single tree spanning both languages.
 
-Build the kernels however you already do (f2py, ctypes, Cython, a hand-written
-extension), compiling `scope_profiler.f90` in alongside them:
+Build the kernels however you already do (f2py, ctypes, Cython, a
+hand-written extension), compiling `scope_profiler.f90` in alongside
+them:
 
-```bash
+``` bash
 python -m numpy.f2py -c scope_profiler.f90 kernels.f90 -m kernels --backend meson
 ```
 
 Then let `finalize()` fold the Fortran trace in:
 
-```python
+``` python
 import kernels
 from scope_profiler import ProfileManager
 
@@ -148,7 +152,7 @@ kernels.kernels.stop_profiling()                 # sp_finalize writes the trace
 ProfileManager.finalize(native_traces=".")      # ...and it lands in the h5
 ```
 
-```text
+``` text
   region               ranks  calls    total [s]      avg [s]
   ------------------------------------------------------------
   python:step              1      3   0.00148475  0.000494917
@@ -159,27 +163,27 @@ ProfileManager.finalize(native_traces=".")      # ...and it lands in the h5
 
 Two rules:
 
-- **Call the Fortran `sp_finalize()` first.** Its trace has to exist by the
-  time `finalize()` reads it.
-- **Give the two sides distinct region names.** A name recorded by both raises,
-  rather than silently double-counting a wrapper and the region inside it. A
-  `python:` / `fortran:` prefix is the simplest convention.
+- **Call the Fortran `sp_finalize()` first.** Its trace has to exist by
+  the time `finalize()` reads it.
+- **Give the two sides distinct region names.** A name recorded by both
+  raises, rather than silently double-counting a wrapper and the region
+  inside it. A `python:` / `fortran:` prefix is the simplest convention.
 
-Under MPI each rank folds in the trace matching its own rank, so pass the rank
-to `sp_init` and nothing else changes — the usual single output file comes out
-the other end.
+Under MPI each rank folds in the trace matching its own rank, so pass
+the rank to `sp_init` and nothing else changes — the usual single output
+file comes out the other end.
 
 ### Combining afterwards
 
 If the two halves were profiled separately, merge them after the fact:
 
-```bash
+``` bash
 scope-profiler import-native traces/ --merge python_only.h5 -o combined.h5
 ```
 
 or in Python:
 
-```python
+``` python
 from scope_profiler import merge_results, read_h5
 from scope_profiler.native_trace import load_traces
 
@@ -190,32 +194,30 @@ combined = merge_results(read_h5("python_only.h5"), load_traces("traces/"))
 
 `sp_finalize()` writes `<prefix>_rank<NNNNN>.spt`, a small binary file:
 
-```
-char[8]   "SCOPEPRF"
-int32     format version (1)
-int32     rank
-int64     number of regions
-per region:
-    int32     length of the name in bytes
-    char[]    name
-    int64     number of calls
-    int64[]   start timestamps, nanoseconds
-    int64[]   end timestamps, nanoseconds
-```
+    char[8]   "SCOPEPRF"
+    int32     format version (1)
+    int32     rank
+    int64     number of regions
+    per region:
+        int32     length of the name in bytes
+        char[]    name
+        int64     number of calls
+        int64[]   start timestamps, nanoseconds
+        int64[]   end timestamps, nanoseconds
 
-Native endianness; the reader detects and handles both. 16 bytes per recorded
-call, the same as the Python side.
+Native endianness; the reader detects and handles both. 16 bytes per
+recorded call, the same as the Python side.
 
 ## Limitations
 
-- **Not thread safe.** A region must be entered and left by the same thread.
-  OpenMP threads inside a region are fine — wrap the whole parallel construct
-  in one `sp_begin`/`sp_end` from the master thread.
-- **No LIKWID counters.** Hardware counters are collected only by the Python
-  API; a Fortran trace carries timings alone.
+- **Not thread safe.** A region must be entered and left by the same
+  thread. OpenMP threads inside a region are fine — wrap the whole
+  parallel construct in one `sp_begin`/`sp_end` from the master thread.
+- **No LIKWID counters.** Hardware counters are collected only by the
+  Python API; a Fortran trace carries timings alone.
 - **Names are truncated** at `SP_MAX_NAME` (128) characters.
-- **Recursion depth** per region is capped at `SP_MAX_DEPTH` (64); deeper
-  nesting is reported on stderr and left untimed rather than corrupting the
-  buffer.
-- **A region still open at `sp_finalize()`** is reported on stderr and dropped,
-  rather than written with a missing end time.
+- **Recursion depth** per region is capped at `SP_MAX_DEPTH` (64);
+  deeper nesting is reported on stderr and left untimed rather than
+  corrupting the buffer.
+- **A region still open at `sp_finalize()`** is reported on stderr and
+  dropped, rather than written with a missing end time.
