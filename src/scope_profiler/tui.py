@@ -9,19 +9,18 @@ import re
 import socket
 import subprocess
 import sys
-from urllib.parse import quote
 import webbrowser
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import h5py
 import numpy as np
 
 from scope_profiler.h5reader import read_h5
 from scope_profiler.inspection import _metadata_sections, _time_span
-from scope_profiler.post_processing import parse_ranks
 from scope_profiler.plotting_scripts import (
     available_likwid_metrics,
     plot_duration_histogram,
@@ -32,9 +31,9 @@ from scope_profiler.plotting_scripts import (
     plot_imbalance,
     plot_likwid,
 )
+from scope_profiler.post_processing import parse_ranks
 from scope_profiler.prof_export import export_prof
 from scope_profiler.summary import region_row, region_rows
-
 
 _PLOT_CATALOG = {
     "gantt": "Per-rank timeline of recorded calls",
@@ -348,8 +347,7 @@ def node_detail_text(node: BrowserNode) -> str:
             "Available plots:",
         ]
         lines.extend(
-            f"  {name:<12} {description}"
-            for name, description in _PLOT_CATALOG.items()
+            f"  {name:<12} {description}" for name, description in _PLOT_CATALOG.items()
         )
         if any(child.kind == "plot_likwid" for child in node.children):
             lines.append("  LIKWID       One chart per selected hardware metric")
@@ -700,7 +698,10 @@ def render_plot(
     elif name == "histogram":
         bins = int(settings.get("bins", 30) or 30)
         plot_duration_histogram(
-            results, bins=bins, log_scale=bool(settings.get("log_scale", False)), **common
+            results,
+            bins=bins,
+            log_scale=bool(settings.get("log_scale", False)),
+            **common,
         )
     elif name == "imbalance":
         plot_imbalance(
@@ -742,7 +743,15 @@ def _build_textual_app_class():
         from textual.app import App, ComposeResult
         from textual.containers import Horizontal, Vertical
         from textual.suggester import Suggester
-        from textual.widgets import Button, Checkbox, Footer, Header, Input, Static, Tree
+        from textual.widgets import (
+            Button,
+            Checkbox,
+            Footer,
+            Header,
+            Input,
+            Static,
+            Tree,
+        )
     except ImportError as exc:
         raise RuntimeError(
             "The interactive TUI requires Textual. Install it with "
@@ -860,9 +869,7 @@ def _build_textual_app_class():
             return Text(node_detail_text(node), no_wrap=True)
 
         def compose(self) -> ComposeResult:
-            region_names = [
-                region.name for region in self.model.results.get_regions()
-            ]
+            region_names = [region.name for region in self.model.results.get_regions()]
             region_suggester = self.RegionSuggester(region_names)
             yield Header(show_clock=True)
             with Horizontal(id="body"):
@@ -871,19 +878,63 @@ def _build_textual_app_class():
                     yield Static(self._detail(self.model.root.children[0]), id="detail")
                     with Vertical(id="settings"):
                         yield Static("Plot settings", id="settings-title")
-                        yield Input(placeholder="Include regions (comma-separated)", id="include", classes="setting", suggester=region_suggester)
-                        yield Input(placeholder="Exclude regions (comma-separated)", id="exclude", classes="setting", suggester=region_suggester)
+                        yield Input(
+                            placeholder="Include regions (comma-separated)",
+                            id="include",
+                            classes="setting",
+                            suggester=region_suggester,
+                        )
+                        yield Input(
+                            placeholder="Exclude regions (comma-separated)",
+                            id="exclude",
+                            classes="setting",
+                            suggester=region_suggester,
+                        )
                         yield Static("Selected regions", classes="setting")
-                        yield Static("All regions", id="selected-regions", classes="setting")
-                        yield Input(placeholder="Ranks (e.g. 0,2-4)", id="ranks", classes="setting")
-                        yield Input(value="tab20", placeholder="Colormap", id="cmap", classes="setting")
-                        yield Input(value="total", placeholder="Duration metrics (total,avg,min,max)", id="metrics", classes="setting")
-                        yield Input(placeholder="Sort by (name,avg,min,max,total)", id="sort_by", classes="setting")
-                        yield Input(placeholder="Top N regions", id="top_n", classes="setting")
-                        yield Input(value="30", placeholder="Histogram bins", id="bins", classes="setting")
-                        yield Input(value="total", placeholder="Imbalance metric", id="imbalance_metric", classes="setting")
+                        yield Static(
+                            "All regions", id="selected-regions", classes="setting"
+                        )
+                        yield Input(
+                            placeholder="Ranks (e.g. 0,2-4)",
+                            id="ranks",
+                            classes="setting",
+                        )
+                        yield Input(
+                            value="tab20",
+                            placeholder="Colormap",
+                            id="cmap",
+                            classes="setting",
+                        )
+                        yield Input(
+                            value="total",
+                            placeholder="Duration metrics (total,avg,min,max)",
+                            id="metrics",
+                            classes="setting",
+                        )
+                        yield Input(
+                            placeholder="Sort by (name,avg,min,max,total)",
+                            id="sort_by",
+                            classes="setting",
+                        )
+                        yield Input(
+                            placeholder="Top N regions", id="top_n", classes="setting"
+                        )
+                        yield Input(
+                            value="30",
+                            placeholder="Histogram bins",
+                            id="bins",
+                            classes="setting",
+                        )
+                        yield Input(
+                            value="total",
+                            placeholder="Imbalance metric",
+                            id="imbalance_metric",
+                            classes="setting",
+                        )
                         yield Checkbox("Log scale", id="log_scale")
-                        yield Button("Apply settings", id="apply-settings", variant="primary")
+                        yield Button(
+                            "Apply settings", id="apply-settings", variant="primary"
+                        )
             yield Footer()
 
         def on_mount(self) -> None:
@@ -916,32 +967,51 @@ def _build_textual_app_class():
 
         def _update_plot_settings_visibility(self, node: BrowserNode) -> None:
             panel = self.query_one("#settings", Vertical)
-            panel.styles.display = "block" if node.kind in {"plot", "plot_likwid"} else "none"
+            panel.styles.display = (
+                "block" if node.kind in {"plot", "plot_likwid"} else "none"
+            )
 
         def _read_plot_settings(self) -> None:
             for key in (
-                "include", "exclude", "ranks", "cmap", "metrics", "sort_by",
-                "top_n", "bins", "imbalance_metric",
+                "include",
+                "exclude",
+                "ranks",
+                "cmap",
+                "metrics",
+                "sort_by",
+                "top_n",
+                "bins",
+                "imbalance_metric",
             ):
                 self.plot_settings[key] = self.query_one(f"#{key}", Input).value
-            self.plot_settings["log_scale"] = self.query_one("#log_scale", Checkbox).value
+            self.plot_settings["log_scale"] = self.query_one(
+                "#log_scale", Checkbox
+            ).value
 
         def _update_selected_regions(self) -> None:
             include = self.query_one("#include", Input).value
             exclude = self.query_one("#exclude", Input).value
-            include_patterns = [item.strip() for item in include.split(",") if item.strip()]
-            exclude_patterns = [item.strip() for item in exclude.split(",") if item.strip()]
+            include_patterns = [
+                item.strip() for item in include.split(",") if item.strip()
+            ]
+            exclude_patterns = [
+                item.strip() for item in exclude.split(",") if item.strip()
+            ]
             regions = [region.name for region in self.model.results.get_regions()]
             try:
                 if include_patterns:
                     regions = [
-                        name for name in regions
+                        name
+                        for name in regions
                         if any(re.search(pattern, name) for pattern in include_patterns)
                     ]
                 if exclude_patterns:
                     regions = [
-                        name for name in regions
-                        if not any(re.search(pattern, name) for pattern in exclude_patterns)
+                        name
+                        for name in regions
+                        if not any(
+                            re.search(pattern, name) for pattern in exclude_patterns
+                        )
                     ]
                 text = ", ".join(regions) if regions else "No matching regions"
             except re.error as exc:
@@ -974,7 +1044,9 @@ def _build_textual_app_class():
                 filename = node.payload["plot_name"]
                 if node.payload.get("metric"):
                     filename += "_" + "_".join(
-                        part for part in node.payload["metric"].split() if part.isalnum()
+                        part
+                        for part in node.payload["metric"].split()
+                        if part.isalnum()
                     )
                 filepath = directory / f"{filename}.png"
             try:
@@ -1076,7 +1148,7 @@ def _build_textual_app_class():
                     str(self.model.file_path),
                     node.payload["plot_name"],
                     node.payload.get("metric") or "",
-                        json.dumps(settings),
+                    json.dumps(settings),
                 ],
                 start_new_session=True,
             )

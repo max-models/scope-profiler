@@ -43,7 +43,14 @@ def print_line_profile(file_path, ranks=None, function=None, region=None, stream
                 percent = float(elapsed) / total_time * 100 if total_time else 0.0
                 source = linecache.getline(record["filename"], int(line)).rstrip()
                 table_rows.append(
-                    [int(line), int(hits), f"{seconds:.6g}", f"{per_hit:.6g}", f"{percent:.2f}", source]
+                    [
+                        int(line),
+                        int(hits),
+                        f"{seconds:.6g}",
+                        f"{per_hit:.6g}",
+                        f"{percent:.2f}",
+                        source,
+                    ]
                 )
             for table_line in tabulate(
                 table_rows,

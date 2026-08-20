@@ -44,6 +44,7 @@ def _print_heading(text, stream) -> None:
         text = f"\033[1;36m{text}\033[0m"
     print(text, file=stream)
 
+
 SORT_KEYS = (
     "total",
     "calls",
@@ -321,9 +322,7 @@ def print_region_table(
     }
 
     headers = [header for _, header in selected_columns]
-    table_rows = [
-        [row[key] for key, _ in selected_columns] for row in formatted
-    ]
+    table_rows = [[row[key] for key, _ in selected_columns] for row in formatted]
     table_rows.append([total_row[key] for key, _ in selected_columns])
     _print_table(table_rows, headers, stream, title=title)
     if not suppress_notes:

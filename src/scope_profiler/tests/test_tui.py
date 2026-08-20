@@ -149,7 +149,9 @@ def test_plot_section_exposes_existing_plot_kinds(sample_file):
     assert "Matplotlib" in node_detail_text(plots.children[0])
 
 
-def test_render_plot_dispatches_to_existing_renderer(sample_file, monkeypatch, tmp_path):
+def test_render_plot_dispatches_to_existing_renderer(
+    sample_file, monkeypatch, tmp_path
+):
     model = build_browser_model(sample_file)
     plot = _find(model.root, "Durations")
     calls = []
