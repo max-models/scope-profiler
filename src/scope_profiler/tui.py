@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import linecache
 import re
+import subprocess
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -708,6 +710,24 @@ def render_plot(
     return str(filepath) if filepath else None
 
 
+def _matplotlib_child_script() -> str:
+    """Return the isolated runner used for genuine Matplotlib figures."""
+    return (
+        "import sys\n"
+        "import json\n"
+        "from scope_profiler.tui import build_browser_model, render_plot\n"
+        "file_path, plot_name, metric, settings_json = sys.argv[1:]\n"
+        "model = build_browser_model(file_path)\n"
+        "nodes = list(model.root.children)\n"
+        "while nodes:\n"
+        "    node = nodes.pop(0)\n"
+        "    if node.kind in {'plot', 'plot_likwid'} and node.payload.get('plot_name') == plot_name and node.payload.get('metric') == (metric or None):\n"
+        "        render_plot(node, show=True, settings=json.loads(settings_json))\n"
+        "        break\n"
+        "    nodes.extend(node.children)\n"
+    )
+
+
 def _build_textual_app_class():
     try:
         from rich.text import Text
@@ -917,9 +937,12 @@ def _build_textual_app_class():
                     )
                 filepath = directory / f"{filename}.png"
             try:
-                saved = render_plot(
-                    node, filepath=filepath, show=show, settings=self.plot_settings
-                )
+                if show:
+                    saved = self._show_plot_in_child_process(node)
+                else:
+                    saved = render_plot(
+                        node, filepath=filepath, show=False, settings=self.plot_settings
+                    )
             except (ImportError, RuntimeError, ValueError) as exc:
                 self.notify(str(exc), severity="error", timeout=8)
                 return
@@ -927,6 +950,22 @@ def _build_textual_app_class():
                 self.notify(f"Saved {saved}", timeout=8)
             else:
                 self.notify("Plot opened in Matplotlib.", timeout=5)
+
+        def _show_plot_in_child_process(self, node: BrowserNode) -> None:
+            """Render a real Matplotlib figure outside Textual's event loop."""
+            viewer = _matplotlib_child_script()
+            subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    viewer,
+                    str(self.model.file_path),
+                    node.payload["plot_name"],
+                    node.payload.get("metric") or "",
+                    json.dumps(self.plot_settings),
+                ],
+                start_new_session=True,
+            )
 
         def action_show_plot(self) -> None:
             self._run_selected_plot(show=True)

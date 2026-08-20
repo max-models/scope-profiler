@@ -7,7 +7,12 @@ from scope_profiler.__main__ import main as cli_main
 from scope_profiler.h5writer import ProfilingWriter
 from scope_profiler.profile_manager import RankPayload
 from scope_profiler.tests.test_inspection import _write_sample_h5
-from scope_profiler.tui import build_browser_model, node_detail_text, render_plot
+from scope_profiler.tui import (
+    _matplotlib_child_script,
+    build_browser_model,
+    node_detail_text,
+    render_plot,
+)
 
 NS = 1_000_000_000
 
@@ -191,6 +196,10 @@ def test_render_plot_passes_plot_settings(sample_file, monkeypatch):
     assert captured["sort_by"] == "avg"
     assert captured["top_n"] == 5
     assert captured["log_scale"] is True
+
+
+def test_matplotlib_child_script_is_valid_python():
+    compile(_matplotlib_child_script(), "<matplotlib-child>", "exec")
 
 
 def test_tui_help_does_not_require_textual(capsys):
