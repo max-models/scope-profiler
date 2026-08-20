@@ -11,7 +11,9 @@ from scope_profiler.profile_manager import RankPayload
 NS = 1_000_000_000
 
 
-def payload(regions=None, likwid=None, environment=None, line_profile=None) -> RankPayload:
+def payload(
+    regions=None, likwid=None, environment=None, line_profile=None
+) -> RankPayload:
     """A RankPayload with plain int64 timestamp arrays."""
     return RankPayload(
         regions={
