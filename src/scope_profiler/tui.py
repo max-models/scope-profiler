@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import linecache
+import re
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -15,7 +16,28 @@ import numpy as np
 
 from scope_profiler.h5reader import read_h5
 from scope_profiler.inspection import _metadata_sections, _time_span
+from scope_profiler.post_processing import parse_ranks
+from scope_profiler.plotting_scripts import (
+    available_likwid_metrics,
+    plot_duration_histogram,
+    plot_duration_timeseries,
+    plot_durations,
+    plot_flame,
+    plot_gantt,
+    plot_imbalance,
+    plot_likwid,
+)
 from scope_profiler.summary import region_row, region_rows
+
+
+_PLOT_CATALOG = {
+    "gantt": "Per-rank timeline of recorded calls",
+    "flame": "Reconstructed nested call-stack flame graph",
+    "durations": "Duration statistics by region",
+    "timeseries": "Duration of each call over time",
+    "histogram": "Call-duration distribution by region",
+    "imbalance": "Per-rank duration comparison",
+}
 
 
 @dataclass
@@ -219,12 +241,35 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
     with h5py.File(path, "r") as h5file:
         raw_node = _build_raw_h5_node("/", h5file)
 
+    plot_children = [
+        BrowserNode(
+            name.title(),
+            "plot",
+            {"results": results, "plot_name": name, "description": description},
+        )
+        for name, description in _PLOT_CATALOG.items()
+    ]
+    for metric in available_likwid_metrics(results):
+        plot_children.append(
+            BrowserNode(
+                f"LIKWID: {metric}",
+                "plot_likwid",
+                {
+                    "results": results,
+                    "plot_name": "likwid",
+                    "metric": metric,
+                    "description": f"LIKWID metric/event {metric}",
+                },
+            )
+        )
+
     root = BrowserNode(
         path.name,
         "root",
         {"file_path": path},
         [
             BrowserNode("Overview", "overview", {"results": results}),
+            BrowserNode("Plots", "plots", {"results": results}, plot_children),
             BrowserNode(
                 "Metadata",
                 "metadata",
@@ -293,6 +338,36 @@ def node_detail_text(node: BrowserNode) -> str:
             lines.append(f"Profiled wall clock: {span:.6g} s")
         if results.total_time is not None:
             lines.append(f"Setup to finalize: {results.total_time:.6g} s")
+        return "\n".join(lines)
+
+    if kind == "plots":
+        lines = [
+            "Plots",
+            "",
+            "Select a plot below, then press:",
+            "  g  Show it in Matplotlib",
+            "  s  Save it as a PNG",
+            "Edit the region filters to change the selected regions.",
+            "",
+            "Available plots:",
+        ]
+        lines.extend(
+            f"  {name:<12} {description}"
+            for name, description in _PLOT_CATALOG.items()
+        )
+        if any(child.kind == "plot_likwid" for child in node.children):
+            lines.append("  LIKWID       One chart per selected hardware metric")
+        return "\n".join(lines)
+
+    if kind in {"plot", "plot_likwid"}:
+        lines = [
+            f"Plot: {payload.get('plot_name', 'likwid')}",
+            payload["description"],
+            "",
+            "Press g to show in Matplotlib or s to save as a PNG.",
+        ]
+        if payload.get("metric"):
+            lines.append(f"Metric: {payload['metric']}")
         return "\n".join(lines)
 
     if kind == "metadata":
@@ -544,12 +619,101 @@ def node_detail_text(node: BrowserNode) -> str:
     return node.label
 
 
+def render_plot(
+    node: BrowserNode,
+    *,
+    filepath: str | Path | None = None,
+    show: bool = False,
+    settings: dict[str, Any] | None = None,
+) -> str | None:
+    """Render one TUI plot node through the existing plotting functions."""
+    if node.kind not in {"plot", "plot_likwid"}:
+        raise ValueError("Select an individual plot before rendering.")
+
+    results = node.payload["results"]
+    name = node.payload["plot_name"]
+    settings = settings or {}
+
+    def patterns(key: str) -> list[str] | None:
+        value = settings.get(key, "")
+        values = [item.strip() for item in str(value).split(",") if item.strip()]
+        return values or None
+
+    ranks = None
+    if settings.get("ranks", "").strip():
+        ranks = []
+        for spec in str(settings["ranks"]).split(","):
+            ranks.extend(parse_ranks(spec.strip()))
+        ranks = sorted(set(ranks))
+
+    cmap = settings.get("cmap", "tab20") or "tab20"
+    common = {
+        "filepath": str(filepath) if filepath else None,
+        "show": show,
+        "verbose": False,
+        "backend": "matplotlib",
+        "include": patterns("include"),
+        "exclude": patterns("exclude"),
+        "ranks": ranks,
+        "cmap": cmap,
+    }
+    functions = {
+        "gantt": plot_gantt,
+        "flame": plot_flame,
+        "durations": plot_durations,
+        "timeseries": plot_duration_timeseries,
+        "histogram": plot_duration_histogram,
+        "imbalance": plot_imbalance,
+    }
+    if name == "likwid":
+        plot_likwid(
+            results,
+            metric=node.payload["metric"],
+            log_scale=bool(settings.get("log_scale", False)),
+            **common,
+        )
+    elif name == "durations":
+        metrics = [
+            item.strip()
+            for item in str(settings.get("metrics", "total")).split(",")
+            if item.strip()
+        ] or ["total"]
+        top_n = settings.get("top_n", "").strip()
+        plot_durations(
+            results,
+            metrics=metrics,
+            sort_by=settings.get("sort_by") or None,
+            top_n=int(top_n) if top_n else None,
+            log_scale=bool(settings.get("log_scale", False)),
+            **common,
+        )
+    elif name == "histogram":
+        bins = int(settings.get("bins", 30) or 30)
+        plot_duration_histogram(
+            results, bins=bins, log_scale=bool(settings.get("log_scale", False)), **common
+        )
+    elif name == "imbalance":
+        plot_imbalance(
+            results,
+            metric=settings.get("imbalance_metric", "total") or "total",
+            log_scale=bool(settings.get("log_scale", False)),
+            **common,
+        )
+    elif name == "timeseries":
+        plot_duration_timeseries(
+            results, log_scale=bool(settings.get("log_scale", False)), **common
+        )
+    else:
+        functions[name](results, **common)
+    return str(filepath) if filepath else None
+
+
 def _build_textual_app_class():
     try:
         from rich.text import Text
         from textual.app import App, ComposeResult
-        from textual.containers import Horizontal
-        from textual.widgets import Footer, Header, Static, Tree
+        from textual.containers import Horizontal, Vertical
+        from textual.widgets import Button, Checkbox, Footer, Header, Input, Static, Tree
     except ImportError as exc:
         raise RuntimeError(
             "The interactive TUI requires Textual. Install it with "
@@ -577,19 +741,64 @@ def _build_textual_app_class():
         }
 
         #detail {
-            width: 1fr;
+            height: 1fr;
             border: solid $accent;
             padding: 1 2;
             overflow-x: auto;
             overflow-y: auto;
             text-wrap: nowrap;
         }
-        """
-        BINDINGS = [("q", "quit", "Quit")]
 
-        def __init__(self, model: BrowserModel):
+        #right {
+            width: 1fr;
+        }
+
+        #settings {
+            height: auto;
+            max-height: 22;
+            border: solid $accent;
+            padding: 0 1;
+            display: none;
+        }
+
+        #selected-regions {
+            height: 5;
+            border: solid $secondary;
+            padding: 0 1;
+            overflow-y: auto;
+        }
+
+        #settings-title {
+            height: 1;
+        }
+
+        .setting {
+            width: 1fr;
+        }
+        """
+        BINDINGS = [
+            ("q", "quit", "Quit"),
+            ("g", "show_plot", "Show plot"),
+            ("s", "save_plot", "Save plot"),
+        ]
+
+        def __init__(self, model: BrowserModel, output_dir: str | Path | None = None):
             super().__init__()
             self.model = model
+            self.output_dir = Path(output_dir) if output_dir else None
+            self.selected_browser_node: BrowserNode | None = None
+            self.plot_settings = {
+                "include": "",
+                "exclude": "",
+                "ranks": "",
+                "cmap": "tab20",
+                "log_scale": False,
+                "metrics": "total",
+                "sort_by": "",
+                "top_n": "",
+                "bins": "30",
+                "imbalance_metric": "total",
+            }
 
         def _detail(self, node: BrowserNode):
             return Text(node_detail_text(node), no_wrap=True)
@@ -598,7 +807,23 @@ def _build_textual_app_class():
             yield Header(show_clock=True)
             with Horizontal(id="body"):
                 yield Tree(self.model.root.label, id="nav")
-                yield Static(self._detail(self.model.root.children[0]), id="detail")
+                with Vertical(id="right"):
+                    yield Static(self._detail(self.model.root.children[0]), id="detail")
+                    with Vertical(id="settings"):
+                        yield Static("Plot settings", id="settings-title")
+                        yield Input(placeholder="Include regions (comma-separated)", id="include", classes="setting")
+                        yield Input(placeholder="Exclude regions (comma-separated)", id="exclude", classes="setting")
+                        yield Static("Selected regions", classes="setting")
+                        yield Static("All regions", id="selected-regions", classes="setting")
+                        yield Input(placeholder="Ranks (e.g. 0,2-4)", id="ranks", classes="setting")
+                        yield Input(value="tab20", placeholder="Colormap", id="cmap", classes="setting")
+                        yield Input(value="total", placeholder="Duration metrics (total,avg,min,max)", id="metrics", classes="setting")
+                        yield Input(placeholder="Sort by (name,avg,min,max,total)", id="sort_by", classes="setting")
+                        yield Input(placeholder="Top N regions", id="top_n", classes="setting")
+                        yield Input(value="30", placeholder="Histogram bins", id="bins", classes="setting")
+                        yield Input(value="total", placeholder="Imbalance metric", id="imbalance_metric", classes="setting")
+                        yield Checkbox("Log scale", id="log_scale")
+                        yield Button("Apply settings", id="apply-settings", variant="primary")
             yield Footer()
 
         def on_mount(self) -> None:
@@ -612,7 +837,9 @@ def _build_textual_app_class():
                     tree.select_node(first)
                 else:
                     tree.move_cursor(first)
+                self.selected_browser_node = first.data
                 self.query_one("#detail", Static).update(self._detail(first.data))
+                self._update_selected_regions()
 
         def _populate_tree(self, tree_node, browser_nodes) -> None:
             for browser_node in browser_nodes:
@@ -623,7 +850,89 @@ def _build_textual_app_class():
         def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
             node = event.node.data
             if isinstance(node, BrowserNode):
+                self.selected_browser_node = node
                 self.query_one("#detail", Static).update(self._detail(node))
+                self._update_plot_settings_visibility(node)
+
+        def _update_plot_settings_visibility(self, node: BrowserNode) -> None:
+            panel = self.query_one("#settings", Vertical)
+            panel.styles.display = "block" if node.kind in {"plot", "plot_likwid"} else "none"
+
+        def _read_plot_settings(self) -> None:
+            for key in (
+                "include", "exclude", "ranks", "cmap", "metrics", "sort_by",
+                "top_n", "bins", "imbalance_metric",
+            ):
+                self.plot_settings[key] = self.query_one(f"#{key}", Input).value
+            self.plot_settings["log_scale"] = self.query_one("#log_scale", Checkbox).value
+
+        def _update_selected_regions(self) -> None:
+            include = self.query_one("#include", Input).value
+            exclude = self.query_one("#exclude", Input).value
+            include_patterns = [item.strip() for item in include.split(",") if item.strip()]
+            exclude_patterns = [item.strip() for item in exclude.split(",") if item.strip()]
+            regions = [region.name for region in self.model.results.get_regions()]
+            try:
+                if include_patterns:
+                    regions = [
+                        name for name in regions
+                        if any(re.search(pattern, name) for pattern in include_patterns)
+                    ]
+                if exclude_patterns:
+                    regions = [
+                        name for name in regions
+                        if not any(re.search(pattern, name) for pattern in exclude_patterns)
+                    ]
+                text = ", ".join(regions) if regions else "No matching regions"
+            except re.error as exc:
+                text = f"Invalid filter: {exc}"
+            self.query_one("#selected-regions", Static).update(text)
+
+        def on_input_changed(self, event: Input.Changed) -> None:
+            if event.input.id in {"include", "exclude"}:
+                self._update_selected_regions()
+
+        def on_button_pressed(self, event: Button.Pressed) -> None:
+            if event.button.id == "apply-settings":
+                self._read_plot_settings()
+                self.notify("Plot settings applied.", timeout=3)
+
+        def _run_selected_plot(self, show: bool) -> None:
+            self._read_plot_settings()
+            node = self.selected_browser_node
+            if node is None or node.kind not in {"plot", "plot_likwid"}:
+                self.notify("Select an individual plot first.", severity="warning")
+                return
+
+            filepath = None
+            if not show:
+                directory = self.output_dir or (
+                    self.model.file_path.parent / f"{self.model.file_path.stem}_plots"
+                )
+                directory.mkdir(parents=True, exist_ok=True)
+                filename = node.payload["plot_name"]
+                if node.payload.get("metric"):
+                    filename += "_" + "_".join(
+                        part for part in node.payload["metric"].split() if part.isalnum()
+                    )
+                filepath = directory / f"{filename}.png"
+            try:
+                saved = render_plot(
+                    node, filepath=filepath, show=show, settings=self.plot_settings
+                )
+            except (ImportError, RuntimeError, ValueError) as exc:
+                self.notify(str(exc), severity="error", timeout=8)
+                return
+            if saved:
+                self.notify(f"Saved {saved}", timeout=8)
+            else:
+                self.notify("Plot opened in Matplotlib.", timeout=5)
+
+        def action_show_plot(self) -> None:
+            self._run_selected_plot(show=True)
+
+        def action_save_plot(self) -> None:
+            self._run_selected_plot(show=False)
 
     return H5BrowserApp
 
@@ -634,6 +943,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Interactively browse a scope-profiler HDF5 output file.",
     )
     parser.add_argument("file", help="Path to a profiling_data.h5 file")
+    parser.add_argument(
+        "--plot-output",
+        help="Directory for plots saved from the TUI "
+        "(default: <file stem>_plots next to the input file)",
+    )
     return parser
 
 
@@ -646,5 +960,5 @@ def main(argv: list[str] | None = None):
         print(str(exc), file=sys.stderr)
         raise SystemExit(1) from exc
     model = build_browser_model(args.file)
-    app_cls(model).run()
+    app_cls(model, output_dir=args.plot_output).run()
     return 0
