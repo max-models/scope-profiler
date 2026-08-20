@@ -276,19 +276,23 @@ class ProfileManager:
         # every lookup of an existing region would construct (and discard) a
         # full region object, including its preallocated timing buffers. This
         # runs per call event under recursive profiling.
-        normalized_tags = None if tags is None else tuple(tags)
         region = cls._regions.get(region_name)
         if region is None:
+            # Keep the overwhelmingly common untagged lookup on the original
+            # hot path: tags are metadata, not per-event work.
+            normalized_tags = () if tags is None else tuple(tags)
             region = cls._region_cls(
                 region_name, config=cls.get_config(), tags=normalized_tags or ()
             )
             cls._regions[region_name] = region
             cls._capture_region_source(region)
-        elif normalized_tags is not None and region.tags != normalized_tags:
-            raise ValueError(
-                f"region {region_name!r} already has tags {region.tags!r}; "
-                f"cannot reuse it with {normalized_tags!r}"
-            )
+        elif tags is not None:
+            normalized_tags = tuple(tags)
+            if region.tags != normalized_tags:
+                raise ValueError(
+                    f"region {region_name!r} already has tags {region.tags!r}; "
+                    f"cannot reuse it with {normalized_tags!r}"
+                )
         if functions is not None:
             for func in functions:
                 region.add_function(func)
