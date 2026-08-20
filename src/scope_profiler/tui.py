@@ -295,32 +295,14 @@ def _duration(value) -> str:
 
 def _line_table(headers, rows) -> str:
     rows = list(rows)
-    try:
-        from tabulate import tabulate
-    except ImportError:
-        tabulate = None
+    from tabulate import tabulate
 
-    if tabulate is not None:
-        return tabulate(
-            rows,
-            headers=headers,
-            tablefmt="plain",
-            disable_numparse=True,
-        )
-
-    text_rows = [[str(cell) for cell in row] for row in rows]
-    widths = [
-        max([len(header), *(len(row[index]) for row in text_rows)])
-        for index, header in enumerate(headers)
-    ]
-    lines = [
-        "  ".join(header.ljust(widths[index]) for index, header in enumerate(headers))
-    ]
-    lines.extend(
-        "  ".join(cell.ljust(widths[index]) for index, cell in enumerate(row))
-        for row in text_rows
+    return tabulate(
+        rows,
+        headers=headers,
+        tablefmt="plain",
+        disable_numparse=True,
     )
-    return "\n".join(lines)
 
 
 def node_detail_text(node: BrowserNode) -> str:
@@ -805,8 +787,8 @@ def _build_textual_app_class():
         }
 
         #settings {
-            height: auto;
-            max-height: 22;
+            height: 75%;
+            max-height: 75%;
             border: solid $accent;
             padding: 0 1;
             display: none;
