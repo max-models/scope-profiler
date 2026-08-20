@@ -276,9 +276,7 @@ class MPIRegion:
     @property
     def total_exclusive_duration(self) -> float:
         """Total time excluding nested regions, across ranks, in seconds."""
-        return sum(
-            region.total_exclusive_duration for region in self._regions.values()
-        )
+        return sum(region.total_exclusive_duration for region in self._regions.values())
 
     @property
     def exclusive_duration(self) -> float:
