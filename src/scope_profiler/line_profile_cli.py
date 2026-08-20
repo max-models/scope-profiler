@@ -54,10 +54,18 @@ def main(argv=None):
     )
     parser.add_argument("file", help="HDF5 profiling file")
     parser.add_argument(
-        "--rank", type=int, action="append", dest="ranks", help="rank to show (repeatable)"
+        "--rank",
+        type=int,
+        action="append",
+        dest="ranks",
+        help="rank to show (repeatable)",
     )
-    parser.add_argument("--function", help="regular expression selecting function names")
+    parser.add_argument(
+        "--function", help="regular expression selecting function names"
+    )
     parser.add_argument("--region", help="regular expression selecting region names")
     args = parser.parse_args(argv)
-    print_line_profile(args.file, ranks=args.ranks, function=args.function, region=args.region)
+    print_line_profile(
+        args.file, ranks=args.ranks, function=args.function, region=args.region
+    )
     return 0
