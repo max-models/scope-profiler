@@ -103,6 +103,8 @@ class MPIRegion:
             "num_ranks": len(self._regions),
             "num_calls": self.num_calls,
             "total_duration": self.total_duration,
+            "inclusive_duration": self.inclusive_duration,
+            "exclusive_duration": self.exclusive_duration,
             "average_duration": self.average_duration,
             "min_duration": self.min_duration,
             "max_duration": self.max_duration,
@@ -165,6 +167,23 @@ class MPIRegion:
         """
         values = [
             region.durations for region in self._regions.values() if region.has_timing
+        ]
+        if not values:
+            return np.array([], dtype=float)
+        return np.concatenate(values)
+
+    @property
+    def inclusive_durations(self) -> np.ndarray:
+        """Inclusive durations pooled across ranks, in seconds."""
+        return self.durations
+
+    @property
+    def exclusive_durations(self) -> np.ndarray:
+        """Exclusive durations pooled across ranks, in seconds."""
+        values = [
+            region.exclusive_durations
+            for region in self._regions.values()
+            if region.has_timing
         ]
         if not values:
             return np.array([], dtype=float)
@@ -248,6 +267,21 @@ class MPIRegion:
             Total duration in seconds.
         """
         return sum(region.total_duration for region in self._regions.values())
+
+    @property
+    def inclusive_duration(self) -> float:
+        """Total inclusive time across ranks, in seconds."""
+        return self.total_duration
+
+    @property
+    def total_exclusive_duration(self) -> float:
+        """Total time excluding nested regions, across ranks, in seconds."""
+        return sum(region.total_exclusive_duration for region in self._regions.values())
+
+    @property
+    def exclusive_duration(self) -> float:
+        """Alias for :attr:`total_exclusive_duration`."""
+        return self.total_exclusive_duration
 
     @property
     def average_duration(self) -> float:

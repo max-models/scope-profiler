@@ -92,6 +92,8 @@ def test_region_without_any_calls_is_safe():
     assert region.get_summary() == {
         "num_calls": 0,
         "total_duration": 0.0,
+        "inclusive_duration": 0.0,
+        "exclusive_duration": 0.0,
         "average_duration": 0.0,
         "min_duration": 0.0,
         "max_duration": 0.0,
@@ -523,6 +525,34 @@ def test_reader_call_stack(tmp_path):
 
     # A filtered stack renests around what is left.
     assert [call["depth"] for call in results.call_stack(exclude="inner")] == [0, 1]
+
+
+def test_nested_regions_expose_inclusive_and_exclusive_time(tmp_path):
+    path = tmp_path / "nested_durations.h5"
+    _write_sample_h5(
+        path,
+        {
+            0: {
+                "outer": ([0], [100]),
+                "first": ([10], [30]),
+                "second": ([50], [80]),
+            }
+        },
+    )
+
+    results = read_h5(path)
+
+    assert results["outer"].inclusive_duration == pytest.approx(100e-9)
+    assert results["outer"].exclusive_duration == pytest.approx(50e-9)
+    assert results["first"].inclusive_duration == pytest.approx(20e-9)
+    assert results["first"].exclusive_duration == pytest.approx(20e-9)
+    assert results.summary(include="outer")[0]["exclusive_duration"] == pytest.approx(
+        50e-9
+    )
+
+    outer_call = results.call_stack()[0]
+    assert outer_call["inclusive_duration"] == pytest.approx(100e-9)
+    assert outer_call["exclusive_duration"] == pytest.approx(50e-9)
 
 
 def test_top_level_exports_and_lazy_plotting():

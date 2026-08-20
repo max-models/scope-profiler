@@ -29,7 +29,8 @@ def build_call_stack(regions: Iterable, rank: int, origin: float = 0.0) -> List[
     -------
     list of dict
         One dict per call, ordered by start time (parents before children),
-        with keys ``name``, ``start``, ``end``, ``duration`` (seconds),
+        with keys ``name``, ``start``, ``end``, ``duration`` (the inclusive
+        duration), ``inclusive_duration``, ``exclusive_duration`` (seconds),
         ``depth`` (0 for a top-level call) and ``parent`` (the index of the
         enclosing call in this same list, or None). A ``color`` key carries
         whatever the plotting code assigned to the region.
@@ -45,12 +46,15 @@ def build_call_stack(regions: Iterable, rank: int, origin: float = 0.0) -> List[
         if rank not in region.regions:
             continue
         region_data = region.regions[rank]
-        for start, end in zip(region_data.start_times, region_data.end_times):
+        for call_index, (start, end) in enumerate(
+            zip(region_data.start_times, region_data.end_times)
+        ):
             start = float(start) - origin
             end = float(end) - origin
             calls.append(
                 {
                     "name": region.name,
+                    "call_index": call_index,
                     "start": start,
                     "end": end,
                     "duration": end - start,
@@ -67,6 +71,35 @@ def build_call_stack(regions: Iterable, rank: int, origin: float = 0.0) -> List[
         call["depth"] = len(open_stack)
         call["parent"] = open_stack[-1] if open_stack else None
         open_stack.append(index)
+
+    children = call_stack_children(calls)
+    for index, call in enumerate(calls):
+        # Direct children cover all their descendants. Unioning their clipped
+        # intervals avoids subtracting sequential or overlapping children
+        # twice.
+        covered = sorted(
+            (
+                max(call["start"], calls[child]["start"]),
+                min(call["end"], calls[child]["end"]),
+            )
+            for child in children[index]
+        )
+        covered_time = 0.0
+        covered_end = None
+        for start, end in covered:
+            if end <= start:
+                continue
+            if covered_end is None:
+                covered_end = end
+                covered_time += end - start
+            elif start > covered_end:
+                covered_time += end - start
+                covered_end = end
+            elif end > covered_end:
+                covered_time += end - covered_end
+                covered_end = end
+        call["inclusive_duration"] = call["duration"]
+        call["exclusive_duration"] = max(0.0, call["duration"] - covered_time)
 
     return calls
 

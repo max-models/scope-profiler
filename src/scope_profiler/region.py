@@ -41,6 +41,9 @@ class Region:
         self._start_times = start_times
         self._end_times = end_times
         self._durations = end_times - start_times
+        # A Region does not know about other regions, so until it is attached
+        # to ProfilingResults exclusive time defaults to inclusive time.
+        self._exclusive_durations = self._durations.copy()
         self._num_calls = len(self._durations)
         self._source_file = source_file
         self._source_lineno = source_lineno
@@ -61,6 +64,8 @@ class Region:
         return {
             "num_calls": self.num_calls,
             "total_duration": self.total_duration,
+            "inclusive_duration": self.inclusive_duration,
+            "exclusive_duration": self.exclusive_duration,
             "average_duration": self.average_duration,
             "min_duration": self.min_duration,
             "max_duration": self.max_duration,
@@ -68,6 +73,12 @@ class Region:
             "last_duration": self.last_duration,
             "std_duration": self.std_duration,
         }
+
+    def _set_exclusive_durations(self, durations: np.ndarray) -> None:
+        """Set exclusive durations after nesting has been reconstructed."""
+        if len(durations) != self.num_calls:
+            raise ValueError("exclusive durations must match the call count")
+        self._exclusive_durations = np.asarray(durations, dtype=self._durations.dtype)
 
     def events(self, origin: float = 0.0) -> List[Dict[str, Any]]:
         """
@@ -148,6 +159,16 @@ class Region:
         return self._durations
 
     @property
+    def inclusive_durations_ns(self) -> np.ndarray:
+        """Inclusive duration of every call in nanoseconds."""
+        return self._durations
+
+    @property
+    def exclusive_durations_ns(self) -> np.ndarray:
+        """Exclusive duration of every call in nanoseconds."""
+        return self._exclusive_durations
+
+    @property
     def start_times(self) -> np.ndarray:
         """Start times of all calls in seconds."""
         return self._start_times / NS_PER_SECOND
@@ -177,6 +198,16 @@ class Region:
         return self._durations / NS_PER_SECOND
 
     @property
+    def inclusive_durations(self) -> np.ndarray:
+        """Inclusive duration of every call in seconds."""
+        return self.durations
+
+    @property
+    def exclusive_durations(self) -> np.ndarray:
+        """Exclusive duration of every call in seconds."""
+        return self._exclusive_durations / NS_PER_SECOND
+
+    @property
     def num_calls(self) -> int:
         """Number of recorded calls."""
         return self._num_calls
@@ -187,6 +218,25 @@ class Region:
         return (
             float(np.sum(self._durations)) / NS_PER_SECOND if self.has_timing else 0.0
         )
+
+    @property
+    def inclusive_duration(self) -> float:
+        """Total inclusive time, including nested regions, in seconds."""
+        return self.total_duration
+
+    @property
+    def total_exclusive_duration(self) -> float:
+        """Total time excluding nested regions, in seconds."""
+        return (
+            float(np.sum(self._exclusive_durations)) / NS_PER_SECOND
+            if self.has_timing
+            else 0.0
+        )
+
+    @property
+    def exclusive_duration(self) -> float:
+        """Alias for :attr:`total_exclusive_duration`."""
+        return self.total_exclusive_duration
 
     @property
     def average_duration(self) -> float:
