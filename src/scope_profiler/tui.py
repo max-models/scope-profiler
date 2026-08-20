@@ -293,14 +293,14 @@ def _duration(value) -> str:
     return "-" if value is None else f"{value:.6g} s"
 
 
-def _line_table(headers, rows) -> str:
+def _line_table(headers, rows, *, compact: bool = False) -> str:
     rows = list(rows)
     from tabulate import tabulate
 
     return tabulate(
         rows,
         headers=headers,
-        tablefmt="rounded_outline",
+        tablefmt="plain" if compact else "rounded_outline",
         disable_numparse=True,
     )
 
@@ -315,18 +315,26 @@ def node_detail_text(node: BrowserNode) -> str:
         path = Path(results.file_path)
         size_mb = path.stat().st_size / 1024**2
         span = _time_span(results)
-        lines = [
-            f"File: {path}",
-            f"Label: {results.label or '-'}",
-            f"Ranks: {results.num_ranks}",
-            f"Regions: {len(results.get_regions())}",
-            f"Size: {size_mb:.2f} MiB",
-        ]
-        if span is not None:
-            lines.append(f"Profiled wall clock: {span:.6g} s")
-        if results.total_time is not None:
-            lines.append(f"Setup to finalize: {results.total_time:.6g} s")
-        return "\n".join(lines)
+        return _line_table(
+            ("Metric", "Value"),
+            (
+                ("File", path),
+                ("Label", results.label or "-"),
+                ("Ranks", results.num_ranks),
+                ("Regions", len(results.get_regions())),
+                ("Size", f"{size_mb:.2f} MiB"),
+                *(
+                    [("Profiled wall clock", f"{span:.6g} s")]
+                    if span is not None
+                    else []
+                ),
+                *(
+                    [("Setup to finalize", f"{results.total_time:.6g} s")]
+                    if results.total_time is not None
+                    else []
+                ),
+            ),
+        )
 
     if kind == "plots":
         lines = [
@@ -378,7 +386,7 @@ def node_detail_text(node: BrowserNode) -> str:
         if not rows:
             return "No regions recorded."
         return _line_table(
-            ("Region", "Ranks", "Calls", "Total", "Avg", "P95", "Imbalance"),
+            ("Region", "Ranks", "Calls", "Total", "Avg", "Imbalance"),
             (
                 (
                     row["name"],
@@ -386,7 +394,6 @@ def node_detail_text(node: BrowserNode) -> str:
                     row["calls"],
                     _duration(row["total"]),
                     _duration(row["avg"]),
-                    _duration(row["p95"]),
                     "-" if row["imbalance"] is None else f"{row['imbalance']:.6g}%",
                 )
                 for row in rows
@@ -401,7 +408,7 @@ def node_detail_text(node: BrowserNode) -> str:
         for rank, records in sorted(line_profile.items()):
             total = sum(_line_profile_total_seconds(record) for record in records)
             rows.append((rank, len(records), f"{total:.6g} s"))
-        return _line_table(("Rank", "Records", "Total"), rows)
+        return _line_table(("Rank", "Records", "Total"), rows, compact=True)
 
     if kind == "line_profile_rank":
         records = payload["records"]
@@ -417,7 +424,7 @@ def node_detail_text(node: BrowserNode) -> str:
             )
             rows.append((region, len(region_records), f"{total:.6g} s"))
         return f"Line profile rank {payload['rank']}\n\n" + _line_table(
-            ("Region", "Functions", "Total"), rows
+            ("Region", "Functions", "Total"), rows, compact=True
         )
 
     if kind == "line_profile_region":
@@ -438,7 +445,11 @@ def node_detail_text(node: BrowserNode) -> str:
         return (
             title
             + "\n\n"
-            + _line_table(("Rank", "Function", "Location", "Lines", "Total"), rows)
+            + _line_table(
+                ("Rank", "Function", "Location", "Lines", "Total"),
+                rows,
+                compact=True,
+            )
         )
 
     if kind == "line_profile_record":
@@ -475,30 +486,39 @@ def node_detail_text(node: BrowserNode) -> str:
             header
             + "\n\n"
             + _line_table(
-                ("Line", "Hits", "Time [s]", "Per hit [s]", "%", "Source"), rows
+                ("Line", "Hits", "Time [s]", "Per hit [s]", "%", "Source"),
+                rows,
+                compact=True,
             )
         )
 
     if kind in {"region", "region_summary"}:
         region = payload["region"]
         row = payload.get("row") or region_row(region)
-        lines = [
-            f"Region: {region.name}",
-            f"Ranks: {row['num_ranks']}",
-            f"Calls: {row['calls']}",
-            f"Total: {_duration(row['total'])}",
-            f"Average: {_duration(row['avg'])}",
-            f"Min / max: {_duration(row['min'])} / {_duration(row['max'])}",
-            "P50 / P95 / P99: "
-            f"{_duration(row['p50'])} / {_duration(row['p95'])} / "
-            f"{_duration(row['p99'])}",
-            f"Rank imbalance: {row['imbalance']:.6g}%",
+        summary_rows = [
+            ("Region", region.name),
+            ("Ranks", row["num_ranks"]),
+            ("Calls", row["calls"]),
+            ("Total", _duration(row["total"])),
+            ("Average", _duration(row["avg"])),
+            ("Min / max", f"{_duration(row['min'])} / {_duration(row['max'])}"),
+            (
+                "P50 / P95 / P99",
+                f"{_duration(row['p50'])} / {_duration(row['p95'])} / "
+                f"{_duration(row['p99'])}",
+            ),
+            (
+                "Rank imbalance",
+                "-" if row["imbalance"] is None else f"{row['imbalance']:.6g}%",
+            ),
         ]
         if region.tags:
-            lines.append(f"Tags: {', '.join(region.tags)}")
+            summary_rows.append(("Tags", ", ".join(region.tags)))
         if region.has_source:
-            lines.append(f"Source: {region.source_file}:{region.source_lineno}")
-        return "\n".join(lines)
+            summary_rows.append(
+                ("Source", f"{region.source_file}:{region.source_lineno}")
+            )
+        return _line_table(("Metric", "Value"), summary_rows)
 
     if kind == "rank_region":
         region = payload["region"]
