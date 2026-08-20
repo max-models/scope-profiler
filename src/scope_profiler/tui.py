@@ -259,7 +259,7 @@ def _line_table(headers, rows) -> str:
 
     text_rows = [[str(cell) for cell in row] for row in rows]
     widths = [
-        max(len(header), *(len(row[index]) for row in text_rows))
+        max([len(header), *(len(row[index]) for row in text_rows)])
         for index, header in enumerate(headers)
     ]
     lines = [
@@ -404,6 +404,8 @@ def node_detail_text(node: BrowserNode) -> str:
             f"{record['filename']}:{record['first_lineno']}\n"
             f"Total: {_line_profile_total_seconds(record):.6g} s"
         )
+        if not rows:
+            return header + "\n\nNo per-line timings recorded for this function."
         return header + "\n\n" + _line_table(
             ("Line", "Hits", "Time [s]", "Per hit [s]", "%", "Source"), rows
         )

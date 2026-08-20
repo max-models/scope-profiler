@@ -68,6 +68,12 @@ def _parse_run_args(argv):
         "(default: only the script's own code)",
     )
     parser.add_argument(
+        "--line-profile",
+        action="store_true",
+        help="Also collect line-by-line timings via line_profiler "
+        "(requires scope-profiler[line-profiler])",
+    )
+    parser.add_argument(
         "--buffer-limit",
         type=int,
         default=1024,
@@ -96,7 +102,7 @@ def _run(argv):
     ProfileManager.setup(
         recursive_profile=True,
         use_likwid=False,
-        use_line_profiler=False,
+        use_line_profiler=args.line_profile,
         buffer_limit=args.buffer_limit,
         file_path=args.outfile,
     )
