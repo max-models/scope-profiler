@@ -138,6 +138,7 @@ def _function_for_frame(frame):
                 return value
 
     if code.co_freevars:
+
         def make_cell(value):
             return (lambda: value).__closure__[0]
 
@@ -147,9 +148,7 @@ def _function_for_frame(frame):
     else:
         closure = None
     try:
-        return types.FunctionType(
-            code, frame.f_globals, code.co_name, closure=closure
-        )
+        return types.FunctionType(code, frame.f_globals, code.co_name, closure=closure)
     except (TypeError, ValueError):
         return None
 
