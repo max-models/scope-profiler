@@ -17,7 +17,7 @@ python examples/benchmark_overhead.py          # save figure
 python examples/benchmark_overhead.py --show   # display interactively
 ```
 
-`luivvhb /_static/figures/benchmark_overhead.png :alt: Profiling overhead by region type :width: 100%`
+`xauqcip /_static/figures/benchmark_overhead.png :alt: Profiling overhead by region type :width: 100%`
 
 ## Results summary
 
