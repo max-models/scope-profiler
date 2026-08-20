@@ -452,6 +452,7 @@ class ProfilingResults:
         title: str | None = None,
         stream=None,
         suppress_notes: bool = False,
+        columns: list[str] | str | None = None,
     ) -> None:
         """
         Print a region summary table, aggregated over ranks.
@@ -473,6 +474,10 @@ class ProfilingResults:
             Heading above the table (default: the file path and rank count).
         stream : file-like, optional
             Where to write (default: stdout).
+        columns : list of str or str, optional
+            Region summary columns to print. Defaults to ``region``,
+            ``ranks``, ``calls``, ``total`` and ``avg``. Use ``region`` for
+            the region-name column.
 
         Notes
         -----
@@ -495,6 +500,7 @@ class ProfilingResults:
             stream=stream,
             suppress_notes=suppress_notes,
             total_time=self.total_time,
+            columns=columns,
         )
 
     def default_title(self) -> str:

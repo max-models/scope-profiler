@@ -178,11 +178,31 @@ def test_reader_print_summary(sample_file, capsys):
     read_h5(sample_file).print_summary()
 
     out = capsys.readouterr().out
-    assert "region" in out and "total [s]" in out
+    header = next(line for line in out.splitlines() if "region" in line)
+    assert "region" in header and "total [s]" in header and "avg [s]" in header
+    assert "min [s]" not in header and "std [s]" not in header
     assert "setup" in out and "solve" in out
     # sample_file carries no start_time_ns/finalize_time_ns, so total_time is
     # undefined and print_summary must not claim a number for it.
     assert "Total time" not in out
+
+
+def test_reader_print_summary_accepts_columns(sample_file, capsys):
+    read_h5(sample_file).print_summary(
+        columns=["region", "ranks", "calls", "total", "avg"]
+    )
+
+    out = capsys.readouterr().out
+    header = next(line for line in out.splitlines() if "region" in line)
+
+    assert "region" in header
+    assert "ranks" in header
+    assert "calls" in header
+    assert "total [s]" in header
+    assert "avg [s]" in header
+    assert "min [s]" not in header
+    assert "imbalance [%]" not in header
+    assert "setup" in out and "solve" in out and "TOTAL" in out
 
 
 def test_reader_print_summary_shows_total_time_when_available(tmp_path, capsys):

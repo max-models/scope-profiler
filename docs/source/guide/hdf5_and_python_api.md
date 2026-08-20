@@ -153,6 +153,7 @@ wrote, so a run can analyse itself without repeating the path:
 ProfileManager.finalize()
 results = ProfileManager.read_results()
 results.print_summary()
+results.print_summary(columns=["region", "ranks", "calls", "total", "avg"])
 ```
 
 Under MPI only rank 0 writes the merged file, so guard the call accordingly.

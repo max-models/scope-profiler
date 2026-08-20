@@ -86,6 +86,6 @@ See {doc}`guide/likwid`.
 ...     pass
 >>> ProfileManager.finalize()
 profiling_data.h5  (1 rank(s))
-  region  ranks  calls  total [s]  avg [s]  min [s]  max [s]  std [s]
+  region  ranks  calls  total [s]  avg [s]
   ...
 ```

@@ -18,6 +18,7 @@ import numpy as np
 from scope_profiler.h5reader import read_h5
 from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import (
+    REGION_TABLE_COLUMNS,
     SORT_KEYS,
     print_likwid_tables,
     print_region_table,
@@ -171,6 +172,7 @@ def inspect_file(
     show_regions: bool = True,
     full: bool = False,
     source: list | None = None,
+    columns=None,
     stream=None,
 ) -> None:
     """Print a summary of one profiling HDF5 file.
@@ -195,6 +197,9 @@ def inspect_file(
         block or decorated function that defines each region -- see
         ``ProfileManager.profile_region`` and issue #161). Printed after the
         region table, regardless of ``include``/``exclude``.
+    columns : list of str or str, optional
+        Region summary columns to print. Defaults to ``region``, ``ranks``,
+        ``calls``, ``total`` and ``avg``.
     stream : file-like, optional
         Where to write (default: stdout).
     """
@@ -233,6 +238,7 @@ def inspect_file(
             title=f"Regions ({len(rows)})",
             stream=stream,
             total_time=results.total_time,
+            columns=columns,
         )
         print_likwid_tables(
             results, include=include, exclude=exclude, ranks=ranks, stream=stream
@@ -358,6 +364,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Order regions by this column (default: total)",
     )
     parser.add_argument(
+        "--columns",
+        nargs="+",
+        choices=REGION_TABLE_COLUMNS,
+        help="Region table columns to print (default: region ranks calls total avg)",
+    )
+    parser.add_argument(
         "--full",
         action="store_true",
         help="Print long metadata values (PATH, LD_LIBRARY_PATH, ...) in full",
@@ -424,6 +436,7 @@ def main(argv: list | None = None):
             show_regions=not args.metadata_only,
             full=args.full,
             source=args.source,
+            columns=args.columns,
         )
         printed += 1
 
