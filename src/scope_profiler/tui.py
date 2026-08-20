@@ -263,9 +263,7 @@ def _line_table(headers, rows) -> str:
         for index, header in enumerate(headers)
     ]
     lines = [
-        "  ".join(
-            header.ljust(widths[index]) for index, header in enumerate(headers)
-        )
+        "  ".join(header.ljust(widths[index]) for index, header in enumerate(headers))
     ]
     lines.extend(
         "  ".join(cell.ljust(widths[index]) for index, cell in enumerate(row))
@@ -372,8 +370,10 @@ def node_detail_text(node: BrowserNode) -> str:
         title = f"Line profile | {payload['region']}"
         if "rank" in payload:
             title = f"Line profile rank {payload['rank']} | {payload['region']}"
-        return title + "\n\n" + _line_table(
-            ("Rank", "Function", "Location", "Lines", "Total"), rows
+        return (
+            title
+            + "\n\n"
+            + _line_table(("Rank", "Function", "Location", "Lines", "Total"), rows)
         )
 
     if kind == "line_profile_record":
@@ -406,8 +406,12 @@ def node_detail_text(node: BrowserNode) -> str:
         )
         if not rows:
             return header + "\n\nNo per-line timings recorded for this function."
-        return header + "\n\n" + _line_table(
-            ("Line", "Hits", "Time [s]", "Per hit [s]", "%", "Source"), rows
+        return (
+            header
+            + "\n\n"
+            + _line_table(
+                ("Line", "Hits", "Time [s]", "Per hit [s]", "%", "Source"), rows
+            )
         )
 
     if kind in {"region", "region_summary"}:
@@ -594,9 +598,7 @@ def _build_textual_app_class():
             yield Header(show_clock=True)
             with Horizontal(id="body"):
                 yield Tree(self.model.root.label, id="nav")
-                yield Static(
-                    self._detail(self.model.root.children[0]), id="detail"
-                )
+                yield Static(self._detail(self.model.root.children[0]), id="detail")
             yield Footer()
 
         def on_mount(self) -> None:

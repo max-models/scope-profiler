@@ -144,6 +144,7 @@ def _tui(argv):
 
     return tui_main(argv)
 
+
 def _line_profile(argv):
     """Handle ``scope-profiler line-profile``."""
     from scope_profiler.line_profile_cli import main as line_profile_main

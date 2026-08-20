@@ -85,9 +85,7 @@ def test_region_details_include_ranks_calls_source_and_raw_hdf5(sample_file):
 
     solve = _find(model.root, "solve")
     assert solve is not None
-    assert {"Summary", "Calls", "Source"} <= {
-        child.label for child in solve.children
-    }
+    assert {"Summary", "Calls", "Source"} <= {child.label for child in solve.children}
     assert "Rank 0" not in {child.label for child in solve.children}
     assert "Calls: 2" in node_detail_text(solve)
     assert "kernels.py:7" in node_detail_text(_find(solve, "Source"))
