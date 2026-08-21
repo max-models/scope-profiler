@@ -82,6 +82,36 @@ def test_run_line_profile_flag_is_passed_to_setup(tmp_path, monkeypatch):
     assert calls["finalize"] == {"verbose": False}
 
 
+def test_run_toml_config_is_passed_to_setup(tmp_path, monkeypatch):
+    script = tmp_path / "script.py"
+    script.write_text("print('hello')\n", encoding="utf-8")
+    config = tmp_path / "profiling.toml"
+    config.write_text(
+        "[profiling]\nrecursive_profile = false\nfile_path = 'from-config.h5'\n",
+        encoding="utf-8",
+    )
+    calls = {}
+
+    monkeypatch.setattr(
+        "scope_profiler.__main__.ProfileManager.setup",
+        lambda **kwargs: calls.update(setup=kwargs),
+    )
+    monkeypatch.setattr(
+        "scope_profiler.__main__.ProfileManager.run_script",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "scope_profiler.__main__.ProfileManager.finalize",
+        lambda **kwargs: None,
+    )
+
+    cli_main(["run", "--config", str(config), str(script)])
+
+    assert calls["setup"]["config_path"] == str(config)
+    assert calls["setup"]["recursive_profile"] is None
+    assert calls["setup"]["file_path"] is None
+
+
 def test_pproc_is_not_a_command(capsys):
     with pytest.raises(SystemExit):
         cli_main(["pproc", "--help"])

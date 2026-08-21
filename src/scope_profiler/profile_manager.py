@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Callable, Dict, NamedTuple
 
 import numpy as np
 
-from scope_profiler.profile_config import ProfilingConfig
+from scope_profiler.profile_config import ProfilingConfig, load_profiling_config
 from scope_profiler.region_profiler import (
     BaseProfileRegion,
     DisabledProfileRegion,
@@ -1052,16 +1052,17 @@ class ProfileManager:
     @classmethod
     def setup(
         cls,
-        deactivate_profiling: bool = False,
-        deactivate_file_output: bool = False,
-        use_likwid: bool = False,
-        use_line_profiler: bool = False,
-        use_nvtx: bool = False,
-        recursive_profile: bool = False,
-        buffer_limit: int = 1024,
-        file_path: str = "profiling_data.h5",
+        deactivate_profiling: bool | None = None,
+        deactivate_file_output: bool | None = None,
+        use_likwid: bool | None = None,
+        use_line_profiler: bool | None = None,
+        use_nvtx: bool | None = None,
+        recursive_profile: bool | None = None,
+        buffer_limit: int | None = None,
+        file_path: str | None = None,
         label: str | None = None,
-        capture_region_source: bool = False,
+        capture_region_source: bool | None = None,
+        config_path: str | os.PathLike[str] | None = None,
     ):
         """
         Initialize and configure the profiling system.
@@ -1129,6 +1130,10 @@ class ProfileManager:
 
                 ProfileManager.setup(capture_region_source=True)
 
+        config_path : str or os.PathLike, optional
+            TOML file containing a ``[profiling]`` table with these settings.
+            Values passed directly to ``setup()`` take precedence.
+
         Notes
         -----
         The run's start time is the moment ``setup()`` is called; it is stored
@@ -1139,18 +1144,39 @@ class ProfileManager:
         :mod:`scope_profiler.mpi_launch` for the detection and its
         ``SCOPE_PROFILER_MPI`` override.
         """
+        settings = {
+            "deactivate_profiling": False,
+            "deactivate_file_output": False,
+            "use_likwid": False,
+            "use_line_profiler": False,
+            "use_nvtx": False,
+            "recursive_profile": False,
+            "buffer_limit": 1024,
+            "file_path": "profiling_data.h5",
+            "label": None,
+            "capture_region_source": False,
+        }
+        if config_path is not None:
+            settings.update(load_profiling_config(config_path))
+        explicit = {
+            "deactivate_profiling": deactivate_profiling,
+            "deactivate_file_output": deactivate_file_output,
+            "use_likwid": use_likwid,
+            "use_line_profiler": use_line_profiler,
+            "use_nvtx": use_nvtx,
+            "recursive_profile": recursive_profile,
+            "buffer_limit": buffer_limit,
+            "file_path": file_path,
+            "label": label,
+            "capture_region_source": capture_region_source,
+        }
+        settings.update(
+            {key: value for key, value in explicit.items() if value is not None}
+        )
+
         ProfilingConfig.reset()
         config = ProfilingConfig(
-            deactivate_profiling=deactivate_profiling,
-            deactivate_file_output=deactivate_file_output,
-            use_likwid=use_likwid,
-            use_line_profiler=use_line_profiler,
-            use_nvtx=use_nvtx,
-            recursive_profile=recursive_profile,
-            buffer_limit=buffer_limit,
-            file_path=file_path,
-            label=label,
-            capture_region_source=capture_region_source,
+            **settings,
         )
         cls.set_config(config=config)
 

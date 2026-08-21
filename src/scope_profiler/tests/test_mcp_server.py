@@ -23,7 +23,14 @@ from scope_profiler.mcp_server.server import create_server  # noqa: E402
 
 NS = 1_000_000_000
 
-EXPECTED_TOOLS = {"inspect_profile", "compare_profiles", "run_profile", "plot_profile"}
+EXPECTED_TOOLS = {
+    "inspect_profile",
+    "compare_profiles",
+    "run_profile",
+    "plot_profile",
+    "run_benchmark",
+    "compare_benchmarks",
+}
 
 
 def _write_sample_h5(path, rank_regions, metadata=None):
@@ -78,7 +85,7 @@ class TestServerCreation:
 
 
 class TestToolRegistration:
-    def test_all_four_tools_are_registered(self):
+    def test_all_tools_are_registered(self):
         server = create_server()
         tools = _run(server.list_tools())
 

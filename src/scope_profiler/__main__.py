@@ -29,6 +29,10 @@ Six subcommands:
   ``scope_profiler.diff``.
 - ``scope-profiler check a.h5 b.h5`` -- applies a regression budget and
   returns a CI-friendly exit code.
+- ``scope-profiler benchmark run config.toml`` -- runs a repeatable benchmark
+  with a correctness gate and writes a JSON manifest.
+- ``scope-profiler benchmark compare baseline.json candidate.json`` -- makes a
+  median-based keep/reject decision for an AI agent or CI.
 - ``scope-profiler import-native traces/ -o out.h5`` -- converts the trace
   files written by the Fortran region API
   (``scope_profiler/fortran/scope_profiler.f90``)
@@ -52,8 +56,13 @@ def _parse_run_args(argv):
     parser.add_argument(
         "-o",
         "--outfile",
-        default="profiling_data.h5",
+        default=None,
         help="Path to the merged HDF5 output file (default: profiling_data.h5)",
+    )
+    parser.add_argument(
+        "--config",
+        metavar="FILE",
+        help="TOML file containing profiling settings ([profiling] table)",
     )
     parser.add_argument(
         "-q",
@@ -70,13 +79,14 @@ def _parse_run_args(argv):
     parser.add_argument(
         "--line-profile",
         action="store_true",
+        default=None,
         help="Also collect line-by-line timings via line_profiler "
         "(requires scope-profiler[line-profiler])",
     )
     parser.add_argument(
         "--buffer-limit",
         type=int,
-        default=1024,
+        default=None,
         help="Initial buffer capacity per region; grows as needed (default: 1024)",
     )
     parser.add_argument("script", help="Script to run and profile")
@@ -100,11 +110,14 @@ def _run(argv):
         raise SystemExit(1)
 
     ProfileManager.setup(
-        recursive_profile=True,
-        use_likwid=False,
+        # ``run`` historically enables recursive profiling.  A TOML file may
+        # override it, while the no-config path keeps that default.
+        recursive_profile=True if args.config is None else None,
+        use_likwid=None,
         use_line_profiler=args.line_profile,
         buffer_limit=args.buffer_limit,
         file_path=args.outfile,
+        config_path=args.config,
     )
 
     try:
@@ -164,6 +177,48 @@ def _check(argv):
     from scope_profiler.diff import check_main
 
     return check_main(argv)
+
+
+def _benchmark(argv):
+    """Run or compare declarative, repeated benchmark manifests."""
+    from scope_profiler.benchmark import (
+        BenchmarkError,
+        compare_benchmarks,
+        load_config,
+        run_benchmark,
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="scope-profiler benchmark",
+        description="Run or compare repeatable AI/CI benchmark workflows.",
+    )
+    subparsers = parser.add_subparsers(dest="action", required=True)
+    run_parser = subparsers.add_parser("run", help="run a benchmark config")
+    run_parser.add_argument("config", help="benchmark TOML configuration")
+    run_parser.add_argument(
+        "--label", default="candidate", help="baseline or candidate label"
+    )
+    run_parser.add_argument("--json", action="store_true", help="print only JSON")
+    compare_parser = subparsers.add_parser(
+        "compare", help="compare two benchmark manifests"
+    )
+    compare_parser.add_argument("baseline")
+    compare_parser.add_argument("candidate")
+    compare_parser.add_argument("--json", action="store_true", help="print only JSON")
+    args = parser.parse_args(argv)
+    try:
+        if args.action == "run":
+            result = run_benchmark(load_config(args.config), label=args.label)
+            exit_code = 0 if result["correctness"]["passed"] else 1
+        else:
+            result = compare_benchmarks(args.baseline, args.candidate)
+            exit_code = 0 if result["decision"] == "keep" else 1
+    except BenchmarkError as exc:
+        parser.error(str(exc))
+    print(__import__("json").dumps(result, indent=None if args.json else 2))
+    if exit_code:
+        raise SystemExit(exit_code)
+    return 0
 
 
 def _import_fortran(argv):
@@ -242,6 +297,7 @@ _COMMANDS = {
     "line-profile": _line_profile,
     "diff": _diff,
     "check": _check,
+    "benchmark": _benchmark,
     "import-native": _import_fortran,
 }
 
@@ -305,6 +361,11 @@ def main(argv=None):
         "check",
         add_help=False,
         help="Fail on profiling regressions (see `scope-profiler check --help`)",
+    )
+    subparsers.add_parser(
+        "benchmark",
+        add_help=False,
+        help="Run or compare repeatable benchmarks (see `scope-profiler benchmark --help`)",
     )
     subparsers.add_parser(
         "import-native",

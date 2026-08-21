@@ -60,6 +60,19 @@ quickstart
 ```
 
 ``` {toctree}
+:maxdepth: 1
+:caption: Interactive Jupyter tutorials
+
+tutorials
+tutorials/01_getting_started
+tutorials/02_postprocessing
+tutorials/03_visualization
+tutorials/04_profiling_modes
+tutorials/05_custom_analysis
+tutorials/06_custom_plots
+```
+
+``` {toctree}
 :maxdepth: 2
 :caption: User guide
 
@@ -85,8 +98,8 @@ cli
 ```
 
 ``` {toctree}
-:maxdepth: 2
-:caption: Tutorials & examples
+:maxdepth: 1
+:caption: Examples & workflows
 
-tutorials
+examples
 ```

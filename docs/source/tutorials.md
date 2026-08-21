@@ -1,39 +1,28 @@
-# Tutorials & examples
+# Interactive Jupyter tutorials
 
 
-Step-by-step tutorials and self-contained example scripts.
+These notebooks are the fastest way to learn `scope-profiler`. They are listed
+individually in the documentation navigation so you can jump directly to the
+topic you need.
 
-## Notebooks
+## Choose a tutorial
 
 Six notebooks that build on each other. Each one is self-contained — it
 generates its own profiling data in a temporary directory, so they can
 be run in any order and in any environment.
 
-1.  **Getting started** — configuring the profiler, marking regions with
-    a context manager and a decorator, finalizing, and a first look at
-    the output file.
-2.  **Post-processing** — the analysis API in depth: `ProfilingResults`
-    as a mapping of regions, `MPIRegion` vs `Region`, summaries,
-    DataFrames, filtering, metadata and JSON export.
-3.  **Visualizing results** — Gantt, flame, duration and speedup charts,
-    plus the equivalent `scope-profiler plot` invocations.
-4.  **Profiling modes** — what each `setup()` option records, recursive
-    and line-by-line profiling, the zero-instrumentation CLI, MPI and
-    LIKWID.
-5.  **Custom analysis** — one level below the summaries: `events()` and
-    the per-call DataFrame, the timeline anchors, `call_stack()` and the
-    self-time it makes possible.
-6.  **Building your own plots** — five charts drawn with plain
-    matplotlib on top of that data: a timeline, a duration histogram,
-    drift over the run, a total-vs-self breakdown, a hand-rolled flame
-    graph and a run comparison.
-
-``` {toctree}
-:maxdepth: 1
-:glob:
-
-tutorials/*
-```
+1.  [Getting started](tutorials/01_getting_started.ipynb) — configure the
+    profiler, mark regions, finalize, and inspect the first output file.
+2.  [Post-processing profiling data](tutorials/02_postprocessing.ipynb) — use
+    `ProfilingResults`, summaries, DataFrames, filtering, metadata, and JSON.
+3.  [Visualizing results](tutorials/03_visualization.ipynb) — create Gantt,
+    flame, duration, and speedup charts.
+4.  [Profiling modes and configuration](tutorials/04_profiling_modes.ipynb) —
+    recursive, line-by-line, CLI, MPI, and LIKWID profiling.
+5.  [Custom analysis with the Python API](tutorials/05_custom_analysis.ipynb) —
+    inspect individual calls, timelines, call stacks, and self-time.
+6.  [Building your own plots](tutorials/06_custom_plots.ipynb) — draw custom
+    visualizations from events and call-stack data.
 
 Notebooks 3, 4 and 6 need the post-processing extra:
 

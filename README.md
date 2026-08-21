@@ -579,15 +579,16 @@ docs](docs/source/cli.md) for details.
 ## MCP server for AI coding agents
 
 ``` bash
-pip install "scope-profiler[mcp]"
+pip install "scope-profiler[mcp,pproc]"
 scope-profiler-mcp
 ```
 
 `scope-profiler-mcp` exposes `inspect_profile`, `compare_profiles`,
-`run_profile` and `plot_profile` as
+`run_profile`, `plot_profile`, `run_benchmark` and `compare_benchmarks` as
 [MCP](https://modelcontextprotocol.io) tools, so an agent such as Claude
-Code can inspect a run, benchmark a script, and check whether a code
-change made it faster or slower using structured data rather than parsed
-terminal output. It is a thin adapter over the same API described above
-– see [the MCP guide](docs/source/guide/mcp.md) for installation,
-configuring Claude Code, and the full tool reference.
+Code or Codex can inspect a run, benchmark a script repeatedly, run a
+correctness gate, and check whether a code change made it faster or slower
+using structured data rather than parsed terminal output. The same workflow
+is available from `scope-profiler benchmark` for agents without MCP. Put the
+agent contract in [AGENTS.md](AGENTS.md); see [the MCP guide](docs/source/guide/mcp.md)
+for installation and the full tool reference.

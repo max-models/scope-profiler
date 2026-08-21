@@ -30,10 +30,10 @@ def create_server() -> FastMCP:
         "scope-profiler",
         instructions=(
             "Tools for inspecting and comparing scope-profiler HDF5 profiling "
-            "output, and for running a script under the profiler. Typical "
-            "workflow: run_profile (or an existing .h5 file) -> inspect_profile "
-            "to see where time went -> after a code change, compare_profiles "
-            "against the earlier run to check whether it got faster."
+            "output, and for running repeatable benchmark workflows. Typical "
+            "workflow: run_benchmark -> edit code -> run_benchmark -> "
+            "compare_benchmarks; keep only faster candidates whose correctness "
+            "gate passes."
         ),
     )
 
@@ -202,6 +202,22 @@ def create_server() -> FastMCP:
             timeout_seconds=timeout_seconds,
             top_n=top_n,
         )
+
+    @server.tool()
+    def run_benchmark(config_path: str, label: str = "candidate") -> dict:
+        """Run a TOML benchmark config with repeated profiles and correctness.
+
+        The config is declarative and contains the benchmark script, number of
+        repetitions, warmups, output directory, and an optional correctness
+        command. Returns a JSON manifest with medians, variance, profile paths,
+        and correctness status.
+        """
+        return tools.run_benchmark(config_path, label=label)
+
+    @server.tool()
+    def compare_benchmarks(baseline_path: str, candidate_path: str) -> dict:
+        """Compare benchmark manifests and return an explicit keep/reject decision."""
+        return tools.compare_benchmarks(baseline_path, candidate_path)
 
     @server.tool()
     def plot_profile(

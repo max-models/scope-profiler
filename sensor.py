@@ -17,7 +17,9 @@ class Sensor:
         self.readings = readings
 
     def calibrated_readings(self):
-        return [clamp(x, 0.0, 100.0) for x in self.readings]
+        # Inline the tiny clamp in the hot loop to avoid a Python function call
+        # for every reading; the operation is equivalent to ``clamp``.
+        return [max(0.0, min(x, 100.0)) for x in self.readings]
 
     def mean(self):
         return average(self.calibrated_readings())
