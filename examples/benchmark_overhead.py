@@ -150,7 +150,7 @@ def main():
     canvas = Canvas(nrows=1, ncols=1)
     subplot = canvas.add_subplot(
         title=(
-            "Profiling overhead by region type<br>"
+            "Profiling overhead by region type\n"
             f"(workload ≈ {baseline_us:.3f} µs/call, "
             f"{NUM_CALLS:,} calls, best of {NUM_REPEATS} repeats)"
         ),
@@ -161,48 +161,34 @@ def main():
         subplot.bar([xi], [value], color=BAR_COLOR)
     subplot.set_yscale("log")
     # Plotly renders tick labels as HTML, so multi-line names need <br>.
-    subplot.set_xticks(x.tolist(), [name.replace("\n", "<br>") for name in names])
+    subplot.set_xticks(x.tolist(), names)
 
-    fig = canvas.plot(backend="plotly")
-    fig.update_layout(width=900, height=500)
-
-    # Everything below is placed in plotly directly. On a log axis plotly takes
-    # y positions in log10 units, so the annotations and the reference line are
-    # converted explicitly rather than left to guess.
-    def log10(value):
-        return float(np.log10(value))
+    # Export through maxplotlib's matplotlib backend so this chart uses the
+    # same rendering style as the other figures in the repository.
+    fig, axes = canvas.plot(backend="matplotlib")
+    axis = np.asarray(axes).reshape(-1)[0]
 
     # Pin the axis: start a decade below the smallest bar, and leave ~0.4 of a
-    # decade of headroom above the tallest so its label is not clipped.
+    # decade of headroom above the tallest so its labels are not clipped.
     top_us = max(max(plot_vals), baseline_us)
-    fig.update_yaxes(
-        type="log",
-        range=[log10(floor_us), log10(top_us) + 0.4],
-        # One labelled tick per decade; plotly otherwise labels minor ticks as a
-        # bare "5" between 10 and 100, which reads as 5.
-        dtick=1,
-        tickformat=".3~g",
-        minor=dict(showgrid=True),
-    )
+    axis.set_yscale("log")
+    axis.set_ylim(floor_us, top_us * 10**0.4)
+    axis.tick_params(axis="x", labelrotation=0)
 
     # Direct labels: only four bars, so every one is labelled.
     for xi, plot_val, val in zip(x, plot_vals, overheads_us):
-        fig.add_annotation(
-            x=float(xi),
-            y=log10(plot_val),
-            text=f"{val:.3f} µs" if val > 0 else "≈ 0 µs",
-            showarrow=False,
-            yshift=10,
-            font=dict(color=TEXT_COLOR, size=12),
+        axis.annotate(
+            f"{val:.3f} µs" if val > 0 else "≈ 0 µs",
+            xy=(xi, plot_val),
+            xytext=(0, 8),
+            textcoords="offset points",
+            ha="center",
+            color=TEXT_COLOR,
         )
 
     os.makedirs(args.output, exist_ok=True)
     outpath = os.path.join(args.output, "benchmark_overhead.png")
-    try:
-        fig.write_image(outpath)
-    except Exception:
-        outpath = os.path.join(args.output, "benchmark_overhead.html")
-        fig.write_html(outpath)
+    fig.savefig(outpath, bbox_inches="tight")
     print(f"\nFigure saved to {outpath}")
 
     if args.show:

@@ -1,5 +1,7 @@
 
 
+<!-- Generated README.md is rendered from this file by docs/render_markdown.py. -->
+
 # scope-profiler
 
 This module provides a unified profiling system for Python applications,
@@ -243,8 +245,8 @@ calls land on a single timeline —
 `ProfileManager.finalize(native_traces=".")` folds them into one
 profile, with the native regions nested inside the Python ones that
 called them. See the
-[Fortran](https://scope-profiler.readthedocs.io/en/latest/guide/fortran.html)
-and [C](https://scope-profiler.readthedocs.io/en/latest/guide/c.html)
+[Fortran](https://max-models.github.io/scope-profiler/guide/fortran.html)
+and [C](https://max-models.github.io/scope-profiler/guide/c.html)
 guides.
 
 ## Recursive profiling of nested calls

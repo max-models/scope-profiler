@@ -1,3 +1,5 @@
+<!-- Generated README.md is rendered from this file by docs/render_markdown.py. -->
+
 # scope-profiler
 
 This module provides a unified profiling system for Python applications, with optional integration of [LIKWID](https://github.com/RRZE-HPC/likwid) markers using the [pylikwid](https://github.com/RRZE-HPC/pylikwid) marker API for hardware performance counters.
@@ -225,8 +227,8 @@ Timestamps come from the same clock as Python's `time.perf_counter_ns()`, so a
 Python driver and the native kernels it calls land on a single timeline —
 `ProfileManager.finalize(native_traces=".")` folds them into one profile, with
 the native regions nested inside the Python ones that called them. See the
-[Fortran](https://scope-profiler.readthedocs.io/en/latest/guide/fortran.html)
-and [C](https://scope-profiler.readthedocs.io/en/latest/guide/c.html) guides.
+[Fortran](https://max-models.github.io/scope-profiler/guide/fortran.html)
+and [C](https://max-models.github.io/scope-profiler/guide/c.html) guides.
 
 ## Recursive profiling of nested calls
 
