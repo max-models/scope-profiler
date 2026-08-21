@@ -6,8 +6,7 @@ This example shows how to attach ``@ProfileManager.profile`` decorators to
 individual methods of a class so that each method gets its own named region
 and line-by-line timing table.
 
-Important: call ``ProfileManager.setup()`` *before* the class is defined so
-that the decorators capture the correct profiling mode.
+The session enables the line-profiler mode before the decorated methods run.
 
 Run::
 
@@ -18,9 +17,6 @@ import math
 import random
 
 from scope_profiler import ProfileManager
-
-# Must be called before the class definition so decorators use LineProfilerRegion
-ProfileManager.setup(use_line_profiler=True)
 
 
 class FluidSimulation:
@@ -74,10 +70,10 @@ class FluidSimulation:
         return self.compute_energy()
 
 
-sim = FluidSimulation(n=500)
+with ProfileManager.session(use_line_profiler=True):
+    sim = FluidSimulation(n=500)
 
-for _ in range(20):
-    sim.step()
+    for _ in range(20):
+        sim.step()
 
-# finalize() prints per-region summaries and then the line-by-line tables
-ProfileManager.finalize()
+# The session prints per-region summaries and line-by-line tables on exit.

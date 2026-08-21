@@ -34,9 +34,6 @@ import random
 
 from scope_profiler import ProfileManager
 
-# Enable line_profiler; timestamps are always recorded as well
-ProfileManager.setup(use_line_profiler=True)
-
 # ---------------------------------------------------------------------------
 # Pattern 1: decorator form
 # ---------------------------------------------------------------------------
@@ -73,9 +70,8 @@ def run_allocate(N=100_000):
         print("print allocate")
 
 
-compute()
-run_allocate()
-
-# finalize() writes timing data to profiling_data.h5 and prints
-# both the region summaries and the line_profiler tables.
-ProfileManager.finalize()
+# The session writes timing data to profiling_data.h5 and prints both the
+# region summaries and the line_profiler tables when the block exits.
+with ProfileManager.session(use_line_profiler=True):
+    compute()
+    run_allocate()

@@ -7,9 +7,9 @@ Run this under LIKWID's marker mode, otherwise LIKWID collects nothing::
     # or, across MPI ranks:
     likwid-mpirun -n 2 -g FLOPS_DP -mpi openmpi -marker python examples/ex_likwid.py
 
-``ProfileManager.finalize()`` closes the LIKWID markers, reads every marker
-region of the run back, and stores the raw events and LIKWID's derived metrics
-in the HDF5 file next to the timing data.
+The profiling session closes the LIKWID markers, reads every marker region of
+the run back, and stores the raw events and LIKWID's derived metrics in the
+HDF5 file next to the timing data.
 """
 
 import numpy as np
@@ -28,20 +28,14 @@ def matmul(n: int) -> float:
 
 
 def main() -> None:
-    ProfileManager.setup(
-        use_likwid=True,
-        file_path=H5_PATH,
-    )
+    with ProfileManager.session(use_likwid=True, file_path=H5_PATH):
+        with ProfileManager.profile_region("main"):
+            for _ in range(3):
+                matmul(256)
 
-    with ProfileManager.profile_region("main"):
-        for _ in range(3):
-            matmul(256)
-
-        with ProfileManager.profile_region("memory_bound"):
-            data = np.zeros(4_000_000)
-            data += 1.0
-
-    ProfileManager.finalize()
+            with ProfileManager.profile_region("memory_bound"):
+                data = np.zeros(4_000_000)
+                data += 1.0
 
     # Everything below reads the finished file, the same way any downstream
     # analysis would.

@@ -36,14 +36,12 @@ all through a single, unified API.
 ```python
 from scope_profiler import ProfileManager
 
-ProfileManager.setup()
+with ProfileManager.session():
+    @ProfileManager.profile("compute")
+    def compute():
+        return sum(i * i for i in range(100_000))
 
-@ProfileManager.profile("compute")
-def compute():
-    return sum(i * i for i in range(100_000))
-
-compute()
-ProfileManager.finalize()
+    compute()
 ```
 
 ## Documentation
@@ -54,19 +52,6 @@ ProfileManager.finalize()
 
 installation
 quickstart
-```
-
-```{toctree}
-:maxdepth: 1
-:caption: Interactive Jupyter tutorials
-
-tutorials
-tutorials/01_getting_started
-tutorials/02_postprocessing
-tutorials/03_visualization
-tutorials/04_profiling_modes
-tutorials/05_custom_analysis
-tutorials/06_custom_plots
 ```
 
 ```{toctree}
@@ -84,6 +69,19 @@ guide/line_profiler
 guide/fortran
 guide/c
 guide/overhead
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Interactive Jupyter tutorials
+
+tutorials
+tutorials/01_getting_started
+tutorials/02_postprocessing
+tutorials/03_visualization
+tutorials/04_profiling_modes
+tutorials/05_custom_analysis
+tutorials/06_custom_plots
 ```
 
 ```{toctree}
