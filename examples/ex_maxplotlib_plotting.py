@@ -28,26 +28,20 @@ from scope_profiler.plotting_scripts import (
 
 def create_sample_profile(filepath: str):
     """Create a sample profile for demonstration."""
-    ProfileManager.setup(
-        use_likwid=False,
-        file_path=filepath,
-    )
+    with ProfileManager.session(use_likwid=False, file_path=filepath):
+        with ProfileManager.profile_region("main"):
+            import time
 
-    with ProfileManager.profile_region("main"):
-        import time
+            time.sleep(0.01)
 
-        time.sleep(0.01)
+            with ProfileManager.profile_region("compute"):
+                time.sleep(0.005)
 
-        with ProfileManager.profile_region("compute"):
-            time.sleep(0.005)
+            with ProfileManager.profile_region("io"):
+                time.sleep(0.008)
 
-        with ProfileManager.profile_region("io"):
-            time.sleep(0.008)
-
-            with ProfileManager.profile_region("write"):
-                time.sleep(0.003)
-
-    ProfileManager.finalize()
+                with ProfileManager.profile_region("write"):
+                    time.sleep(0.003)
 
 
 def main():

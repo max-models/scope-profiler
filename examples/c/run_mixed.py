@@ -15,8 +15,8 @@ The pieces:
 
 - ``kernels_start_profiling(prefix, rank)`` starts the C side, and
   ``kernels_stop_profiling()`` writes its trace. That has to happen **before**
-  ``ProfileManager.finalize()``, which reads it.
-- ``finalize(native_traces=...)`` folds the trace into this run's own output,
+  the profiling session exits, which reads it.
+- ``session(native_traces=...)`` folds the trace into this run's own output,
   so one ``profiling_data.h5`` holds everything.
 - Region names are prefixed ``python:`` and ``c:``. A name recorded by both
   sides is refused rather than silently double-counted.
@@ -76,33 +76,34 @@ def main():
     library = sys.argv[1] if len(sys.argv) > 1 else HERE / "build" / "libkernels.so"
     kernels = load_kernels(library)
 
-    ProfileManager.setup(file_path=str(OUTPUT), label="mixed python/c")
-    config = ProfileManager.get_config()
-    rank, size = config._rank, config._size
+    with ProfileManager.session(
+        file_path=str(OUTPUT), label="mixed python/c", native_traces=HERE,
+        verbose=False, return_results=True
+    ) as run:
+        config = ProfileManager.get_config()
+        rank, size = config._rank, config._size
 
     # Start the C side, telling it which rank it is so the traces of a
     # parallel run do not collide.
-    kernels.kernels_start_profiling(str(HERE / "trace").encode(), rank)
+        kernels.kernels_start_profiling(str(HERE / "trace").encode(), rank)
 
-    with ProfileManager.profile_region("python:setup"):
-        # Nothing but Python here, to show a region with no C under it.
-        total = sum(i * i for i in range(200_000))
+        with ProfileManager.profile_region("python:setup"):
+            # Nothing but Python here, to show a region with no C under it.
+            total = sum(i * i for i in range(200_000))
 
-    for step in range(STEPS):
-        with ProfileManager.profile_region("python:timestep"):
-            # Everything the C kernel records lands under this region.
-            with ProfileManager.profile_region("python:call_solver"):
-                residual = kernels.kernels_jacobi_solve(GRID, SWEEPS)
+        for step in range(STEPS):
+            with ProfileManager.profile_region("python:timestep"):
+                # Everything the C kernel records lands under this region.
+                with ProfileManager.profile_region("python:call_solver"):
+                    residual = kernels.kernels_jacobi_solve(GRID, SWEEPS)
 
-            if step % 5 == 4:
-                with ProfileManager.profile_region("python:checkpoint"):
-                    kernels.kernels_checkpoint(200000)
+                if step % 5 == 4:
+                    with ProfileManager.profile_region("python:checkpoint"):
+                        kernels.kernels_checkpoint(200000)
 
     # Write the C trace *before* finalizing, then fold it in.
-    kernels.kernels_stop_profiling()
-    results = ProfileManager.finalize(
-        verbose=False, return_results=True, native_traces=HERE
-    )
+        kernels.kernels_stop_profiling()
+    results = run.results
 
     results.print_summary(title=f"one profile, two languages ({size} rank(s))")
 

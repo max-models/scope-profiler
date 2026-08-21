@@ -74,8 +74,8 @@ It also writes `figures/gantt.png` and a speedscope trace, where the
 
 ## Two rules for mixing
 
-1.  **Call the Fortran `sp_finalize()` before
-    `ProfileManager.finalize()`** — the trace has to exist by the time
+1.  **Call the Fortran `sp_finalize()` before the profiling session exits** —
+    the trace has to exist by the time
     Python reads it. In `run_mixed.py` that is
     `kernels.stop_profiling()`.
 2.  **Give the two sides distinct region names.** A name recorded by

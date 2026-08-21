@@ -63,8 +63,8 @@ It also writes `figures/gantt.png` and a speedscope trace, where the
 
 ## Two rules for mixing
 
-1.  **Call `kernels_stop_profiling()` before
-    `ProfileManager.finalize()`** — the trace has to exist by the time
+1.  **Call `kernels_stop_profiling()` before the profiling session exits** —
+    the trace has to exist by the time
     Python reads it.
 2.  **Give the two sides distinct region names.** A name recorded by
     both raises rather than silently double-counting a wrapper and the

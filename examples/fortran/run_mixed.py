@@ -11,8 +11,8 @@ The pieces:
 
 - ``kernels.start_profiling(prefix, rank)`` starts the Fortran side, and
   ``kernels.stop_profiling()`` writes its trace. That has to happen **before**
-  ``ProfileManager.finalize()``, which reads it.
-- ``finalize(native_traces=...)`` folds the trace into this run's own output,
+  the profiling session exits, which reads it.
+- ``session(native_traces=...)`` folds the trace into this run's own output,
   so one ``profiling_data.h5`` holds everything.
 - Region names are prefixed ``python:`` and ``fortran:``. A name recorded by
   both sides is refused rather than silently double-counted.
@@ -63,32 +63,33 @@ def rank_and_size():
 def main():
     kernels = load_kernels()
 
-    ProfileManager.setup(file_path=str(OUTPUT), label="mixed python/fortran")
-    rank, size = rank_and_size()
+    with ProfileManager.session(
+        file_path=str(OUTPUT), label="mixed python/fortran", native_traces=HERE,
+        verbose=False, return_results=True
+    ) as run:
+        rank, size = rank_and_size()
 
     # Start the Fortran side, telling it which rank it is so the traces of a
     # parallel run do not collide.
-    kernels.start_profiling(str(HERE / "trace"), rank)
+        kernels.start_profiling(str(HERE / "trace"), rank)
 
-    with ProfileManager.profile_region("python:setup"):
-        # Nothing but Python here, to show a region with no Fortran under it.
-        total = sum(i * i for i in range(200_000))
+        with ProfileManager.profile_region("python:setup"):
+            # Nothing but Python here, to show a region with no Fortran under it.
+            total = sum(i * i for i in range(200_000))
 
-    for step in range(STEPS):
-        with ProfileManager.profile_region("python:timestep"):
-            # Everything the Fortran kernel records lands under this region.
-            with ProfileManager.profile_region("python:call_solver"):
-                residual = kernels.jacobi_solve(GRID, SWEEPS)
+        for step in range(STEPS):
+            with ProfileManager.profile_region("python:timestep"):
+                # Everything the Fortran kernel records lands under this region.
+                with ProfileManager.profile_region("python:call_solver"):
+                    residual = kernels.jacobi_solve(GRID, SWEEPS)
 
-            if step % 5 == 4:
-                with ProfileManager.profile_region("python:checkpoint"):
-                    kernels.checkpoint(200000)
+                if step % 5 == 4:
+                    with ProfileManager.profile_region("python:checkpoint"):
+                        kernels.checkpoint(200000)
 
     # Write the Fortran trace *before* finalizing, then fold it in.
-    kernels.stop_profiling()
-    results = ProfileManager.finalize(
-        verbose=False, return_results=True, native_traces=HERE
-    )
+        kernels.stop_profiling()
+    results = run.results
 
     results.print_summary(title=f"one profile, two languages ({size} rank(s))")
 

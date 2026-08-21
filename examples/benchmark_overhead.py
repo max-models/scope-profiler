@@ -93,26 +93,25 @@ def main():
     totals_ns = []
 
     for name, kwargs in configs:
-        ProfileManager.setup(buffer_limit=buffer_limit, **kwargs)
+        with ProfileManager.session(
+            buffer_limit=buffer_limit, verbose=False, **kwargs
+        ):
+            # Define a fresh function each iteration so decoration is isolated.
+            def _work():
+                s = 0
+                for i in range(50):
+                    s += i
+                return s
 
-        # Define a fresh function each iteration so decoration is isolated.
-        def _work():
-            s = 0
-            for i in range(50):
-                s += i
-            return s
+            profiled = ProfileManager.profile("bench")(_work)
 
-        profiled = ProfileManager.profile("bench")(_work)
+            total_ns = time_calls(profiled, NUM_CALLS, NUM_REPEATS)
+            per_call = total_ns / NUM_CALLS
+            overhead = per_call - baseline_per_call
 
-        total_ns = time_calls(profiled, NUM_CALLS, NUM_REPEATS)
-        per_call = total_ns / NUM_CALLS
-        overhead = per_call - baseline_per_call
-
-        names.append(name)
-        overheads_ns.append(overhead)
-        totals_ns.append(per_call)
-
-        ProfileManager.finalize(verbose=False)
+            names.append(name)
+            overheads_ns.append(overhead)
+            totals_ns.append(per_call)
 
     # ---- Print results table ----
     print(f"\nBaseline per call: {baseline_per_call / 1e3:.3f} µs\n")
