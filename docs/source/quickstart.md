@@ -2,22 +2,25 @@
 
 # Quickstart
 
-This page walks through the core workflow: **setup**, **instrument**,
-**finalize**, and **inspect**.
+This page walks through the core workflow: **session**, **instrument**, and
+**inspect**. A session sets up profiling and finalizes it automatically, even
+when the profiled code raises an exception.
 
-## 1. Setup
+## 1. Start a session
 
-Call `ProfileManager.setup()` once at the start of your program to
-configure the profiling system. All regions created afterwards — even in
-other modules — share this configuration.
+Use `ProfileManager.session()` as the default entry point. Configuration
+arguments are passed directly to the session:
 
 ``` python
 from scope_profiler import ProfileManager
 
-ProfileManager.setup(
-    recursive_profile=False,  # profile nested Python calls from decorators
-)
+with ProfileManager.session():
+    # Profile regions inside this block.
+    run_application()
 ```
+
+All regions created inside the session — even in other modules — share its
+configuration.
 
 ## 2. Instrument your code
 
@@ -43,11 +46,10 @@ def matrix_multiply(a, b):
 To include nested Python calls made by a decorated function:
 
 ``` python
-ProfileManager.setup(recursive_profile=True)
-
-@ProfileManager.profile("solver_step")
-def solver_step():
-    return advance_state()  # nested calls are recorded automatically
+with ProfileManager.session(recursive_profile=True):
+    @ProfileManager.profile("solver_step")
+    def solver_step():
+        return advance_state()  # nested calls are recorded automatically
 ```
 
 ### Context manager
@@ -65,13 +67,17 @@ for step in range(num_steps):
 
 The two styles can be mixed freely.
 
-## 3. Finalize
+## 3. Finish the session
 
-Call `finalize()` when profiling is done. This writes all buffered data,
-merges per-rank HDF5 files, and prints a summary:
+When the `with` block exits, the session writes all buffered data, merges
+per-rank HDF5 files, and prints a summary. Use `return_results=True` to keep
+the finalized results in memory:
 
 ``` python
-ProfileManager.finalize()
+with ProfileManager.session(return_results=True) as run:
+    run_application()
+
+results = run.results
 ```
 
 Output:
@@ -121,18 +127,15 @@ for region in results:
 ``` python
 from scope_profiler import ProfileManager
 
-ProfileManager.setup(
-)
+with ProfileManager.session():
+    @ProfileManager.profile("main")
+    def main():
+        x = 0
+        for i in range(10):
+            with ProfileManager.profile_region("iteration"):
+                x += 1
 
-@ProfileManager.profile("main")
-def main():
-    x = 0
-    for i in range(10):
-        with ProfileManager.profile_region("iteration"):
-            x += 1
-
-main()
-ProfileManager.finalize()
+    main()
 ```
 
 ``` bash

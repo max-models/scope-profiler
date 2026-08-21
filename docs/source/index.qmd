@@ -36,14 +36,12 @@ all through a single, unified API.
 ```python
 from scope_profiler import ProfileManager
 
-ProfileManager.setup()
+with ProfileManager.session():
+    @ProfileManager.profile("compute")
+    def compute():
+        return sum(i * i for i in range(100_000))
 
-@ProfileManager.profile("compute")
-def compute():
-    return sum(i * i for i in range(100_000))
-
-compute()
-ProfileManager.finalize()
+    compute()
 ```
 
 ## Documentation
