@@ -22,6 +22,29 @@ configuration is global: every call to `profile()` or `profile_region()`
 | `label` | `str` | `None` | Short name for the run, used by post-processing wherever a run has to be named. See below. |
 | `capture_region_source` | `bool` | `False` | Record where each region is defined (see {doc}`hdf5_and_python_api`). Off by default; see below for its cost and how to turn it on. |
 
+## TOML settings files
+
+The same settings can be kept in a TOML file and loaded from Python:
+
+```toml
+[profiling]
+file_path = "results/run.h5"
+label = "baseline"
+recursive_profile = true
+buffer_limit = 4096
+capture_region_source = true
+```
+
+```python
+ProfileManager.setup(config_path="profiling.toml")
+```
+
+The table name is optional, so a file containing only the settings is also
+accepted. Values passed directly to `setup()` override values from the file.
+For the command-line profiler, use the same file with
+`scope-profiler run --config profiling.toml script.py`; command-line options
+such as `--outfile` take precedence.
+
 ## Enabling `capture_region_source`
 
 Off by default, because its cost – while cheap for a typical file – is

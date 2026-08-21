@@ -56,8 +56,13 @@ def _parse_run_args(argv):
     parser.add_argument(
         "-o",
         "--outfile",
-        default="profiling_data.h5",
+        default=None,
         help="Path to the merged HDF5 output file (default: profiling_data.h5)",
+    )
+    parser.add_argument(
+        "--config",
+        metavar="FILE",
+        help="TOML file containing profiling settings ([profiling] table)",
     )
     parser.add_argument(
         "-q",
@@ -74,13 +79,14 @@ def _parse_run_args(argv):
     parser.add_argument(
         "--line-profile",
         action="store_true",
+        default=None,
         help="Also collect line-by-line timings via line_profiler "
         "(requires scope-profiler[line-profiler])",
     )
     parser.add_argument(
         "--buffer-limit",
         type=int,
-        default=1024,
+        default=None,
         help="Initial buffer capacity per region; grows as needed (default: 1024)",
     )
     parser.add_argument("script", help="Script to run and profile")
@@ -104,11 +110,14 @@ def _run(argv):
         raise SystemExit(1)
 
     ProfileManager.setup(
-        recursive_profile=True,
-        use_likwid=False,
+        # ``run`` historically enables recursive profiling.  A TOML file may
+        # override it, while the no-config path keeps that default.
+        recursive_profile=True if args.config is None else None,
+        use_likwid=None,
         use_line_profiler=args.line_profile,
         buffer_limit=args.buffer_limit,
         file_path=args.outfile,
+        config_path=args.config,
     )
 
     try:

@@ -3,13 +3,59 @@
 import os
 import shutil
 from time import perf_counter_ns
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+try:  # Python 3.11+
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
 
 from scope_profiler.metadata import collect_metadata
 from scope_profiler.mpi_launch import get_comm
 
 if TYPE_CHECKING:
     from mpi4py.MPI import Intercomm
+
+
+_CONFIG_FIELDS = {
+    "deactivate_profiling",
+    "deactivate_file_output",
+    "use_likwid",
+    "use_line_profiler",
+    "use_nvtx",
+    "recursive_profile",
+    "buffer_limit",
+    "file_path",
+    "label",
+    "capture_region_source",
+}
+
+
+def load_profiling_config(path: str | os.PathLike[str]) -> dict:
+    """Load the ``[profiling]`` table from a TOML settings file.
+
+    A top-level table is also accepted for small files.  Paths in the file
+    retain TOML's normal meaning and are interpreted relative to the current
+    working directory, just like paths passed to :meth:`ProfileManager.setup`.
+    """
+    config_path = Path(path)
+    try:
+        with config_path.open("rb") as stream:
+            raw = tomllib.load(stream)
+    except OSError as exc:
+        raise ValueError(f"Could not read profiling config {path!r}: {exc}") from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise ValueError(f"Invalid profiling TOML {path!r}: {exc}") from exc
+
+    settings = raw.get("profiling", raw)
+    if not isinstance(settings, dict):
+        raise ValueError("Profiling config [profiling] must be a TOML table")
+    unknown = sorted(set(settings) - _CONFIG_FIELDS)
+    if unknown:
+        names = ", ".join(unknown)
+        raise ValueError(f"Unknown profiling setting(s): {names}")
+    return dict(settings)
 
 # try:
 # import pylikwid

@@ -13,9 +13,13 @@ import os
 import statistics
 import subprocess
 import sys
-import tomllib
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+try:  # Python 3.11+
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
 
 from scope_profiler.h5reader import read_h5
 

@@ -25,6 +25,7 @@ dependencies = [
   "h5py",
   "numpy",
   "tabulate",
+  "tomli>=2.0; python_version < '3.11'",
 ]
 
 optional-dependencies.fortran = [
