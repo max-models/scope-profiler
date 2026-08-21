@@ -1,0 +1,16 @@
+# Shared benchmark contract for Claude Code, Codex, and CI.
+
+[benchmark]
+name = "agent-workflow"
+script = "optimize_me.py"
+args = []
+runs = 5
+warmups = 1
+timeout_seconds = 300
+only_user_code = true
+output_dir = ".scope-profiler"
+threshold_pct = 2.0
+
+[correctness]
+command = ["pytest", "test_correctness.py", "-q"]
+timeout_seconds = 300
