@@ -30,9 +30,10 @@ def test_line_profile_cli_prints_persisted_records(tmp_path, capsys):
     assert main(["line-profile", str(path), "--function", "solve"]) == 0
     output = capsys.readouterr().out
     assert "Rank 0 | solve | solve (app.py:10)" in output
-    assert "11           1          1e-08" in output
+    assert "│ 11" in output
+    assert "1e-08" in output
     assert "% time" in output
-    assert "  28.57" in output
+    assert "28.57" in output
 
 
 def test_line_profile_is_listed_in_top_level_help(capsys):

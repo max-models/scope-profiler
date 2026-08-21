@@ -12,6 +12,40 @@ import re
 import sys
 
 import numpy as np
+from tabulate import tabulate
+
+
+def _print_table(rows, headers, stream, title=None) -> None:
+    """Print a rounded, header-separated table."""
+    lines = tabulate(
+        rows,
+        headers=headers,
+        tablefmt="rounded_outline",
+        disable_numparse=True,
+    ).splitlines()
+    colors_enabled = bool(getattr(stream, "isatty", lambda: False)())
+    if title:
+        width = max(len(line) for line in lines)
+        centered_title = title.center(width - 4).lstrip()
+        if colors_enabled:
+            centered_title = f"\033[1;36m{centered_title}\033[0m"
+        # Keep the heading flush-left so labels are immediately visible and
+        # can be consumed reliably by callers parsing summary output.
+        print(centered_title, file=stream)
+    content_index = -1
+    for line in lines:
+        if line.startswith("│"):
+            content_index += 1
+            if colors_enabled and content_index == len(rows):
+                line = f"\033[1m{line}\033[0m"
+        print(f"  {line}", file=stream)
+
+
+def _print_heading(text, stream) -> None:
+    if getattr(stream, "isatty", lambda: False)():
+        text = f"\033[1;36m{text}\033[0m"
+    print(text, file=stream)
+
 
 SORT_KEYS = (
     "total",
@@ -245,9 +279,9 @@ def print_region_table(
     stream = sys.stdout if stream is None else stream
     selected_columns = normalize_region_table_columns(columns)
 
-    if title:
-        print(title, file=stream)
     if not rows:
+        if title:
+            print(title, file=stream)
         print("  (no regions recorded)", file=stream)
         return
 
@@ -289,39 +323,13 @@ def print_region_table(
         "imbalance": "",
     }
 
-    widths = {
-        key: max(len(header), max(len(row[key]) for row in [*formatted, total_row]))
-        for key, header in selected_columns
-    }
-
-    def render(row):
-        cells = []
-        for index, (key, _) in enumerate(selected_columns):
-            if index == 0 and key == "name":
-                cells.append(f"{row[key]:<{widths[key]}}")
-            else:
-                cells.append(f"{row[key]:>{widths[key]}}")
-        return "  ".join(cells).rstrip()
-
-    header_line = render({key: header for key, header in selected_columns})
-    rule = "-" * len(header_line)
-
-    print(f"  {header_line}", file=stream)
-    print(f"  {rule}", file=stream)
-    for row in formatted:
-        print(f"  {render(row)}", file=stream)
+    headers = [header for _, header in selected_columns]
+    table_rows = [[row[key] for key, _ in selected_columns] for row in formatted]
+    table_rows.append([total_row[key] for key, _ in selected_columns])
+    _print_table(table_rows, headers, stream, title=title)
     if not suppress_notes:
-        notes = [
-            "Durations are in seconds.",
-            "TOTAL row sums over all ranks.",
-        ]
-        for note in notes:
-            print(f"\n  {note}", file=stream)
-    print(f"  {rule}", file=stream)
-    print(f"  {render(total_row)}", file=stream)
-    if total_time is not None:
-        print(f"\n  Total time (setup to finalize): {total_time:.6g} s", file=stream)
-
+        print("\n  Durations are in seconds.", file=stream)
+        print("  TOTAL row sums over all ranks.", file=stream)
     notes = []
     if len(rows) > 1:
         # Nested regions are counted in both the inner and the outer row, so
@@ -511,42 +519,16 @@ def print_likwid_table(table, title=None, stream=None) -> None:
         title += f", group {table['group']})" if table["group"] else ")"
 
     sections = [(heading, rows) for heading, rows in table["sections"] if rows]
-    all_rows = [row for _, rows in sections for row in rows]
 
-    name_width = max(
-        [len(name) for name, _ in all_rows]
-        + [len(heading) for heading, _ in sections]
-        + [len("counter")]
-    )
-    cell_widths = [
-        max(
-            len(label),
-            max((len(_format_counter(values[i])) for _, values in all_rows), default=0),
-        )
-        for i, label in enumerate(columns)
-    ]
-
-    def render(name, cells):
-        out = [f"{name:<{name_width}}"]
-        out += [f"{cell:>{cell_widths[i]}}" for i, cell in enumerate(cells)]
-        return "  ".join(out).rstrip()
-
-    header_line = render("counter", list(columns))
-    rule = "-" * len(header_line)
-
-    print(title, file=stream)
-    print(f"  {header_line}", file=stream)
-    print(f"  {rule}", file=stream)
+    _print_heading(title, stream)
     for index, (heading, rows) in enumerate(sections):
-        if index:
-            print(f"  {rule}", file=stream)
         if heading:
-            print(f"  {heading}", file=stream)
-        for name, values in rows:
-            print(
-                f"  {render(name, [_format_counter(v) for v in values])}", file=stream
-            )
-    print(f"  {rule}", file=stream)
+            _print_heading(f"  {heading}", stream)
+        table_rows = [
+            [name, *[_format_counter(value) for value in values]]
+            for name, values in rows
+        ]
+        _print_table(table_rows, ("counter", *columns), stream)
     print(file=stream)
 
 

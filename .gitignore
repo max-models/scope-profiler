@@ -50,6 +50,7 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+.scope-profiler/
 cover/
 
 # Translations
@@ -181,3 +182,11 @@ node_modules/
 package-lock.json
 package.json
 docs/source/_static/figures/
+
+# Quarto-generated documentation Markdown. Edit the corresponding .qmd file
+# and run `make -C docs html` to regenerate these files.
+docs/source/*.md
+docs/source/guide/*.md
+examples/agent_workflow/README.md
+examples/c/README.md
+examples/fortran/README.md

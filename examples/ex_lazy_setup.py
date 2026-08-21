@@ -1,5 +1,5 @@
 """
-Lazy setup: decorate before calling setup()
+Lazy setup: decorate before starting a session
 ============================================
 
 In real applications the profiling configuration is often not known at
@@ -8,9 +8,9 @@ config file that is read after the module containing the class has been
 imported.
 
 This example shows that ``@ProfileManager.profile`` and
-``with ProfileManager.profile_region(...)`` both work correctly even when
-``setup()`` is called *after* the class is defined and the decorated methods
-are already bound.
+``with ProfileManager.profile_region(...)`` both work correctly when the
+session starts *after* the class is defined and the decorated methods are
+already bound.
 
 Run::
 
@@ -23,7 +23,7 @@ import random
 from scope_profiler import ProfileManager
 
 # -----------------------------------------------------------------------
-# Class defined at import time — setup() has NOT been called yet.
+# Class defined at import time — the profiling session has NOT started yet.
 # The decorators install a lightweight lazy wrapper that binds to the
 # actual profiling region on the first call after setup() runs.
 # -----------------------------------------------------------------------
@@ -53,25 +53,22 @@ class Solver:
 
 
 # -----------------------------------------------------------------------
-# setup() called here — after the class is defined.
+# The session starts here — after the class is defined.
 # Both decorator and with-block regions now use LineProfilerRegion.
 # -----------------------------------------------------------------------
 
-ProfileManager.setup(use_line_profiler=True)
+with ProfileManager.session(use_line_profiler=True):
+    solver = Solver(n=500)
 
-solver = Solver(n=500)
+    # Decorator path — re-binds to the new LineProfilerRegion on first call
+    for _ in range(10):
+        solver.smooth()
+        solver.norm()
 
-# Decorator path — re-binds to the new LineProfilerRegion on first call
-for _ in range(10):
-    solver.smooth()
-    solver.norm()
-
-# with-block path — profile_region() is called at runtime so it always
-# picks up the current config.  Timing is recorded for the whole block;
-# line-by-line output requires decorated functions (not inline code).
-with ProfileManager.profile_region("postprocess"):
-    result = []
-    for x in solver.data:
-        result.append(math.sin(x) * math.sqrt(abs(x) + 1.0))
-
-ProfileManager.finalize()
+    # with-block path — profile_region() is called at runtime so it always
+    # picks up the current config. Timing is recorded for the whole block;
+    # line-by-line output requires decorated functions (not inline code).
+    with ProfileManager.profile_region("postprocess"):
+        result = []
+        for x in solver.data:
+            result.append(math.sin(x) * math.sqrt(abs(x) + 1.0))

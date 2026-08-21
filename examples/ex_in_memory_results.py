@@ -2,7 +2,7 @@
 Post-processing straight from memory, serial or under MPI
 =========================================================
 
-``ProfileManager.finalize(return_results=True)`` hands back the run's data as a
+``ProfileManager.session(return_results=True)`` hands back the run's data as a
 ``ProfilingResults`` --- the same post-processing API ``read_h5()`` gives you,
 but built from the in-memory buffers instead of by reading a file back. Here
 it is used with ``deactivate_file_output=True``, so no HDF5 file is written at
@@ -60,16 +60,17 @@ def main():
     # deactivate_file_output=True: nothing is written to disk, the results
     # come back from memory instead. Drop it to get a full HDF5 file as well;
     # everything below works the same either way.
-    ProfileManager.setup(
+    # Collective: every rank enters the session, rank 0 ends up holding the
+    # whole run. Nothing is written to disk in this example.
+    with ProfileManager.session(
         deactivate_file_output=True,
         file_path=str(OUTPUT_DIR / "in_memory_example.h5"),
-    )
+        verbose=False,
+        return_results=True,
+    ) as run:
+        simulate()
 
-    simulate()
-
-    # Collective: every rank calls it, rank 0 ends up holding the whole run.
-    # verbose=False because we print the table ourselves, just below.
-    results = ProfileManager.finalize(verbose=False, return_results=True)
+    results = run.results
 
     # Prints once, on rank 0.
     results.print_summary(title=f"In-memory results ({results.num_ranks} rank(s))")

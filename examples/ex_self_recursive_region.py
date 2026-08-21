@@ -4,11 +4,6 @@ import time
 from scope_profiler import ProfileManager
 from scope_profiler.plotting_scripts import plot_flame, plot_gantt
 
-ProfileManager.setup(
-    use_likwid=False,
-    file_path="profiling_data.h5",
-)
-
 
 @ProfileManager.profile("fibonacci")
 def fibonacci(n):
@@ -18,8 +13,12 @@ def fibonacci(n):
     return fibonacci(n - 1) + fibonacci(n - 2)
 
 
-fibonacci(6)
-results = ProfileManager.finalize(return_results=True)
+with ProfileManager.session(
+    use_likwid=False, file_path="profiling_data.h5", return_results=True
+) as run:
+    fibonacci(6)
+
+results = run.results
 results.print_summary()
 df = results.to_dataframe()
 

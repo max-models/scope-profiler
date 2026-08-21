@@ -10,6 +10,8 @@ configs, two job sizes) shows up as a single table instead of two separate
 import argparse
 import sys
 
+from tabulate import tabulate
+
 from scope_profiler.h5reader import read_h5
 from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import region_rows
@@ -163,24 +165,14 @@ def print_diff_table(rows, metric: str = "total", title=None, stream=None) -> No
         for row in rows
     ]
 
-    widths = {
-        key: max(len(header), max(len(row[key]) for row in formatted))
-        for key, header in columns
-    }
-
-    def render(row):
-        cells = [f"{row['name']:<{widths['name']}}"]
-        cells += [f"{row[key]:>{widths[key]}}" for key, _ in columns[1:]]
-        return "  ".join(cells).rstrip()
-
-    header_line = render({key: header for key, header in columns})
-    rule = "-" * len(header_line)
-
-    print(f"  {header_line}", file=stream)
-    print(f"  {rule}", file=stream)
-    for row in formatted:
-        print(f"  {render(row)}", file=stream)
-    print(f"  {rule}", file=stream)
+    table_rows = [[row[key] for key, _ in columns] for row in formatted]
+    for line in tabulate(
+        table_rows,
+        headers=[header for _, header in columns],
+        tablefmt="rounded_outline",
+        disable_numparse=True,
+    ).splitlines():
+        print(f"  {line}", file=stream)
 
     only_a = [row["name"] for row in rows if row["b"] is None]
     only_b = [row["name"] for row in rows if row["a"] is None]

@@ -63,7 +63,8 @@ def write_regions(
     group : h5py.Group
         The rank's group.
     regions : dict
-        Region name -> ``(start_times, end_times)`` int64 arrays, in
+        Region name -> ``(start_times, end_times)`` or
+        ``(start_times, end_times, gpu_durations)`` int64 arrays, in
         nanoseconds.
     sources : dict, optional
         Region name -> ``(source_file, source_lineno, source_text)``. A name
@@ -73,7 +74,8 @@ def write_regions(
     regions_grp = group.create_group("regions")
     sources = sources or {}
     tags = tags or {}
-    for name, (start_times, end_times) in regions.items():
+    for name, arrays in regions.items():
+        start_times, end_times = arrays[:2]
         region_grp = regions_grp.create_group(name)
         region_grp.create_dataset(
             "start_times", data=np.asarray(start_times, dtype=np.int64)
@@ -81,6 +83,10 @@ def write_regions(
         region_grp.create_dataset(
             "end_times", data=np.asarray(end_times, dtype=np.int64)
         )
+        if len(arrays) > 2 and arrays[2] is not None:
+            region_grp.create_dataset(
+                "gpu_durations", data=np.asarray(arrays[2], dtype=np.int64)
+            )
         source = sources.get(name)
         if source is not None:
             source_file, source_lineno, source_text = source

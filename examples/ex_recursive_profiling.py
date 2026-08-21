@@ -12,11 +12,6 @@ Run::
 
 from scope_profiler import ProfileManager
 
-ProfileManager.setup(
-    use_likwid=False,
-    recursive_profile=True,
-)
-
 
 def fib(n):
     if n <= 1:
@@ -36,5 +31,5 @@ def run_workload():
     return work()
 
 
-run_workload()
-ProfileManager.finalize()
+with ProfileManager.session(use_likwid=False, recursive_profile=True):
+    run_workload()

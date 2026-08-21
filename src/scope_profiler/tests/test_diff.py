@@ -201,7 +201,7 @@ def test_cli_entry_point(file_a, file_b, capsys):
 def test_cli_metric_and_sort_flags(file_a, file_b, capsys):
     diff_main([str(file_a), str(file_b), "--metric", "calls", "--sort", "name"])
     out = capsys.readouterr().out
-    lines = [line for line in out.splitlines() if line.strip().startswith("solve")]
+    lines = [line for line in out.splitlines() if "solve" in line]
     assert lines  # solve row present with the calls metric
 
 

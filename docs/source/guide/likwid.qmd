@@ -145,7 +145,7 @@ a group is what fixes which events and metrics exist. `--include`, `--exclude`
 and `--ranks` filter this table too.
 
 Note the `CAS_COUNT_RD:MBOX0C0` style names: see
-[repeated events](#repeated-events) below.
+{ref}`repeated-events` below.
 
 (repeated-events)=
 ## Repeated events

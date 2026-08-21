@@ -17,6 +17,7 @@ parse a table.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import tempfile
@@ -24,6 +25,14 @@ from pathlib import Path
 
 import numpy as np
 
+from scope_profiler.benchmark import (
+    BenchmarkError,
+)
+from scope_profiler.benchmark import compare_benchmarks as _compare_benchmarks
+from scope_profiler.benchmark import (
+    load_config,
+)
+from scope_profiler.benchmark import run_benchmark as _run_benchmark
 from scope_profiler.diff import METRICS as DIFF_METRICS
 from scope_profiler.diff import diff_rows
 from scope_profiler.h5reader import read_h5
@@ -55,6 +64,22 @@ _PLOT_FUNCS = {
 
 class ToolError(Exception):
     """A user-facing error from an MCP tool (bad input, missing file, ...)."""
+
+
+def run_benchmark(config_path: str, label: str = "candidate") -> dict:
+    """Run a declarative repeated benchmark and correctness gate."""
+    try:
+        return _run_benchmark(load_config(config_path), label=label)
+    except BenchmarkError as exc:
+        raise ToolError(str(exc)) from exc
+
+
+def compare_benchmarks(baseline_path: str, candidate_path: str) -> dict:
+    """Compare benchmark manifests and return a keep/reject decision."""
+    try:
+        return _compare_benchmarks(baseline_path, candidate_path)
+    except (BenchmarkError, OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+        raise ToolError(f"Could not compare benchmark manifests: {exc}") from exc
 
 
 def _read_profile(file_path: str) -> ProfilingResults:

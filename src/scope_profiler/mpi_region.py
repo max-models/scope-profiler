@@ -69,6 +69,11 @@ class MPIRegion:
         return self.source_text is not None
 
     @property
+    def has_gpu_timing(self) -> bool:
+        """Whether any rank recorded CUDA-event timings for this region."""
+        return any(region.has_gpu_timing for region in self._regions.values())
+
+    @property
     def source_file(self) -> str | None:
         """Path of the file this region is defined in, or None if not captured."""
         return self._first_captured("source_file")
@@ -98,7 +103,7 @@ class MPIRegion:
             Dictionary with name, num_ranks, num_calls (summed over ranks) and
             duration statistics in seconds, pooled over all calls on all ranks.
         """
-        return {
+        summary = {
             "name": self.name,
             "num_ranks": len(self._regions),
             "num_calls": self.num_calls,
@@ -112,6 +117,10 @@ class MPIRegion:
             "last_duration": self.last_duration,
             "std_duration": self.std_duration,
         }
+        if self.has_gpu_timing:
+            summary["gpu_total_duration"] = self.gpu_total_duration
+            summary["gpu_average_duration"] = self.gpu_average_duration
+        return summary
 
     def events(
         self, ranks: List[int] | int | None = None, origin: float = 0.0
@@ -170,6 +179,18 @@ class MPIRegion:
         ]
         if not values:
             return np.array([], dtype=float)
+        return np.concatenate(values)
+
+    @property
+    def gpu_durations(self) -> np.ndarray | None:
+        """CUDA-event elapsed device times pooled across ranks, or None if absent."""
+        values = [
+            region.gpu_durations
+            for region in self._regions.values()
+            if region.gpu_durations is not None
+        ]
+        if not values:
+            return None
         return np.concatenate(values)
 
     @property
@@ -269,6 +290,18 @@ class MPIRegion:
         return sum(region.total_duration for region in self._regions.values())
 
     @property
+    def gpu_total_duration(self) -> float | None:
+        """Total CUDA-event elapsed device time across ranks, or None if absent."""
+        values = [
+            region.gpu_total_duration
+            for region in self._regions.values()
+            if region.gpu_total_duration is not None
+        ]
+        if not values:
+            return None
+        return float(sum(values))
+
+    @property
     def inclusive_duration(self) -> float:
         """Total inclusive time across ranks, in seconds."""
         return self.total_duration
@@ -298,6 +331,14 @@ class MPIRegion:
         """
         values = self.durations
         return float(np.mean(values)) if values.size else 0.0
+
+    @property
+    def gpu_average_duration(self) -> float | None:
+        """Average CUDA-event elapsed device time across ranks, or None if absent."""
+        values = self.gpu_durations
+        if values is None or not values.size:
+            return None
+        return float(np.mean(values))
 
     @property
     def std_duration(self) -> float:

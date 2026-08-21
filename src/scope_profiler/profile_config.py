@@ -2,14 +2,63 @@
 
 import os
 import shutil
+from pathlib import Path
 from time import perf_counter_ns
 from typing import TYPE_CHECKING
+
+try:  # Python 3.11+
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
 
 from scope_profiler.metadata import collect_metadata
 from scope_profiler.mpi_launch import get_comm
 
 if TYPE_CHECKING:
     from mpi4py.MPI import Intercomm
+
+
+_CONFIG_FIELDS = {
+    "deactivate_profiling",
+    "deactivate_file_output",
+    "use_likwid",
+    "use_line_profiler",
+    "use_nvtx",
+    "use_gpu_timing",
+    "gpu_timing_backend",
+    "recursive_profile",
+    "buffer_limit",
+    "file_path",
+    "label",
+    "capture_region_source",
+}
+
+
+def load_profiling_config(path: str | os.PathLike[str]) -> dict:
+    """Load the ``[profiling]`` table from a TOML settings file.
+
+    A top-level table is also accepted for small files.  Paths in the file
+    retain TOML's normal meaning and are interpreted relative to the current
+    working directory, just like paths passed to :meth:`ProfileManager.setup`.
+    """
+    config_path = Path(path)
+    try:
+        with config_path.open("rb") as stream:
+            raw = tomllib.load(stream)
+    except OSError as exc:
+        raise ValueError(f"Could not read profiling config {path!r}: {exc}") from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise ValueError(f"Invalid profiling TOML {path!r}: {exc}") from exc
+
+    settings = raw.get("profiling", raw)
+    if not isinstance(settings, dict):
+        raise ValueError("Profiling config [profiling] must be a TOML table")
+    unknown = sorted(set(settings) - _CONFIG_FIELDS)
+    if unknown:
+        names = ", ".join(unknown)
+        raise ValueError(f"Unknown profiling setting(s): {names}")
+    return dict(settings)
+
 
 # try:
 # import pylikwid
@@ -168,6 +217,8 @@ class ProfilingConfig:
         use_likwid: bool = False,
         use_line_profiler: bool = False,
         use_nvtx: bool = False,
+        use_gpu_timing: bool = False,
+        gpu_timing_backend="auto",
         recursive_profile: bool = False,
         buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
@@ -191,6 +242,11 @@ class ProfilingConfig:
             Enable line-by-line profiling via line_profiler.
         use_nvtx : bool
             Add NVTX ranges to profiled regions for NVIDIA Nsight tools.
+        use_gpu_timing : bool
+            Record CUDA-event elapsed device time for each profiled region.
+        gpu_timing_backend : str or object
+            CUDA-event backend: ``"auto"``, ``"torch"``, ``"cupy"``, or an
+            object implementing ``record_event()`` and ``elapsed_time_ns()``.
         recursive_profile : bool
             Enable recursive profiling by default for decorated functions.
         buffer_limit : int
@@ -245,6 +301,8 @@ class ProfilingConfig:
         self._use_likwid = use_likwid
         self._use_line_profiler = use_line_profiler
         self._use_nvtx = use_nvtx
+        self._use_gpu_timing = use_gpu_timing
+        self._gpu_timing_backend = gpu_timing_backend
         self._recursive_profile = recursive_profile
         self._buffer_limit = buffer_limit
         self._file_path = file_path
@@ -407,6 +465,16 @@ class ProfilingConfig:
     def use_nvtx(self) -> bool:
         """Return whether NVTX annotations are enabled."""
         return self._use_nvtx
+
+    @property
+    def use_gpu_timing(self) -> bool:
+        """Return whether CUDA-event GPU timing is enabled."""
+        return self._use_gpu_timing
+
+    @property
+    def gpu_timing_backend(self):
+        """CUDA-event timing backend selector or backend object."""
+        return self._gpu_timing_backend
 
     @property
     def deactivate_file_output(self) -> bool:

@@ -17,11 +17,8 @@ def payload(
     """A RankPayload with plain int64 timestamp arrays."""
     return RankPayload(
         regions={
-            name: (
-                np.asarray(starts, dtype=np.int64),
-                np.asarray(ends, dtype=np.int64),
-            )
-            for name, (starts, ends) in (regions or {}).items()
+            name: tuple(np.asarray(values, dtype=np.int64) for values in arrays)
+            for name, arrays in (regions or {}).items()
         },
         likwid=likwid or {},
         likwid_environment=environment or {},
@@ -41,6 +38,21 @@ def test_rank_group_holds_the_recorded_timestamps(tmp_path):
         # The reader recovers metadata from the top level, never from a rank.
         assert "metadata" not in handle["rank0"]
         assert handle["metadata"].attrs["hostname"] == "node0"
+
+
+def test_gpu_durations_round_trip_when_present(tmp_path):
+    path = tmp_path / "gpu_timing.h5"
+    with ProfilingWriter(path) as writer:
+        writer.write_rank(0, payload({"solve": ([0, NS], [NS, 3 * NS], [7, 11])}))
+
+    with h5py.File(path, "r") as handle:
+        gpu = handle["rank0/regions/solve/gpu_durations"]
+        assert gpu[()].tolist() == [7, 11]
+
+    region = read_h5(path)["solve"]
+    assert region.has_gpu_timing is True
+    assert region.gpu_durations.tolist() == pytest.approx([7e-9, 11e-9])
+    assert region[0].gpu_durations_ns.tolist() == [7, 11]
 
 
 def test_line_profile_round_trips(tmp_path):

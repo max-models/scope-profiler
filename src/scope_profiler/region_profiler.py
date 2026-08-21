@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 import numpy as np
 
+from scope_profiler.gpu_timing import resolve_gpu_timing_backend
 from scope_profiler.profile_config import ProfilingConfig
 
 if TYPE_CHECKING:
@@ -440,6 +441,81 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
         self.end_times[self._pop_scope()] = perf_counter_ns()
 
 
+class CUDATimingProfileRegion(TimeOnlyProfileRegion):
+    """Region that records CPU timing plus CUDA-event elapsed device time."""
+
+    __slots__ = (
+        "_gpu_backend",
+        "_gpu_start_events",
+        "_gpu_end_events",
+        "gpu_durations",
+    )
+
+    def __init__(self, region_name: str, config: ProfilingConfig, tags=()):
+        super().__init__(region_name, config, tags=tags)
+        self._gpu_backend = resolve_gpu_timing_backend(config.gpu_timing_backend)
+        self._gpu_start_events = [None] * self.capacity
+        self._gpu_end_events = [None] * self.capacity
+        self.gpu_durations = np.empty(self.capacity, dtype=np.int64)
+
+    def _grow(self) -> None:
+        old_capacity = self.capacity
+        super()._grow()
+        self._gpu_start_events.extend([None] * (self.capacity - old_capacity))
+        self._gpu_end_events.extend([None] * (self.capacity - old_capacity))
+        gpu_durations = np.empty(self.capacity, dtype=np.int64)
+        gpu_durations[:old_capacity] = self.gpu_durations
+        self.gpu_durations = gpu_durations
+
+    def wrap(self, func):
+        """Wrap a function to measure CPU enqueue time and device elapsed time."""
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            scope_ptr = self.ptr
+            if scope_ptr >= self.capacity:
+                self._grow()
+            self.ptr = scope_ptr + 1
+            start = perf_counter_ns()
+            self._gpu_start_events[scope_ptr] = self._gpu_backend.record_event()
+            try:
+                return func(*args, **kwargs)
+            finally:
+                self._gpu_end_events[scope_ptr] = self._gpu_backend.record_event()
+                end = perf_counter_ns()
+                self.start_times[scope_ptr] = start
+                self.end_times[scope_ptr] = end
+
+        return wrapper
+
+    def __enter__(self):
+        """Record CPU start time and a CUDA start event."""
+        slot = self.ptr
+        if slot >= self.capacity:
+            self._grow()
+        self.ptr = slot + 1
+        self._push_scope(slot)
+        self.start_times[slot] = perf_counter_ns()
+        self._gpu_start_events[slot] = self._gpu_backend.record_event()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Record a CUDA end event and CPU end time at this scope's slot."""
+        slot = self._pop_scope()
+        self._gpu_end_events[slot] = self._gpu_backend.record_event()
+        self.end_times[slot] = perf_counter_ns()
+
+    def get_gpu_durations_numpy(self) -> np.ndarray:
+        """Synchronize recorded CUDA events and return device durations in ns."""
+        for index in range(self.ptr):
+            start = self._gpu_start_events[index]
+            end = self._gpu_end_events[index]
+            if start is None or end is None:
+                continue
+            self.gpu_durations[index] = self._gpu_backend.elapsed_time_ns(start, end)
+        return self.gpu_durations[: self.ptr]
+
+
 # NVTX region: time + NVIDIA Nsight annotation
 class NVTXProfileRegion(TimeOnlyProfileRegion):
     """Region that records CPU time and emits an NVTX range.
@@ -480,6 +556,46 @@ class NVTXProfileRegion(TimeOnlyProfileRegion):
 
     def __exit__(self, exc_type, exc_value, traceback):
         """Pop the NVTX range after recording CPU end time."""
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self._nvtx.pop_range()
+
+
+class CUDATimingNVTXProfileRegion(CUDATimingProfileRegion):
+    """Region that records CPU/CUDA-event timing and emits an NVTX range."""
+
+    __slots__ = ("_nvtx",)
+
+    def __init__(self, region_name: str, config: ProfilingConfig, tags=()):
+        super().__init__(region_name, config, tags=tags)
+        self._nvtx = _import_nvtx()
+
+    def wrap(self, func):
+        """Wrap a function with CPU/CUDA timing and an NVTX range."""
+        wrapped = super().wrap(func)
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            self._nvtx.push_range(self.region_name)
+            try:
+                return wrapped(*args, **kwargs)
+            finally:
+                self._nvtx.pop_range()
+
+        return wrapper
+
+    def __enter__(self):
+        """Record CPU/CUDA start markers and push an NVTX range."""
+        self._nvtx.push_range(self.region_name)
+        try:
+            return super().__enter__()
+        except BaseException:
+            self._nvtx.pop_range()
+            raise
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Record CPU/CUDA end markers and pop the NVTX range."""
         try:
             return super().__exit__(exc_type, exc_value, traceback)
         finally:

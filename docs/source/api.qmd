@@ -178,6 +178,7 @@ when building your own nested visualisation.
 ```{eval-rst}
 .. autofunction:: scope_profiler.speedscope_export.export_speedscope
 .. autofunction:: scope_profiler.prof_export.export_prof
+```
 
 ## LIKWID
 
