@@ -104,9 +104,8 @@ interpreter instead:
 }
 ```
 
-Once configured, restart the client (or use its MCP status command) and the
-tools below become available. The server is client-agnostic: Claude Code,
-Codex, and other MCP-capable coding agents can use the same stdio server.
+Once configured, restart Claude Code (or run `/mcp` to check connection
+status) and the four tools below become available for it to call.
 
 ## Available tools
 
@@ -149,26 +148,6 @@ returns the path it wrote. Most agent workflows should prefer the
 numbers from `inspect_profile`/`compare_profiles`; reach for this only
 when a human is going to look at the image afterwards (e.g. attaching it
 to a PR). Requires the `pproc` extra.
-
-### `run_benchmark` and `compare_benchmarks`
-
-For repeated, correctness-gated optimization, use the declarative TOML
-workflow:
-
-```bash
-scope-profiler benchmark run examples/agent_workflow/benchmark.toml --label baseline
-scope-profiler benchmark run examples/agent_workflow/benchmark.toml --label candidate
-scope-profiler benchmark compare \
-  .scope-profiler/agent-workflow/baseline/benchmark.json \
-  .scope-profiler/agent-workflow/candidate/benchmark.json
-```
-
-The benchmark runner performs warmups, multiple measured runs, and an optional
-correctness command. The comparison uses medians and an improvement threshold,
-then returns an explicit `decision` of `keep` or `reject`. MCP exposes the same
-operations as `run_benchmark` and `compare_benchmarks`, returning the same JSON
-manifests and decision objects. Put the workflow contract in `AGENTS.md` so
-Codex follows it automatically, while the CLI remains available to any agent.
 
 ## Example: an agent judging a code change
 

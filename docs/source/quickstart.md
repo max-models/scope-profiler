@@ -2,9 +2,9 @@
 
 # Quickstart
 
-This page walks through the core workflow: **session**, **instrument**, and
-**inspect**. A session sets up profiling and finalizes it automatically, even
-when the profiled code raises an exception.
+This page walks through the core workflow: **session**, **instrument**,
+and **inspect**. A session sets up profiling and finalizes it
+automatically, even when the profiled code raises an exception.
 
 ## 1. Start a session
 
@@ -19,8 +19,8 @@ with ProfileManager.session():
     run_application()
 ```
 
-All regions created inside the session — even in other modules — share its
-configuration.
+All regions created inside the session — even in other modules — share
+its configuration.
 
 ## 2. Instrument your code
 
@@ -69,9 +69,9 @@ The two styles can be mixed freely.
 
 ## 3. Finish the session
 
-When the `with` block exits, the session writes all buffered data, merges
-per-rank HDF5 files, and prints a summary. Use `return_results=True` to keep
-the finalized results in memory:
+When the `with` block exits, the session writes all buffered data,
+merges per-rank HDF5 files, and prints a summary. Use
+`return_results=True` to keep the finalized results in memory:
 
 ``` python
 with ProfileManager.session(return_results=True) as run:
