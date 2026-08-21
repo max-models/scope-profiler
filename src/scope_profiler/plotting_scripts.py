@@ -1706,6 +1706,157 @@ def plot_speedup(
     return rendered if return_fig else None
 
 
+def plot_weak_scaling(
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
+    x_field: str = "num_ranks",
+    ranks: list[int] | int | None = None,
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+    filepath: str | None = None,
+    show: bool = False,
+    verbose: bool = True,
+    cmap: str = DEFAULT_CMAP,
+    data_filepath: str | Path | None = None,
+    data_format: str = "csv",
+    backend: str = "matplotlib",
+    return_fig: bool = False,
+) -> object | None:
+    """Plot weak-scaling runtime versus a chosen parallelism/metadata field.
+
+    Runtime is normalized to the smallest scale, so ideal weak scaling is a
+    horizontal line at 1.0. Lower values are not inherently better here: the
+    useful signal is how closely each region stays near that line.
+    """
+    Canvas = _get_canvas()
+    runs = _as_runs(profiling_data)
+    if not runs:
+        return
+    if len(runs) < 2:
+        raise ValueError("Weak scaling plot requires at least two profiling files.")
+
+    region_names = _common_region_names(runs, include=include, exclude=exclude)
+    if not region_names:
+        raise ValueError("No regions matched the selected filters.")
+
+    is_scaling = x_field in _SCALING_X_FIELDS
+    x_per_reader = [_speedup_x_value(run, x_field) for run in runs]
+    x_keys = (
+        sorted({int(value) for value in x_per_reader})
+        if is_scaling
+        else list(dict.fromkeys(x_per_reader))
+    )
+
+    if verbose:
+        print(
+            f"Plotting weak scaling comparison using x_field={x_field!r}, values: "
+            + ", ".join(map(str, x_keys))
+        )
+
+    duration_samples: dict[str, dict] = {
+        region_name: defaultdict(list) for region_name in region_names
+    }
+    for run, x_value in zip(runs, x_per_reader):
+        for region_name in region_names:
+            duration = _region_average_duration(
+                run.get_region(region_name), ranks=ranks
+            )
+            if np.isfinite(duration) and duration > 0:
+                duration_samples[region_name][x_value].append(duration)
+
+    baseline_key = x_keys[0]
+    colors = _get_cmap_colors(cmap, len(region_names))
+    fig_width = max(10, 1.2 * len(x_keys) + 3)
+    fig_height = max(4.5, 2.8 + 0.35 * len(region_names))
+    x_position = {key: (key if is_scaling else i) for i, key in enumerate(x_keys)}
+
+    canvas = Canvas(figsize=(fig_width, fig_height))
+    plotted = 0
+    data_rows = []
+
+    for idx, region_name in enumerate(region_names):
+        region_values = duration_samples[region_name]
+        baseline_samples = region_values.get(baseline_key, [])
+        if not baseline_samples:
+            continue
+        baseline_duration = float(np.mean(baseline_samples))
+        if not np.isfinite(baseline_duration) or baseline_duration <= 0:
+            continue
+
+        plot_x = []
+        plot_keys = []
+        runtimes = []
+        for key in x_keys:
+            samples = region_values.get(key, [])
+            if not samples:
+                continue
+            mean_duration = float(np.mean(samples))
+            if not np.isfinite(mean_duration) or mean_duration <= 0:
+                continue
+            plot_x.append(x_position[key])
+            plot_keys.append(key)
+            runtimes.append(mean_duration / baseline_duration)
+
+        if not plot_x:
+            continue
+        plotted += 1
+        canvas.add_line(
+            plot_x,
+            runtimes,
+            linewidth=1.8,
+            color=_to_hex(colors[idx]),
+            label=region_name,
+        )
+        if data_filepath:
+            for key, runtime in zip(plot_keys, runtimes):
+                data_rows.append([region_name, key, runtime])
+
+    if plotted == 0:
+        raise ValueError("No valid weak-scaling data could be computed.")
+
+    if data_filepath:
+        if data_format == "json":
+            points = [
+                {"region": region, x_field: key, "normalized_runtime": runtime}
+                for region, key, runtime in data_rows
+            ]
+            colors_map = {
+                name: _to_hex(color) for name, color in zip(region_names, colors)
+            }
+            _write_json(data_filepath, {"points": points, "colors": colors_map})
+        else:
+            _write_csv(
+                data_filepath, ["region", x_field, "normalized_runtime"], data_rows
+            )
+
+    x_label_map = {
+        "num_ranks": "MPI ranks",
+        "omp_num_threads": "OpenMP threads",
+        "total_cores": "MPI ranks × OpenMP threads",
+    }
+    x_label = x_label_map.get(x_field, x_field)
+    if is_scaling:
+        x_line = np.array(x_keys, dtype=float)
+        canvas.set_xticks(x_line)
+    else:
+        canvas.set_xticks(list(range(len(x_keys))), labels=[str(key) for key in x_keys])
+    canvas.add_line(
+        [x_position[key] for key in x_keys],
+        [1.0] * len(x_keys),
+        linestyle="--",
+        color="black",
+        linewidth=1.5,
+        label="Ideal weak scaling",
+    )
+    canvas.set_xlabel(x_label)
+    canvas.set_ylabel("Normalized runtime")
+    canvas.set_title(f"Weak scaling (baseline: {x_label} = {baseline_key})")
+    canvas.set_grid(True)
+    canvas.set_legend()
+
+    rendered = _render(canvas, filepath, show, backend, return_fig=return_fig)
+    return rendered if return_fig else None
+
+
 def plot_imbalance(
     profiling_data: ProfilingResults | Sequence[ProfilingResults],
     metric: str = "total",

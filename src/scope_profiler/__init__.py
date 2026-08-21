@@ -30,6 +30,7 @@ _LAZY_ATTRS = {
     "plot_flame": "plotting_scripts",
     "plot_gantt": "plotting_scripts",
     "plot_speedup": "plotting_scripts",
+    "plot_weak_scaling": "plotting_scripts",
     "write_region_statistics_json": "plotting_scripts",
     "export_prof": "prof_export",
     "export_speedscope": "speedscope_export",

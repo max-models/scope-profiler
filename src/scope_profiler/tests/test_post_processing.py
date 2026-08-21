@@ -24,6 +24,7 @@ from scope_profiler.plotting_scripts import (
     plot_imbalance,
     plot_likwid,
     plot_speedup,
+    plot_weak_scaling,
 )
 from scope_profiler.post_processing import export_main, main
 from scope_profiler.results import ProfilingResults
@@ -401,6 +402,33 @@ def test_plot_speedup(tmp_path):
 
     assert out_file.exists()
     assert out_file.stat().st_size > 0
+
+
+def test_plot_weak_scaling(tmp_path):
+    file_one = tmp_path / "run_1.h5"
+    file_two = tmp_path / "run_2.h5"
+    file_four = tmp_path / "run_4.h5"
+    out_file = tmp_path / "weak_scaling_plot.png"
+    data_file = tmp_path / "weak_scaling_data.json"
+
+    # Constant per-region runtime is ideal weak scaling.
+    _write_sample_h5(file_one, _sample_file_data(1, 100, 200))
+    _write_sample_h5(file_two, _sample_file_data(2, 100, 200))
+    _write_sample_h5(file_four, _sample_file_data(4, 100, 200))
+    runs = [read_h5(path) for path in (file_one, file_two, file_four)]
+
+    plot_weak_scaling(
+        runs,
+        filepath=out_file,
+        data_filepath=data_file,
+        data_format="json",
+        show=False,
+        verbose=False,
+    )
+
+    assert out_file.exists()
+    points = json.loads(data_file.read_text())["points"]
+    assert {point["normalized_runtime"] for point in points} == {1.0}
 
 
 def test_plot_speedup_x_field_omp_num_threads(tmp_path):

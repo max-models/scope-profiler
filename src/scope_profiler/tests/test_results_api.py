@@ -590,6 +590,7 @@ def test_top_level_exports_and_lazy_plotting():
     assert scope_profiler.plot_gantt is plot_gantt
     assert scope_profiler.plot_duration_timeseries is plot_duration_timeseries
     assert "plot_flame" in dir(scope_profiler)
+    assert "plot_weak_scaling" in dir(scope_profiler)
 
     from scope_profiler.speedscope_export import export_speedscope
 

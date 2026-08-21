@@ -18,6 +18,7 @@ from scope_profiler.plotting_scripts import (
     plot_imbalance,
     plot_likwid,
     plot_speedup,
+    plot_weak_scaling,
     write_region_statistics_json,
 )
 from scope_profiler.prof_export import export_prof
@@ -33,6 +34,7 @@ _PLOT_CATALOG: dict[str, tuple[str, bool]] = {
     "durations": ("bar chart of duration statistics per region", True),
     "timeseries": ("duration per call over wall-clock time", False),
     "speedup": ("scaling across multiple files (2+ files only)", False),
+    "weak_scaling": ("weak scaling across multiple files (2+ files only)", False),
     "histogram": ("call-duration distribution per region", False),
     "imbalance": ("per-rank duration comparison, to spot stragglers", False),
     "likwid": ("one LIKWID hardware-counter metric (needs --likwid-metric)", False),
@@ -40,7 +42,7 @@ _PLOT_CATALOG: dict[str, tuple[str, bool]] = {
 _DEFAULT_PLOTS = frozenset(
     name for name, (_, is_default) in _PLOT_CATALOG.items() if is_default
 )
-_QUICK_PLOTS = frozenset({"durations", "speedup"})
+_QUICK_PLOTS = frozenset({"durations", "speedup", "weak_scaling"})
 
 
 @dataclass(frozen=True)
@@ -306,13 +308,13 @@ def build_parser() -> argparse.ArgumentParser:
             _add_log_scale_arg(plot_parser)
         elif kind == "timeseries":
             _add_log_scale_arg(plot_parser)
-        elif kind == "speedup":
+        elif kind in {"speedup", "weak_scaling"}:
             plot_parser.add_argument(
                 "--x",
                 type=str,
                 default="num_ranks",
                 metavar="FIELD",
-                help="Speedup x-axis field.",
+                help="Scaling x-axis field.",
             )
         elif kind == "histogram":
             plot_parser.add_argument(
@@ -641,6 +643,17 @@ def _render_selected_plots(
         if len(runs) > 1
         else None
     )
+    weak_scaling_data_path = (
+        _data_path(
+            data_output_dir,
+            selected_plots,
+            "weak_scaling",
+            "weak_scaling_data",
+            data_format,
+        )
+        if len(runs) > 1
+        else None
+    )
     histogram_data_path = _data_path(
         data_output_dir, selected_plots, "histogram", "histogram_data", data_format
     )
@@ -797,6 +810,23 @@ def _render_selected_plots(
             backend=args.backend,
         )
         saved.extend(path for path in (path, speedup_data_path) if path)
+
+    if len(runs) > 1 and "weak_scaling" in selected_plots:
+        path = image_path("weak_scaling", "weak_scaling_plot")
+        plot_weak_scaling(
+            runs,
+            x_field=options["speedup_x_field"],
+            ranks=args.ranks,
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            cmap=args.cmap,
+            data_filepath=weak_scaling_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
+        saved.extend(path for path in (path, weak_scaling_data_path) if path)
 
     return saved
 
