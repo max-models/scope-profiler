@@ -9,9 +9,42 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def generate_assets() -> None:
+    """Generate benchmark and documentation figures before rendering QMD."""
+
+    generators = [
+        (
+            "overhead benchmark",
+            ROOT / "examples" / "benchmark_overhead.py",
+            "-o",
+            ROOT / "figures",
+        ),
+        (
+            "README figures",
+            ROOT / "examples" / "generate_readme_figures.py",
+            "-o",
+            ROOT / "figures",
+        ),
+        (
+            "CLI documentation figures",
+            ROOT / "examples" / "generate_cli_docs_figures.py",
+            "-o",
+            ROOT / "figures" / "cli",
+        ),
+    ]
+    for name, script, option, output in generators:
+        print(f"Generating {name}")
+        subprocess.run(
+            [sys.executable, str(script), option, str(output)],
+            cwd=ROOT,
+            check=True,
+        )
 
 
 def qmd_sources() -> list[Path]:
@@ -54,6 +87,7 @@ def render(source: Path) -> None:
 
 
 def main() -> None:
+    generate_assets()
     sources = qmd_sources()
     if not sources:
         raise SystemExit("No .qmd sources found")
