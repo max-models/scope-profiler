@@ -181,9 +181,7 @@ def _render(
             fig.show()
         return fig
 
-    if backend == "matplotlib" and (
-        show or x_tick_rotation is not None or return_fig
-    ):
+    if backend == "matplotlib" and (show or x_tick_rotation is not None or return_fig):
         # maxplotlib does not currently expose tick-label rotation through
         # its backend-neutral Canvas API, so rotate the labels after the
         # Matplotlib figure has been materialized and before saving/showing.
