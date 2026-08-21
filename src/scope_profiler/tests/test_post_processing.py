@@ -1,4 +1,6 @@
 import json
+import sys
+import types
 
 import h5py
 import numpy as np
@@ -8,7 +10,10 @@ from scope_profiler import read_h5
 from scope_profiler.call_stack import build_call_stack
 from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.plotting_scripts import (
+    _display_matplotlib_figure_in_notebook,
     _duration_timeseries,
+    _render,
+    _set_xticks,
     available_likwid_metrics,
     collect_region_statistics,
     plot_duration_histogram,
@@ -58,6 +63,74 @@ def _sample_file_data(rank_count, setup_duration, solve_duration):
         }
         for rank in range(rank_count)
     }
+
+
+def test_matplotlib_show_uses_ipython_display_in_jupyter(monkeypatch):
+    displayed = []
+    fig = object()
+
+    ipython = types.ModuleType("IPython")
+    ipython.get_ipython = lambda: types.SimpleNamespace(config={"IPKernelApp": {}})
+    ipython_display = types.ModuleType("IPython.display")
+    ipython_display.display = displayed.append
+
+    monkeypatch.setitem(sys.modules, "IPython", ipython)
+    monkeypatch.setitem(sys.modules, "IPython.display", ipython_display)
+
+    assert _display_matplotlib_figure_in_notebook(fig) is True
+    assert displayed == [fig]
+
+
+def test_matplotlib_show_falls_back_outside_jupyter(monkeypatch):
+    shown = []
+
+    class _Figure:
+        def savefig(self, *args, **kwargs):
+            raise AssertionError("show-only render should not save")
+
+    class _Canvas:
+        def plot(self, **kwargs):
+            return _Figure(), []
+
+    ipython = types.ModuleType("IPython")
+    ipython.get_ipython = lambda: types.SimpleNamespace(config={})
+    ipython_display = types.ModuleType("IPython.display")
+    ipython_display.display = lambda fig: shown.append(("display", fig))
+
+    import matplotlib.pyplot as plt
+
+    monkeypatch.setitem(sys.modules, "IPython", ipython)
+    monkeypatch.setitem(sys.modules, "IPython.display", ipython_display)
+    monkeypatch.setattr(plt, "show", lambda: shown.append(("show", None)))
+
+    _render(_Canvas(), filepath=None, show=True, backend="matplotlib")
+
+    assert shown == [("show", None)]
+
+
+def test_set_xticks_reports_whether_label_options_are_supported():
+    class _NewCanvas:
+        def __init__(self):
+            self.calls = []
+
+        def set_xticks(self, ticks, labels=None, **kwargs):
+            self.calls.append((list(ticks), labels, kwargs))
+
+    class _OldCanvas:
+        def __init__(self):
+            self.calls = []
+
+        def set_xticks(self, ticks, labels=None):
+            self.calls.append((list(ticks), labels))
+
+    new_canvas = _NewCanvas()
+    old_canvas = _OldCanvas()
+
+    assert _set_xticks(new_canvas, [0], labels=["a"], rotation=45, ha="right") is True
+    assert new_canvas.calls == [([0], ["a"], {"rotation": 45, "ha": "right"})]
+
+    assert _set_xticks(old_canvas, [0], labels=["a"], rotation=45, ha="right") is False
+    assert old_canvas.calls == [([0], ["a"])]
 
 
 def test_plot_durations_comparison(tmp_path):

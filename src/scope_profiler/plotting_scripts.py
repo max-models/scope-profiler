@@ -180,28 +180,26 @@ def _render(
             fig.show()
         return
 
-    if x_tick_rotation is not None and backend == "matplotlib":
+    if backend == "matplotlib" and (show or x_tick_rotation is not None):
         # maxplotlib does not currently expose tick-label rotation through
         # its backend-neutral Canvas API, so rotate the labels after the
         # Matplotlib figure has been materialized and before saving/showing.
         fig, axes = canvas.plot(backend="matplotlib", savefig=bool(filepath))
-        for axis in np.asarray(axes).reshape(-1):
-            for label in axis.get_xticklabels():
-                label.set_rotation(x_tick_rotation)
-                # Anchor the end of each vertical label at the tick so the
-                # text grows upward into the figure instead of below it.
-                label.set_ha("right")
+        if x_tick_rotation is not None:
+            for axis in np.asarray(axes).reshape(-1):
+                for label in axis.get_xticklabels():
+                    label.set_rotation(x_tick_rotation)
+                    # Anchor the end of each vertical label at the tick so the
+                    # text grows upward into the figure instead of below it.
+                    label.set_ha("right")
         if filepath:
-            savefig_kwargs = {}
-            if getattr(canvas, "dpi", None) is not None:
-                savefig_kwargs["dpi"] = canvas.dpi
-            fig.savefig(filepath, **savefig_kwargs)
+            _save_matplotlib_figure(fig, canvas, filepath)
         if show:
-            import matplotlib.pyplot as plt
-
-            plt.show()
+            displayed_in_notebook = _show_matplotlib_figure(fig)
+            if displayed_in_notebook:
+                _close_matplotlib_figure(canvas, fig=fig)
         else:
-            _close_matplotlib_figure(canvas)
+            _close_matplotlib_figure(canvas, fig=fig)
         return
 
     if filepath:
@@ -232,14 +230,61 @@ def _panel_gridspec(
     return gridspec
 
 
-def _close_matplotlib_figure(canvas) -> None:
+def _save_matplotlib_figure(fig, canvas, filepath: str | Path) -> None:
+    """Save a materialized Matplotlib figure using canvas-level DPI if present."""
+    savefig_kwargs = {}
+    if getattr(canvas, "dpi", None) is not None:
+        savefig_kwargs["dpi"] = canvas.dpi
+    fig.savefig(filepath, **savefig_kwargs)
+
+
+def _show_matplotlib_figure(fig) -> bool:
+    """Display a Matplotlib figure in notebooks and regular Python sessions."""
+    if _display_matplotlib_figure_in_notebook(fig):
+        return True
+
+    import matplotlib.pyplot as plt
+
+    plt.show()
+    return False
+
+
+def _display_matplotlib_figure_in_notebook(fig) -> bool:
+    """Use IPython rich display when running inside a Jupyter kernel."""
+    try:
+        from IPython import get_ipython
+        from IPython.display import display
+    except ImportError:
+        return False
+
+    shell = get_ipython()
+    if shell is None:
+        return False
+    if "IPKernelApp" not in getattr(shell, "config", {}):
+        return False
+
+    display(fig)
+    return True
+
+
+def _close_matplotlib_figure(canvas, fig=None) -> None:
     """Release the figure maxplotlib keeps open after rendering."""
-    fig = getattr(canvas, "_matplotlib_fig", None)
+    fig = fig if fig is not None else getattr(canvas, "_matplotlib_fig", None)
     if fig is None:
         return
     import matplotlib.pyplot as plt
 
     plt.close(fig)
+
+
+def _set_xticks(canvas, ticks, labels=None, **kwargs) -> bool:
+    """Set x ticks, returning whether optional tick-label kwargs were accepted."""
+    try:
+        canvas.set_xticks(ticks, labels=labels, **kwargs)
+    except TypeError:
+        canvas.set_xticks(ticks, labels=labels)
+        return False
+    return True
 
 
 def _region_color_map(region_names, cmap: str = DEFAULT_CMAP) -> dict:
@@ -1208,7 +1253,13 @@ def plot_durations(
                 alpha=0.8,
             )
 
-        canvas.set_xticks(x_positions, labels=region_names)
+        tick_rotation_applied = _set_xticks(
+            canvas,
+            x_positions,
+            labels=region_names,
+            rotation=45,
+            ha="right",
+        )
         canvas.set_ylabel(ylabel)
         canvas.set_title(f"Region duration comparison ({metric_key})")
         canvas.set_grid(True)
@@ -1229,7 +1280,7 @@ def plot_durations(
             metric_filepath,
             show,
             backend,
-            x_tick_rotation=45,
+            x_tick_rotation=None if tick_rotation_applied else 45,
         )
 
     if data_filepath:
