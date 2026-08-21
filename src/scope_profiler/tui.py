@@ -681,15 +681,11 @@ def render_plot(
             **common,
         )
     elif name == "durations":
-        metrics = [
-            item.strip()
-            for item in str(settings.get("metrics", "total")).split(",")
-            if item.strip()
-        ] or ["total"]
+        metric = str(settings.get("metric", "total")).strip() or "total"
         top_n = settings.get("top_n", "").strip()
         plot_durations(
             results,
-            metrics=metrics,
+            metric=metric,
             sort_by=settings.get("sort_by") or None,
             top_n=int(top_n) if top_n else None,
             log_scale=bool(settings.get("log_scale", False)),
@@ -858,7 +854,7 @@ def _build_textual_app_class():
                 "ranks": "",
                 "cmap": "tab20",
                 "log_scale": False,
-                "metrics": "total",
+                "metric": "total",
                 "sort_by": "",
                 "top_n": "",
                 "bins": "30",
@@ -907,8 +903,8 @@ def _build_textual_app_class():
                         )
                         yield Input(
                             value="total",
-                            placeholder="Duration metrics (total,avg,min,max)",
-                            id="metrics",
+                            placeholder="Duration metric (total,avg,min,max)",
+                            id="metric",
                             classes="setting",
                         )
                         yield Input(
@@ -977,7 +973,7 @@ def _build_textual_app_class():
                 "exclude",
                 "ranks",
                 "cmap",
-                "metrics",
+                "metric",
                 "sort_by",
                 "top_n",
                 "bins",

@@ -685,23 +685,27 @@ def _render_selected_plots(
 
     if "durations" in selected_plots:
         path = image_path("durations", "durations_plot")
-        durations_paths = plot_durations(
-            runs,
-            filepath=path,
-            show=args.show,
-            include=args.include,
-            exclude=args.exclude,
-            ranks=args.ranks,
-            metrics=options["duration_metrics"],
-            sort_by=options["sort_by"],
-            top_n=options["top_n"],
-            combine_regions=options["combine_regions"],
-            cmap=args.cmap,
-            log_scale=options["log_scale"],
-            data_filepath=durations_data_path,
-            data_format=data_format,
-            backend=args.backend,
-        )
+        durations_paths = []
+        for metric in options["duration_metrics"]:
+            durations_paths.extend(
+                plot_durations(
+                    runs,
+                    metric=metric,
+                    filepath=path,
+                    show=args.show,
+                    include=args.include,
+                    exclude=args.exclude,
+                    ranks=args.ranks,
+                    sort_by=options["sort_by"],
+                    top_n=options["top_n"],
+                    combine_regions=options["combine_regions"],
+                    cmap=args.cmap,
+                    log_scale=options["log_scale"],
+                    data_filepath=durations_data_path,
+                    data_format=data_format,
+                    backend=args.backend,
+                )
+            )
         saved.extend(str(path) for path in durations_paths if path)
         if durations_data_path:
             saved.append(durations_data_path)

@@ -1143,7 +1143,7 @@ def plot_durations(
     include: list[str] | str | None = None,
     exclude: list[str] | str | None = None,
     labels: Sequence[str] | None = None,
-    metrics: list[str] | str | None = None,
+    metric: str = "total",
     sort_by: str | None = None,
     top_n: int | None = None,
     combine_regions: dict[str, list[str] | str] | None = None,
@@ -1156,7 +1156,7 @@ def plot_durations(
     data_format: str = "csv",
     backend: str = "matplotlib",
     return_fig: bool = False,
-) -> list[str] | list[object]:
+) -> list[str] | list[object] | object:
     """Plot duration bar charts for one or more profiling files using maxplotlib.
 
     Parameters
@@ -1168,10 +1168,12 @@ def plot_durations(
         duration statistics pool a single region's calls. Each value is one
         or more regex patterns (matched like ``include``); a region matching
         several groups is claimed by whichever group is listed first.
+    metric : str
+        Duration metric to render (``avg``, ``min``, ``max`` or ``total``).
     backend : str
         Backend to use for rendering: "matplotlib" (default) or "plotly".
     return_fig : bool
-        Return one rendered figure per metric instead of the saved filepath list.
+        Return the rendered figure instead of the saved filepath list.
 
     Returns
     -------
@@ -1185,12 +1187,7 @@ def plot_durations(
         return []
     ranks = _normalize_ranks(ranks)
 
-    if metrics is None:
-        metric_keys = list(_DURATION_METRICS)
-    elif isinstance(metrics, str):
-        metric_keys = [metrics]
-    else:
-        metric_keys = list(metrics)
+    metric_keys = [metric]
 
     unknown_metrics = [key for key in metric_keys if key not in _DURATION_METRICS]
     if unknown_metrics:
@@ -1330,7 +1327,9 @@ def plot_durations(
                 data_filepath, ["file", "region", "metric", "value_seconds"], data_rows
             )
 
-    return rendered_figures if return_fig else saved_paths
+    if return_fig:
+        return rendered_figures[0]
+    return saved_paths
 
 
 def _duration_timeseries(

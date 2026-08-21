@@ -184,7 +184,7 @@ def test_render_plot_passes_plot_settings(sample_file, monkeypatch):
             "exclude": "debug",
             "ranks": "0,2-3",
             "cmap": "viridis",
-            "metrics": "avg,max",
+            "metric": "avg",
             "sort_by": "avg",
             "top_n": "5",
             "log_scale": True,
@@ -196,7 +196,7 @@ def test_render_plot_passes_plot_settings(sample_file, monkeypatch):
     assert captured["exclude"] == ["debug"]
     assert captured["ranks"] == [0, 2, 3]
     assert captured["cmap"] == "viridis"
-    assert captured["metrics"] == ["avg", "max"]
+    assert captured["metric"] == "avg"
     assert captured["sort_by"] == "avg"
     assert captured["top_n"] == 5
     assert captured["log_scale"] is True

@@ -145,17 +145,16 @@ def test_plot_durations_comparison(tmp_path):
 
     saved_paths = plot_durations(
         runs,
+        metric="avg",
         filepath=out_file,
         show=False,
         verbose=False,
-        metrics=["avg", "min", "max", "total"],
     )
 
-    assert len(saved_paths) == 4
-    for metric in ("avg", "min", "max", "total"):
-        metric_file = tmp_path / f"durations_plot_{metric}.png"
-        assert metric_file.exists()
-        assert metric_file.stat().st_size > 0
+    assert len(saved_paths) == 1
+    metric_file = out_file
+    assert metric_file.exists()
+    assert metric_file.stat().st_size > 0
 
 
 def test_plot_helpers_can_return_rendered_figures(tmp_path):
@@ -167,15 +166,15 @@ def test_plot_helpers_can_return_rendered_figures(tmp_path):
     assert fig is not None
     assert axes is not None
 
-    figures = plot_durations(
+    fig, axes = plot_durations(
         results,
-        metrics=["avg", "total"],
+        metric="avg",
         return_fig=True,
         show=False,
         verbose=False,
     )
-    assert len(figures) == 2
-    assert all(rendered is not None for rendered in figures)
+    assert fig is not None
+    assert axes is not None
 
 
 def test_duration_timeseries_bands_span_ranks(tmp_path):
@@ -661,14 +660,14 @@ def test_plot_durations_export_data_json(tmp_path):
         verbose=False,
         data_filepath=data_file,
         data_format="json",
-        metrics=["avg", "min", "max", "total"],
+        metric="avg",
     )
 
     payload = json.loads(data_file.read_text(encoding="utf-8"))
-    assert set(payload["metrics"]) == {"avg", "min", "max", "total"}
+    assert set(payload["metrics"]) == {"avg"}
     assert set(payload["colors"]) == {"run_one", "run_two"}
     assert all(color.startswith("#") for color in payload["colors"].values())
-    assert {bar["metric"] for bar in payload["bars"]} == {"avg", "min", "max", "total"}
+    assert {bar["metric"] for bar in payload["bars"]} == {"avg"}
 
 
 def test_collect_region_statistics_includes_total_time(tmp_path):
@@ -715,7 +714,7 @@ def test_plot_durations_sort_by_and_top_n(tmp_path):
         filepath=tmp_path / "durations_plot.png",
         show=False,
         verbose=False,
-        metrics=["total"],
+        metric="total",
         sort_by="total",
         top_n=1,
         data_filepath=data_file,
@@ -737,7 +736,7 @@ def test_plot_durations_log_scale_renders(tmp_path):
         filepath=out_file,
         show=False,
         verbose=False,
-        metrics=["total"],
+        metric="total",
         log_scale=True,
     )
 
@@ -765,7 +764,7 @@ def test_plot_durations_combine_regions_pools_stats(tmp_path):
         filepath=tmp_path / "durations_plot.png",
         show=False,
         verbose=False,
-        metrics=["total", "avg"],
+        metric="total",
         combine_regions={"setup": ["^setup:.*"]},
         data_filepath=data_file,
         data_format="json",
@@ -777,7 +776,7 @@ def test_plot_durations_combine_regions_pools_stats(tmp_path):
     }
     assert {bar["region"] for bar in payload["bars"]} == {"setup", "solve"}
     assert bars[("setup", "total")] == pytest.approx(15.0)
-    assert bars[("setup", "avg")] == pytest.approx(7.5)
+    assert ("setup", "avg") not in bars
     assert bars[("solve", "total")] == pytest.approx(20.0)
 
 

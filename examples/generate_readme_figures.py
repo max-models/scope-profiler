@@ -94,7 +94,7 @@ def main():
         plot_durations(
             results,
             filepath=durations_path,
-            metrics="avg",
+            metric="avg",
             show=args.show,
             verbose=False,
         )
