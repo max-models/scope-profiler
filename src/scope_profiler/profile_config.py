@@ -2,8 +2,8 @@
 
 import os
 import shutil
-from time import perf_counter_ns
 from pathlib import Path
+from time import perf_counter_ns
 from typing import TYPE_CHECKING
 
 try:  # Python 3.11+
@@ -56,6 +56,7 @@ def load_profiling_config(path: str | os.PathLike[str]) -> dict:
         names = ", ".join(unknown)
         raise ValueError(f"Unknown profiling setting(s): {names}")
     return dict(settings)
+
 
 # try:
 # import pylikwid

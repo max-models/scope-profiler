@@ -1170,7 +1170,9 @@ class ProfileManager:
             "label": label,
             "capture_region_source": capture_region_source,
         }
-        settings.update({key: value for key, value in explicit.items() if value is not None})
+        settings.update(
+            {key: value for key, value in explicit.items() if value is not None}
+        )
 
         ProfilingConfig.reset()
         config = ProfilingConfig(
