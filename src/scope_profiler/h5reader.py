@@ -166,6 +166,11 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
                 region = Region(
                     region_grp["start_times"][()],
                     region_grp["end_times"][()],
+                    gpu_durations=(
+                        region_grp["gpu_durations"][()]
+                        if "gpu_durations" in region_grp
+                        else None
+                    ),
                     source_file=(
                         _decode_attribute(attrs["source_file"])
                         if "source_file" in attrs

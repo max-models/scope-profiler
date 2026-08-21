@@ -339,7 +339,9 @@ class ProfilingResults:
         List[dict]
             Entries with keys ``name``, ``rank``, ``call_index``, ``start``,
             ``end`` and ``duration``, in seconds, ordered by region (as in
-            :meth:`get_regions`) then rank then call order.
+            :meth:`get_regions`) then rank then call order. Entries also carry
+            ``gpu_duration`` when CUDA-event timing was enabled for that
+            region.
 
         Examples
         --------
@@ -372,8 +374,9 @@ class ProfilingResults:
         Returns
         -------
         pandas.DataFrame
-            Columns ``name``, ``rank``, ``call_index``, ``start``, ``end``,
-            ``duration``, with times in seconds.
+            Columns ``name``, ``rank``, ``call_index``, ``start``, ``end`` and
+            ``duration``, with times in seconds. A ``gpu_duration`` column is
+            included when any selected event has CUDA-event timing.
 
         Raises
         ------
@@ -388,7 +391,6 @@ class ProfilingResults:
                 "scope-profiler[plot] or pandas directly."
             ) from exc
 
-        columns = ["name", "rank", "call_index", "start", "end", "duration"]
         events = self.events(
             include=include,
             exclude=exclude,
@@ -396,6 +398,9 @@ class ProfilingResults:
             relative=relative,
             origin=origin,
         )
+        columns = ["name", "rank", "call_index", "start", "end", "duration"]
+        if any("gpu_duration" in event for event in events):
+            columns.append("gpu_duration")
         return pd.DataFrame(events, columns=columns)
 
     def call_stack(

@@ -9,12 +9,30 @@ import pytest
 import scope_profiler.tests.examples as examples
 from scope_profiler import ProfileManager, ProfilingResults, read_h5
 from scope_profiler.region_profiler import (
+    CUDATimingNVTXProfileRegion,
+    CUDATimingProfileRegion,
     DisabledProfileRegion,
     FullProfileRegion,
     LineProfilerRegion,
     NVTXProfileRegion,
     TimeOnlyProfileRegion,
 )
+
+
+class FakeGPUTimingBackend:
+    name = "fake"
+
+    def __init__(self):
+        self._next = 0
+        self.events = []
+
+    def record_event(self):
+        self._next += 10
+        self.events.append(self._next)
+        return self._next
+
+    def elapsed_time_ns(self, start_event, end_event):
+        return end_event - start_event
 
 
 @pytest.mark.parametrize("use_likwid", [False])
@@ -127,6 +145,46 @@ def test_all_region_types():
         with ProfileManager.profile_region("nvtx_region"):
             sleep(0.001)
         assert calls == [("push", "nvtx_region"), ("pop",)]
+    finally:
+        monkeypatch.undo()
+
+    # CUDA-event timing region: CPU timing plus device elapsed duration.
+    backend = FakeGPUTimingBackend()
+    ProfileManager.setup(
+        use_gpu_timing=True,
+        gpu_timing_backend=backend,
+        deactivate_file_output=True,
+    )
+    assert ProfileManager._region_cls is CUDATimingProfileRegion
+    with ProfileManager.profile_region("gpu_region"):
+        sleep(0.001)
+    region = ProfileManager.get_region("gpu_region")
+    assert isinstance(region, CUDATimingProfileRegion)
+    assert region.get_gpu_durations_numpy().tolist() == [10]
+
+    # CUDA-event timing composes with NVTX annotations.
+    calls = []
+    fake_nvtx = SimpleNamespace(
+        push_range=lambda name: calls.append(("push", name)),
+        pop_range=lambda: calls.append(("pop",)),
+    )
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setitem(sys.modules, "nvtx", fake_nvtx)
+    try:
+        backend = FakeGPUTimingBackend()
+        ProfileManager.setup(
+            use_gpu_timing=True,
+            gpu_timing_backend=backend,
+            use_nvtx=True,
+            deactivate_file_output=True,
+        )
+        assert ProfileManager._region_cls is CUDATimingNVTXProfileRegion
+        with ProfileManager.profile_region("gpu_nvtx_region"):
+            sleep(0.001)
+        assert calls == [("push", "gpu_nvtx_region"), ("pop",)]
+        assert ProfileManager.get_region(
+            "gpu_nvtx_region"
+        ).get_gpu_durations_numpy().tolist() == [10]
     finally:
         monkeypatch.undo()
 

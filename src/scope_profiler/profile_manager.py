@@ -16,6 +16,8 @@ import numpy as np
 from scope_profiler.profile_config import ProfilingConfig, load_profiling_config
 from scope_profiler.region_profiler import (
     BaseProfileRegion,
+    CUDATimingNVTXProfileRegion,
+    CUDATimingProfileRegion,
     DisabledProfileRegion,
     FullProfileRegion,
     LineProfilerRegion,
@@ -42,7 +44,12 @@ class RankPayload(NamedTuple):
     """
 
     regions: dict
-    """Region name -> ``(start_times, end_times)`` int64 arrays, nanoseconds."""
+    """Region name -> timing arrays, in nanoseconds.
+
+    Values are ``(start_times, end_times)`` for CPU timing only, or
+    ``(start_times, end_times, gpu_durations)`` when CUDA-event timing is
+    enabled. CPU timestamps still measure enqueue-side region duration.
+    """
 
     likwid: dict
     """Region tag -> :class:`~scope_profiler.likwid_data.LikwidRegionResult`."""
@@ -245,6 +252,10 @@ class ProfileManager:
             cls._region_cls = LineProfilerRegion
         elif cfg.use_likwid:
             cls._region_cls = FullProfileRegion
+        elif cfg.use_nvtx and cfg.use_gpu_timing:
+            cls._region_cls = CUDATimingNVTXProfileRegion
+        elif cfg.use_gpu_timing:
+            cls._region_cls = CUDATimingProfileRegion
         elif cfg.use_nvtx:
             cls._region_cls = NVTXProfileRegion
         else:
@@ -540,7 +551,8 @@ class ProfileManager:
         Returns
         -------
         dict
-            Region name -> ``(start_times, end_times)``, in nanoseconds.
+            Region name -> ``(start_times, end_times)`` or
+            ``(start_times, end_times, gpu_durations)``, in nanoseconds.
         """
         snapshot = {}
         for name, region in cls.get_all_regions().items():
@@ -548,10 +560,13 @@ class ProfileManager:
             # each finalize().
             if region.ptr == 0:
                 continue
-            snapshot[name] = (
-                np.array(region.start_times[: region.ptr]),
-                np.array(region.end_times[: region.ptr]),
-            )
+            starts = np.array(region.start_times[: region.ptr])
+            ends = np.array(region.end_times[: region.ptr])
+            get_gpu_durations = getattr(region, "get_gpu_durations_numpy", None)
+            if get_gpu_durations is None:
+                snapshot[name] = (starts, ends)
+            else:
+                snapshot[name] = (starts, ends, np.array(get_gpu_durations()))
         return snapshot
 
     @classmethod
@@ -614,13 +629,16 @@ class ProfileManager:
                 self._line_profile[rank] = payload.line_profile
             sources = payload.sources or {}
             tags = payload.tags or {}
-            for name, (starts, ends) in payload.regions.items():
+            for name, arrays in payload.regions.items():
+                starts, ends = arrays[:2]
+                gpu_durations = arrays[2] if len(arrays) > 2 else None
                 source_file, source_lineno, source_text = sources.get(
                     name, (None, None, None)
                 )
                 self._per_region.setdefault(name, {})[rank] = Region(
                     starts,
                     ends,
+                    gpu_durations=gpu_durations,
                     source_file=source_file,
                     source_lineno=source_lineno,
                     source_text=source_text,
@@ -1057,6 +1075,8 @@ class ProfileManager:
         use_likwid: bool | None = None,
         use_line_profiler: bool | None = None,
         use_nvtx: bool | None = None,
+        use_gpu_timing: bool | None = None,
+        gpu_timing_backend=None,
         recursive_profile: bool | None = None,
         buffer_limit: int | None = None,
         file_path: str | None = None,
@@ -1090,6 +1110,14 @@ class ProfileManager:
         use_nvtx : bool, optional
             Add NVTX ranges to profiled regions for NVIDIA Nsight tools
             (default: False). Requires ``scope-profiler[nvtx]``.
+        use_gpu_timing : bool, optional
+            Record CUDA-event elapsed device time for each profiled region
+            (default: False). CPU timestamps are still recorded, so the normal
+            timeline remains enqueue-side timing.
+        gpu_timing_backend : str or object, optional
+            CUDA-event backend for ``use_gpu_timing``: ``"auto"``, ``"torch"``,
+            ``"cupy"``, or a custom object implementing ``record_event()`` and
+            ``elapsed_time_ns(start_event, end_event)``.
         recursive_profile : bool, optional
             Enable recursive profiling for all decorated functions by default
             (default: False). This can be overridden per decorator with
@@ -1150,6 +1178,8 @@ class ProfileManager:
             "use_likwid": False,
             "use_line_profiler": False,
             "use_nvtx": False,
+            "use_gpu_timing": False,
+            "gpu_timing_backend": "auto",
             "recursive_profile": False,
             "buffer_limit": 1024,
             "file_path": "profiling_data.h5",
@@ -1164,6 +1194,8 @@ class ProfileManager:
             "use_likwid": use_likwid,
             "use_line_profiler": use_line_profiler,
             "use_nvtx": use_nvtx,
+            "use_gpu_timing": use_gpu_timing,
+            "gpu_timing_backend": gpu_timing_backend,
             "recursive_profile": recursive_profile,
             "buffer_limit": buffer_limit,
             "file_path": file_path,

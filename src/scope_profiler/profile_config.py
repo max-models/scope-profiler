@@ -24,6 +24,8 @@ _CONFIG_FIELDS = {
     "use_likwid",
     "use_line_profiler",
     "use_nvtx",
+    "use_gpu_timing",
+    "gpu_timing_backend",
     "recursive_profile",
     "buffer_limit",
     "file_path",
@@ -215,6 +217,8 @@ class ProfilingConfig:
         use_likwid: bool = False,
         use_line_profiler: bool = False,
         use_nvtx: bool = False,
+        use_gpu_timing: bool = False,
+        gpu_timing_backend="auto",
         recursive_profile: bool = False,
         buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
@@ -238,6 +242,11 @@ class ProfilingConfig:
             Enable line-by-line profiling via line_profiler.
         use_nvtx : bool
             Add NVTX ranges to profiled regions for NVIDIA Nsight tools.
+        use_gpu_timing : bool
+            Record CUDA-event elapsed device time for each profiled region.
+        gpu_timing_backend : str or object
+            CUDA-event backend: ``"auto"``, ``"torch"``, ``"cupy"``, or an
+            object implementing ``record_event()`` and ``elapsed_time_ns()``.
         recursive_profile : bool
             Enable recursive profiling by default for decorated functions.
         buffer_limit : int
@@ -292,6 +301,8 @@ class ProfilingConfig:
         self._use_likwid = use_likwid
         self._use_line_profiler = use_line_profiler
         self._use_nvtx = use_nvtx
+        self._use_gpu_timing = use_gpu_timing
+        self._gpu_timing_backend = gpu_timing_backend
         self._recursive_profile = recursive_profile
         self._buffer_limit = buffer_limit
         self._file_path = file_path
@@ -454,6 +465,16 @@ class ProfilingConfig:
     def use_nvtx(self) -> bool:
         """Return whether NVTX annotations are enabled."""
         return self._use_nvtx
+
+    @property
+    def use_gpu_timing(self) -> bool:
+        """Return whether CUDA-event GPU timing is enabled."""
+        return self._use_gpu_timing
+
+    @property
+    def gpu_timing_backend(self):
+        """CUDA-event timing backend selector or backend object."""
+        return self._gpu_timing_backend
 
     @property
     def deactivate_file_output(self) -> bool:
