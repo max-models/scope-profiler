@@ -64,13 +64,16 @@ def main():
     kernels = load_kernels()
 
     with ProfileManager.session(
-        file_path=str(OUTPUT), label="mixed python/fortran", native_traces=HERE,
-        verbose=False, return_results=True
+        file_path=str(OUTPUT),
+        label="mixed python/fortran",
+        native_traces=HERE,
+        verbose=False,
+        return_results=True,
     ) as run:
         rank, size = rank_and_size()
 
-    # Start the Fortran side, telling it which rank it is so the traces of a
-    # parallel run do not collide.
+        # Start the Fortran side, telling it which rank it is so the traces of a
+        # parallel run do not collide.
         kernels.start_profiling(str(HERE / "trace"), rank)
 
         with ProfileManager.profile_region("python:setup"):
@@ -87,7 +90,7 @@ def main():
                     with ProfileManager.profile_region("python:checkpoint"):
                         kernels.checkpoint(200000)
 
-    # Write the Fortran trace *before* finalizing, then fold it in.
+        # Write the Fortran trace *before* finalizing, then fold it in.
         kernels.stop_profiling()
     results = run.results
 

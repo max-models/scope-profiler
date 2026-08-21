@@ -12,6 +12,7 @@ Run::
 
 from scope_profiler import ProfileManager
 
+
 def fib(n):
     if n <= 1:
         return n

@@ -4,6 +4,7 @@ import time
 from scope_profiler import ProfileManager
 from scope_profiler.plotting_scripts import plot_flame, plot_gantt
 
+
 @ProfileManager.profile("fibonacci")
 def fibonacci(n):
     if n < 2:

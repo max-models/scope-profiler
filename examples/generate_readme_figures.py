@@ -80,9 +80,7 @@ def main():
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         h5_path = os.path.join(tmp_dir, "readme_example.h5")
-        with ProfileManager.session(
-            use_likwid=False, file_path=h5_path, verbose=False
-        ):
+        with ProfileManager.session(use_likwid=False, file_path=h5_path, verbose=False):
             run_workload()
 
         results = read_h5(h5_path)

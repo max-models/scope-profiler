@@ -18,6 +18,7 @@ import random
 
 from scope_profiler import ProfileManager
 
+
 class FluidSimulation:
     """Toy fluid simulation with three profiled stages."""
 

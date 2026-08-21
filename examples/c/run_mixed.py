@@ -77,14 +77,17 @@ def main():
     kernels = load_kernels(library)
 
     with ProfileManager.session(
-        file_path=str(OUTPUT), label="mixed python/c", native_traces=HERE,
-        verbose=False, return_results=True
+        file_path=str(OUTPUT),
+        label="mixed python/c",
+        native_traces=HERE,
+        verbose=False,
+        return_results=True,
     ) as run:
         config = ProfileManager.get_config()
         rank, size = config._rank, config._size
 
-    # Start the C side, telling it which rank it is so the traces of a
-    # parallel run do not collide.
+        # Start the C side, telling it which rank it is so the traces of a
+        # parallel run do not collide.
         kernels.kernels_start_profiling(str(HERE / "trace").encode(), rank)
 
         with ProfileManager.profile_region("python:setup"):
@@ -101,7 +104,7 @@ def main():
                     with ProfileManager.profile_region("python:checkpoint"):
                         kernels.kernels_checkpoint(200000)
 
-    # Write the C trace *before* finalizing, then fold it in.
+        # Write the C trace *before* finalizing, then fold it in.
         kernels.kernels_stop_profiling()
     results = run.results
 

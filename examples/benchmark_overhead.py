@@ -93,9 +93,7 @@ def main():
     totals_ns = []
 
     for name, kwargs in configs:
-        with ProfileManager.session(
-            buffer_limit=buffer_limit, verbose=False, **kwargs
-        ):
+        with ProfileManager.session(buffer_limit=buffer_limit, verbose=False, **kwargs):
             # Define a fresh function each iteration so decoration is isolated.
             def _work():
                 s = 0
