@@ -18,6 +18,7 @@ class Region:
         self,
         start_times: np.ndarray,
         end_times: np.ndarray,
+        gpu_durations: np.ndarray | None = None,
         source_file: str | None = None,
         source_lineno: int | None = None,
         source_text: str | None = None,
@@ -41,6 +42,9 @@ class Region:
         self._start_times = start_times
         self._end_times = end_times
         self._durations = end_times - start_times
+        self._gpu_durations = (
+            None if gpu_durations is None else np.asarray(gpu_durations, dtype=np.int64)
+        )
         # A Region does not know about other regions, so until it is attached
         # to ProfilingResults exclusive time defaults to inclusive time.
         self._exclusive_durations = self._durations.copy()
@@ -61,7 +65,7 @@ class Region:
             average_duration, min_duration, max_duration, first_duration,
             last_duration, and std_duration. Durations are in seconds.
         """
-        return {
+        summary = {
             "num_calls": self.num_calls,
             "total_duration": self.total_duration,
             "inclusive_duration": self.inclusive_duration,
@@ -73,6 +77,10 @@ class Region:
             "last_duration": self.last_duration,
             "std_duration": self.std_duration,
         }
+        if self.has_gpu_timing:
+            summary["gpu_total_duration"] = self.gpu_total_duration
+            summary["gpu_average_duration"] = self.gpu_average_duration
+        return summary
 
     def _set_exclusive_durations(self, durations: np.ndarray) -> None:
         """Set exclusive durations after nesting has been reconstructed."""
@@ -99,15 +107,19 @@ class Region:
         """
         starts = self.start_times - origin
         ends = self.end_times - origin
-        return [
-            {
+        events = []
+        gpu_durations = self.gpu_durations
+        for index, (start, end) in enumerate(zip(starts, ends)):
+            event = {
                 "call_index": index,
                 "start": float(start),
                 "end": float(end),
                 "duration": float(end - start),
             }
-            for index, (start, end) in enumerate(zip(starts, ends))
-        ]
+            if gpu_durations is not None:
+                event["gpu_duration"] = float(gpu_durations[index])
+            events.append(event)
+        return events
 
     @property
     def has_timing(self) -> bool:
@@ -118,6 +130,11 @@ class Region:
     def has_source(self) -> bool:
         """Whether this region's call-site source was captured."""
         return self._source_text is not None
+
+    @property
+    def has_gpu_timing(self) -> bool:
+        """Whether this region has CUDA-event elapsed timings."""
+        return self._gpu_durations is not None and len(self._gpu_durations) > 0
 
     @property
     def source_file(self) -> str | None:
@@ -159,6 +176,11 @@ class Region:
         return self._durations
 
     @property
+    def gpu_durations_ns(self) -> np.ndarray | None:
+        """CUDA-event elapsed device times in nanoseconds, or None if absent."""
+        return self._gpu_durations
+
+    @property
     def inclusive_durations_ns(self) -> np.ndarray:
         """Inclusive duration of every call in nanoseconds."""
         return self._durations
@@ -198,6 +220,13 @@ class Region:
         return self._durations / NS_PER_SECOND
 
     @property
+    def gpu_durations(self) -> np.ndarray | None:
+        """CUDA-event elapsed device times in seconds, or None if absent."""
+        if self._gpu_durations is None:
+            return None
+        return self._gpu_durations / NS_PER_SECOND
+
+    @property
     def inclusive_durations(self) -> np.ndarray:
         """Inclusive duration of every call in seconds."""
         return self.durations
@@ -218,6 +247,13 @@ class Region:
         return (
             float(np.sum(self._durations)) / NS_PER_SECOND if self.has_timing else 0.0
         )
+
+    @property
+    def gpu_total_duration(self) -> float | None:
+        """Total CUDA-event elapsed device time in seconds, or None if absent."""
+        if self._gpu_durations is None:
+            return None
+        return float(np.sum(self._gpu_durations)) / NS_PER_SECOND
 
     @property
     def inclusive_duration(self) -> float:
@@ -244,6 +280,13 @@ class Region:
         return (
             float(np.mean(self._durations)) / NS_PER_SECOND if self.has_timing else 0.0
         )
+
+    @property
+    def gpu_average_duration(self) -> float | None:
+        """Average CUDA-event elapsed device time in seconds, or None if absent."""
+        if self._gpu_durations is None or len(self._gpu_durations) == 0:
+            return None
+        return float(np.mean(self._gpu_durations)) / NS_PER_SECOND
 
     @property
     def min_duration(self) -> float:

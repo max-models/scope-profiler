@@ -7,14 +7,23 @@ from scope_profiler.profile_config import load_profiling_config
 def test_setup_loads_profiling_toml_and_direct_values_override(tmp_path):
     config_path = tmp_path / "profiling.toml"
     config_path.write_text(
-        "[profiling]\nuse_nvtx = true\nbuffer_limit = 2048\nlabel = 'from-file'\n",
+        "[profiling]\n"
+        "use_nvtx = true\n"
+        "use_gpu_timing = true\n"
+        "gpu_timing_backend = 'cupy'\n"
+        "buffer_limit = 2048\n"
+        "label = 'from-file'\n",
         encoding="utf-8",
     )
 
-    ProfileManager.setup(config_path=config_path, buffer_limit=4096)
+    ProfileManager.setup(
+        config_path=config_path, buffer_limit=4096, use_gpu_timing=False
+    )
     config = ProfileManager.get_config()
 
     assert config.use_nvtx is True
+    assert config.use_gpu_timing is False
+    assert config.gpu_timing_backend == "cupy"
     assert config.buffer_limit == 4096
     assert config.label == "from-file"
 
