@@ -158,6 +158,26 @@ def test_plot_durations_comparison(tmp_path):
         assert metric_file.stat().st_size > 0
 
 
+def test_plot_helpers_can_return_rendered_figures(tmp_path):
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
+    results = read_h5(file_path)
+
+    fig, axes = plot_gantt(results, return_fig=True, show=False, verbose=False)
+    assert fig is not None
+    assert axes is not None
+
+    figures = plot_durations(
+        results,
+        metrics=["avg", "total"],
+        return_fig=True,
+        show=False,
+        verbose=False,
+    )
+    assert len(figures) == 2
+    assert all(rendered is not None for rendered in figures)
+
+
 def test_duration_timeseries_bands_span_ranks(tmp_path):
     file_path = tmp_path / "run.h5"
     # Two calls of "solve" per rank, with rank 1 slower on the second call, so

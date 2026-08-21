@@ -155,7 +155,8 @@ def _render(
     backend: str,
     plotly_layout: dict | None = None,
     x_tick_rotation: float | None = None,
-) -> None:
+    return_fig: bool = False,
+) -> tuple[object, object] | object:
     """Save and/or display a canvas."""
     if backend == "plotly":
         fig = canvas.plot_plotly(show=False)
@@ -178,9 +179,11 @@ def _render(
                     ) from exc
         if show:
             fig.show()
-        return
+        return fig
 
-    if backend == "matplotlib" and (show or x_tick_rotation is not None):
+    if backend == "matplotlib" and (
+        show or x_tick_rotation is not None or return_fig
+    ):
         # maxplotlib does not currently expose tick-label rotation through
         # its backend-neutral Canvas API, so rotate the labels after the
         # Matplotlib figure has been materialized and before saving/showing.
@@ -198,16 +201,17 @@ def _render(
             displayed_in_notebook = _show_matplotlib_figure(fig)
             if displayed_in_notebook:
                 _close_matplotlib_figure(canvas, fig=fig)
-        else:
+        elif not return_fig:
             _close_matplotlib_figure(canvas, fig=fig)
-        return
+        return fig, axes
 
     if filepath:
         canvas.savefig(filepath, backend=backend)
     if show:
-        canvas.show(backend=backend)
+        return canvas.show(backend=backend)
     elif backend == "matplotlib":
         _close_matplotlib_figure(canvas)
+    return None
 
 
 def _panel_gridspec(
@@ -651,7 +655,8 @@ def plot_gantt(
     data_filepath: str | Path | None = None,
     data_format: str = "csv",
     backend: str = "matplotlib",
-) -> None:
+    return_fig: bool = False,
+) -> object | None:
     """
     Plot a Gantt chart of all (or selected) regions with per-rank lanes using maxplotlib.
 
@@ -659,6 +664,9 @@ def plot_gantt(
     ----------
     backend : str
         Backend to use for rendering: "matplotlib" (default) or "plotly".
+    return_fig : bool
+        Return the rendered figure instead of the default ``None``. Matplotlib
+        returns ``(fig, axes)``; Plotly returns its figure object.
     """
     Canvas = _get_canvas()
     runs = _as_runs(profiling_data)
@@ -813,7 +821,15 @@ def plot_gantt(
 
     # One Plotly bar trace per region color; without "overlay" they would
     # share each row's height instead of each drawing on the full row.
-    _render(canvas, filepath, show, backend, plotly_layout={"barmode": "overlay"})
+    rendered = _render(
+        canvas,
+        filepath,
+        show,
+        backend,
+        plotly_layout={"barmode": "overlay"},
+        return_fig=return_fig,
+    )
+    return rendered if return_fig else None
 
 
 def plot_flame(
@@ -828,7 +844,8 @@ def plot_flame(
     data_filepath: str | Path | None = None,
     data_format: str = "csv",
     backend: str = "matplotlib",
-) -> None:
+    return_fig: bool = False,
+) -> object | None:
     """
     Plot a flame graph reconstructing the call stack from region timings using maxplotlib.
 
@@ -836,6 +853,9 @@ def plot_flame(
     ----------
     backend : str
         Backend to use for rendering: "matplotlib" (default) or "plotly".
+    return_fig : bool
+        Return the rendered figure instead of the default ``None``. Matplotlib
+        returns ``(fig, axes)``; Plotly returns its figure object.
     """
     Canvas = _get_canvas()
     runs = _as_runs(profiling_data)
@@ -968,7 +988,8 @@ def plot_flame(
     if not single_panel:
         canvas.suptitle("Flame Graphs")
 
-    _render(canvas, filepath, show, backend)
+    rendered = _render(canvas, filepath, show, backend, return_fig=return_fig)
+    return rendered if return_fig else None
 
 
 _DURATION_METRICS: dict[str, tuple[str, str]] = {
@@ -1136,7 +1157,8 @@ def plot_durations(
     data_filepath: str | Path | None = None,
     data_format: str = "csv",
     backend: str = "matplotlib",
-) -> list[str]:
+    return_fig: bool = False,
+) -> list[str] | list[object]:
     """Plot duration bar charts for one or more profiling files using maxplotlib.
 
     Parameters
@@ -1150,6 +1172,8 @@ def plot_durations(
         several groups is claimed by whichever group is listed first.
     backend : str
         Backend to use for rendering: "matplotlib" (default) or "plotly".
+    return_fig : bool
+        Return one rendered figure per metric instead of the saved filepath list.
 
     Returns
     -------
@@ -1212,6 +1236,7 @@ def plot_durations(
     width = min(0.8 / max(num_readers, 1), 0.35)
 
     saved_paths: list[str] = []
+    rendered_figures: list[object] = []
     data_rows = []
 
     for metric_key in metric_keys:
@@ -1275,13 +1300,16 @@ def plot_durations(
             )
             saved_paths.append(metric_filepath)
 
-        _render(
+        rendered = _render(
             canvas,
             metric_filepath,
             show,
             backend,
             x_tick_rotation=None if tick_rotation_applied else 45,
+            return_fig=return_fig,
         )
+        if return_fig:
+            rendered_figures.append(rendered)
 
     if data_filepath:
         if data_format == "json":
@@ -1304,7 +1332,7 @@ def plot_durations(
                 data_filepath, ["file", "region", "metric", "value_seconds"], data_rows
             )
 
-    return saved_paths
+    return rendered_figures if return_fig else saved_paths
 
 
 def _duration_timeseries(
@@ -1376,6 +1404,7 @@ def plot_duration_timeseries(
     data_filepath: str | Path | None = None,
     data_format: str = "csv",
     backend: str = "matplotlib",
+    return_fig: bool = False,
 ) -> None:
     """Plot each region's call duration over wall-clock time, with a min-max band.
 
@@ -1387,6 +1416,9 @@ def plot_duration_timeseries(
     ----------
     backend : str
         Backend to use for rendering: "matplotlib" (default) or "plotly".
+    return_fig : bool
+        Return the rendered figure instead of the default ``None``. Matplotlib
+        returns ``(fig, axes)``; Plotly returns its figure object.
     """
     Canvas = _get_canvas()
     runs = _as_runs(profiling_data)
@@ -1516,7 +1548,8 @@ def plot_duration_timeseries(
     if not single_panel:
         canvas.suptitle("Region duration over time")
 
-    _render(canvas, filepath, show, backend)
+    rendered = _render(canvas, filepath, show, backend, return_fig=return_fig)
+    return rendered if return_fig else None
 
 
 def plot_speedup(
@@ -1532,7 +1565,8 @@ def plot_speedup(
     data_filepath: str | Path | None = None,
     data_format: str = "csv",
     backend: str = "matplotlib",
-) -> None:
+    return_fig: bool = False,
+) -> object | None:
     """Plot scope speedup versus a chosen parallelism/metadata field using maxplotlib.
 
     Parameters
@@ -1671,7 +1705,8 @@ def plot_speedup(
     canvas.set_grid(True)
     canvas.set_legend()
 
-    _render(canvas, filepath, show, backend)
+    rendered = _render(canvas, filepath, show, backend, return_fig=return_fig)
+    return rendered if return_fig else None
 
 
 def plot_imbalance(
