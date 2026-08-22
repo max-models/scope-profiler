@@ -155,7 +155,9 @@ def _render(
     backend: str,
     plotly_layout: dict | None = None,
     x_tick_rotation: float | None = None,
-) -> None:
+    return_fig: bool = False,
+    matplotlib_postprocess=None,
+) -> tuple[object, object] | object:
     """Save and/or display a canvas."""
     if backend == "plotly":
         fig = canvas.plot_plotly(show=False)
@@ -178,38 +180,44 @@ def _render(
                     ) from exc
         if show:
             fig.show()
-        return
+        return fig
 
-    if x_tick_rotation is not None and backend == "matplotlib":
+    if backend == "matplotlib" and (
+        show
+        or x_tick_rotation is not None
+        or return_fig
+        or matplotlib_postprocess is not None
+    ):
         # maxplotlib does not currently expose tick-label rotation through
         # its backend-neutral Canvas API, so rotate the labels after the
         # Matplotlib figure has been materialized and before saving/showing.
         fig, axes = canvas.plot(backend="matplotlib", savefig=bool(filepath))
-        for axis in np.asarray(axes).reshape(-1):
-            for label in axis.get_xticklabels():
-                label.set_rotation(x_tick_rotation)
-                # Anchor the end of each vertical label at the tick so the
-                # text grows upward into the figure instead of below it.
-                label.set_ha("right")
+        if matplotlib_postprocess is not None:
+            matplotlib_postprocess(fig, axes)
+        if x_tick_rotation is not None:
+            for axis in np.asarray(axes).reshape(-1):
+                for label in axis.get_xticklabels():
+                    label.set_rotation(x_tick_rotation)
+                    # Anchor the end of each vertical label at the tick so the
+                    # text grows upward into the figure instead of below it.
+                    label.set_ha("right")
         if filepath:
-            savefig_kwargs = {}
-            if getattr(canvas, "dpi", None) is not None:
-                savefig_kwargs["dpi"] = canvas.dpi
-            fig.savefig(filepath, **savefig_kwargs)
+            _save_matplotlib_figure(fig, canvas, filepath)
         if show:
-            import matplotlib.pyplot as plt
-
-            plt.show()
-        else:
-            _close_matplotlib_figure(canvas)
-        return
+            displayed_in_notebook = _show_matplotlib_figure(fig)
+            if displayed_in_notebook:
+                _close_matplotlib_figure(canvas, fig=fig)
+        elif not return_fig:
+            _close_matplotlib_figure(canvas, fig=fig)
+        return fig, axes
 
     if filepath:
         canvas.savefig(filepath, backend=backend)
     if show:
-        canvas.show(backend=backend)
+        return canvas.show(backend=backend)
     elif backend == "matplotlib":
         _close_matplotlib_figure(canvas)
+    return None
 
 
 def _panel_gridspec(
@@ -232,14 +240,61 @@ def _panel_gridspec(
     return gridspec
 
 
-def _close_matplotlib_figure(canvas) -> None:
+def _save_matplotlib_figure(fig, canvas, filepath: str | Path) -> None:
+    """Save a materialized Matplotlib figure using canvas-level DPI if present."""
+    savefig_kwargs = {}
+    if getattr(canvas, "dpi", None) is not None:
+        savefig_kwargs["dpi"] = canvas.dpi
+    fig.savefig(filepath, **savefig_kwargs)
+
+
+def _show_matplotlib_figure(fig) -> bool:
+    """Display a Matplotlib figure in notebooks and regular Python sessions."""
+    if _display_matplotlib_figure_in_notebook(fig):
+        return True
+
+    import matplotlib.pyplot as plt
+
+    plt.show()
+    return False
+
+
+def _display_matplotlib_figure_in_notebook(fig) -> bool:
+    """Use IPython rich display when running inside a Jupyter kernel."""
+    try:
+        from IPython import get_ipython
+        from IPython.display import display
+    except ImportError:
+        return False
+
+    shell = get_ipython()
+    if shell is None:
+        return False
+    if "IPKernelApp" not in getattr(shell, "config", {}):
+        return False
+
+    display(fig)
+    return True
+
+
+def _close_matplotlib_figure(canvas, fig=None) -> None:
     """Release the figure maxplotlib keeps open after rendering."""
-    fig = getattr(canvas, "_matplotlib_fig", None)
+    fig = fig if fig is not None else getattr(canvas, "_matplotlib_fig", None)
     if fig is None:
         return
     import matplotlib.pyplot as plt
 
     plt.close(fig)
+
+
+def _set_xticks(canvas, ticks, labels=None, **kwargs) -> bool:
+    """Set x ticks, returning whether optional tick-label kwargs were accepted."""
+    try:
+        canvas.set_xticks(ticks, labels=labels, **kwargs)
+    except TypeError:
+        canvas.set_xticks(ticks, labels=labels)
+        return False
+    return True
 
 
 def _region_color_map(region_names, cmap: str = DEFAULT_CMAP) -> dict:
@@ -606,7 +661,8 @@ def plot_gantt(
     data_filepath: str | Path | None = None,
     data_format: str = "csv",
     backend: str = "matplotlib",
-) -> None:
+    return_fig: bool = False,
+) -> object | None:
     """
     Plot a Gantt chart of all (or selected) regions with per-rank lanes using maxplotlib.
 
@@ -614,6 +670,9 @@ def plot_gantt(
     ----------
     backend : str
         Backend to use for rendering: "matplotlib" (default) or "plotly".
+    return_fig : bool
+        Return the rendered figure instead of the default ``None``. Matplotlib
+        returns ``(fig, axes)``; Plotly returns its figure object.
     """
     Canvas = _get_canvas()
     runs = _as_runs(profiling_data)
@@ -768,7 +827,15 @@ def plot_gantt(
 
     # One Plotly bar trace per region color; without "overlay" they would
     # share each row's height instead of each drawing on the full row.
-    _render(canvas, filepath, show, backend, plotly_layout={"barmode": "overlay"})
+    rendered = _render(
+        canvas,
+        filepath,
+        show,
+        backend,
+        plotly_layout={"barmode": "overlay"},
+        return_fig=return_fig,
+    )
+    return rendered if return_fig else None
 
 
 def plot_flame(
@@ -783,7 +850,8 @@ def plot_flame(
     data_filepath: str | Path | None = None,
     data_format: str = "csv",
     backend: str = "matplotlib",
-) -> None:
+    return_fig: bool = False,
+) -> object | None:
     """
     Plot a flame graph reconstructing the call stack from region timings using maxplotlib.
 
@@ -791,6 +859,9 @@ def plot_flame(
     ----------
     backend : str
         Backend to use for rendering: "matplotlib" (default) or "plotly".
+    return_fig : bool
+        Return the rendered figure instead of the default ``None``. Matplotlib
+        returns ``(fig, axes)``; Plotly returns its figure object.
     """
     Canvas = _get_canvas()
     runs = _as_runs(profiling_data)
@@ -887,6 +958,34 @@ def plot_flame(
         gridspec_kw=_panel_gridspec(fig_width, fig_height, 8, not single_panel),
     )
 
+    def add_region_legend(fig, axes) -> None:
+        """Make Matplotlib flame colors identify regions, not stack depth."""
+        if backend != "matplotlib":
+            return
+        from matplotlib.patches import Patch
+
+        axes_list = np.asarray(axes).reshape(-1)
+        for axis, (_, _, calls) in zip(axes_list, prepared):
+            for patch, call in zip(axis.patches, calls):
+                patch.set_facecolor(_to_hex(color_map[call["name"]]))
+
+        handles = [
+            Patch(
+                facecolor=_to_hex(color_map[name]),
+                edgecolor="black",
+                label=name,
+            )
+            for name in sorted(all_region_names)
+        ]
+        if handles:
+            fig.legend(
+                handles=handles,
+                title="Regions",
+                loc="center left",
+                bbox_to_anchor=(0.82, 0.5),
+            )
+            fig.subplots_adjust(right=0.8)
+
     for idx, (run, rank, calls) in enumerate(prepared):
         row = None if single_panel else idx
         col = None if single_panel else 0
@@ -923,7 +1022,15 @@ def plot_flame(
     if not single_panel:
         canvas.suptitle("Flame Graphs")
 
-    _render(canvas, filepath, show, backend)
+    rendered = _render(
+        canvas,
+        filepath,
+        show,
+        backend,
+        return_fig=return_fig,
+        matplotlib_postprocess=add_region_legend if backend == "matplotlib" else None,
+    )
+    return rendered if return_fig else None
 
 
 _DURATION_METRICS: dict[str, tuple[str, str]] = {
@@ -1079,7 +1186,7 @@ def plot_durations(
     include: list[str] | str | None = None,
     exclude: list[str] | str | None = None,
     labels: Sequence[str] | None = None,
-    metrics: list[str] | str | None = None,
+    metric: str = "total",
     sort_by: str | None = None,
     top_n: int | None = None,
     combine_regions: dict[str, list[str] | str] | None = None,
@@ -1091,7 +1198,8 @@ def plot_durations(
     data_filepath: str | Path | None = None,
     data_format: str = "csv",
     backend: str = "matplotlib",
-) -> list[str]:
+    return_fig: bool = False,
+) -> list[str] | list[object] | object:
     """Plot duration bar charts for one or more profiling files using maxplotlib.
 
     Parameters
@@ -1103,8 +1211,12 @@ def plot_durations(
         duration statistics pool a single region's calls. Each value is one
         or more regex patterns (matched like ``include``); a region matching
         several groups is claimed by whichever group is listed first.
+    metric : str
+        Duration metric to render (``avg``, ``min``, ``max`` or ``total``).
     backend : str
         Backend to use for rendering: "matplotlib" (default) or "plotly".
+    return_fig : bool
+        Return the rendered figure instead of the saved filepath list.
 
     Returns
     -------
@@ -1118,12 +1230,7 @@ def plot_durations(
         return []
     ranks = _normalize_ranks(ranks)
 
-    if metrics is None:
-        metric_keys = list(_DURATION_METRICS)
-    elif isinstance(metrics, str):
-        metric_keys = [metrics]
-    else:
-        metric_keys = list(metrics)
+    metric_keys = [metric]
 
     unknown_metrics = [key for key in metric_keys if key not in _DURATION_METRICS]
     if unknown_metrics:
@@ -1167,6 +1274,7 @@ def plot_durations(
     width = min(0.8 / max(num_readers, 1), 0.35)
 
     saved_paths: list[str] = []
+    rendered_figures: list[object] = []
     data_rows = []
 
     for metric_key in metric_keys:
@@ -1208,7 +1316,13 @@ def plot_durations(
                 alpha=0.8,
             )
 
-        canvas.set_xticks(x_positions, labels=region_names)
+        tick_rotation_applied = _set_xticks(
+            canvas,
+            x_positions,
+            labels=region_names,
+            rotation=45,
+            ha="right",
+        )
         canvas.set_ylabel(ylabel)
         canvas.set_title(f"Region duration comparison ({metric_key})")
         canvas.set_grid(True)
@@ -1224,13 +1338,16 @@ def plot_durations(
             )
             saved_paths.append(metric_filepath)
 
-        _render(
+        rendered = _render(
             canvas,
             metric_filepath,
             show,
             backend,
-            x_tick_rotation=45,
+            x_tick_rotation=None if tick_rotation_applied else 45,
+            return_fig=return_fig,
         )
+        if return_fig:
+            rendered_figures.append(rendered)
 
     if data_filepath:
         if data_format == "json":
@@ -1253,6 +1370,8 @@ def plot_durations(
                 data_filepath, ["file", "region", "metric", "value_seconds"], data_rows
             )
 
+    if return_fig:
+        return rendered_figures[0]
     return saved_paths
 
 
@@ -1325,6 +1444,7 @@ def plot_duration_timeseries(
     data_filepath: str | Path | None = None,
     data_format: str = "csv",
     backend: str = "matplotlib",
+    return_fig: bool = False,
 ) -> None:
     """Plot each region's call duration over wall-clock time, with a min-max band.
 
@@ -1336,6 +1456,9 @@ def plot_duration_timeseries(
     ----------
     backend : str
         Backend to use for rendering: "matplotlib" (default) or "plotly".
+    return_fig : bool
+        Return the rendered figure instead of the default ``None``. Matplotlib
+        returns ``(fig, axes)``; Plotly returns its figure object.
     """
     Canvas = _get_canvas()
     runs = _as_runs(profiling_data)
@@ -1465,7 +1588,8 @@ def plot_duration_timeseries(
     if not single_panel:
         canvas.suptitle("Region duration over time")
 
-    _render(canvas, filepath, show, backend)
+    rendered = _render(canvas, filepath, show, backend, return_fig=return_fig)
+    return rendered if return_fig else None
 
 
 def plot_speedup(
@@ -1481,7 +1605,8 @@ def plot_speedup(
     data_filepath: str | Path | None = None,
     data_format: str = "csv",
     backend: str = "matplotlib",
-) -> None:
+    return_fig: bool = False,
+) -> object | None:
     """Plot scope speedup versus a chosen parallelism/metadata field using maxplotlib.
 
     Parameters
@@ -1620,7 +1745,364 @@ def plot_speedup(
     canvas.set_grid(True)
     canvas.set_legend()
 
-    _render(canvas, filepath, show, backend)
+    rendered = _render(canvas, filepath, show, backend, return_fig=return_fig)
+    return rendered if return_fig else None
+
+
+def plot_weak_scaling(
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
+    x_field: str = "num_ranks",
+    ranks: list[int] | int | None = None,
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+    filepath: str | None = None,
+    show: bool = False,
+    verbose: bool = True,
+    cmap: str = DEFAULT_CMAP,
+    data_filepath: str | Path | None = None,
+    data_format: str = "csv",
+    backend: str = "matplotlib",
+    return_fig: bool = False,
+) -> object | None:
+    """Plot weak-scaling runtime versus a chosen parallelism/metadata field.
+
+    Runtime is normalized to the smallest scale, so ideal weak scaling is a
+    horizontal line at 1.0. Lower values are not inherently better here: the
+    useful signal is how closely each region stays near that line.
+    """
+    Canvas = _get_canvas()
+    runs = _as_runs(profiling_data)
+    if not runs:
+        return
+    if len(runs) < 2:
+        raise ValueError("Weak scaling plot requires at least two profiling files.")
+
+    region_names = _common_region_names(runs, include=include, exclude=exclude)
+    if not region_names:
+        raise ValueError("No regions matched the selected filters.")
+
+    is_scaling = x_field in _SCALING_X_FIELDS
+    x_per_reader = [_speedup_x_value(run, x_field) for run in runs]
+    x_keys = (
+        sorted({int(value) for value in x_per_reader})
+        if is_scaling
+        else list(dict.fromkeys(x_per_reader))
+    )
+
+    if verbose:
+        print(
+            f"Plotting weak scaling comparison using x_field={x_field!r}, values: "
+            + ", ".join(map(str, x_keys))
+        )
+
+    duration_samples: dict[str, dict] = {
+        region_name: defaultdict(list) for region_name in region_names
+    }
+    for run, x_value in zip(runs, x_per_reader):
+        for region_name in region_names:
+            duration = _region_average_duration(
+                run.get_region(region_name), ranks=ranks
+            )
+            if np.isfinite(duration) and duration > 0:
+                duration_samples[region_name][x_value].append(duration)
+
+    baseline_key = x_keys[0]
+    colors = _get_cmap_colors(cmap, len(region_names))
+    fig_width = max(10, 1.2 * len(x_keys) + 3)
+    fig_height = max(4.5, 2.8 + 0.35 * len(region_names))
+    x_position = {key: (key if is_scaling else i) for i, key in enumerate(x_keys)}
+
+    canvas = Canvas(figsize=(fig_width, fig_height))
+    plotted = 0
+    data_rows = []
+
+    for idx, region_name in enumerate(region_names):
+        region_values = duration_samples[region_name]
+        baseline_samples = region_values.get(baseline_key, [])
+        if not baseline_samples:
+            continue
+        baseline_duration = float(np.mean(baseline_samples))
+        if not np.isfinite(baseline_duration) or baseline_duration <= 0:
+            continue
+
+        plot_x = []
+        plot_keys = []
+        runtimes = []
+        for key in x_keys:
+            samples = region_values.get(key, [])
+            if not samples:
+                continue
+            mean_duration = float(np.mean(samples))
+            if not np.isfinite(mean_duration) or mean_duration <= 0:
+                continue
+            plot_x.append(x_position[key])
+            plot_keys.append(key)
+            runtimes.append(mean_duration / baseline_duration)
+
+        if not plot_x:
+            continue
+        plotted += 1
+        canvas.add_line(
+            plot_x,
+            runtimes,
+            linewidth=1.8,
+            color=_to_hex(colors[idx]),
+            label=region_name,
+        )
+        if data_filepath:
+            for key, runtime in zip(plot_keys, runtimes):
+                data_rows.append([region_name, key, runtime])
+
+    if plotted == 0:
+        raise ValueError("No valid weak-scaling data could be computed.")
+
+    if data_filepath:
+        if data_format == "json":
+            points = [
+                {"region": region, x_field: key, "normalized_runtime": runtime}
+                for region, key, runtime in data_rows
+            ]
+            colors_map = {
+                name: _to_hex(color) for name, color in zip(region_names, colors)
+            }
+            _write_json(data_filepath, {"points": points, "colors": colors_map})
+        else:
+            _write_csv(
+                data_filepath, ["region", x_field, "normalized_runtime"], data_rows
+            )
+
+    x_label_map = {
+        "num_ranks": "MPI ranks",
+        "omp_num_threads": "OpenMP threads",
+        "total_cores": "MPI ranks × OpenMP threads",
+    }
+    x_label = x_label_map.get(x_field, x_field)
+    if is_scaling:
+        x_line = np.array(x_keys, dtype=float)
+        canvas.set_xticks(x_line)
+    else:
+        canvas.set_xticks(list(range(len(x_keys))), labels=[str(key) for key in x_keys])
+    canvas.add_line(
+        [x_position[key] for key in x_keys],
+        [1.0] * len(x_keys),
+        linestyle="--",
+        color="black",
+        linewidth=1.5,
+        label="Ideal weak scaling",
+    )
+    canvas.set_xlabel(x_label)
+    canvas.set_ylabel("Normalized runtime")
+    canvas.set_title(f"Weak scaling (baseline: {x_label} = {baseline_key})")
+    canvas.set_grid(True)
+    canvas.set_legend()
+
+    rendered = _render(canvas, filepath, show, backend, return_fig=return_fig)
+    return rendered if return_fig else None
+
+
+def plot_rank_heatmap(
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
+    ranks: list[int] | int | None = None,
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+    filepath: str | None = None,
+    show: bool = False,
+    verbose: bool = True,
+    cmap: str = "viridis",
+    data_filepath: str | Path | None = None,
+    data_format: str = "csv",
+    backend: str = "matplotlib",
+    return_fig: bool = False,
+) -> object | None:
+    """Plot total region time as a rank-by-region heatmap."""
+    Canvas = _get_canvas()
+    runs = _as_runs(profiling_data)
+    if not runs:
+        return
+
+    normalized_ranks = _normalize_ranks(ranks)
+    prepared = []
+    all_records = []
+    for run in runs:
+        regions = run.get_regions(include=include, exclude=exclude)
+        if not regions:
+            raise ValueError("No regions matched the selected filters.")
+        selected_ranks = (
+            normalized_ranks
+            if normalized_ranks is not None
+            else list(range(run.num_ranks))
+        )
+        invalid = [rank for rank in selected_ranks if rank < 0 or rank >= run.num_ranks]
+        if invalid:
+            raise ValueError(f"Invalid ranks requested: {invalid}")
+        region_names = [region.name for region in regions]
+        matrix = np.zeros((len(selected_ranks), len(region_names)), dtype=float)
+        for col, region in enumerate(regions):
+            for row, rank in enumerate(selected_ranks):
+                if rank in region and region[rank].durations.size:
+                    matrix[row, col] = float(np.sum(region[rank].durations))
+                all_records.append(
+                    [run.display_label, rank, region.name, matrix[row, col]]
+                )
+        prepared.append((run, selected_ranks, region_names, matrix))
+
+    if verbose:
+        print("Plotting rank × region duration heatmap")
+
+    if data_filepath:
+        header = ["file", "rank", "region", "total_duration_seconds"]
+        if data_format == "json":
+            _write_json(
+                data_filepath,
+                {"points": [dict(zip(header, record)) for record in all_records]},
+            )
+        else:
+            _write_csv(data_filepath, header, all_records)
+
+    fig_width = max(10.0, 0.8 * max(len(item[2]) for item in prepared) + 3.0)
+    fig_height = max(3.5, 1.0 + 0.35 * sum(len(item[1]) for item in prepared))
+    canvas = Canvas(
+        nrows=len(prepared),
+        ncols=1,
+        figsize=(fig_width, fig_height),
+        gridspec_kw={"right": 0.86},
+    )
+    single_panel = len(prepared) == 1
+    for index, (run, selected_ranks, region_names, matrix) in enumerate(prepared):
+        row = None if single_panel else index
+        col = None if single_panel else 0
+        canvas.imshow(matrix, cmap=cmap, aspect="auto", row=row, col=col)
+        canvas.set_xticks(
+            list(range(len(region_names))), labels=region_names, row=row, col=col
+        )
+        canvas.set_yticks(
+            list(range(len(selected_ranks))),
+            labels=[str(rank) for rank in selected_ranks],
+            row=row,
+            col=col,
+        )
+        canvas.set_xlabel("Region", row=row, col=col)
+        canvas.set_ylabel("MPI rank", row=row, col=col)
+        canvas.set_title(run.display_label, row=row, col=col)
+        canvas.colorbar("Total duration (seconds)", row=row, col=col)
+
+    if not single_panel:
+        canvas.suptitle("Rank × region duration")
+    rendered = _render(canvas, filepath, show, backend, return_fig=return_fig)
+    return rendered if return_fig else None
+
+
+def plot_scaling_efficiency(
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
+    x_field: str = "num_ranks",
+    ranks: list[int] | int | None = None,
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+    filepath: str | None = None,
+    show: bool = False,
+    verbose: bool = True,
+    cmap: str = DEFAULT_CMAP,
+    data_filepath: str | Path | None = None,
+    data_format: str = "csv",
+    backend: str = "matplotlib",
+    return_fig: bool = False,
+) -> object | None:
+    """Plot parallel scaling efficiency (measured speedup / ideal speedup)."""
+    Canvas = _get_canvas()
+    runs = _as_runs(profiling_data)
+    if not runs:
+        return
+    if len(runs) < 2:
+        raise ValueError("Scaling efficiency requires at least two profiling files.")
+    if x_field not in _SCALING_X_FIELDS:
+        raise ValueError(
+            "Scaling efficiency requires x_field to be one of: "
+            + ", ".join(sorted(_SCALING_X_FIELDS))
+        )
+
+    region_names = _common_region_names(runs, include=include, exclude=exclude)
+    if not region_names:
+        raise ValueError("No regions matched the selected filters.")
+    x_per_reader = [_speedup_x_value(run, x_field) for run in runs]
+    x_keys = sorted({int(value) for value in x_per_reader})
+    baseline_key = x_keys[0]
+    if baseline_key <= 0:
+        raise ValueError("Scaling x-axis values must be positive.")
+    x_position = {key: key for key in x_keys}
+    colors = _get_cmap_colors(cmap, len(region_names))
+    samples = {name: defaultdict(list) for name in region_names}
+    for run, x_value in zip(runs, x_per_reader):
+        for name in region_names:
+            duration = _region_average_duration(run.get_region(name), ranks=ranks)
+            if np.isfinite(duration) and duration > 0:
+                samples[name][x_value].append(duration)
+
+    canvas = Canvas(
+        figsize=(
+            max(10, 1.2 * len(x_keys) + 3),
+            max(4.5, 2.8 + 0.35 * len(region_names)),
+        )
+    )
+    data_rows = []
+    plotted = 0
+    for index, name in enumerate(region_names):
+        baseline_values = samples[name].get(baseline_key, [])
+        if not baseline_values:
+            continue
+        baseline_duration = float(np.mean(baseline_values))
+        plot_x, efficiencies = [], []
+        for key in x_keys:
+            values = samples[name].get(key, [])
+            if not values:
+                continue
+            duration = float(np.mean(values))
+            plot_x.append(x_position[key])
+            efficiencies.append((baseline_duration / duration) / (key / baseline_key))
+            data_rows.append([name, key, efficiencies[-1]])
+        if plot_x:
+            plotted += 1
+            canvas.add_line(
+                plot_x,
+                efficiencies,
+                linewidth=1.8,
+                color=_to_hex(colors[index]),
+                label=name,
+            )
+    if not plotted:
+        raise ValueError("No valid scaling-efficiency data could be computed.")
+
+    if data_filepath:
+        header = ["region", x_field, "efficiency"]
+        if data_format == "json":
+            _write_json(
+                data_filepath,
+                {"points": [dict(zip(header, row)) for row in data_rows]},
+            )
+        else:
+            _write_csv(data_filepath, header, data_rows)
+
+    canvas.set_xticks(x_keys)
+    canvas.add_line(
+        x_keys,
+        [1.0] * len(x_keys),
+        linestyle="--",
+        color="black",
+        linewidth=1.5,
+        label="Ideal efficiency",
+    )
+    x_label = {
+        "num_ranks": "MPI ranks",
+        "omp_num_threads": "OpenMP threads",
+        "total_cores": "MPI ranks × OpenMP threads",
+    }[x_field]
+    canvas.set_xlabel(x_label)
+    canvas.set_ylabel("Scaling efficiency")
+    canvas.set_title(f"Scaling efficiency (baseline: {x_label} = {baseline_key})")
+    canvas.set_ylim(0, 1.05)
+    canvas.set_grid(True)
+    canvas.set_legend()
+    rendered = _render(canvas, filepath, show, backend, return_fig=return_fig)
+    return rendered if return_fig else None
 
 
 def plot_imbalance(

@@ -473,9 +473,8 @@ def plot_profile(
             "Plotting requires the 'plot' extra: pip install 'scope-profiler[plot]'"
         ) from exc
 
-    # plot_durations() can write one file per requested duration metric and
-    # returns the list of paths it actually wrote; every other plot function
-    # returns None and always writes exactly the path it was given.
+    # plot_durations() returns the list containing the path it wrote; every
+    # other plot function returns None and writes exactly the path it was given.
     paths = result if isinstance(result, list) and result else [str(filepath)]
     paths = [path for path in paths if Path(path).exists()]
 

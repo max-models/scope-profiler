@@ -102,7 +102,7 @@ def main():
     plot_durations(
         [results, results2],
         labels=["Run 1", "Run 2"],
-        metrics="avg",
+        metric="avg",
         filepath=durations_matplotlib,
         backend="matplotlib",
         verbose=False,
@@ -113,7 +113,7 @@ def main():
     plot_durations(
         [results, results2],
         labels=["Run 1", "Run 2"],
-        metrics="avg",
+        metric="avg",
         filepath=durations_plotly,
         backend="plotly",
         verbose=False,

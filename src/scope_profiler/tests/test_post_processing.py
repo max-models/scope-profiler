@@ -1,4 +1,6 @@
 import json
+import sys
+import types
 
 import h5py
 import numpy as np
@@ -8,7 +10,10 @@ from scope_profiler import read_h5
 from scope_profiler.call_stack import build_call_stack
 from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.plotting_scripts import (
+    _display_matplotlib_figure_in_notebook,
     _duration_timeseries,
+    _render,
+    _set_xticks,
     available_likwid_metrics,
     collect_region_statistics,
     plot_duration_histogram,
@@ -18,7 +23,10 @@ from scope_profiler.plotting_scripts import (
     plot_gantt,
     plot_imbalance,
     plot_likwid,
+    plot_rank_heatmap,
+    plot_scaling_efficiency,
     plot_speedup,
+    plot_weak_scaling,
 )
 from scope_profiler.post_processing import export_main, main
 from scope_profiler.results import ProfilingResults
@@ -60,6 +68,74 @@ def _sample_file_data(rank_count, setup_duration, solve_duration):
     }
 
 
+def test_matplotlib_show_uses_ipython_display_in_jupyter(monkeypatch):
+    displayed = []
+    fig = object()
+
+    ipython = types.ModuleType("IPython")
+    ipython.get_ipython = lambda: types.SimpleNamespace(config={"IPKernelApp": {}})
+    ipython_display = types.ModuleType("IPython.display")
+    ipython_display.display = displayed.append
+
+    monkeypatch.setitem(sys.modules, "IPython", ipython)
+    monkeypatch.setitem(sys.modules, "IPython.display", ipython_display)
+
+    assert _display_matplotlib_figure_in_notebook(fig) is True
+    assert displayed == [fig]
+
+
+def test_matplotlib_show_falls_back_outside_jupyter(monkeypatch):
+    shown = []
+
+    class _Figure:
+        def savefig(self, *args, **kwargs):
+            raise AssertionError("show-only render should not save")
+
+    class _Canvas:
+        def plot(self, **kwargs):
+            return _Figure(), []
+
+    ipython = types.ModuleType("IPython")
+    ipython.get_ipython = lambda: types.SimpleNamespace(config={})
+    ipython_display = types.ModuleType("IPython.display")
+    ipython_display.display = lambda fig: shown.append(("display", fig))
+
+    import matplotlib.pyplot as plt
+
+    monkeypatch.setitem(sys.modules, "IPython", ipython)
+    monkeypatch.setitem(sys.modules, "IPython.display", ipython_display)
+    monkeypatch.setattr(plt, "show", lambda: shown.append(("show", None)))
+
+    _render(_Canvas(), filepath=None, show=True, backend="matplotlib")
+
+    assert shown == [("show", None)]
+
+
+def test_set_xticks_reports_whether_label_options_are_supported():
+    class _NewCanvas:
+        def __init__(self):
+            self.calls = []
+
+        def set_xticks(self, ticks, labels=None, **kwargs):
+            self.calls.append((list(ticks), labels, kwargs))
+
+    class _OldCanvas:
+        def __init__(self):
+            self.calls = []
+
+        def set_xticks(self, ticks, labels=None):
+            self.calls.append((list(ticks), labels))
+
+    new_canvas = _NewCanvas()
+    old_canvas = _OldCanvas()
+
+    assert _set_xticks(new_canvas, [0], labels=["a"], rotation=45, ha="right") is True
+    assert new_canvas.calls == [([0], ["a"], {"rotation": 45, "ha": "right"})]
+
+    assert _set_xticks(old_canvas, [0], labels=["a"], rotation=45, ha="right") is False
+    assert old_canvas.calls == [([0], ["a"])]
+
+
 def test_plot_durations_comparison(tmp_path):
     file_one = tmp_path / "run_one.h5"
     file_two = tmp_path / "run_two.h5"
@@ -72,17 +148,36 @@ def test_plot_durations_comparison(tmp_path):
 
     saved_paths = plot_durations(
         runs,
+        metric="avg",
         filepath=out_file,
         show=False,
         verbose=False,
-        metrics=["avg", "min", "max", "total"],
     )
 
-    assert len(saved_paths) == 4
-    for metric in ("avg", "min", "max", "total"):
-        metric_file = tmp_path / f"durations_plot_{metric}.png"
-        assert metric_file.exists()
-        assert metric_file.stat().st_size > 0
+    assert len(saved_paths) == 1
+    metric_file = out_file
+    assert metric_file.exists()
+    assert metric_file.stat().st_size > 0
+
+
+def test_plot_helpers_can_return_rendered_figures(tmp_path):
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
+    results = read_h5(file_path)
+
+    fig, axes = plot_gantt(results, return_fig=True, show=False, verbose=False)
+    assert fig is not None
+    assert axes is not None
+
+    fig, axes = plot_durations(
+        results,
+        metric="avg",
+        return_fig=True,
+        show=False,
+        verbose=False,
+    )
+    assert fig is not None
+    assert axes is not None
 
 
 def test_duration_timeseries_bands_span_ranks(tmp_path):
@@ -278,10 +373,14 @@ def test_plot_flame_reconstructs_recursive_calls(tmp_path):
     _write_sample_h5(file_path, rank_regions)
     results = read_h5(file_path)
 
-    plot_flame(results, filepath=out_file, show=False, verbose=False)
+    fig, _ = plot_flame(
+        results, filepath=out_file, show=False, verbose=False, return_fig=True
+    )
 
     assert out_file.exists()
     assert out_file.stat().st_size > 0
+    assert fig.legends
+    assert fig.legends[0].get_title().get_text() == "Regions"
 
     calls = build_call_stack(results.get_regions(), rank=0)
     assert len(calls) == 3
@@ -309,6 +408,74 @@ def test_plot_speedup(tmp_path):
 
     assert out_file.exists()
     assert out_file.stat().st_size > 0
+
+
+def test_plot_weak_scaling(tmp_path):
+    file_one = tmp_path / "run_1.h5"
+    file_two = tmp_path / "run_2.h5"
+    file_four = tmp_path / "run_4.h5"
+    out_file = tmp_path / "weak_scaling_plot.png"
+    data_file = tmp_path / "weak_scaling_data.json"
+
+    # Constant per-region runtime is ideal weak scaling.
+    _write_sample_h5(file_one, _sample_file_data(1, 100, 200))
+    _write_sample_h5(file_two, _sample_file_data(2, 100, 200))
+    _write_sample_h5(file_four, _sample_file_data(4, 100, 200))
+    runs = [read_h5(path) for path in (file_one, file_two, file_four)]
+
+    plot_weak_scaling(
+        runs,
+        filepath=out_file,
+        data_filepath=data_file,
+        data_format="json",
+        show=False,
+        verbose=False,
+    )
+
+    assert out_file.exists()
+    points = json.loads(data_file.read_text())["points"]
+    assert {point["normalized_runtime"] for point in points} == {1.0}
+
+
+def test_plot_rank_heatmap(tmp_path):
+    file_path = tmp_path / "run.h5"
+    out_file = tmp_path / "rank_heatmap.png"
+    _write_sample_h5(
+        file_path,
+        {
+            0: {"setup": ([0], [10]), "solve": ([20], [120])},
+            1: {"setup": ([0], [20]), "solve": ([20], [220])},
+        },
+    )
+    results = read_h5(file_path)
+
+    fig, axes = plot_rank_heatmap(
+        results, filepath=out_file, return_fig=True, show=False, verbose=False
+    )
+
+    assert out_file.exists()
+    assert fig is not None
+    assert axes is not None
+
+
+def test_plot_scaling_efficiency(tmp_path):
+    paths = [tmp_path / f"run_{n}.h5" for n in (1, 2, 4)]
+    # Runtime grows by 1.0, 1.25, 1.5 while ideal speedup grows by 1, 2, 4.
+    for path, ranks, duration in zip(paths, (1, 2, 4), (100, 125, 150)):
+        _write_sample_h5(path, _sample_file_data(ranks, 10, duration))
+    runs = [read_h5(path) for path in paths]
+    data_file = tmp_path / "efficiency.json"
+
+    plot_scaling_efficiency(
+        runs, data_filepath=data_file, data_format="json", show=False, verbose=False
+    )
+
+    efficiencies = {
+        point["efficiency"]
+        for point in json.loads(data_file.read_text())["points"]
+        if point["region"] == "solve"
+    }
+    assert efficiencies == {1.0, 0.4, 1 / 6}
 
 
 def test_plot_speedup_x_field_omp_num_threads(tmp_path):
@@ -568,14 +735,14 @@ def test_plot_durations_export_data_json(tmp_path):
         verbose=False,
         data_filepath=data_file,
         data_format="json",
-        metrics=["avg", "min", "max", "total"],
+        metric="avg",
     )
 
     payload = json.loads(data_file.read_text(encoding="utf-8"))
-    assert set(payload["metrics"]) == {"avg", "min", "max", "total"}
+    assert set(payload["metrics"]) == {"avg"}
     assert set(payload["colors"]) == {"run_one", "run_two"}
     assert all(color.startswith("#") for color in payload["colors"].values())
-    assert {bar["metric"] for bar in payload["bars"]} == {"avg", "min", "max", "total"}
+    assert {bar["metric"] for bar in payload["bars"]} == {"avg"}
 
 
 def test_collect_region_statistics_includes_total_time(tmp_path):
@@ -622,7 +789,7 @@ def test_plot_durations_sort_by_and_top_n(tmp_path):
         filepath=tmp_path / "durations_plot.png",
         show=False,
         verbose=False,
-        metrics=["total"],
+        metric="total",
         sort_by="total",
         top_n=1,
         data_filepath=data_file,
@@ -644,7 +811,7 @@ def test_plot_durations_log_scale_renders(tmp_path):
         filepath=out_file,
         show=False,
         verbose=False,
-        metrics=["total"],
+        metric="total",
         log_scale=True,
     )
 
@@ -672,7 +839,7 @@ def test_plot_durations_combine_regions_pools_stats(tmp_path):
         filepath=tmp_path / "durations_plot.png",
         show=False,
         verbose=False,
-        metrics=["total", "avg"],
+        metric="total",
         combine_regions={"setup": ["^setup:.*"]},
         data_filepath=data_file,
         data_format="json",
@@ -684,7 +851,7 @@ def test_plot_durations_combine_regions_pools_stats(tmp_path):
     }
     assert {bar["region"] for bar in payload["bars"]} == {"setup", "solve"}
     assert bars[("setup", "total")] == pytest.approx(15.0)
-    assert bars[("setup", "avg")] == pytest.approx(7.5)
+    assert ("setup", "avg") not in bars
     assert bars[("solve", "total")] == pytest.approx(20.0)
 
 
