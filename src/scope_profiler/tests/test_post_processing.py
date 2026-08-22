@@ -23,9 +23,9 @@ from scope_profiler.plotting_scripts import (
     plot_gantt,
     plot_imbalance,
     plot_likwid,
-    plot_speedup,
     plot_rank_heatmap,
     plot_scaling_efficiency,
+    plot_speedup,
     plot_weak_scaling,
 )
 from scope_profiler.post_processing import export_main, main

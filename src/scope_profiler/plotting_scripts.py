@@ -1954,9 +1954,7 @@ def plot_rank_heatmap(
         if data_format == "json":
             _write_json(
                 data_filepath,
-                {
-                    "points": [dict(zip(header, record)) for record in all_records]
-                },
+                {"points": [dict(zip(header, record)) for record in all_records]},
             )
         else:
             _write_csv(data_filepath, header, all_records)
@@ -2040,7 +2038,10 @@ def plot_scaling_efficiency(
                 samples[name][x_value].append(duration)
 
     canvas = Canvas(
-        figsize=(max(10, 1.2 * len(x_keys) + 3), max(4.5, 2.8 + 0.35 * len(region_names)))
+        figsize=(
+            max(10, 1.2 * len(x_keys) + 3),
+            max(4.5, 2.8 + 0.35 * len(region_names)),
+        )
     )
     data_rows = []
     plotted = 0
