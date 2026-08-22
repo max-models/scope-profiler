@@ -24,6 +24,8 @@ from scope_profiler.plotting_scripts import (
     plot_imbalance,
     plot_likwid,
     plot_speedup,
+    plot_rank_heatmap,
+    plot_scaling_efficiency,
     plot_weak_scaling,
 )
 from scope_profiler.post_processing import export_main, main
@@ -371,10 +373,14 @@ def test_plot_flame_reconstructs_recursive_calls(tmp_path):
     _write_sample_h5(file_path, rank_regions)
     results = read_h5(file_path)
 
-    plot_flame(results, filepath=out_file, show=False, verbose=False)
+    fig, _ = plot_flame(
+        results, filepath=out_file, show=False, verbose=False, return_fig=True
+    )
 
     assert out_file.exists()
     assert out_file.stat().st_size > 0
+    assert fig.legends
+    assert fig.legends[0].get_title().get_text() == "Regions"
 
     calls = build_call_stack(results.get_regions(), rank=0)
     assert len(calls) == 3
@@ -429,6 +435,47 @@ def test_plot_weak_scaling(tmp_path):
     assert out_file.exists()
     points = json.loads(data_file.read_text())["points"]
     assert {point["normalized_runtime"] for point in points} == {1.0}
+
+
+def test_plot_rank_heatmap(tmp_path):
+    file_path = tmp_path / "run.h5"
+    out_file = tmp_path / "rank_heatmap.png"
+    _write_sample_h5(
+        file_path,
+        {
+            0: {"setup": ([0], [10]), "solve": ([20], [120])},
+            1: {"setup": ([0], [20]), "solve": ([20], [220])},
+        },
+    )
+    results = read_h5(file_path)
+
+    fig, axes = plot_rank_heatmap(
+        results, filepath=out_file, return_fig=True, show=False, verbose=False
+    )
+
+    assert out_file.exists()
+    assert fig is not None
+    assert axes is not None
+
+
+def test_plot_scaling_efficiency(tmp_path):
+    paths = [tmp_path / f"run_{n}.h5" for n in (1, 2, 4)]
+    # Runtime grows by 1.0, 1.25, 1.5 while ideal speedup grows by 1, 2, 4.
+    for path, ranks, duration in zip(paths, (1, 2, 4), (100, 125, 150)):
+        _write_sample_h5(path, _sample_file_data(ranks, 10, duration))
+    runs = [read_h5(path) for path in paths]
+    data_file = tmp_path / "efficiency.json"
+
+    plot_scaling_efficiency(
+        runs, data_filepath=data_file, data_format="json", show=False, verbose=False
+    )
+
+    efficiencies = {
+        point["efficiency"]
+        for point in json.loads(data_file.read_text())["points"]
+        if point["region"] == "solve"
+    }
+    assert efficiencies == {1.0, 0.4, 1 / 6}
 
 
 def test_plot_speedup_x_field_omp_num_threads(tmp_path):
