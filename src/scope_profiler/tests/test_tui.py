@@ -1,5 +1,7 @@
 """Tests for the Textual HDF5 browser's data model."""
 
+import re
+
 import numpy as np
 import pytest
 
@@ -12,6 +14,7 @@ from scope_profiler.tui import (
     build_browser_model,
     node_detail_text,
     render_plot,
+    render_plotext_text,
 )
 
 NS = 1_000_000_000
@@ -205,6 +208,31 @@ def test_render_plot_passes_plot_settings(sample_file, monkeypatch):
 
 def test_matplotlib_child_script_is_valid_python():
     compile(_matplotlib_child_script(), "<matplotlib-child>", "exec")
+
+
+def test_render_plotext_text_captures_terminal_output(sample_file, monkeypatch):
+    model = build_browser_model(sample_file)
+    plot = _find(model.root, "Durations")
+
+    def fake_plot(results, **kwargs):
+        print("plotext chart")
+
+    monkeypatch.setattr("scope_profiler.tui.render_plot", fake_plot)
+
+    assert render_plotext_text(plot) == "plotext chart"
+
+
+def test_render_plotext_text_reports_invalid_region_filter(sample_file, monkeypatch):
+    model = build_browser_model(sample_file)
+    plot = _find(model.root, "Durations")
+
+    def fake_plot(results, **kwargs):
+        raise re.error("nothing to repeat")
+
+    monkeypatch.setattr("scope_profiler.tui.render_plot", fake_plot)
+
+    with pytest.raises(ValueError, match="Invalid region filter"):
+        render_plotext_text(plot, settings={"exclude": "*print_report"})
 
 
 def test_tui_help_does_not_require_textual(capsys):

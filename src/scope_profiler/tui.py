@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import linecache
 import re
@@ -717,6 +719,60 @@ def render_plot(
     return str(filepath) if filepath else None
 
 
+def render_plotext_text(
+    node: BrowserNode,
+    *,
+    settings: dict[str, Any] | None = None,
+    width: int = 100,
+    height: int = 35,
+) -> str:
+    """Render a simple Plotext chart as text for display inside Textual."""
+    if node.kind not in {"plot", "plot_likwid"}:
+        raise ValueError("Select an individual plot before rendering.")
+    if node.payload.get("plot_name") not in _PLOTEXT_TUI_PLOTS:
+        raise ValueError("Plotext is available in the TUI for simple plots only.")
+
+    # maxplotlib creates a fresh Plotext figure for every render. Plotext's
+    # default terminal size is 140 columns, which is wider than a typical
+    # Textual detail pane, so constrain the defaults while that figure is built.
+    try:
+        import plotext._figure as plotext_figure
+    except ImportError:
+        plotext_figure = None
+        default_figure_class = None
+    else:
+        figure_globals = plotext_figure._figure_class.__init__.__globals__
+        default_figure_class = figure_globals["default_figure_class"]
+        utility = figure_globals["ut"]
+        terminal_size = utility.terminal_size
+
+        def constrained_defaults():
+            defaults = default_figure_class()
+            defaults.width_term = max(40, int(width))
+            defaults.height_term = max(12, int(height))
+            defaults.size_term = [defaults.width_term, defaults.height_term]
+            return defaults
+
+        figure_globals["default_figure_class"] = constrained_defaults
+        utility.terminal_size = lambda: [max(40, int(width)), max(12, int(height))]
+    output = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(output):
+            try:
+                render_plot(
+                    node,
+                    show=True,
+                    settings={**(settings or {}), "backend": "plotext"},
+                )
+            except re.error as exc:
+                raise ValueError(f"Invalid region filter: {exc}") from exc
+    finally:
+        if plotext_figure is not None:
+            figure_globals["default_figure_class"] = default_figure_class
+            utility.terminal_size = terminal_size
+    return output.getvalue().rstrip()
+
+
 def _matplotlib_child_script() -> str:
     """Return the isolated runner used for genuine Matplotlib figures."""
     return (
@@ -747,6 +803,7 @@ def _build_textual_app_class():
             Footer,
             Header,
             Input,
+            Select,
             Static,
             Tree,
         )
@@ -793,8 +850,8 @@ def _build_textual_app_class():
         }
 
         #nav {
-            width: 36%;
-            min-width: 28;
+            width: 28%;
+            min-width: 24;
             border: solid $accent;
             padding: 0 1;
             overflow: hidden;
@@ -802,6 +859,7 @@ def _build_textual_app_class():
 
         #detail {
             height: 1fr;
+            min-height: 20;
             border: solid $accent;
             padding: 1 2;
             overflow-x: auto;
@@ -814,8 +872,8 @@ def _build_textual_app_class():
         }
 
         #settings {
-            height: 75%;
-            max-height: 75%;
+            height: auto;
+            max-height: 35%;
             border: solid $accent;
             padding: 0 1;
             display: none;
@@ -904,14 +962,17 @@ def _build_textual_app_class():
                             id="cmap",
                             classes="setting",
                         )
-                        yield Input(
+                        yield Select(
+                            [(label.title(), label) for label in ("total", "avg", "min", "max")],
+                            prompt="Duration metric",
                             value="total",
-                            placeholder="Duration metric (total,avg,min,max)",
                             id="metric",
                             classes="setting",
                         )
-                        yield Input(
-                            placeholder="Sort by (name,avg,min,max,total)",
+                        yield Select(
+                            [("Default", ""), *[(label.title(), label) for label in ("name", "avg", "min", "max", "total")]],
+                            prompt="Sort by",
+                            value="",
                             id="sort_by",
                             classes="setting",
                         )
@@ -924,9 +985,10 @@ def _build_textual_app_class():
                             id="bins",
                             classes="setting",
                         )
-                        yield Input(
+                        yield Select(
+                            [(label.title(), label) for label in ("total", "avg", "min", "max")],
+                            prompt="Imbalance metric",
                             value="total",
-                            placeholder="Imbalance metric",
                             id="imbalance_metric",
                             classes="setting",
                         )
@@ -961,8 +1023,15 @@ def _build_textual_app_class():
             node = event.node.data
             if isinstance(node, BrowserNode):
                 self.selected_browser_node = node
-                self.query_one("#detail", Static).update(self._detail(node))
                 self._update_plot_settings_visibility(node)
+                if node.kind in {"plot", "plot_likwid"} and node.payload.get(
+                    "plot_name"
+                ) in _PLOTEXT_TUI_PLOTS:
+                    # Let Textual finish laying out the detail/settings panes
+                    # before measuring them for the Plotext canvas.
+                    self.call_after_refresh(self._show_plotext_in_detail, node)
+                else:
+                    self.query_one("#detail", Static).update(self._detail(node))
 
         def _update_plot_settings_visibility(self, node: BrowserNode) -> None:
             panel = self.query_one("#settings", Vertical)
@@ -976,13 +1045,13 @@ def _build_textual_app_class():
                 "exclude",
                 "ranks",
                 "cmap",
-                "metric",
-                "sort_by",
                 "top_n",
                 "bins",
-                "imbalance_metric",
             ):
                 self.plot_settings[key] = self.query_one(f"#{key}", Input).value
+            for key in ("metric", "sort_by", "imbalance_metric"):
+                value = self.query_one(f"#{key}", Select).value
+                self.plot_settings[key] = "" if value is Select.NULL else str(value)
             self.plot_settings["log_scale"] = self.query_one(
                 "#log_scale", Checkbox
             ).value
@@ -1020,6 +1089,31 @@ def _build_textual_app_class():
         def on_input_changed(self, event: Input.Changed) -> None:
             if event.input.id in {"include", "exclude"}:
                 self._update_selected_regions()
+            if event.input.id in {
+                "include",
+                "exclude",
+                "ranks",
+                "cmap",
+                "metric",
+                "sort_by",
+                "top_n",
+                "bins",
+                "imbalance_metric",
+            }:
+                self._schedule_plotext_refresh()
+
+        def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+            if event.checkbox.id == "log_scale":
+                self._schedule_plotext_refresh()
+
+        def on_select_changed(self, event: Select.Changed) -> None:
+            if event.select.id in {"metric", "sort_by", "imbalance_metric"}:
+                self._schedule_plotext_refresh()
+
+        def _schedule_plotext_refresh(self) -> None:
+            node = self.selected_browser_node
+            if node is not None and node.payload.get("plot_name") in _PLOTEXT_TUI_PLOTS:
+                self.call_after_refresh(self._show_plotext_in_detail, node)
 
         def on_button_pressed(self, event: Button.Pressed) -> None:
             if event.button.id == "apply-settings":
@@ -1073,6 +1167,39 @@ def _build_textual_app_class():
                 self.notify(f"Saved {saved}", timeout=8)
             else:
                 self.notify("Plot opened in Matplotlib.", timeout=5)
+
+        def _show_plotext_in_detail(self, node: BrowserNode | None = None) -> None:
+            """Render Plotext into the selected detail pane, not the terminal."""
+            node = node or self.selected_browser_node
+            if node is None:
+                return
+            self._read_plot_settings()
+            detail = self.query_one("#detail", Static)
+            width = max(40, detail.content_size.width - 4)
+            # Leave room for the pane border, padding, and Textual's line
+            # accounting. Plotext uses nearly all of the requested height.
+            height = max(8, detail.content_size.height - 5)
+            try:
+                plot_text = render_plotext_text(
+                    node,
+                    settings=self.plot_settings,
+                    width=width,
+                    height=height,
+                )
+            except (ImportError, RuntimeError, ValueError) as exc:
+                if isinstance(exc, ValueError) and str(exc).startswith(
+                    "Invalid region filter:"
+                ):
+                    # Filters are edited one character at a time. Intermediate
+                    # regexes can be invalid, so keep the last chart visible
+                    # and let the selected-regions field show the validation.
+                    return
+                detail.update(self._detail(node))
+                self.notify(str(exc), severity="error", timeout=8)
+                return
+            from rich.text import Text
+
+            detail.update(Text.from_ansi(plot_text))
 
         def action_show_snakeviz(self) -> None:
             node = self.selected_browser_node
@@ -1175,15 +1302,7 @@ def _build_textual_app_class():
                     timeout=5,
                 )
                 return
-            self._read_plot_settings()
-            try:
-                render_plot(
-                    node,
-                    show=True,
-                    settings={**self.plot_settings, "backend": "plotext"},
-                )
-            except (ImportError, RuntimeError, ValueError) as exc:
-                self.notify(str(exc), severity="error", timeout=8)
+            self._show_plotext_in_detail(node)
 
         def action_show_plotly(self) -> None:
             self._open_plotly_browser()
