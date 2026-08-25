@@ -333,17 +333,13 @@ def node_detail_text(node: BrowserNode) -> str:
         for row in rows[:5]:
             duration = row["total"] or 0.0
             bar_width = (
-                round(24 * duration / total_region_time)
-                if total_region_time
-                else 0
+                round(24 * duration / total_region_time) if total_region_time else 0
             )
             top_rows.append(
                 (
                     row["name"],
                     _duration(row["total"]),
-                    f"{duration / total_region_time:.1%}"
-                    if total_region_time
-                    else "-",
+                    f"{duration / total_region_time:.1%}" if total_region_time else "-",
                     "█" * bar_width,
                 )
             )
@@ -426,7 +422,9 @@ def node_detail_text(node: BrowserNode) -> str:
             "Select a section below to inspect its values:",
             "",
         ]
-        lines.extend(f"• {title} ({len(entries)} entries)" for title, entries in sections)
+        lines.extend(
+            f"• {title} ({len(entries)} entries)" for title, entries in sections
+        )
         if modules is not None:
             lines.append(f"• Modules ({len(modules)} entries)")
         return "\n".join(lines)
@@ -871,6 +869,7 @@ def _matplotlib_child_script() -> str:
         "    nodes.extend(node.children)\n"
     )
 
+
 def _build_textual_app_class():
     try:
         from rich.text import Text
@@ -1055,14 +1054,23 @@ def _build_textual_app_class():
                             classes="setting",
                         )
                         yield Select(
-                            [(label.title(), label) for label in ("total", "avg", "min", "max")],
+                            [
+                                (label.title(), label)
+                                for label in ("total", "avg", "min", "max")
+                            ],
                             prompt="Duration metric",
                             value="total",
                             id="metric",
                             classes="setting",
                         )
                         yield Select(
-                            [("Default", ""), *[(label.title(), label) for label in ("name", "avg", "min", "max", "total")]],
+                            [
+                                ("Default", ""),
+                                *[
+                                    (label.title(), label)
+                                    for label in ("name", "avg", "min", "max", "total")
+                                ],
+                            ],
                             prompt="Sort by",
                             value="",
                             id="sort_by",
@@ -1078,7 +1086,10 @@ def _build_textual_app_class():
                             classes="setting",
                         )
                         yield Select(
-                            [(label.title(), label) for label in ("total", "avg", "min", "max")],
+                            [
+                                (label.title(), label)
+                                for label in ("total", "avg", "min", "max")
+                            ],
                             prompt="Imbalance metric",
                             value="total",
                             id="imbalance_metric",
@@ -1116,9 +1127,10 @@ def _build_textual_app_class():
             if isinstance(node, BrowserNode):
                 self.selected_browser_node = node
                 self._update_plot_settings_visibility(node)
-                if node.kind in {"plot", "plot_likwid"} and node.payload.get(
-                    "plot_name"
-                ) in _PLOTEXT_TUI_PLOTS:
+                if (
+                    node.kind in {"plot", "plot_likwid"}
+                    and node.payload.get("plot_name") in _PLOTEXT_TUI_PLOTS
+                ):
                     # Let Textual finish laying out the detail/settings panes
                     # before measuring them for the Plotext canvas.
                     self.call_after_refresh(self._show_plotext_in_detail, node)
