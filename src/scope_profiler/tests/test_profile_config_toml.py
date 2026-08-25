@@ -41,3 +41,17 @@ def test_load_profiling_config_accepts_top_level_settings(tmp_path):
     config_path.write_text("buffer_limit = 7\n", encoding="utf-8")
 
     assert load_profiling_config(config_path) == {"buffer_limit": 7}
+
+
+def test_output_mode_can_be_configured_from_toml(tmp_path):
+    config_path = tmp_path / "profiling.toml"
+    config_path.write_text("[profiling]\noutput_mode = 'direct'\n", encoding="utf-8")
+
+    ProfileManager.setup(config_path=config_path)
+
+    assert ProfileManager.get_config().output_mode == "direct"
+
+
+def test_invalid_output_mode_is_rejected():
+    with pytest.raises(ValueError, match="output_mode"):
+        ProfileManager.setup(output_mode="sharded")

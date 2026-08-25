@@ -20,8 +20,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     software-properties-common \
     kmod \
+    libhdf5-openmpi-dev \
     libopenmpi-dev \
     openmpi-bin \
+    pkg-config \
   && add-apt-repository -y ppa:deadsnakes/ppa \
   && apt-get update \
   && apt-get install -y --no-install-recommends \
@@ -43,6 +45,7 @@ RUN git clone --depth 1 https://github.com/RRZE-HPC/pylikwid.git /opt/pylikwid-s
 
 RUN python3.11 -m venv /opt/venvs/py311 \
   && /opt/venvs/py311/bin/pip install --upgrade pip setuptools \
+  && HDF5_MPI=ON CC=mpicc /opt/venvs/py311/bin/pip install --no-binary=h5py h5py \
   && cd /opt/pylikwid-src \
   && /opt/venvs/py311/bin/python setup.py build_ext \
        -I/usr/local/include -L/usr/local/lib -R/usr/local/lib \
@@ -51,6 +54,7 @@ RUN python3.11 -m venv /opt/venvs/py311 \
 
 RUN python3.12 -m venv /opt/venvs/py312 \
   && /opt/venvs/py312/bin/pip install --upgrade pip setuptools \
+  && HDF5_MPI=ON CC=mpicc /opt/venvs/py312/bin/pip install --no-binary=h5py h5py \
   && cd /opt/pylikwid-src \
   && /opt/venvs/py312/bin/python setup.py build_ext \
        -I/usr/local/include -L/usr/local/lib -R/usr/local/lib \
@@ -60,4 +64,6 @@ RUN python3.12 -m venv /opt/venvs/py312 \
 RUN rm -rf /opt/pylikwid-src
 
 RUN /opt/venvs/py311/bin/python -c "import pylikwid" \
-  && /opt/venvs/py312/bin/python -c "import pylikwid"
+  && /opt/venvs/py312/bin/python -c "import pylikwid" \
+  && /opt/venvs/py311/bin/python -c "import h5py; assert h5py.get_config().mpi" \
+  && /opt/venvs/py312/bin/python -c "import h5py; assert h5py.get_config().mpi"

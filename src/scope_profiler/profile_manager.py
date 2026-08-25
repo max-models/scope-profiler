@@ -32,6 +32,7 @@ if TYPE_CHECKING:  # imported lazily in read_results() to keep imports cheap
 
 # Tag for the payload messages, on a communicator of our own (see finalize).
 _PAYLOAD_TAG = 0x5C09
+_WRITE_TOKEN_TAG = 0x5C0A
 
 
 class RankPayload(NamedTuple):
@@ -790,6 +791,101 @@ class ProfileManager:
         return accumulator.build() if accumulator is not None else None
 
     @classmethod
+    def _write_payload_direct(cls, payload) -> None:
+        """Let MPI ranks append to one serial-HDF5 file in token order.
+
+        Only the ownership token crosses MPI; every rank writes its own arrays
+        and closes the file before handing ownership to the next rank.  Rank 0
+        creates a temporary file and publishes it atomically after the last
+        rank reports completion.
+        """
+        from scope_profiler.h5writer import ProfilingWriter
+
+        config = cls.get_config()
+        comm = config.comm
+        rank = config._rank
+        size = config._size
+        final_path = os.fspath(config.file_path)
+        temp_path = final_path + ".scope-profiler.tmp"
+
+        if rank == 0:
+            try:
+                with ProfilingWriter(temp_path, config.metadata) as writer:
+                    writer.write_rank(0, payload)
+                status = (True, "")
+            except Exception as exc:
+                status = (False, f"rank 0 could not write profiling data: {exc}")
+
+            if size == 1:
+                if not status[0]:
+                    raise OSError(status[1])
+                os.replace(temp_path, final_path)
+                return
+
+            comm.send(status, dest=1, tag=_WRITE_TOKEN_TAG)
+            status = comm.recv(source=size - 1, tag=_WRITE_TOKEN_TAG)
+            if not status[0]:
+                raise OSError(status[1])
+            os.replace(temp_path, final_path)
+            return
+
+        status = comm.recv(source=rank - 1, tag=_WRITE_TOKEN_TAG)
+        if status[0]:
+            try:
+                with ProfilingWriter.open_existing(temp_path) as writer:
+                    writer.write_rank(rank, payload)
+            except Exception as exc:
+                status = (False, f"rank {rank} could not write profiling data: {exc}")
+        destination = rank + 1 if rank + 1 < size else 0
+        comm.send(status, dest=destination, tag=_WRITE_TOKEN_TAG)
+
+    @classmethod
+    def _write_payload_file(cls, payload) -> None:
+        """Choose the MPI single-file backend and write this rank's payload."""
+        from scope_profiler.h5writer import (
+            parallel_hdf5_available,
+            write_parallel_payload,
+        )
+
+        config = cls.get_config()
+        # Base this only on the shared configuration, never on rank-local
+        # payload contents: choosing different backends on different ranks
+        # would deadlock the collective parallel-HDF5 path.
+        parallel_compatible = not config.use_likwid
+        requested = config.output_mode
+        available = parallel_hdf5_available()
+
+        if requested == "parallel" and not available:
+            raise RuntimeError(
+                "output_mode='parallel' requires an h5py build with MPI support"
+            )
+        if requested == "parallel" and not parallel_compatible:
+            raise RuntimeError(
+                "output_mode='parallel' cannot currently be combined with LIKWID: "
+                "LIKWID counter collection launches a subprocess after MPI "
+                "initialization, while parallel HDF5 requires subsequent MPI "
+                "collectives. Use output_mode='direct'."
+            )
+
+        use_parallel = requested != "direct" and available and parallel_compatible
+        if not use_parallel:
+            cls._write_payload_direct(payload)
+            return
+
+        temp_path = os.fspath(config.file_path) + ".scope-profiler.tmp"
+        write_parallel_payload(
+            temp_path, config.comm, config._rank, payload, config.metadata
+        )
+        # Closing an MPI-HDF5 file is collective, but implementations need not
+        # return from close on every rank simultaneously. Do not let rank 0
+        # rename while another rank is still releasing the temporary path.
+        config.comm.Barrier()
+        if config._rank == 0:
+            os.replace(temp_path, config.file_path)
+        # Callers may open the published path immediately after finalize().
+        config.comm.Barrier()
+
+    @classmethod
     def _empty_results(cls):
         """The result set a non-root rank gets back from ``finalize()``.
 
@@ -987,7 +1083,17 @@ class ProfileManager:
         # rather than a silently missing group.
         results = None
         if need_payload:
-            results = cls._collect_payloads(payload, write_file, need_results)
+            if write_file and config.comm is not None:
+                cls._write_payload_file(payload)
+                if need_results:
+                    if rank == 0:
+                        from scope_profiler.h5reader import read_h5
+
+                        results = read_h5(config.file_path)
+                    else:
+                        results = cls._empty_results()
+            else:
+                results = cls._collect_payloads(payload, write_file, need_results)
 
         # 4. Summarize. With a file, it is read back so that the table has one
         # implementation; without one, the same table comes from the results.
@@ -1080,6 +1186,7 @@ class ProfileManager:
         recursive_profile: bool | None = None,
         buffer_limit: int | None = None,
         file_path: str | None = None,
+        output_mode: str | None = None,
         label: str | None = None,
         capture_region_source: bool | None = None,
         config_path: str | os.PathLike[str] | None = None,
@@ -1129,6 +1236,10 @@ class ProfileManager:
             repeated reallocation.
         file_path : str, optional
             Path to the output profiling data file (default: "profiling_data.h5").
+        output_mode : {"auto", "direct", "parallel"}, optional
+            MPI file writer. ``auto`` prefers MPI-enabled h5py when compatible
+            with the active instrumentation and otherwise lets ranks append
+            directly to one serial-HDF5 file in token order.
         label : str or None, optional
             Short name for this run (default: None, i.e. the output file's
             stem). Post-processing uses it wherever a run has to be named --
@@ -1183,6 +1294,7 @@ class ProfileManager:
             "recursive_profile": False,
             "buffer_limit": 1024,
             "file_path": "profiling_data.h5",
+            "output_mode": "auto",
             "label": None,
             "capture_region_source": False,
         }
@@ -1199,6 +1311,7 @@ class ProfileManager:
             "recursive_profile": recursive_profile,
             "buffer_limit": buffer_limit,
             "file_path": file_path,
+            "output_mode": output_mode,
             "label": label,
             "capture_region_source": capture_region_source,
         }
