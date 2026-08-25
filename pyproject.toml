@@ -35,6 +35,10 @@ optional-dependencies.fortran = [
   "ninja",
 ]
 
+optional-dependencies.compression = [
+  "hdf5plugin",
+]
+
 optional-dependencies.likwid = [
   "pylikwid",
 ]

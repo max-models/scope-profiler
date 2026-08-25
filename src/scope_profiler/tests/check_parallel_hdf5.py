@@ -28,7 +28,12 @@ def main() -> int:
     # them here proves the collective schema phase handles more than timing
     # arrays while still leaving all bulk data on its owning rank.
     ProfileManager.setup(
-        file_path=output, output_mode="parallel", use_line_profiler=True
+        file_path=output,
+        output_mode="parallel",
+        use_line_profiler=True,
+        hdf5_compression="gzip",
+        hdf5_compression_level=4,
+        hdf5_chunk_size=2,
     )
     config = ProfileManager.get_config()
     rank = config._rank
@@ -76,6 +81,11 @@ def main() -> int:
             "line-work",
             *(f"rank-{owner}" for owner in range(size)),
         ]
+        with h5py.File(output, "r") as handle:
+            dataset = handle["rank0/regions/common/start_times"]
+            assert dataset.compression == "gzip"
+            assert dataset.compression_opts == 4
+            assert dataset.chunks == (1,)
     else:
         assert not results.is_root
         assert results.region_names == []

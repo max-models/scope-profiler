@@ -55,3 +55,35 @@ def test_output_mode_can_be_configured_from_toml(tmp_path):
 def test_invalid_output_mode_is_rejected():
     with pytest.raises(ValueError, match="output_mode"):
         ProfileManager.setup(output_mode="sharded")
+
+
+def test_hdf5_storage_settings_load_from_toml(tmp_path):
+    config_path = tmp_path / "profiling.toml"
+    config_path.write_text(
+        "[profiling]\n"
+        "hdf5_compression = 'gzip'\n"
+        "hdf5_compression_level = 6\n"
+        "hdf5_chunk_size = 4096\n",
+        encoding="utf-8",
+    )
+
+    ProfileManager.setup(config_path=config_path)
+    config = ProfileManager.get_config()
+
+    assert config.hdf5_compression == "gzip"
+    assert config.hdf5_compression_level == 6
+    assert config.hdf5_chunk_size == 4096
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"hdf5_compression": "bzip2"}, "hdf5_compression"),
+        ({"hdf5_compression": "gzip", "hdf5_compression_level": 10}, "GZIP"),
+        ({"hdf5_compression": "lzf", "hdf5_compression_level": 1}, "LZF"),
+        ({"hdf5_chunk_size": 0}, "chunk_size"),
+    ],
+)
+def test_invalid_hdf5_storage_settings_are_rejected(kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        ProfileManager.setup(**kwargs)

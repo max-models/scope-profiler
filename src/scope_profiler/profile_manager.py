@@ -766,7 +766,15 @@ class ProfileManager:
 
         accumulator = cls._ResultAccumulator(config) if need_results else None
         writer = (
-            ProfilingWriter(config.file_path, config.metadata) if write_file else None
+            ProfilingWriter(
+                config.file_path,
+                config.metadata,
+                compression=config.hdf5_compression,
+                compression_level=config.hdf5_compression_level,
+                chunk_size=config.hdf5_chunk_size,
+            )
+            if write_file
+            else None
         )
         try:
             for source in range(config._size):
@@ -814,7 +822,13 @@ class ProfileManager:
 
         if rank == 0:
             try:
-                with ProfilingWriter(temp_path, config.metadata) as writer:
+                with ProfilingWriter(
+                    temp_path,
+                    config.metadata,
+                    compression=config.hdf5_compression,
+                    compression_level=config.hdf5_compression_level,
+                    chunk_size=config.hdf5_chunk_size,
+                ) as writer:
                     writer.write_rank(0, payload)
                 status = (True, "")
             except Exception as exc:
@@ -836,7 +850,12 @@ class ProfileManager:
         status = comm.recv(source=rank - 1, tag=_WRITE_TOKEN_TAG)
         if status[0]:
             try:
-                with ProfilingWriter.open_existing(temp_path) as writer:
+                with ProfilingWriter.open_existing(
+                    temp_path,
+                    compression=config.hdf5_compression,
+                    compression_level=config.hdf5_compression_level,
+                    chunk_size=config.hdf5_chunk_size,
+                ) as writer:
                     writer.write_rank(rank, payload)
             except Exception as exc:
                 status = (False, f"rank {rank} could not write profiling data: {exc}")
@@ -879,7 +898,14 @@ class ProfileManager:
 
         temp_path = os.fspath(config.file_path) + ".scope-profiler.tmp"
         write_parallel_payload(
-            temp_path, config.comm, config._rank, payload, config.metadata
+            temp_path,
+            config.comm,
+            config._rank,
+            payload,
+            config.metadata,
+            compression=config.hdf5_compression,
+            compression_level=config.hdf5_compression_level,
+            chunk_size=config.hdf5_chunk_size,
         )
         # Closing an MPI-HDF5 file is collective, but implementations need not
         # return from close on every rank simultaneously. Do not let rank 0
@@ -1192,6 +1218,9 @@ class ProfileManager:
         buffer_limit: int | None = None,
         file_path: str | None = None,
         output_mode: str | None = None,
+        hdf5_compression: str | None = None,
+        hdf5_compression_level: int | None = None,
+        hdf5_chunk_size: int | None = None,
         label: str | None = None,
         capture_region_source: bool | None = None,
         config_path: str | os.PathLike[str] | None = None,
@@ -1245,6 +1274,13 @@ class ProfileManager:
             MPI file writer. ``auto`` prefers MPI-enabled h5py when compatible
             with the active instrumentation and otherwise lets ranks append
             directly to one serial-HDF5 file in token order.
+        hdf5_compression : {"gzip", "lzf", "zstd"} or None, optional
+            Compression filter for timestamp and GPU-duration datasets.
+        hdf5_compression_level : int or None, optional
+            GZIP level 0--9 or Zstandard level 1--22.
+        hdf5_chunk_size : int or None, optional
+            Maximum events per dataset chunk. Enables chunked partial reads
+            even without compression.
         label : str or None, optional
             Short name for this run (default: None, i.e. the output file's
             stem). Post-processing uses it wherever a run has to be named --
@@ -1300,6 +1336,9 @@ class ProfileManager:
             "buffer_limit": 1024,
             "file_path": "profiling_data.h5",
             "output_mode": "auto",
+            "hdf5_compression": None,
+            "hdf5_compression_level": None,
+            "hdf5_chunk_size": None,
             "label": None,
             "capture_region_source": False,
         }
@@ -1317,6 +1356,9 @@ class ProfileManager:
             "buffer_limit": buffer_limit,
             "file_path": file_path,
             "output_mode": output_mode,
+            "hdf5_compression": hdf5_compression,
+            "hdf5_compression_level": hdf5_compression_level,
+            "hdf5_chunk_size": hdf5_chunk_size,
             "label": label,
             "capture_region_source": capture_region_source,
         }

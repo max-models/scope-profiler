@@ -122,6 +122,39 @@ def test_datasets_are_contiguous_and_exactly_sized(tmp_path):
         assert dataset.id.get_storage_size() == 5 * 8
 
 
+@pytest.mark.parametrize("compression", ["gzip", "lzf"])
+def test_timestamp_compression_and_chunk_size_round_trip(tmp_path, compression):
+    path = tmp_path / f"{compression}.h5"
+    starts = np.arange(25, dtype=np.int64)
+    ends = starts + 7
+    with ProfilingWriter(
+        path,
+        compression=compression,
+        compression_level=4 if compression == "gzip" else None,
+        chunk_size=8,
+    ) as writer:
+        writer.write_rank(0, payload({"solve": (starts, ends)}))
+
+    with h5py.File(path, "r") as handle:
+        dataset = handle["rank0/regions/solve/start_times"]
+        assert dataset.compression == compression
+        assert dataset.chunks == (8,)
+        if compression == "gzip":
+            assert dataset.compression_opts == 4
+    assert read_h5(path)["solve"][0].start_times_ns.tolist() == starts.tolist()
+
+
+def test_chunking_can_be_enabled_without_compression(tmp_path):
+    path = tmp_path / "chunked.h5"
+    with ProfilingWriter(path, chunk_size=4) as writer:
+        writer.write_rank(0, payload({"solve": (range(10), range(1, 11))}))
+
+    with h5py.File(path, "r") as handle:
+        dataset = handle["rank0/regions/solve/start_times"]
+        assert dataset.compression is None
+        assert dataset.chunks == (4,)
+
+
 def test_a_rank_with_nothing_recorded_gets_no_group(tmp_path):
     """Rank groups are exactly the ranks that have something to report."""
     path = tmp_path / "one_silent.h5"
