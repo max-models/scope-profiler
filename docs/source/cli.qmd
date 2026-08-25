@@ -30,9 +30,11 @@ bin count, and imbalance metric. The include and exclude fields autocomplete
 region names from the loaded profile and accept comma-separated values. Press
 **Apply settings** before displaying or saving the plot.
 
-Available plot types include Gantt, flame, durations, timeseries, histogram,
-imbalance, and any LIKWID metrics recorded in the file. Install the optional
-TUI/plotting dependencies with `pip install "scope-profiler[pproc]"`.
+Available TUI plot types include Gantt, flame, durations, timeseries,
+histogram, imbalance, and any LIKWID metrics recorded in the file. Only the
+durations plot is rendered with Plotext inside the TUI; the other plots can be
+shown with Matplotlib, opened with Plotly, or saved as files. Install the
+optional TUI/plotting dependencies with `pip install "scope-profiler[pproc]"`.
 
 ## `scope-profiler run`
 

@@ -45,7 +45,7 @@ _PLOT_CATALOG = {
     "histogram": "Call-duration distribution by region",
     "imbalance": "Per-rank duration comparison",
 }
-_PLOTEXT_TUI_PLOTS = frozenset({"durations", "timeseries", "histogram", "imbalance"})
+_PLOTEXT_TUI_PLOTS = frozenset({"durations"})
 
 
 @dataclass
@@ -740,7 +740,13 @@ def render_plotext_text(
     except ImportError:
         plotext_figure = None
         default_figure_class = None
+        canvas_class = None
+        legend_method = None
     else:
+        from maxplotlib import Canvas
+
+        canvas_class = Canvas
+        legend_method = canvas_class.set_legend
         figure_globals = plotext_figure._figure_class.__init__.__globals__
         default_figure_class = figure_globals["default_figure_class"]
         utility = figure_globals["ut"]
@@ -755,6 +761,9 @@ def render_plotext_text(
 
         figure_globals["default_figure_class"] = constrained_defaults
         utility.terminal_size = lambda: [max(40, int(width)), max(12, int(height))]
+        # Region legends are useful in image output, but their vertical list
+        # can consume nearly the whole Plotext canvas in a narrow TUI pane.
+        canvas_class.set_legend = lambda self, *args, **kwargs: None
     output = io.StringIO()
     try:
         with contextlib.redirect_stdout(output):
@@ -770,6 +779,7 @@ def render_plotext_text(
         if plotext_figure is not None:
             figure_globals["default_figure_class"] = default_figure_class
             utility.terminal_size = terminal_size
+            canvas_class.set_legend = legend_method
     return output.getvalue().rstrip()
 
 
