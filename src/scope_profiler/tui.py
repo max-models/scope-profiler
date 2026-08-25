@@ -907,6 +907,7 @@ def _build_textual_app_class():
         """
         BINDINGS = [
             ("q", "quit", "Quit"),
+            ("escape", "focus_navigation", "Focus navigation"),
             ("g", "show_matplotlib", "Show Matplotlib"),
             ("p", "show_plotly", "Open Plotly"),
             ("t", "show_plotext", "Show Plotext"),
@@ -931,6 +932,7 @@ def _build_textual_app_class():
                 "bins": "30",
                 "imbalance_metric": "total",
             }
+            self._plotext_refresh_timer = None
 
         def _detail(self, node: BrowserNode):
             return Text(node_detail_text(node), no_wrap=True)
@@ -1123,7 +1125,15 @@ def _build_textual_app_class():
         def _schedule_plotext_refresh(self) -> None:
             node = self.selected_browser_node
             if node is not None and node.payload.get("plot_name") in _PLOTEXT_TUI_PLOTS:
-                self.call_after_refresh(self._show_plotext_in_detail, node)
+                if self._plotext_refresh_timer is not None:
+                    self._plotext_refresh_timer.stop()
+                self._plotext_refresh_timer = self.set_timer(
+                    0.2, self._show_plotext_in_detail, node
+                )
+
+        def action_focus_navigation(self) -> None:
+            """Return focus to the tree so its global shortcuts are active."""
+            self.query_one("#nav", Tree).focus()
 
         def on_button_pressed(self, event: Button.Pressed) -> None:
             if event.button.id == "apply-settings":
