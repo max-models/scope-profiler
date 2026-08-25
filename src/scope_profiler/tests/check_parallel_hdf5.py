@@ -24,11 +24,23 @@ def main() -> int:
         raise SystemExit("test requires an MPI-enabled h5py build")
 
     output = os.path.abspath(sys.argv[1])
-    ProfileManager.setup(file_path=output, output_mode="parallel")
+    # Line-profiler records have rank-local, variable-length layouts. Including
+    # them here proves the collective schema phase handles more than timing
+    # arrays while still leaving all bulk data on its owning rank.
+    ProfileManager.setup(
+        file_path=output, output_mode="parallel", use_line_profiler=True
+    )
     config = ProfileManager.get_config()
     rank = config._rank
     size = config._size
     assert size >= 2, "parallel-HDF5 test must run under mpirun -n 2 or greater"
+
+    @ProfileManager.profile("line-work")
+    def line_work(n):
+        total = 0
+        for value in range(n):
+            total += value
+        return total
 
     # Every rank contributes a common region and a differently named region.
     # This exercises collective creation for non-identical local layouts.
@@ -36,6 +48,7 @@ def main() -> int:
         sum(range(rank + 1))
     with ProfileManager.profile_region(f"rank-{rank}", tags=(f"owner-{rank}",)):
         sum(range(rank + 2))
+    line_work(rank + 3)
 
     results = ProfileManager.finalize(verbose=False, return_results=True)
     if rank == 0:
@@ -44,6 +57,11 @@ def main() -> int:
         assert results["common"].num_calls == size
         assert results["common"].ranks == list(range(size))
         assert results["common"].tags == ("shared",)
+        assert set(results.line_profile) == set(range(size))
+        assert all(
+            any(record["region"] == "line-work" for record in records)
+            for records in results.line_profile.values()
+        )
         for owner in range(size):
             region = results[f"rank-{owner}"]
             assert region.ranks == [owner]
@@ -55,6 +73,7 @@ def main() -> int:
         assert from_disk.summary() == results.summary()
         assert sorted(from_disk.region_names) == [
             "common",
+            "line-work",
             *(f"rank-{owner}" for owner in range(size)),
         ]
     else:

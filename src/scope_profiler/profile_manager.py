@@ -844,14 +844,14 @@ class ProfileManager:
         """Choose the MPI single-file backend and write this rank's payload."""
         from scope_profiler.h5writer import (
             parallel_hdf5_available,
-            write_parallel_regions,
+            write_parallel_payload,
         )
 
         config = cls.get_config()
         # Base this only on the shared configuration, never on rank-local
         # payload contents: choosing different backends on different ranks
         # would deadlock the collective parallel-HDF5 path.
-        parallel_compatible = not config.use_likwid and not config.use_line_profiler
+        parallel_compatible = not config.use_likwid
         requested = config.output_mode
         available = parallel_hdf5_available()
 
@@ -861,8 +861,10 @@ class ProfileManager:
             )
         if requested == "parallel" and not parallel_compatible:
             raise RuntimeError(
-                "output_mode='parallel' does not yet support LIKWID or line-profile "
-                "records; use output_mode='direct'"
+                "output_mode='parallel' cannot currently be combined with LIKWID: "
+                "LIKWID counter collection launches a subprocess after MPI "
+                "initialization, while parallel HDF5 requires subsequent MPI "
+                "collectives. Use output_mode='direct'."
             )
 
         use_parallel = requested != "direct" and available and parallel_compatible
@@ -871,7 +873,7 @@ class ProfileManager:
             return
 
         temp_path = os.fspath(config.file_path) + ".scope-profiler.tmp"
-        write_parallel_regions(
+        write_parallel_payload(
             temp_path, config.comm, config._rank, payload, config.metadata
         )
         # Closing an MPI-HDF5 file is collective, but implementations need not

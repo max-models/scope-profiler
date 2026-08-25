@@ -241,7 +241,7 @@ def test_auto_prefers_parallel_hdf5_when_available(configured, monkeypatch):
     monkeypatch.setattr(h5writer, "parallel_hdf5_available", lambda: True)
     monkeypatch.setattr(
         h5writer,
-        "write_parallel_regions",
+        "write_parallel_payload",
         lambda *args: calls.append(args),
     )
     monkeypatch.setattr(os, "replace", lambda *args: calls.append(args))

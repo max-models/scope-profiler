@@ -26,28 +26,45 @@ def parallel_hdf5_available() -> bool:
     return bool(getattr(h5py.get_config(), "mpi", False))
 
 
-def region_payload_layout(payload) -> dict:
+def payload_layout(payload) -> dict:
     """Return the small, array-free schema needed for collective creation."""
     sources = payload.sources or {}
     tags = payload.tags or {}
     return {
-        name: {
-            "shapes": [tuple(np.shape(array)) for array in arrays],
-            "source": sources.get(name),
-            "tags": tuple(tags.get(name, ())),
-        }
-        for name, arrays in payload.regions.items()
+        "regions": {
+            name: {
+                "shapes": [tuple(np.shape(array)) for array in arrays],
+                "source": sources.get(name),
+                "tags": tuple(tags.get(name, ())),
+            }
+            for name, arrays in payload.regions.items()
+        },
+        "line_profile": [
+            {
+                "region": record["region"],
+                "filename": record["filename"],
+                "function": record["function"],
+                "first_lineno": int(record["first_lineno"]),
+                "unit": float(record["unit"]),
+                "shapes": {
+                    key: tuple(np.shape(record[key]))
+                    for key in ("line_numbers", "hits", "times")
+                },
+            }
+            for record in (payload.line_profile or [])
+        ],
     }
 
 
-def write_parallel_regions(file_path, comm, rank: int, payload, metadata: dict) -> None:
+def write_parallel_payload(file_path, comm, rank: int, payload, metadata: dict) -> None:
     """Collectively create one file, then let each rank write its own arrays.
 
     Parallel HDF5 requires metadata operations to be collective.  Only the
-    array-free layouts are gathered; timestamp and GPU arrays remain local and
-    are written independently into datasets owned by their rank.
+    array-free layouts are gathered; timestamp, GPU, and line-timing arrays
+    remain local and are written independently into datasets owned by their
+    rank.
     """
-    layouts = comm.allgather(region_payload_layout(payload))
+    layouts = comm.allgather(payload_layout(payload))
     root_metadata = comm.bcast(metadata if rank == 0 else None, root=0)
 
     with h5py.File(file_path, "w", driver="mpio", comm=comm) as h5file:
@@ -55,32 +72,58 @@ def write_parallel_regions(file_path, comm, rank: int, payload, metadata: dict) 
         write_metadata(h5file, root_metadata)
 
         for owner, layout in enumerate(layouts):
-            if not layout:
+            regions = layout["regions"]
+            line_profile = layout["line_profile"]
+            if not regions and not line_profile:
                 continue
             group = h5file.create_group(rank_group_name(owner))
-            regions_group = group.create_group("regions")
-            for name, description in layout.items():
-                region_group = regions_group.create_group(name)
-                shapes = description["shapes"]
-                region_group.create_dataset(
-                    "start_times", shape=shapes[0], dtype=np.int64
-                )
-                region_group.create_dataset(
-                    "end_times", shape=shapes[1], dtype=np.int64
-                )
-                if len(shapes) > 2:
+            if regions:
+                regions_group = group.create_group("regions")
+                for name, description in regions.items():
+                    region_group = regions_group.create_group(name)
+                    shapes = description["shapes"]
                     region_group.create_dataset(
-                        "gpu_durations", shape=shapes[2], dtype=np.int64
+                        "start_times", shape=shapes[0], dtype=np.int64
                     )
-                source = description["source"]
-                if source is not None:
-                    source_file, source_lineno, source_text = source
-                    region_group.attrs["source_file"] = source_file
-                    region_group.attrs["source_lineno"] = source_lineno
-                    region_group.attrs["source_text"] = source_text
-                region_group.attrs.create(
-                    "tags", list(description["tags"]), dtype=h5py.string_dtype()
-                )
+                    region_group.create_dataset(
+                        "end_times", shape=shapes[1], dtype=np.int64
+                    )
+                    if len(shapes) > 2:
+                        region_group.create_dataset(
+                            "gpu_durations", shape=shapes[2], dtype=np.int64
+                        )
+                    source = description["source"]
+                    if source is not None:
+                        source_file, source_lineno, source_text = source
+                        region_group.attrs["source_file"] = source_file
+                        region_group.attrs["source_lineno"] = source_lineno
+                        region_group.attrs["source_text"] = source_text
+                    region_group.attrs.create(
+                        "tags", list(description["tags"]), dtype=h5py.string_dtype()
+                    )
+
+            if line_profile:
+                profile_group = group.create_group("line_profile")
+                for index, description in enumerate(line_profile):
+                    function_group = profile_group.create_group(str(index))
+                    for key in (
+                        "region",
+                        "filename",
+                        "function",
+                        "first_lineno",
+                        "unit",
+                    ):
+                        function_group.attrs[key] = description[key]
+                    shapes = description["shapes"]
+                    function_group.create_dataset(
+                        "line_numbers", shape=shapes["line_numbers"], dtype=np.int64
+                    )
+                    function_group.create_dataset(
+                        "hits", shape=shapes["hits"], dtype=np.int64
+                    )
+                    function_group.create_dataset(
+                        "times", shape=shapes["times"], dtype=np.float64
+                    )
 
         for name, arrays in payload.regions.items():
             region_group = h5file[f"{rank_group_name(rank)}/regions/{name}"]
@@ -88,6 +131,13 @@ def write_parallel_regions(file_path, comm, rank: int, payload, metadata: dict) 
             region_group["end_times"][:] = np.asarray(arrays[1], dtype=np.int64)
             if len(arrays) > 2:
                 region_group["gpu_durations"][:] = np.asarray(arrays[2], dtype=np.int64)
+        for index, record in enumerate(payload.line_profile or []):
+            function_group = h5file[f"{rank_group_name(rank)}/line_profile/{index}"]
+            function_group["line_numbers"][:] = np.asarray(
+                record["line_numbers"], dtype=np.int64
+            )
+            function_group["hits"][:] = np.asarray(record["hits"], dtype=np.int64)
+            function_group["times"][:] = np.asarray(record["times"], dtype=np.float64)
 
 
 def rank_group_name(rank: int) -> str:

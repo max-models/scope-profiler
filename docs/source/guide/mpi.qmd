@@ -46,10 +46,11 @@ pip install "scope-profiler[mpi]"
    because every rank must reach `finalize()`, one that dies first leaves
    the job waiting rather than quietly dropping its data from the output.
 
-   LIKWID and line-profiler records use the token writer even when parallel
-   HDF5 is installed. LIKWID reads counters in a subprocess, and Open MPI does
-   not safely support a collective MPI-IO phase after that fork. The direct
-   writer deliberately uses point-to-point traffic only.
+   LIKWID records use the token writer even when parallel HDF5 is installed.
+   LIKWID reads counters in a subprocess, and Open MPI does not safely support
+   a collective MPI-IO phase after that fork. The direct writer deliberately
+   uses point-to-point traffic only. Line-profiler records are supported by
+   both writers.
 
    All ranks must see `file_path` through the same shared filesystem. Select a
    backend explicitly with `ProfileManager.setup(output_mode="direct")` or
