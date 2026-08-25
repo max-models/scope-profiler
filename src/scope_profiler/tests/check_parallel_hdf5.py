@@ -84,11 +84,11 @@ def main() -> int:
             *(f"rank-{owner}" for owner in range(size)),
         ]
         with h5py.File(output, "r") as handle:
-            dataset = handle["rank0/regions/common/start_times"]
+            dataset = handle["events/start_times"]
             assert dataset.compression == compression
             if compression:
                 assert dataset.compression_opts == 4
-            assert dataset.chunks == (1,)
+            assert dataset.chunks == (2,)
     else:
         assert not results.is_root
         assert results.region_names == []

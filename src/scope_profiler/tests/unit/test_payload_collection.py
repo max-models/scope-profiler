@@ -105,7 +105,7 @@ def test_a_silent_rank_yields_no_group_but_still_sends(configured, tmp_path):
     # Rank 1 was still received -- skipping the receive would deadlock.
     assert comm.recv_order == [1, 2]
     with h5py.File(configured.file_path, "r") as handle:
-        assert sorted(handle) == ["metadata", "rank0", "rank2"]
+        assert handle["rank_region_index/ranks"][()].tolist() == [0, 2]
     assert list(results["solve"].regions) == [0, 2]
 
 
@@ -211,7 +211,8 @@ def test_direct_writer_appends_a_rank_after_receiving_the_token(configured, tmp_
 
     assert comm.sent == [(0, (True, ""))]
     with h5py.File(temp_path, "r") as handle:
-        assert "rank1/regions/remote" in handle
+        assert handle["region_table/names"][()].tolist() == [b"solve", b"remote"]
+        assert handle["rank_region_index/ranks"][()].tolist() == [0, 1]
 
 
 def test_direct_writer_publishes_single_rank_file_atomically(configured):

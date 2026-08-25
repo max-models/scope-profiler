@@ -38,11 +38,11 @@ def test_rank_group_holds_the_recorded_timestamps(tmp_path):
 
     with h5py.File(path, "r") as handle:
         assert handle.attrs[SCHEMA_ATTRIBUTE] == CURRENT_SCHEMA_VERSION
-        starts = handle["rank0/regions/solve/start_times"]
+        starts = handle["events/start_times"]
         assert starts[()].tolist() == [0, 3 * NS]
-        assert handle["rank0/regions/solve/end_times"][()].tolist() == [2 * NS, 5 * NS]
+        assert handle["events/end_times"][()].tolist() == [2 * NS, 5 * NS]
         # The reader recovers metadata from the top level, never from a rank.
-        assert "metadata" not in handle["rank0"]
+        assert handle.attrs["storage_layout"] == "columnar"
         assert handle["metadata"].attrs["hostname"] == "node0"
 
 
@@ -58,7 +58,7 @@ def test_legacy_file_without_schema_version_still_reads(tmp_path):
     assert read_h5(path)["solve"].num_calls == 1
 
 
-@pytest.mark.parametrize("version", [0, 2, "one"])
+@pytest.mark.parametrize("version", [0, 3, "one"])
 def test_reader_rejects_invalid_or_unsupported_schema_version(tmp_path, version):
     path = tmp_path / "unsupported.h5"
     with h5py.File(path, "w") as handle:
@@ -74,7 +74,7 @@ def test_gpu_durations_round_trip_when_present(tmp_path):
         writer.write_rank(0, payload({"solve": ([0, NS], [NS, 3 * NS], [7, 11])}))
 
     with h5py.File(path, "r") as handle:
-        gpu = handle["rank0/regions/solve/gpu_durations"]
+        gpu = handle["events/gpu_durations"]
         assert gpu[()].tolist() == [7, 11]
 
     region = read_h5(path)["solve"]
@@ -109,17 +109,15 @@ def test_line_profile_round_trips(tmp_path):
     assert loaded["unit"] == pytest.approx(1e-9)
 
 
-def test_datasets_are_contiguous_and_exactly_sized(tmp_path):
-    """A sparsely-called region must not cost a whole HDF5 chunk."""
+def test_columnar_event_datasets_are_shared_and_resizable(tmp_path):
     path = tmp_path / "sparse.h5"
     with ProfilingWriter(path) as writer:
         writer.write_rank(0, payload({"sparse": (range(5), range(1, 6))}))
 
     with h5py.File(path, "r") as handle:
-        dataset = handle["rank0/regions/sparse/start_times"]
+        dataset = handle["events/start_times"]
         assert dataset.shape == (5,)
-        assert dataset.chunks is None
-        assert dataset.id.get_storage_size() == 5 * 8
+        assert dataset.chunks is not None
 
 
 @pytest.mark.parametrize("compression", ["gzip", "lzf"])
@@ -136,7 +134,7 @@ def test_timestamp_compression_and_chunk_size_round_trip(tmp_path, compression):
         writer.write_rank(0, payload({"solve": (starts, ends)}))
 
     with h5py.File(path, "r") as handle:
-        dataset = handle["rank0/regions/solve/start_times"]
+        dataset = handle["events/start_times"]
         assert dataset.compression == compression
         assert dataset.chunks == (8,)
         assert dataset.shuffle is True
@@ -151,7 +149,7 @@ def test_chunking_can_be_enabled_without_compression(tmp_path):
         writer.write_rank(0, payload({"solve": (range(10), range(1, 11))}))
 
     with h5py.File(path, "r") as handle:
-        dataset = handle["rank0/regions/solve/start_times"]
+        dataset = handle["events/start_times"]
         assert dataset.compression is None
         assert dataset.chunks == (4,)
 
@@ -164,7 +162,12 @@ def test_a_rank_with_nothing_recorded_gets_no_group(tmp_path):
         assert writer.write_rank(1, payload()) is False
 
     with h5py.File(path, "r") as handle:
-        assert sorted(handle) == ["metadata", "rank0"]
+        assert sorted(handle) == [
+            "events",
+            "metadata",
+            "rank_region_index",
+            "region_table",
+        ]
 
 
 def test_successful_writer_atomically_replaces_previous_file(tmp_path):
@@ -180,7 +183,7 @@ def test_successful_writer_atomically_replaces_previous_file(tmp_path):
 
     with h5py.File(path, "r") as handle:
         assert handle["metadata"].attrs["generation"] == "new"
-        assert "rank0/regions/solve" in handle
+        assert handle["region_table/names"][()].tolist() == [b"solve"]
     assert list(tmp_path.glob(".atomic.h5.*.tmp")) == []
 
 

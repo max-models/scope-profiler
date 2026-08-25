@@ -1,13 +1,9 @@
 """Writing a merged HDF5 profiling file.
 
-The exact inverse of :mod:`scope_profiler.h5reader`: this module turns the
-in-memory payloads ``finalize()`` collects into the on-disk layout that
-:func:`~scope_profiler.h5reader.load_h5` reads back::
-
-    metadata/                       (attrs only)
-    rank<N>/regions/<name>/start_times
-    rank<N>/regions/<name>/end_times
-    rank<N>/likwid/regions/<tag>/   (only with use_likwid=True)
+The exact inverse of :mod:`scope_profiler.h5reader`: schema 2 stores region
+names once, one compact row per rank/region pair, and all timing events in
+shared typed columns. Rank groups remain only for auxiliary LIKWID and
+line-profiler records.
 
 Keeping it here rather than in ``profile_manager`` means the layout has
 exactly two files that must change together, and lets the writer be tested
@@ -15,6 +11,7 @@ without MPI or a full profiling run.
 """
 
 import errno
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -24,6 +21,126 @@ import numpy as np
 
 from scope_profiler.h5schema import CURRENT_SCHEMA_VERSION, SCHEMA_ATTRIBUTE
 from scope_profiler.likwid_data import write_likwid_results
+
+_STRING_DTYPE = h5py.string_dtype(encoding="utf-8")
+_NO_GPU_DURATION = -1
+
+
+def _append(dataset, values) -> int:
+    """Append values to a resizable one-dimensional dataset; return offset."""
+    values = np.asarray(values, dtype=dataset.dtype)
+    offset = len(dataset)
+    dataset.resize((offset + len(values),))
+    if len(values):
+        dataset[offset:] = values
+    return offset
+
+
+def initialize_columnar_layout(
+    h5file,
+    *,
+    compression=None,
+    compression_level=None,
+    chunk_size=None,
+) -> None:
+    """Create the schema-2 region dictionary, pair index, and event columns."""
+    regions = h5file.create_group("region_table")
+    regions.create_dataset("names", shape=(0,), maxshape=(None,), dtype=_STRING_DTYPE)
+
+    index = h5file.create_group("rank_region_index")
+    for name, dtype in (
+        ("region_ids", np.uint32),
+        ("ranks", np.uint32),
+        ("event_offsets", np.uint64),
+        ("event_counts", np.uint64),
+        ("source_lines", np.int64),
+    ):
+        index.create_dataset(name, shape=(0,), maxshape=(None,), dtype=dtype)
+    for name in ("source_files", "source_texts", "tags"):
+        index.create_dataset(name, shape=(0,), maxshape=(None,), dtype=_STRING_DTYPE)
+
+    events = h5file.create_group("events")
+    for name in ("start_times", "end_times"):
+        events.create_dataset(
+            name,
+            shape=(0,),
+            maxshape=(None,),
+            dtype=np.int64,
+            **dataset_storage_options(0, compression, compression_level, chunk_size),
+        )
+
+
+def append_columnar_rank(
+    h5file,
+    rank: int,
+    payload,
+    *,
+    compression=None,
+    compression_level=None,
+    chunk_size=None,
+) -> bool:
+    """Append one rank's region arrays to the schema-2 shared columns."""
+    if not payload.regions:
+        return False
+    existing_ranks = h5file["rank_region_index/ranks"][()]
+    if rank in existing_ranks:
+        raise ValueError(f"rank {rank} was written more than once")
+    names_dataset = h5file["region_table/names"]
+    existing_names = [
+        value.decode() if isinstance(value, bytes) else str(value)
+        for value in names_dataset[()]
+    ]
+    name_to_id = {name: index for index, name in enumerate(existing_names)}
+    new_names = [name for name in payload.regions if name not in name_to_id]
+    if new_names:
+        start = len(existing_names)
+        names_dataset.resize((start + len(new_names),))
+        names_dataset[start:] = new_names
+        name_to_id.update(
+            {name: start + offset for offset, name in enumerate(new_names)}
+        )
+
+    events = h5file["events"]
+    total_before = len(events["start_times"])
+    needs_gpu = any(
+        len(arrays) > 2 and arrays[2] is not None for arrays in payload.regions.values()
+    )
+    if needs_gpu and "gpu_durations" not in events:
+        events.create_dataset(
+            "gpu_durations",
+            shape=(total_before,),
+            maxshape=(None,),
+            dtype=np.int64,
+            fillvalue=_NO_GPU_DURATION,
+            **dataset_storage_options(
+                total_before, compression, compression_level, chunk_size
+            ),
+        )
+
+    sources = payload.sources or {}
+    tags = payload.tags or {}
+    index = h5file["rank_region_index"]
+    for name, arrays in payload.regions.items():
+        starts, ends = arrays[:2]
+        offset = _append(events["start_times"], starts)
+        _append(events["end_times"], ends)
+        if "gpu_durations" in events:
+            gpu = (
+                arrays[2]
+                if len(arrays) > 2 and arrays[2] is not None
+                else np.full(len(starts), _NO_GPU_DURATION)
+            )
+            _append(events["gpu_durations"], gpu)
+        source_file, source_line, source_text = sources.get(name, ("", -1, ""))
+        _append(index["region_ids"], [name_to_id[name]])
+        _append(index["ranks"], [rank])
+        _append(index["event_offsets"], [offset])
+        _append(index["event_counts"], [len(starts)])
+        _append(index["source_lines"], [source_line if source_line is not None else -1])
+        _append(index["source_files"], [source_file or ""])
+        _append(index["source_texts"], [source_text or ""])
+        _append(index["tags"], [json.dumps(list(tags.get(name, ())))])
+    return True
 
 
 def _fsync_file(path) -> None:
@@ -97,7 +214,9 @@ def dataset_storage_options(
     """Build h5py keyword arguments for one one-dimensional event dataset."""
     options = {}
     if chunk_size is not None:
-        options["chunks"] = (max(1, min(int(length), chunk_size)),)
+        options["chunks"] = (
+            chunk_size if int(length) == 0 else min(int(length), chunk_size),
+        )
 
     if compression == "gzip":
         options["compression"] = "gzip"
@@ -162,122 +281,184 @@ def write_parallel_payload(
     compression_level: int | None = None,
     chunk_size: int | None = None,
 ) -> None:
-    """Collectively create one file, then let each rank write its own arrays.
-
-    Parallel HDF5 requires metadata operations to be collective.  Only the
-    array-free layouts are gathered; timestamp, GPU, and line-timing arrays
-    remain local and are written independently into datasets owned by their
-    rank.
-    """
+    """Collectively create schema 2, then write each rank's assigned slices."""
     layouts = comm.allgather(payload_layout(payload))
     root_metadata = comm.bcast(metadata if rank == 0 else None, root=0)
 
+    region_names = []
+    for layout in layouts:
+        for name in layout["regions"]:
+            if name not in region_names:
+                region_names.append(name)
+    name_to_id = {name: index for index, name in enumerate(region_names)}
+
+    pairs = []
+    event_offset = 0
+    any_gpu = False
+    for owner, layout in enumerate(layouts):
+        for name, description in layout["regions"].items():
+            count = description["shapes"][0][0]
+            pairs.append((owner, name, event_offset, count, description))
+            event_offset += count
+            any_gpu = any_gpu or len(description["shapes"]) > 2
+
+    def fixed_string_data(values):
+        encoded = [str(value).encode("utf-8") for value in values]
+        width = max(1, max((len(value) for value in encoded), default=1))
+        return encoded, h5py.string_dtype("utf-8", width)
+
+    source_files = [
+        description["source"][0] if description["source"] else ""
+        for *_, description in pairs
+    ]
+    source_texts = [
+        description["source"][2] if description["source"] else ""
+        for *_, description in pairs
+    ]
+    tags = [json.dumps(list(description["tags"])) for *_, description in pairs]
+    encoded_names, names_dtype = fixed_string_data(region_names)
+    encoded_source_files, source_files_dtype = fixed_string_data(source_files)
+    encoded_source_texts, source_texts_dtype = fixed_string_data(source_texts)
+    encoded_tags, tags_dtype = fixed_string_data(tags)
+
     with h5py.File(file_path, "w", driver="mpio", comm=comm) as h5file:
         h5file.attrs[SCHEMA_ATTRIBUTE] = CURRENT_SCHEMA_VERSION
+        h5file.attrs["storage_layout"] = "columnar"
         write_metadata(h5file, root_metadata)
 
+        region_table = h5file.create_group("region_table")
+        region_table.create_dataset(
+            "names", shape=(len(region_names),), dtype=names_dtype
+        )
+        pair_index = h5file.create_group("rank_region_index")
+        for name, dtype in (
+            ("region_ids", np.uint32),
+            ("ranks", np.uint32),
+            ("event_offsets", np.uint64),
+            ("event_counts", np.uint64),
+            ("source_lines", np.int64),
+        ):
+            pair_index.create_dataset(name, shape=(len(pairs),), dtype=dtype)
+        for name, dtype in (
+            ("source_files", source_files_dtype),
+            ("source_texts", source_texts_dtype),
+            ("tags", tags_dtype),
+        ):
+            pair_index.create_dataset(name, shape=(len(pairs),), dtype=dtype)
+
+        events = h5file.create_group("events")
+        for name in ("start_times", "end_times"):
+            events.create_dataset(
+                name,
+                shape=(event_offset,),
+                dtype=np.int64,
+                **dataset_storage_options(
+                    event_offset, compression, compression_level, chunk_size
+                ),
+            )
+        if any_gpu:
+            events.create_dataset(
+                "gpu_durations",
+                shape=(event_offset,),
+                dtype=np.int64,
+                fillvalue=_NO_GPU_DURATION,
+                **dataset_storage_options(
+                    event_offset, compression, compression_level, chunk_size
+                ),
+            )
+
+        if rank == 0:
+            region_table["names"][:] = encoded_names
+            pair_index["region_ids"][:] = [
+                name_to_id[name] for _, name, _, _, _ in pairs
+            ]
+            pair_index["ranks"][:] = [owner for owner, _, _, _, _ in pairs]
+            pair_index["event_offsets"][:] = [offset for _, _, offset, _, _ in pairs]
+            pair_index["event_counts"][:] = [count for _, _, _, count, _ in pairs]
+            pair_index["source_lines"][:] = [
+                description["source"][1] if description["source"] is not None else -1
+                for *_, description in pairs
+            ]
+            pair_index["source_files"][:] = encoded_source_files
+            pair_index["source_texts"][:] = encoded_source_texts
+            pair_index["tags"][:] = encoded_tags
+        comm.Barrier()
+
+        own_pairs = [pair for pair in pairs if pair[0] == rank]
+        own_offset = own_pairs[0][2] if own_pairs else 0
+        own_count = sum(pair[3] for pair in own_pairs)
+        own_slice = slice(own_offset, own_offset + own_count)
+        starts = (
+            np.concatenate(
+                [
+                    np.asarray(arrays[0], dtype=np.int64)
+                    for arrays in payload.regions.values()
+                ]
+            )
+            if payload.regions
+            else np.empty(0, dtype=np.int64)
+        )
+        ends = (
+            np.concatenate(
+                [
+                    np.asarray(arrays[1], dtype=np.int64)
+                    for arrays in payload.regions.values()
+                ]
+            )
+            if payload.regions
+            else np.empty(0, dtype=np.int64)
+        )
+        with events["start_times"].collective:
+            events["start_times"][own_slice] = starts
+        with events["end_times"].collective:
+            events["end_times"][own_slice] = ends
+        if any_gpu:
+            gpu_values = (
+                np.concatenate(
+                    [
+                        (
+                            np.asarray(arrays[2], dtype=np.int64)
+                            if len(arrays) > 2
+                            else np.full(
+                                len(arrays[0]), _NO_GPU_DURATION, dtype=np.int64
+                            )
+                        )
+                        for arrays in payload.regions.values()
+                    ]
+                )
+                if payload.regions
+                else np.empty(0, dtype=np.int64)
+            )
+            with events["gpu_durations"].collective:
+                events["gpu_durations"][own_slice] = gpu_values
+
         for owner, layout in enumerate(layouts):
-            regions = layout["regions"]
             line_profile = layout["line_profile"]
-            if not regions and not line_profile:
+            if not line_profile:
                 continue
             group = h5file.create_group(rank_group_name(owner))
-            if regions:
-                regions_group = group.create_group("regions")
-                for name, description in regions.items():
-                    region_group = regions_group.create_group(name)
-                    shapes = description["shapes"]
-                    region_group.create_dataset(
-                        "start_times",
-                        shape=shapes[0],
-                        dtype=np.int64,
-                        **dataset_storage_options(
-                            shapes[0][0], compression, compression_level, chunk_size
-                        ),
-                    )
-                    region_group.create_dataset(
-                        "end_times",
-                        shape=shapes[1],
-                        dtype=np.int64,
-                        **dataset_storage_options(
-                            shapes[1][0], compression, compression_level, chunk_size
-                        ),
-                    )
-                    if len(shapes) > 2:
-                        region_group.create_dataset(
-                            "gpu_durations",
-                            shape=shapes[2],
-                            dtype=np.int64,
-                            **dataset_storage_options(
-                                shapes[2][0],
-                                compression,
-                                compression_level,
-                                chunk_size,
-                            ),
-                        )
-                    source = description["source"]
-                    if source is not None:
-                        source_file, source_lineno, source_text = source
-                        region_group.attrs["source_file"] = source_file
-                        region_group.attrs["source_lineno"] = source_lineno
-                        region_group.attrs["source_text"] = source_text
-                    region_group.attrs.create(
-                        "tags", list(description["tags"]), dtype=h5py.string_dtype()
-                    )
-
-            if line_profile:
-                profile_group = group.create_group("line_profile")
-                for index, description in enumerate(line_profile):
-                    function_group = profile_group.create_group(str(index))
-                    for key in (
-                        "region",
-                        "filename",
-                        "function",
-                        "first_lineno",
-                        "unit",
-                    ):
-                        function_group.attrs[key] = description[key]
-                    shapes = description["shapes"]
+            profile_group = group.create_group("line_profile")
+            for index, description in enumerate(line_profile):
+                function_group = profile_group.create_group(str(index))
+                for key in ("region", "filename", "function", "first_lineno", "unit"):
+                    function_group.attrs[key] = description[key]
+                shapes = description["shapes"]
+                for key, dtype in (
+                    ("line_numbers", np.int64),
+                    ("hits", np.int64),
+                    ("times", np.float64),
+                ):
                     function_group.create_dataset(
-                        "line_numbers",
-                        shape=shapes["line_numbers"],
-                        dtype=np.int64,
+                        key,
+                        shape=shapes[key],
+                        dtype=dtype,
                         **dataset_storage_options(
-                            shapes["line_numbers"][0],
+                            shapes[key][0],
                             compression,
                             compression_level,
                             chunk_size,
                         ),
                     )
-                    function_group.create_dataset(
-                        "hits",
-                        shape=shapes["hits"],
-                        dtype=np.int64,
-                        **dataset_storage_options(
-                            shapes["hits"][0],
-                            compression,
-                            compression_level,
-                            chunk_size,
-                        ),
-                    )
-                    function_group.create_dataset(
-                        "times",
-                        shape=shapes["times"],
-                        dtype=np.float64,
-                        **dataset_storage_options(
-                            shapes["times"][0],
-                            compression,
-                            compression_level,
-                            chunk_size,
-                        ),
-                    )
-
-        for name, arrays in payload.regions.items():
-            region_group = h5file[f"{rank_group_name(rank)}/regions/{name}"]
-            region_group["start_times"][:] = np.asarray(arrays[0], dtype=np.int64)
-            region_group["end_times"][:] = np.asarray(arrays[1], dtype=np.int64)
-            if len(arrays) > 2:
-                region_group["gpu_durations"][:] = np.asarray(arrays[2], dtype=np.int64)
         for index, record in enumerate(payload.line_profile or []):
             function_group = h5file[f"{rank_group_name(rank)}/line_profile/{index}"]
             function_group["line_numbers"][:] = np.asarray(
@@ -439,22 +620,31 @@ def write_rank_payload(
     bool
         True if a group was created, False if the payload was empty.
     """
-    if not payload.regions and not payload.likwid and not payload.line_profile:
-        return False
-
-    # create_group, not require_group: each rank is written exactly once, so a
-    # duplicate means a bug in the receive loop rather than something to merge.
-    group = h5file.create_group(rank_group_name(rank))
-    if payload.regions:
-        write_regions(
-            group,
-            payload.regions,
-            payload.sources,
-            payload.tags,
+    if "region_table" not in h5file:
+        h5file.attrs[SCHEMA_ATTRIBUTE] = CURRENT_SCHEMA_VERSION
+        h5file.attrs["storage_layout"] = "columnar"
+        initialize_columnar_layout(
+            h5file,
             compression=compression,
             compression_level=compression_level,
             chunk_size=chunk_size,
         )
+    if not payload.regions and not payload.likwid and not payload.line_profile:
+        return False
+    wrote_regions = append_columnar_rank(
+        h5file,
+        rank,
+        payload,
+        compression=compression,
+        compression_level=compression_level,
+        chunk_size=chunk_size,
+    )
+    if not payload.likwid and not payload.line_profile:
+        return wrote_regions
+
+    # Auxiliary records retain rank-local groups because their matrices and
+    # function records have different schemas from timing events.
+    group = h5file.create_group(rank_group_name(rank))
     if payload.likwid:
         write_likwid_results(
             group,
@@ -524,7 +714,14 @@ class ProfilingWriter:
             self._file = h5py.File(open_path, mode)
             if mode == "w":
                 self._file.attrs[SCHEMA_ATTRIBUTE] = CURRENT_SCHEMA_VERSION
+                self._file.attrs["storage_layout"] = "columnar"
                 write_metadata(self._file, metadata or {})
+                initialize_columnar_layout(
+                    self._file,
+                    compression=compression,
+                    compression_level=compression_level,
+                    chunk_size=chunk_size,
+                )
             else:
                 from scope_profiler.h5schema import read_schema_version
 

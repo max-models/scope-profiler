@@ -74,8 +74,7 @@ def test_growth_during_recursion_keeps_slots_valid(tmp_path):
     assert np.all(stored.durations > 0)
 
 
-def test_datasets_are_exactly_sized_and_contiguous(tmp_path):
-    """Writing once lets the datasets be exact-size and unchunked."""
+def test_columnar_dataset_contains_only_recorded_events(tmp_path):
     file_path = tmp_path / "sized.h5"
     ProfileManager.setup(file_path=str(file_path), buffer_limit=100_000)
 
@@ -86,11 +85,9 @@ def test_datasets_are_exactly_sized_and_contiguous(tmp_path):
     ProfileManager.finalize(verbose=False)
 
     with h5py.File(file_path, "r") as handle:
-        dataset = handle["rank0/regions/sparse/start_times"]
+        dataset = handle["events/start_times"]
         assert dataset.shape == (5,)
-        # Contiguous storage: no chunk is allocated beyond the real data.
-        assert dataset.chunks is None
-        assert dataset.id.get_storage_size() == 5 * 8
+        assert dataset.chunks is not None
 
 
 def test_no_write_when_file_output_is_deactivated(tmp_path):

@@ -8,6 +8,7 @@ HDF5 parsing that turns a merged file into that object's constructor
 arguments.
 """
 
+import json
 from pathlib import Path
 
 import h5py
@@ -87,6 +88,39 @@ def _read_line_profile_group(group) -> list:
     return records
 
 
+def _read_columnar_regions(h5file) -> tuple[dict, list[str]]:
+    """Read schema-2 shared event columns into the existing Region API."""
+    names = [_decode_attribute(value) for value in h5file["region_table/names"][()]]
+    index = h5file["rank_region_index"]
+    events = h5file["events"]
+    per_region: dict[str, dict[int, Region]] = {name: {} for name in names}
+    for row, region_id in enumerate(index["region_ids"][()]):
+        name = names[int(region_id)]
+        rank = int(index["ranks"][row])
+        offset = int(index["event_offsets"][row])
+        count = int(index["event_counts"][row])
+        event_slice = slice(offset, offset + count)
+        gpu_durations = None
+        if "gpu_durations" in events:
+            candidate = events["gpu_durations"][event_slice]
+            if np.any(candidate >= 0):
+                gpu_durations = candidate
+        source_file = _decode_attribute(index["source_files"][row]) or None
+        source_line = int(index["source_lines"][row])
+        source_text = _decode_attribute(index["source_texts"][row]) or None
+        tags = tuple(json.loads(_decode_attribute(index["tags"][row]) or "[]"))
+        per_region[name][rank] = Region(
+            events["start_times"][event_slice],
+            events["end_times"][event_slice],
+            gpu_durations=gpu_durations,
+            source_file=source_file,
+            source_lineno=source_line if source_line >= 0 else None,
+            source_text=source_text,
+            tags=tags,
+        )
+    return per_region, names
+
+
 def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
     """
     Parse a merged profiling file into :class:`ProfilingResults` arguments.
@@ -142,18 +176,31 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
                 for key, value in f["metadata"].attrs.items()
             }
 
+        if schema_version == 2:
+            _region_dict, region_names = _read_columnar_regions(f)
+            recorded_ranks = f["rank_region_index/ranks"][()]
+            inferred_ranks = (
+                int(np.max(recorded_ranks)) + 1 if len(recorded_ranks) else 0
+            )
+            num_ranks = (
+                max(int(metadata.get("mpi_size", 1)), inferred_ranks)
+                if len(recorded_ranks)
+                else 0
+            )
+
         # Iterate over the rank groups in rank order. h5py yields them in
         # name order, which puts "rank10" before "rank2"; pooled statistics
         # sum per-rank arrays in this order, so a stable numeric order is what
         # makes the numbers reproducible and identical to the ones
         # ProfileManager.finalize(return_results=True) computes in memory.
         rank_group_names = sorted(
-            (name for name in f if name != "metadata"),
+            (name for name in f if name.startswith("rank") and name[4:].isdigit()),
             key=lambda name: int(name.replace("rank", "")),
         )
         for rank_group_name in rank_group_names:
             rank_group = f[rank_group_name]
-            num_ranks += 1
+            if schema_version == 1:
+                num_ranks += 1
             if verbose:
                 print(f"{rank_group_name = }")
                 print(rank_group_name, rank_group)
@@ -166,7 +213,7 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
                     rank_group["line_profile"]
                 )
 
-            if "regions" not in rank_group:
+            if schema_version == 2 or "regions" not in rank_group:
                 continue
             regions_group = rank_group["regions"]
 
