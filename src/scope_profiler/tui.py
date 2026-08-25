@@ -295,7 +295,9 @@ def _duration(value) -> str:
     return "-" if value is None else f"{value:.6g} s"
 
 
-def _line_table(headers, rows, *, compact: bool = False) -> str:
+def _line_table(
+    headers, rows, *, compact: bool = False, maxcolwidths: tuple[int, ...] | None = None
+) -> str:
     rows = list(rows)
     from tabulate import tabulate
 
@@ -304,6 +306,7 @@ def _line_table(headers, rows, *, compact: bool = False) -> str:
         headers=headers,
         tablefmt="plain" if compact else "rounded_outline",
         disable_numparse=True,
+        maxcolwidths=maxcolwidths,
     )
 
 
@@ -415,10 +418,25 @@ def node_detail_text(node: BrowserNode) -> str:
         metadata = payload["metadata"]
         if not metadata:
             return "No metadata recorded."
-        return _line_table(("Key", "Value"), sorted(metadata.items()))
+        sections, modules = _metadata_sections(metadata)
+        lines = [
+            "Metadata",
+            "",
+            f"{len(metadata)} metadata entries recorded.",
+            "Select a section below to inspect its values:",
+            "",
+        ]
+        lines.extend(f"• {title} ({len(entries)} entries)" for title, entries in sections)
+        if modules is not None:
+            lines.append(f"• Modules ({len(modules)} entries)")
+        return "\n".join(lines)
 
     if kind == "metadata_section":
-        return _line_table(("Key", "Value"), payload["entries"])
+        return _line_table(
+            ("Key", "Value"),
+            payload["entries"],
+            maxcolwidths=(28, 72),
+        )
 
     if kind == "modules":
         modules = payload["modules"]
@@ -648,7 +666,13 @@ def node_detail_text(node: BrowserNode) -> str:
         lines.append(f"Children: {len(node.children)}")
         if attrs:
             lines.append("\nAttributes")
-            lines.append(_line_table(("Key", "Value"), sorted(attrs.items())))
+            lines.append(
+                _line_table(
+                    ("Key", "Value"),
+                    sorted(attrs.items()),
+                    maxcolwidths=(28, 72),
+                )
+            )
         return "\n".join(lines)
 
     if kind == "h5_dataset":
@@ -666,7 +690,13 @@ def node_detail_text(node: BrowserNode) -> str:
         ]
         if attrs:
             lines.append("\nAttributes")
-            lines.append(_line_table(("Key", "Value"), sorted(attrs.items())))
+            lines.append(
+                _line_table(
+                    ("Key", "Value"),
+                    sorted(attrs.items()),
+                    maxcolwidths=(28, 72),
+                )
+            )
         return "\n".join(lines)
 
     return node.label
@@ -841,7 +871,6 @@ def _matplotlib_child_script() -> str:
         "    nodes.extend(node.children)\n"
     )
 
-
 def _build_textual_app_class():
     try:
         from rich.text import Text
@@ -866,6 +895,11 @@ def _build_textual_app_class():
 
     class H5BrowserApp(App):
         """Textual application for browsing a profile file."""
+
+        class Detail(Static):
+            """Scrollable detail view that can receive keyboard focus."""
+
+            can_focus = True
 
         class RegionSuggester(Suggester):
             """Complete the current comma-separated region filter token."""
@@ -976,7 +1010,10 @@ def _build_textual_app_class():
             self._plotext_refresh_timer = None
 
         def _detail(self, node: BrowserNode):
-            return Text(node_detail_text(node), no_wrap=True)
+            return Text(
+                node_detail_text(node),
+                no_wrap=node.kind not in {"metadata", "metadata_section", "modules"},
+            )
 
         def compose(self) -> ComposeResult:
             region_names = [region.name for region in self.model.results.get_regions()]
@@ -985,7 +1022,9 @@ def _build_textual_app_class():
             with Horizontal(id="body"):
                 yield Tree(self.model.root.label, id="nav")
                 with Vertical(id="right"):
-                    yield Static(self._detail(self.model.root.children[0]), id="detail")
+                    yield self.Detail(
+                        self._detail(self.model.root.children[0]), id="detail"
+                    )
                     with Vertical(id="settings"):
                         yield Static("Plot settings", id="settings-title")
                         yield Input(

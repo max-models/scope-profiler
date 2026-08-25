@@ -123,6 +123,37 @@ def test_overview_shows_dashboard_metrics_and_top_regions(sample_file):
     assert "█" in overview
 
 
+def test_metadata_landing_page_is_compact(sample_file):
+    model = build_browser_model(sample_file)
+
+    metadata = node_detail_text(_find(model.root, "Metadata"))
+
+    assert "metadata entries recorded" in metadata
+    assert "Select a section below" in metadata
+
+
+def test_metadata_values_wrap_inside_the_table(sample_file):
+    model = build_browser_model(sample_file)
+    section = _find(model.root, "Run")
+    section.payload["entries"] = [("uname", "Darwin " * 30)]
+
+    details = node_detail_text(section)
+
+    assert len(max(details.splitlines(), key=len)) < 110
+    assert details.count("Darwin") == 30
+
+
+def test_raw_hdf5_attributes_wrap_inside_the_table(sample_file):
+    model = build_browser_model(sample_file)
+    dataset = _find(model.root, "start_times")
+    dataset.payload["attrs"] = {"description": "attribute " * 30}
+
+    details = node_detail_text(dataset)
+
+    assert len(max(details.splitlines(), key=len)) < 110
+    assert details.count("attribute") == 30
+
+
 def test_line_profile_records_are_clickable(line_profile_file):
     model = build_browser_model(line_profile_file)
 
