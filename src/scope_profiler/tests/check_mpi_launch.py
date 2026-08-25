@@ -60,9 +60,7 @@ def check(mode: str, expected_size: int) -> None:
             else:
                 # Keep the checker compatible with legacy schema-1 files.
                 ranks = sorted(
-                    key
-                    for key in f
-                    if key.startswith("rank") and key[4:].isdigit()
+                    key for key in f if key.startswith("rank") and key[4:].isdigit()
                 )
         expected_ranks = [f"rank{r}" for r in range(expected_size)]
         assert ranks == expected_ranks, f"expected {expected_ranks}, got {ranks}"
