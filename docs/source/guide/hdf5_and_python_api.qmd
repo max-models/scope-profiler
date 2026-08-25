@@ -31,6 +31,11 @@ profiling_data.h5
 └── ...
 ```
 
+The root attribute `scope_profiler_schema` identifies the HDF5 layout version.
+New files currently use schema version `1`. Files created before this
+attribute was introduced are treated as version 1 for backward compatibility;
+files from a newer, unsupported schema are rejected with an upgrade hint.
+
 - Each MPI rank gets its own top-level group (`rank0`, `rank1`, ...).
   For serial runs there is only `rank0`.
 - Timestamps are stored as **int64 nanoseconds** from

@@ -14,6 +14,7 @@ import h5py
 import numpy as np
 
 from scope_profiler.likwid_data import LIKWID_GROUP, LikwidRegionResult
+from scope_profiler.h5schema import migrate_schema, read_schema_version
 from scope_profiler.mpi_region import MPIRegion
 from scope_profiler.region import Region
 from scope_profiler.results import ProfilingResults
@@ -126,6 +127,8 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
     _region_dict = {}
     region_names = []
     with h5py.File(file_path, "r") as f:
+        schema_version = read_schema_version(f)
+        migrate_schema(f, schema_version)
         if "metadata" in f:
             metadata = {
                 key: _decode_attribute(value)

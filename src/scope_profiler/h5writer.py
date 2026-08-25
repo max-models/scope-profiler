@@ -18,6 +18,7 @@ import h5py
 import numpy as np
 
 from scope_profiler.likwid_data import write_likwid_results
+from scope_profiler.h5schema import CURRENT_SCHEMA_VERSION, SCHEMA_ATTRIBUTE
 
 
 def rank_group_name(rank: int) -> str:
@@ -170,6 +171,7 @@ class ProfilingWriter:
         makes a second ``finalize()`` in one process report only its own run.
         """
         self._file = h5py.File(file_path, "w")
+        self._file.attrs[SCHEMA_ATTRIBUTE] = CURRENT_SCHEMA_VERSION
         write_metadata(self._file, metadata or {})
 
     def write_rank(self, rank: int, payload) -> bool:
