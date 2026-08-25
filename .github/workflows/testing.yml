@@ -279,6 +279,18 @@ jobs:
           pip install --upgrade pip
           pip install ".[dev]"
 
+      # Older cached revisions of the CI image may predate the parallel-h5py
+      # build below. Keep pull requests self-contained; the fast path is a
+      # single import check once the refreshed image is in use.
+      - name: Ensure h5py has parallel HDF5 support
+        run: |
+          if ! python3 -c "import h5py, sys; sys.exit(not h5py.get_config().mpi)"; then
+            apt-get update
+            apt-get install -y --no-install-recommends libhdf5-openmpi-dev pkg-config
+            HDF5_MPI=ON CC=mpicc pip install \
+              --force-reinstall --no-deps --no-binary=h5py h5py
+          fi
+
       # mpi4py is installed at this point (via the dev extra), so the only
       # difference between these runs is the launcher: MPI must be used when
       # started by mpirun and never touched otherwise.
@@ -299,6 +311,13 @@ jobs:
         run: |
           mpirun -n 2 python3 src/scope_profiler/tests/test_mpi.py
           scope-profiler plot default profiling_data.h5 --show -o figures
+
+      - name: Test parallel HDF5 writer
+        run: |
+          python3 -c "import h5py; assert h5py.get_config().mpi"
+          mpirun -n 3 python3 \
+            src/scope_profiler/tests/check_parallel_hdf5.py \
+            "$RUNNER_TEMP/parallel-profiling-${{ matrix.python-version }}.h5"
 
     # - name: Test tutorials
     #   run: |

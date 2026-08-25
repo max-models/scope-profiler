@@ -17,6 +17,7 @@ configuration is global: every call to `profile()` or `profile_region()`
 | `deactivate_file_output`| `bool` | `False`             | When `True`, write no HDF5 file at all; the run stays in memory. See below.                      |
 | `buffer_limit`        | `int`  | `1024`                | Initial per-region buffer capacity. Buffers grow on demand, so this is a starting size, not a cap. |
 | `file_path`           | `str`  | `"profiling_data.h5"` | Output path for the merged HDF5 file written by `finalize()`.                                   |
+| `output_mode`         | `str`  | `"auto"`              | MPI writer: parallel HDF5 when available, otherwise direct token-ordered writes. Accepts `auto`, `direct`, or `parallel`. |
 | `label`               | `str`  | `None`                | Short name for the run, used by post-processing wherever a run has to be named. See below.       |
 | `capture_region_source`| `bool` | `False`              | Record where each region is defined (see {doc}`hdf5_and_python_api`). Off by default; see below for its cost and how to turn it on. |
 

@@ -32,26 +32,28 @@ pip install "scope-profiler[mpi]"
    never joins the job.
 
 2. **Recording** --- each rank accumulates its own timestamps in memory.
-   Nothing is written per rank, so no shared filesystem is involved.
+   Nothing is written until finalization.
 
-3. **Finalize** --- `ProfileManager.finalize()` is collective. Each rank
-   other than 0 sends its recorded data to rank 0 as a single tagged
-   point-to-point message; rank 0 takes one rank at a time, writes it
-   into the single output file as
-   `rank<N>/regions/<name>/{start_times,end_times}`, and drops it before
-   taking the next. Its peak memory is therefore one rank's data plus the
-   open file, not the whole job's --- which is what makes this work at
-   thousands of ranks.
+3. **Finalize** --- every rank writes its own data into the same output file;
+   timestamp arrays are never sent to rank 0. With an MPI-enabled h5py build,
+   ordinary region data is written through parallel HDF5. Otherwise a tiny
+   point-to-point ownership token moves through the ranks: each rank opens the
+   serial-HDF5 file, appends its `rank<N>` group, closes it, then passes the
+   token. The last rank reports completion to rank 0, which atomically publishes
+   the file under its final name.
 
    A rank that entered no region simply has no `rank<N>` group. And
    because every rank must reach `finalize()`, one that dies first leaves
    the job waiting rather than quietly dropping its data from the output.
 
-   The transport deliberately uses no MPI collective at all --- not even
-   `MPI_Comm_dup`. With `use_likwid=True` every rank reads its counters
-   back in a subprocess, and Open MPI does not support forking from a rank
-   using its shared-memory transport; a collective afterwards can segfault,
-   while point-to-point traffic survives.
+   LIKWID and line-profiler records use the token writer even when parallel
+   HDF5 is installed. LIKWID reads counters in a subprocess, and Open MPI does
+   not safely support a collective MPI-IO phase after that fork. The direct
+   writer deliberately uses point-to-point traffic only.
+
+   All ranks must see `file_path` through the same shared filesystem. Select a
+   backend explicitly with `ProfileManager.setup(output_mode="direct")` or
+   `output_mode="parallel"`; the default `auto` chooses the safe option.
 
 ## Example
 

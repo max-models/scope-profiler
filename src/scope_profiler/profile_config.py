@@ -29,6 +29,7 @@ _CONFIG_FIELDS = {
     "recursive_profile",
     "buffer_limit",
     "file_path",
+    "output_mode",
     "label",
     "capture_region_source",
 }
@@ -222,6 +223,7 @@ class ProfilingConfig:
         recursive_profile: bool = False,
         buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
+        output_mode: str = "auto",
         label: str | None = None,
         capture_region_source: bool = False,
     ):
@@ -254,6 +256,11 @@ class ProfilingConfig:
             The buffers grow on demand, so this is a starting size, not a cap.
         file_path : str
             Global output file path for combined profiling data.
+        output_mode : str
+            MPI HDF5 writer: ``"auto"`` uses parallel HDF5 when available and
+            safe, otherwise serializes direct per-rank writes; ``"direct"``
+            always uses the latter; ``"parallel"`` requires an MPI-enabled
+            h5py build. Serial runs are unaffected.
         label : str or None
             Short name for this run, used by post-processing wherever a run
             has to be named: chart legends, the summary heading, the JSON
@@ -306,6 +313,12 @@ class ProfilingConfig:
         self._recursive_profile = recursive_profile
         self._buffer_limit = buffer_limit
         self._file_path = file_path
+        if output_mode not in {"auto", "direct", "parallel"}:
+            raise ValueError(
+                "output_mode must be 'auto', 'direct', or 'parallel', "
+                f"got {output_mode!r}"
+            )
+        self._output_mode = output_mode
         self._capture_region_source = capture_region_source
 
         # Local queries, not collectives: nothing here has to be reached by
@@ -450,6 +463,11 @@ class ProfilingConfig:
     def file_path(self) -> str:
         """Global output file path for combined profiling data."""
         return self._file_path
+
+    @property
+    def output_mode(self) -> str:
+        """MPI HDF5 output strategy: auto, direct, or parallel."""
+        return self._output_mode
 
     @property
     def use_likwid(self) -> bool:

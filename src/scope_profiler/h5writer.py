@@ -21,6 +21,75 @@ from scope_profiler.h5schema import CURRENT_SCHEMA_VERSION, SCHEMA_ATTRIBUTE
 from scope_profiler.likwid_data import write_likwid_results
 
 
+def parallel_hdf5_available() -> bool:
+    """Whether this h5py build has the MPI-IO driver enabled."""
+    return bool(getattr(h5py.get_config(), "mpi", False))
+
+
+def region_payload_layout(payload) -> dict:
+    """Return the small, array-free schema needed for collective creation."""
+    sources = payload.sources or {}
+    tags = payload.tags or {}
+    return {
+        name: {
+            "shapes": [tuple(np.shape(array)) for array in arrays],
+            "source": sources.get(name),
+            "tags": tuple(tags.get(name, ())),
+        }
+        for name, arrays in payload.regions.items()
+    }
+
+
+def write_parallel_regions(file_path, comm, rank: int, payload, metadata: dict) -> None:
+    """Collectively create one file, then let each rank write its own arrays.
+
+    Parallel HDF5 requires metadata operations to be collective.  Only the
+    array-free layouts are gathered; timestamp and GPU arrays remain local and
+    are written independently into datasets owned by their rank.
+    """
+    layouts = comm.allgather(region_payload_layout(payload))
+    root_metadata = comm.bcast(metadata if rank == 0 else None, root=0)
+
+    with h5py.File(file_path, "w", driver="mpio", comm=comm) as h5file:
+        h5file.attrs[SCHEMA_ATTRIBUTE] = CURRENT_SCHEMA_VERSION
+        write_metadata(h5file, root_metadata)
+
+        for owner, layout in enumerate(layouts):
+            if not layout:
+                continue
+            group = h5file.create_group(rank_group_name(owner))
+            regions_group = group.create_group("regions")
+            for name, description in layout.items():
+                region_group = regions_group.create_group(name)
+                shapes = description["shapes"]
+                region_group.create_dataset(
+                    "start_times", shape=shapes[0], dtype=np.int64
+                )
+                region_group.create_dataset(
+                    "end_times", shape=shapes[1], dtype=np.int64
+                )
+                if len(shapes) > 2:
+                    region_group.create_dataset(
+                        "gpu_durations", shape=shapes[2], dtype=np.int64
+                    )
+                source = description["source"]
+                if source is not None:
+                    source_file, source_lineno, source_text = source
+                    region_group.attrs["source_file"] = source_file
+                    region_group.attrs["source_lineno"] = source_lineno
+                    region_group.attrs["source_text"] = source_text
+                region_group.attrs.create(
+                    "tags", list(description["tags"]), dtype=h5py.string_dtype()
+                )
+
+        for name, arrays in payload.regions.items():
+            region_group = h5file[f"{rank_group_name(rank)}/regions/{name}"]
+            region_group["start_times"][:] = np.asarray(arrays[0], dtype=np.int64)
+            region_group["end_times"][:] = np.asarray(arrays[1], dtype=np.int64)
+            if len(arrays) > 2:
+                region_group["gpu_durations"][:] = np.asarray(arrays[2], dtype=np.int64)
+
+
 def rank_group_name(rank: int) -> str:
     """Name of one rank's group. ``h5reader`` parses the rank back out of it."""
     return f"rank{rank}"
@@ -163,16 +232,28 @@ class ProfilingWriter:
             writer.write_rank(source, received_payload)
     """
 
-    def __init__(self, file_path, metadata: dict | None = None) -> None:
+    def __init__(
+        self, file_path, metadata: dict | None = None, mode: str = "w"
+    ) -> None:
         """Open ``file_path`` for writing and store the run's metadata.
 
         The file is opened with mode ``"w"``, so a previous run's output at
         the same path is replaced rather than merged into -- which is what
         makes a second ``finalize()`` in one process report only its own run.
         """
-        self._file = h5py.File(file_path, "w")
-        self._file.attrs[SCHEMA_ATTRIBUTE] = CURRENT_SCHEMA_VERSION
-        write_metadata(self._file, metadata or {})
+        self._file = h5py.File(file_path, mode)
+        if mode == "w":
+            self._file.attrs[SCHEMA_ATTRIBUTE] = CURRENT_SCHEMA_VERSION
+            write_metadata(self._file, metadata or {})
+        else:
+            from scope_profiler.h5schema import read_schema_version
+
+            read_schema_version(self._file)
+
+    @classmethod
+    def open_existing(cls, file_path) -> "ProfilingWriter":
+        """Open a completed prefix of an MPI output file for one more rank."""
+        return cls(file_path, mode="r+")
 
     def write_rank(self, rank: int, payload) -> bool:
         """Write one rank's payload; see :func:`write_rank_payload`."""
