@@ -534,9 +534,7 @@ def _plot_output_targets(
     ext = (
         "html"
         if args.backend == "plotly"
-        else "txt"
-        if args.backend == "plotext"
-        else "png"
+        else "txt" if args.backend == "plotext" else "png"
     )
     is_single_plot_file = len(selected_plots) == 1 and output_path.suffix.lower() in {
         ".png",
@@ -627,9 +625,7 @@ def _render_selected_plots(
     ext = (
         "html"
         if getattr(args, "backend", "matplotlib") == "plotly"
-        else "txt"
-        if getattr(args, "backend", "matplotlib") == "plotext"
-        else "png"
+        else "txt" if getattr(args, "backend", "matplotlib") == "plotext" else "png"
     )
     options = _plot_options(args, "")
     saved: list[str] = []

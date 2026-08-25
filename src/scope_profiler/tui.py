@@ -43,6 +43,7 @@ _PLOT_CATALOG = {
     "histogram": "Call-duration distribution by region",
     "imbalance": "Per-rank duration comparison",
 }
+_PLOTEXT_TUI_PLOTS = frozenset({"durations", "timeseries", "histogram", "imbalance"})
 
 
 @dataclass
@@ -341,6 +342,7 @@ def node_detail_text(node: BrowserNode) -> str:
             "",
             "Select a plot below, then press:",
             "  g  Show it in Matplotlib",
+            "  t  Show simple plots with Plotext",
             "  s  Save it as a PNG",
             "Edit the region filters to change the selected regions.",
             "",
@@ -358,7 +360,7 @@ def node_detail_text(node: BrowserNode) -> str:
             f"Plot: {payload.get('plot_name', 'likwid')}",
             payload["description"],
             "",
-            "Press g for Matplotlib, p for Plotly in a browser, or s to save PNG.",
+            "Press g for Matplotlib, t for Plotext (simple plots), p for Plotly in a browser, or s to save PNG.",
         ]
         if payload.get("plot_name") == "flame":
             lines.append("Press v to open the reconstructed profile in Snakeviz.")
@@ -839,6 +841,7 @@ def _build_textual_app_class():
             ("q", "quit", "Quit"),
             ("g", "show_matplotlib", "Show Matplotlib"),
             ("p", "show_plotly", "Open Plotly"),
+            ("t", "show_plotext", "Show Plotext"),
             ("s", "save_plot", "Save plot"),
             ("v", "show_snakeviz", "Open in Snakeviz"),
         ]
@@ -1030,6 +1033,16 @@ def _build_textual_app_class():
             if node is None or node.kind not in {"plot", "plot_likwid"}:
                 self.notify("Select an individual plot first.", severity="warning")
                 return
+            if (
+                backend == "plotext"
+                and node.payload.get("plot_name") not in _PLOTEXT_TUI_PLOTS
+            ):
+                self.notify(
+                    "Plotext is available in the TUI for simple plots only.",
+                    severity="warning",
+                    timeout=5,
+                )
+                return
 
             filepath = None
             if not show:
@@ -1044,7 +1057,8 @@ def _build_textual_app_class():
                         for part in node.payload["metric"].split()
                         if part.isalnum()
                     )
-                filepath = directory / f"{filename}.png"
+                suffix = ".txt" if backend == "plotext" else ".png"
+                filepath = directory / f"{filename}{suffix}"
             try:
                 if show:
                     saved = self._show_plot_in_child_process(node, settings)
@@ -1151,6 +1165,25 @@ def _build_textual_app_class():
 
         def action_show_matplotlib(self) -> None:
             self._run_selected_plot(show=True, backend="matplotlib")
+
+        def action_show_plotext(self) -> None:
+            node = self.selected_browser_node
+            if node is None or node.payload.get("plot_name") not in _PLOTEXT_TUI_PLOTS:
+                self.notify(
+                    "Plotext is available in the TUI for simple plots only.",
+                    severity="warning",
+                    timeout=5,
+                )
+                return
+            self._read_plot_settings()
+            try:
+                render_plot(
+                    node,
+                    show=True,
+                    settings={**self.plot_settings, "backend": "plotext"},
+                )
+            except (ImportError, RuntimeError, ValueError) as exc:
+                self.notify(str(exc), severity="error", timeout=8)
 
         def action_show_plotly(self) -> None:
             self._open_plotly_browser()
