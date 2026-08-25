@@ -5,12 +5,12 @@ import numpy as np
 import pytest
 
 from scope_profiler import read_h5
-from scope_profiler.h5writer import ProfilingWriter, write_metadata, write_rank_payload
 from scope_profiler.h5schema import (
     CURRENT_SCHEMA_VERSION,
-    HDF5SchemaError,
     SCHEMA_ATTRIBUTE,
+    HDF5SchemaError,
 )
+from scope_profiler.h5writer import ProfilingWriter, write_metadata, write_rank_payload
 from scope_profiler.profile_manager import RankPayload
 
 NS = 1_000_000_000

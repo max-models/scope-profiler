@@ -13,8 +13,8 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from scope_profiler.likwid_data import LIKWID_GROUP, LikwidRegionResult
 from scope_profiler.h5schema import migrate_schema, read_schema_version
+from scope_profiler.likwid_data import LIKWID_GROUP, LikwidRegionResult
 from scope_profiler.mpi_region import MPIRegion
 from scope_profiler.region import Region
 from scope_profiler.results import ProfilingResults

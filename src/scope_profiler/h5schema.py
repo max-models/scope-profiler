@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from numbers import Integral
 
-
 SCHEMA_ATTRIBUTE = "scope_profiler_schema"
 CURRENT_SCHEMA_VERSION = 1
 

@@ -17,8 +17,8 @@ without MPI or a full profiling run.
 import h5py
 import numpy as np
 
-from scope_profiler.likwid_data import write_likwid_results
 from scope_profiler.h5schema import CURRENT_SCHEMA_VERSION, SCHEMA_ATTRIBUTE
+from scope_profiler.likwid_data import write_likwid_results
 
 
 def rank_group_name(rank: int) -> str:
