@@ -14,11 +14,56 @@ exactly two files that must change together, and lets the writer be tested
 without MPI or a full profiling run.
 """
 
+import errno
+import os
+import tempfile
+from pathlib import Path
+
 import h5py
 import numpy as np
 
 from scope_profiler.h5schema import CURRENT_SCHEMA_VERSION, SCHEMA_ATTRIBUTE
 from scope_profiler.likwid_data import write_likwid_results
+
+
+def _fsync_file(path) -> None:
+    """Force a closed file's contents and metadata to stable storage."""
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _fsync_directory(path) -> None:
+    """Persist a directory entry update where the platform supports it."""
+    if not hasattr(os, "O_DIRECTORY"):
+        return
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError as exc:
+        if exc.errno in {errno.EINVAL, errno.ENOTSUP, errno.EACCES}:
+            return
+        raise
+    try:
+        try:
+            os.fsync(descriptor)
+        except OSError as exc:
+            # Some network and non-POSIX filesystems support atomic rename but
+            # not directory fsync. The file itself was already fsynced above.
+            if exc.errno not in {errno.EINVAL, errno.ENOTSUP, errno.EBADF}:
+                raise
+    finally:
+        os.close(descriptor)
+
+
+def atomic_publish(temporary_path, final_path) -> None:
+    """Durably replace ``final_path`` with a completed sibling file."""
+    temporary_path = os.fspath(temporary_path)
+    final_path = os.fspath(final_path)
+    _fsync_file(temporary_path)
+    os.replace(temporary_path, final_path)
+    _fsync_directory(os.path.dirname(os.path.abspath(final_path)))
 
 
 def parallel_hdf5_available() -> bool:
@@ -283,22 +328,53 @@ class ProfilingWriter:
     """
 
     def __init__(
-        self, file_path, metadata: dict | None = None, mode: str = "w"
+        self,
+        file_path,
+        metadata: dict | None = None,
+        mode: str = "w",
+        *,
+        atomic: bool | None = None,
     ) -> None:
         """Open ``file_path`` for writing and store the run's metadata.
 
-        The file is opened with mode ``"w"``, so a previous run's output at
-        the same path is replaced rather than merged into -- which is what
-        makes a second ``finalize()`` in one process report only its own run.
+        New files are written to a unique sibling temporary path and atomically
+        replace ``file_path`` only after a successful close. A failed write
+        therefore preserves any previous profile at the destination.
         """
-        self._file = h5py.File(file_path, mode)
-        if mode == "w":
-            self._file.attrs[SCHEMA_ATTRIBUTE] = CURRENT_SCHEMA_VERSION
-            write_metadata(self._file, metadata or {})
-        else:
-            from scope_profiler.h5schema import read_schema_version
+        self._final_path = Path(file_path)
+        self._atomic = mode == "w" if atomic is None else atomic
+        self._temporary_path: Path | None = None
+        self._closed = False
+        if self._atomic and mode != "w":
+            raise ValueError("atomic output is only supported with mode='w'")
 
-            read_schema_version(self._file)
+        open_path = self._final_path
+        if self._atomic:
+            descriptor, temporary = tempfile.mkstemp(
+                prefix=f".{self._final_path.name}.",
+                suffix=".tmp",
+                dir=self._final_path.parent,
+            )
+            os.close(descriptor)
+            self._temporary_path = Path(temporary)
+            open_path = self._temporary_path
+
+        try:
+            self._file = h5py.File(open_path, mode)
+            if mode == "w":
+                self._file.attrs[SCHEMA_ATTRIBUTE] = CURRENT_SCHEMA_VERSION
+                write_metadata(self._file, metadata or {})
+            else:
+                from scope_profiler.h5schema import read_schema_version
+
+                read_schema_version(self._file)
+        except Exception:
+            file_handle = getattr(self, "_file", None)
+            if file_handle is not None:
+                file_handle.close()
+            if self._temporary_path is not None:
+                self._temporary_path.unlink(missing_ok=True)
+            raise
 
     @classmethod
     def open_existing(cls, file_path) -> "ProfilingWriter":
@@ -309,14 +385,39 @@ class ProfilingWriter:
         """Write one rank's payload; see :func:`write_rank_payload`."""
         return write_rank_payload(self._file, rank, payload)
 
-    def close(self) -> None:
-        """Close the output file."""
-        self._file.close()
+    def close(self, *, commit: bool = True) -> None:
+        """Close the file and publish it, or discard an unsuccessful write."""
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            try:
+                self._file.flush()
+            finally:
+                self._file.close()
+            if self._temporary_path is not None:
+                if commit:
+                    atomic_publish(self._temporary_path, self._final_path)
+                else:
+                    self._temporary_path.unlink(missing_ok=True)
+        except Exception:
+            if self._temporary_path is not None:
+                self._temporary_path.unlink(missing_ok=True)
+            raise
 
     def __enter__(self) -> "ProfilingWriter":
         """Enter the context, returning the writer itself."""
         return self
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
-        """Close the file on the way out, including on error."""
-        self.close()
+        """Publish successful writes and discard failed ones."""
+        if exc_type is None:
+            self.close()
+            return
+        try:
+            self.close(commit=False)
+        except Exception as close_error:
+            if exc_value is not None and hasattr(exc_value, "add_note"):
+                exc_value.add_note(
+                    f"also failed to discard profiling output: {close_error}"
+                )

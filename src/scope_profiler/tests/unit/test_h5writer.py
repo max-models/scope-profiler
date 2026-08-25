@@ -133,6 +133,39 @@ def test_a_rank_with_nothing_recorded_gets_no_group(tmp_path):
         assert sorted(handle) == ["metadata", "rank0"]
 
 
+def test_successful_writer_atomically_replaces_previous_file(tmp_path):
+    path = tmp_path / "atomic.h5"
+    with ProfilingWriter(path, {"generation": "old"}):
+        pass
+
+    with ProfilingWriter(path, {"generation": "new"}) as writer:
+        # The old file remains readable until the context commits.
+        with h5py.File(path, "r") as handle:
+            assert handle["metadata"].attrs["generation"] == "old"
+        writer.write_rank(0, payload({"solve": ([0], [NS])}))
+
+    with h5py.File(path, "r") as handle:
+        assert handle["metadata"].attrs["generation"] == "new"
+        assert "rank0/regions/solve" in handle
+    assert list(tmp_path.glob(".atomic.h5.*.tmp")) == []
+
+
+def test_failed_writer_preserves_previous_file_and_discards_temporary(tmp_path):
+    path = tmp_path / "atomic_failure.h5"
+    with ProfilingWriter(path, {"generation": "old"}):
+        pass
+
+    with pytest.raises(RuntimeError, match="interrupted"):
+        with ProfilingWriter(path, {"generation": "incomplete"}) as writer:
+            writer.write_rank(0, payload({"solve": ([0], [NS])}))
+            raise RuntimeError("interrupted")
+
+    with h5py.File(path, "r") as handle:
+        assert handle["metadata"].attrs["generation"] == "old"
+        assert "rank0" not in handle
+    assert list(tmp_path.glob(".atomic_failure.h5.*.tmp")) == []
+
+
 def test_metadata_round_trips_through_the_reader(tmp_path):
     """The writer/reader contract, including list-valued attributes."""
     path = tmp_path / "meta.h5"

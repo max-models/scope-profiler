@@ -784,7 +784,11 @@ class ProfileManager:
                 # held at a time.
                 del incoming
             del payload
-        finally:
+        except Exception:
+            if writer is not None:
+                writer.close(commit=False)
+            raise
+        else:
             if writer is not None:
                 writer.close()
 
@@ -799,7 +803,7 @@ class ProfileManager:
         creates a temporary file and publishes it atomically after the last
         rank reports completion.
         """
-        from scope_profiler.h5writer import ProfilingWriter
+        from scope_profiler.h5writer import ProfilingWriter, atomic_publish
 
         config = cls.get_config()
         comm = config.comm
@@ -819,14 +823,14 @@ class ProfileManager:
             if size == 1:
                 if not status[0]:
                     raise OSError(status[1])
-                os.replace(temp_path, final_path)
+                atomic_publish(temp_path, final_path)
                 return
 
             comm.send(status, dest=1, tag=_WRITE_TOKEN_TAG)
             status = comm.recv(source=size - 1, tag=_WRITE_TOKEN_TAG)
             if not status[0]:
                 raise OSError(status[1])
-            os.replace(temp_path, final_path)
+            atomic_publish(temp_path, final_path)
             return
 
         status = comm.recv(source=rank - 1, tag=_WRITE_TOKEN_TAG)
@@ -843,6 +847,7 @@ class ProfileManager:
     def _write_payload_file(cls, payload) -> None:
         """Choose the MPI single-file backend and write this rank's payload."""
         from scope_profiler.h5writer import (
+            atomic_publish,
             parallel_hdf5_available,
             write_parallel_payload,
         )
@@ -881,7 +886,7 @@ class ProfileManager:
         # rename while another rank is still releasing the temporary path.
         config.comm.Barrier()
         if config._rank == 0:
-            os.replace(temp_path, config.file_path)
+            atomic_publish(temp_path, config.file_path)
         # Callers may open the published path immediately after finalize().
         config.comm.Barrier()
 
