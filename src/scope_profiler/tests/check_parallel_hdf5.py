@@ -90,7 +90,7 @@ def main() -> int:
         with h5py.File(output, "r") as handle:
             dataset = handle["events/start_times"]
             assert dataset.compression is None
-            assert dataset.chunks is None
+            assert dataset.chunks == (2,)
     else:
         assert not results.is_root
         assert results.region_names == []
