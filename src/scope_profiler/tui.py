@@ -317,13 +317,41 @@ def node_detail_text(node: BrowserNode) -> str:
         path = Path(results.file_path)
         size_mb = path.stat().st_size / 1024**2
         span = _time_span(results)
-        return _line_table(
+        rows = region_rows(results, sort="total")
+        total_region_time = sum(
+            row["total"] for row in rows if row["total"] is not None
+        )
+        total_calls = sum(row["calls"] for row in rows)
+        max_imbalance = max(
+            (row["imbalance"] for row in rows if row["imbalance"] is not None),
+            default=None,
+        )
+        top_rows = []
+        for row in rows[:5]:
+            duration = row["total"] or 0.0
+            bar_width = (
+                round(24 * duration / total_region_time)
+                if total_region_time
+                else 0
+            )
+            top_rows.append(
+                (
+                    row["name"],
+                    _duration(row["total"]),
+                    f"{duration / total_region_time:.1%}"
+                    if total_region_time
+                    else "-",
+                    "█" * bar_width,
+                )
+            )
+        metrics = _line_table(
             ("Metric", "Value"),
             (
                 ("File", path),
                 ("Label", results.label or "-"),
                 ("Ranks", results.num_ranks),
                 ("Regions", len(results.get_regions())),
+                ("Calls", total_calls),
                 ("Size", f"{size_mb:.2f} MiB"),
                 *(
                     [("Profiled wall clock", f"{span:.6g} s")]
@@ -335,7 +363,20 @@ def node_detail_text(node: BrowserNode) -> str:
                     if results.total_time is not None
                     else []
                 ),
+                *(
+                    [("Max rank imbalance", f"{max_imbalance:.6g}%")]
+                    if max_imbalance is not None
+                    else []
+                ),
             ),
+        )
+        if not top_rows:
+            return metrics + "\n\nNo regions recorded."
+        return (
+            metrics
+            + "\n\nTop regions by total time\n\n"
+            + _line_table(("Region", "Total", "Share", ""), top_rows, compact=True)
+            + "\n\nSelect Regions for the complete breakdown."
         )
 
     if kind == "plots":

@@ -112,6 +112,17 @@ def test_region_details_include_ranks_calls_source_and_raw_hdf5(sample_file):
     assert "Dtype: int64" in node_detail_text(start_times)
 
 
+def test_overview_shows_dashboard_metrics_and_top_regions(sample_file):
+    model = build_browser_model(sample_file)
+
+    overview = node_detail_text(_find(model.root, "Overview"))
+
+    assert "Top regions by total time" in overview
+    assert "Calls" in overview
+    assert "solve" in overview
+    assert "█" in overview
+
+
 def test_line_profile_records_are_clickable(line_profile_file):
     model = build_browser_model(line_profile_file)
 
