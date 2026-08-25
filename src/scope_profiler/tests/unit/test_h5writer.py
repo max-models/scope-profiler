@@ -5,6 +5,11 @@ import numpy as np
 import pytest
 
 from scope_profiler import read_h5
+from scope_profiler.h5schema import (
+    CURRENT_SCHEMA_VERSION,
+    SCHEMA_ATTRIBUTE,
+    HDF5SchemaError,
+)
 from scope_profiler.h5writer import ProfilingWriter, write_metadata, write_rank_payload
 from scope_profiler.profile_manager import RankPayload
 
@@ -32,12 +37,35 @@ def test_rank_group_holds_the_recorded_timestamps(tmp_path):
         assert writer.write_rank(0, payload({"solve": ([0, 3 * NS], [2 * NS, 5 * NS])}))
 
     with h5py.File(path, "r") as handle:
+        assert handle.attrs[SCHEMA_ATTRIBUTE] == CURRENT_SCHEMA_VERSION
         starts = handle["rank0/regions/solve/start_times"]
         assert starts[()].tolist() == [0, 3 * NS]
         assert handle["rank0/regions/solve/end_times"][()].tolist() == [2 * NS, 5 * NS]
         # The reader recovers metadata from the top level, never from a rank.
         assert "metadata" not in handle["rank0"]
         assert handle["metadata"].attrs["hostname"] == "node0"
+
+
+def test_legacy_file_without_schema_version_still_reads(tmp_path):
+    """Files produced before schema versioning remain compatible."""
+    path = tmp_path / "legacy.h5"
+    with h5py.File(path, "w") as handle:
+        handle.create_group("metadata")
+        regions = handle.create_group("rank0/regions/solve")
+        regions.create_dataset("start_times", data=np.asarray([0], dtype=np.int64))
+        regions.create_dataset("end_times", data=np.asarray([NS], dtype=np.int64))
+
+    assert read_h5(path)["solve"].num_calls == 1
+
+
+@pytest.mark.parametrize("version", [0, 2, "one"])
+def test_reader_rejects_invalid_or_unsupported_schema_version(tmp_path, version):
+    path = tmp_path / "unsupported.h5"
+    with h5py.File(path, "w") as handle:
+        handle.attrs[SCHEMA_ATTRIBUTE] = version
+
+    with pytest.raises(HDF5SchemaError, match="schema version"):
+        read_h5(path)
 
 
 def test_gpu_durations_round_trip_when_present(tmp_path):
