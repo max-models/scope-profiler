@@ -160,6 +160,24 @@ def test_plot_durations_comparison(tmp_path):
     assert metric_file.stat().st_size > 0
 
 
+def test_simple_plotext_backend_writes_terminal_plot(tmp_path):
+    file_path = tmp_path / "run.h5"
+    out_file = tmp_path / "durations.txt"
+    _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
+
+    saved_paths = plot_durations(
+        read_h5(file_path),
+        metric="avg",
+        filepath=out_file,
+        backend="plotext",
+        show=False,
+        verbose=False,
+    )
+
+    assert saved_paths == [out_file]
+    assert "Region duration comparison" in out_file.read_text()
+
+
 def test_plot_helpers_can_return_rendered_figures(tmp_path):
     file_path = tmp_path / "run.h5"
     _write_sample_h5(file_path, _sample_file_data(1, 10, 20))

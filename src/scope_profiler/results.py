@@ -275,7 +275,7 @@ class ProfilingResults:
             import pandas as pd
         except ImportError as exc:
             raise ImportError(
-                "to_dataframe() requires pandas. Install scope-profiler[plot] "
+                "to_dataframe() requires pandas. Install scope-profiler[pproc] "
                 "or pandas directly."
             ) from exc
 
@@ -388,7 +388,7 @@ class ProfilingResults:
         except ImportError as exc:
             raise ImportError(
                 "to_events_dataframe() requires pandas. Install "
-                "scope-profiler[plot] or pandas directly."
+                "scope-profiler[pproc] or pandas directly."
             ) from exc
 
         events = self.events(
@@ -754,7 +754,7 @@ class ProfilingResults:
         except ImportError as exc:
             raise ImportError(
                 "likwid_to_dataframe() requires pandas. Install "
-                "scope-profiler[plot] or pandas directly."
+                "scope-profiler[pproc] or pandas directly."
             ) from exc
 
         rows = []

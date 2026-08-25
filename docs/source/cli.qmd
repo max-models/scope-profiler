@@ -313,8 +313,8 @@ usage: scope-profiler plot [-h]
 | Flag              | Description                                      |
 | ----------------- | ------------------------------------------------ |
 | `--show`          | Display the plot interactively (default: off)    |
-| `-o`, `--output`  | Directory to save generated outputs; for a single plot kind this may be a target `.png` or `.html` file |
-| `--backend`       | Renderer: `matplotlib` (default, writes `.png`) or `plotly` (writes interactive `.html`) |
+| `-o`, `--output`  | Directory to save generated outputs; for a single plot kind this may be a target `.png`, `.html`, or `.txt` file |
+| `--backend`       | Renderer: `matplotlib` (default, writes `.png`), `plotly` (writes interactive `.html`), or `plotext` (writes terminal `.txt` for simple plots) |
 | `--cmap`          | Matplotlib colormap used to color regions/files in all plots (default: `tab20`) |
 
 ### Plot-specific options
@@ -338,6 +338,12 @@ several, e.g. `durations_plot_avg.png`, `durations_plot_total.png`), plus
 `region_statistics.json`. `speedup` is skipped unless multiple files are
 passed. With `--backend plotly` the plots are written as `.html` instead of
 `.png`.
+
+The `plotext` backend is available for simple plots (`durations`, `timeseries`,
+`speedup`, `weak_scaling`, `scaling_efficiency`, `histogram`, and `imbalance`).
+It writes plain terminal renderings as `.txt` files. Complex plots such as
+Gantt charts, flame graphs, heatmaps, and LIKWID charts remain on the
+Matplotlib or Plotly backends.
 
 For multiple files, the JSON includes per-file region statistics and the set of
 common regions across all inputs.

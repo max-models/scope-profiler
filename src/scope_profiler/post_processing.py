@@ -49,6 +49,17 @@ _DEFAULT_PLOTS = frozenset(
 _QUICK_PLOTS = frozenset(
     {"durations", "speedup", "weak_scaling", "rank_heatmap", "scaling_efficiency"}
 )
+_PLOTEXT_SIMPLE_PLOTS = frozenset(
+    {
+        "durations",
+        "timeseries",
+        "speedup",
+        "weak_scaling",
+        "scaling_efficiency",
+        "histogram",
+        "imbalance",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -171,7 +182,7 @@ def _add_plot_output_args(parser: argparse.ArgumentParser) -> None:
         type=str,
         help=(
             "Output directory. For a single plot kind, this may also be a "
-            "target .png or .html file."
+            "target .png, .html, or .txt file."
         ),
     )
     parser.add_argument(
@@ -181,9 +192,12 @@ def _add_plot_output_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--backend",
-        choices=["matplotlib", "plotly"],
+        choices=["matplotlib", "plotly", "plotext"],
         default="matplotlib",
-        help="Renderer used for plots: static PNGs or interactive HTML.",
+        help=(
+            "Renderer used for plots: static PNGs, interactive HTML, or "
+            "terminal text (simple plots only)."
+        ),
     )
     parser.add_argument(
         "--cmap",
@@ -517,10 +531,17 @@ def _plot_output_targets(
         return OutputTargets(directory=None, single_file=None, statistics_path=None)
 
     output_path = Path(args.output)
-    ext = "html" if args.backend == "plotly" else "png"
+    ext = (
+        "html"
+        if args.backend == "plotly"
+        else "txt"
+        if args.backend == "plotext"
+        else "png"
+    )
     is_single_plot_file = len(selected_plots) == 1 and output_path.suffix.lower() in {
         ".png",
         ".html",
+        ".txt",
     }
     if is_single_plot_file:
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -603,7 +624,13 @@ def _render_selected_plots(
             "likwid requires --metric for plots or --likwid-metric for plot-data."
         )
 
-    ext = "html" if getattr(args, "backend", "matplotlib") == "plotly" else "png"
+    ext = (
+        "html"
+        if getattr(args, "backend", "matplotlib") == "plotly"
+        else "txt"
+        if getattr(args, "backend", "matplotlib") == "plotext"
+        else "png"
+    )
     options = _plot_options(args, "")
     saved: list[str] = []
 
@@ -907,6 +934,13 @@ def main(argv: list[str] | None = None):
     _normalize_args(args, parser)
     runs = _load_runs(args, parser)
     selected_plots = _selected_plots(args)
+    if args.backend == "plotext":
+        unsupported = sorted(selected_plots - _PLOTEXT_SIMPLE_PLOTS)
+        if unsupported:
+            parser.error(
+                "--backend plotext supports simple plots only; unsupported plot(s): "
+                + ", ".join(unsupported)
+            )
     output_targets = _plot_output_targets(args, selected_plots)
 
     saved = _render_selected_plots(
