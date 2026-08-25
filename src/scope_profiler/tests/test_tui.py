@@ -1,5 +1,7 @@
 """Tests for the Textual HDF5 browser's data model."""
 
+import re
+
 import numpy as np
 import pytest
 
@@ -12,6 +14,7 @@ from scope_profiler.tui import (
     build_browser_model,
     node_detail_text,
     render_plot,
+    render_plotext_text,
 )
 
 NS = 1_000_000_000
@@ -107,6 +110,48 @@ def test_region_details_include_ranks_calls_source_and_raw_hdf5(sample_file):
     start_times = _find(model.root, "start_times")
     assert "HDF5 dataset" in node_detail_text(start_times)
     assert "Dtype: int64" in node_detail_text(start_times)
+
+
+def test_overview_shows_dashboard_metrics_and_top_regions(sample_file):
+    model = build_browser_model(sample_file)
+
+    overview = node_detail_text(_find(model.root, "Overview"))
+
+    assert "Top regions by total time" in overview
+    assert "Calls" in overview
+    assert "solve" in overview
+    assert "█" in overview
+
+
+def test_metadata_landing_page_is_compact(sample_file):
+    model = build_browser_model(sample_file)
+
+    metadata = node_detail_text(_find(model.root, "Metadata"))
+
+    assert "metadata entries recorded" in metadata
+    assert "Select a section below" in metadata
+
+
+def test_metadata_values_wrap_inside_the_table(sample_file):
+    model = build_browser_model(sample_file)
+    section = _find(model.root, "Run")
+    section.payload["entries"] = [("uname", "Darwin " * 30)]
+
+    details = node_detail_text(section)
+
+    assert len(max(details.splitlines(), key=len)) < 110
+    assert details.count("Darwin") == 30
+
+
+def test_raw_hdf5_attributes_wrap_inside_the_table(sample_file):
+    model = build_browser_model(sample_file)
+    dataset = _find(model.root, "start_times")
+    dataset.payload["attrs"] = {"description": "attribute " * 30}
+
+    details = node_detail_text(dataset)
+
+    assert len(max(details.splitlines(), key=len)) < 110
+    assert details.count("attribute") == 30
 
 
 def test_line_profile_records_are_clickable(line_profile_file):
@@ -205,6 +250,31 @@ def test_render_plot_passes_plot_settings(sample_file, monkeypatch):
 
 def test_matplotlib_child_script_is_valid_python():
     compile(_matplotlib_child_script(), "<matplotlib-child>", "exec")
+
+
+def test_render_plotext_text_captures_terminal_output(sample_file, monkeypatch):
+    model = build_browser_model(sample_file)
+    plot = _find(model.root, "Durations")
+
+    def fake_plot(results, **kwargs):
+        print("plotext chart")
+
+    monkeypatch.setattr("scope_profiler.tui.render_plot", fake_plot)
+
+    assert render_plotext_text(plot) == "plotext chart"
+
+
+def test_render_plotext_text_reports_invalid_region_filter(sample_file, monkeypatch):
+    model = build_browser_model(sample_file)
+    plot = _find(model.root, "Durations")
+
+    def fake_plot(results, **kwargs):
+        raise re.error("nothing to repeat")
+
+    monkeypatch.setattr("scope_profiler.tui.render_plot", fake_plot)
+
+    with pytest.raises(ValueError, match="Invalid region filter"):
+        render_plotext_text(plot, settings={"exclude": "*print_report"})
 
 
 def test_tui_help_does_not_require_textual(capsys):
