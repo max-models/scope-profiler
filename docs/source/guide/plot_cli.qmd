@@ -305,6 +305,16 @@ The matplotlib backend (the default) writes `.png` and needs no extra
 dependency; the Plotly backend writes `.html` and likewise needs nothing
 beyond Plotly itself.
 
+For terminal-friendly simple plots, use Plotext 6:
+
+```console
+scope-profiler plot durations run_2.h5 --backend plotext -o durations.txt
+```
+
+Plotext writes plain text and is intentionally limited to simple duration,
+scaling, histogram, and imbalance plots; use Matplotlib or Plotly for Gantt,
+flame, heatmap, and hardware-counter visualizations.
+
 ## Exporting the data behind the charts
 
 `scope-profiler export plot-data` writes the exact series each chart was drawn

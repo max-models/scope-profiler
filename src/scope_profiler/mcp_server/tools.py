@@ -440,7 +440,7 @@ def plot_profile(
         from scope_profiler import plotting_scripts
     except ImportError as exc:
         raise ToolError(
-            "Plotting requires the 'plot' extra: pip install 'scope-profiler[plot]'"
+            "Plotting requires the 'pproc' extra: pip install 'scope-profiler[pproc]'"
         ) from exc
 
     plot_func = getattr(plotting_scripts, _PLOT_FUNCS[plot_type])
@@ -470,7 +470,7 @@ def plot_profile(
         )
     except ImportError as exc:
         raise ToolError(
-            "Plotting requires the 'plot' extra: pip install 'scope-profiler[plot]'"
+            "Plotting requires the 'pproc' extra: pip install 'scope-profiler[pproc]'"
         ) from exc
 
     # plot_durations() returns the list containing the path it wrote; every
