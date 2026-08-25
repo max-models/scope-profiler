@@ -36,6 +36,52 @@ def _append(dataset, values) -> int:
     return offset
 
 
+class ColumnarIndex:
+    """The bookkeeping :func:`append_columnar_rank` needs, held outside the file.
+
+    Appending a rank has to know which region names already have an id and
+    which ranks have already been written. Both are recoverable from the file,
+    but reading them back costs a scan of columns that grow with every rank,
+    which makes writing a job quadratic in its rank count. A writer therefore
+    keeps one of these for its lifetime, and the MPI relay
+    (``ProfileManager._write_payload_direct``) passes it along with the write
+    token instead of re-deriving it per rank.
+    """
+
+    __slots__ = ("names", "name_to_id", "ranks")
+
+    def __init__(self, names=(), ranks=()) -> None:
+        """Start from a known set of region names (in id order) and ranks."""
+        self.names = list(names)
+        self.name_to_id = {name: index for index, name in enumerate(self.names)}
+        self.ranks = {int(rank) for rank in ranks}
+
+    @classmethod
+    def from_file(cls, h5file) -> "ColumnarIndex":
+        """Recover the index by reading a partially written file."""
+        if "region_table" not in h5file:
+            return cls()
+        return cls(
+            names=[
+                value.decode() if isinstance(value, bytes) else str(value)
+                for value in h5file["region_table/names"][()]
+            ],
+            ranks=h5file["rank_region_index/ranks"][()],
+        )
+
+    def state(self) -> dict:
+        """A picklable snapshot, for handing to the next rank in the relay."""
+        return {"names": list(self.names), "ranks": sorted(self.ranks)}
+
+    def register(self, names) -> list:
+        """Assign ids to any unseen region names; return the new names in order."""
+        new_names = [name for name in names if name not in self.name_to_id]
+        for name in new_names:
+            self.name_to_id[name] = len(self.names)
+            self.names.append(name)
+        return new_names
+
+
 def initialize_columnar_layout(
     h5file,
     *,
@@ -75,30 +121,38 @@ def append_columnar_rank(
     rank: int,
     payload,
     *,
+    index_state: ColumnarIndex | None = None,
     compression=None,
     compression_level=None,
     chunk_size=None,
 ) -> bool:
-    """Append one rank's region arrays to the schema-2 shared columns."""
+    """Append one rank's region arrays to the schema-2 shared columns.
+
+    Everything this rank contributes is appended one column at a time, not one
+    region at a time: a resize plus a write per region and per column turned a
+    128-rank, 40-region file into ~41,000 separate dataset operations (3.2s,
+    against 0.2s batched).
+
+    Parameters
+    ----------
+    index_state : ColumnarIndex, optional
+        Region-name ids and already-written ranks, carried by the caller
+        across ranks. Recovered from the file when omitted, which costs a read
+        of two columns that grow with every rank written.
+    """
     if not payload.regions:
         return False
-    existing_ranks = h5file["rank_region_index/ranks"][()]
-    if rank in existing_ranks:
+    index_state = (
+        ColumnarIndex.from_file(h5file) if index_state is None else index_state
+    )
+    if rank in index_state.ranks:
         raise ValueError(f"rank {rank} was written more than once")
+
     names_dataset = h5file["region_table/names"]
-    existing_names = [
-        value.decode() if isinstance(value, bytes) else str(value)
-        for value in names_dataset[()]
-    ]
-    name_to_id = {name: index for index, name in enumerate(existing_names)}
-    new_names = [name for name in payload.regions if name not in name_to_id]
+    new_names = index_state.register(payload.regions)
     if new_names:
-        start = len(existing_names)
-        names_dataset.resize((start + len(new_names),))
-        names_dataset[start:] = new_names
-        name_to_id.update(
-            {name: start + offset for offset, name in enumerate(new_names)}
-        )
+        _append(names_dataset, new_names)
+    index_state.ranks.add(int(rank))
 
     events = h5file["events"]
     total_before = len(events["start_times"])
@@ -119,28 +173,53 @@ def append_columnar_rank(
 
     sources = payload.sources or {}
     tags = payload.tags or {}
+    names = list(payload.regions)
+    counts = [len(payload.regions[name][0]) for name in names]
+    # Regions are written back to back, so this rank's rows point at
+    # consecutive slices of the shared event columns.
+    offsets = total_before + np.cumsum([0, *counts[:-1]], dtype=np.uint64)
+
+    _append(events["start_times"], _concatenate(payload.regions, names, 0))
+    _append(events["end_times"], _concatenate(payload.regions, names, 1))
+    if "gpu_durations" in events:
+        _append(
+            events["gpu_durations"],
+            np.concatenate(
+                [
+                    (
+                        np.asarray(payload.regions[name][2], dtype=np.int64)
+                        if len(payload.regions[name]) > 2
+                        and payload.regions[name][2] is not None
+                        else np.full(count, _NO_GPU_DURATION, dtype=np.int64)
+                    )
+                    for name, count in zip(names, counts)
+                ]
+                or [np.empty(0, dtype=np.int64)]
+            ),
+        )
+
+    resolved_sources = [sources.get(name, ("", -1, "")) for name in names]
     index = h5file["rank_region_index"]
-    for name, arrays in payload.regions.items():
-        starts, ends = arrays[:2]
-        offset = _append(events["start_times"], starts)
-        _append(events["end_times"], ends)
-        if "gpu_durations" in events:
-            gpu = (
-                arrays[2]
-                if len(arrays) > 2 and arrays[2] is not None
-                else np.full(len(starts), _NO_GPU_DURATION)
-            )
-            _append(events["gpu_durations"], gpu)
-        source_file, source_line, source_text = sources.get(name, ("", -1, ""))
-        _append(index["region_ids"], [name_to_id[name]])
-        _append(index["ranks"], [rank])
-        _append(index["event_offsets"], [offset])
-        _append(index["event_counts"], [len(starts)])
-        _append(index["source_lines"], [source_line if source_line is not None else -1])
-        _append(index["source_files"], [source_file or ""])
-        _append(index["source_texts"], [source_text or ""])
-        _append(index["tags"], [json.dumps(list(tags.get(name, ())))])
+    _append(index["region_ids"], [index_state.name_to_id[name] for name in names])
+    _append(index["ranks"], np.full(len(names), rank, dtype=np.uint32))
+    _append(index["event_offsets"], offsets)
+    _append(index["event_counts"], counts)
+    _append(
+        index["source_lines"],
+        [-1 if source[1] is None else source[1] for source in resolved_sources],
+    )
+    _append(index["source_files"], [source[0] or "" for source in resolved_sources])
+    _append(index["source_texts"], [source[2] or "" for source in resolved_sources])
+    _append(index["tags"], [json.dumps(list(tags.get(name, ()))) for name in names])
     return True
+
+
+def _concatenate(regions: dict, names: list, position: int) -> np.ndarray:
+    """One int64 array of every named region's ``position``-th timing array."""
+    return np.concatenate(
+        [np.asarray(regions[name][position], dtype=np.int64) for name in names]
+        or [np.empty(0, dtype=np.int64)]
+    )
 
 
 def _fsync_file(path) -> None:
@@ -597,6 +676,7 @@ def write_rank_payload(
     rank: int,
     payload,
     *,
+    index_state: ColumnarIndex | None = None,
     compression: str | None = None,
     compression_level: int | None = None,
     chunk_size: int | None = None,
@@ -614,6 +694,9 @@ def write_rank_payload(
         The rank this payload came from.
     payload : RankPayload
         The rank's regions, LIKWID results and LIKWID environment.
+    index_state : ColumnarIndex, optional
+        Region-name ids and written ranks carried across calls; see
+        :func:`append_columnar_rank`.
 
     Returns
     -------
@@ -635,6 +718,7 @@ def write_rank_payload(
         h5file,
         rank,
         payload,
+        index_state=index_state,
         compression=compression,
         compression_level=compression_level,
         chunk_size=chunk_size,
@@ -679,6 +763,7 @@ class ProfilingWriter:
         mode: str = "w",
         *,
         atomic: bool | None = None,
+        index_state: ColumnarIndex | None = None,
         compression: str | None = None,
         compression_level: int | None = None,
         chunk_size: int | None = None,
@@ -688,6 +773,10 @@ class ProfilingWriter:
         New files are written to a unique sibling temporary path and atomically
         replace ``file_path`` only after a successful close. A failed write
         therefore preserves any previous profile at the destination.
+
+        ``index_state`` carries the region-name ids and written ranks of a file
+        this process did not create itself (see :class:`ColumnarIndex`); when
+        omitted for an existing file they are read back from it.
         """
         self._final_path = Path(file_path)
         self._atomic = mode == "w" if atomic is None else atomic
@@ -696,6 +785,7 @@ class ProfilingWriter:
         self._compression = compression
         self._compression_level = compression_level
         self._chunk_size = chunk_size
+        self._index_state = index_state
         if self._atomic and mode != "w":
             raise ValueError("atomic output is only supported with mode='w'")
 
@@ -726,6 +816,14 @@ class ProfilingWriter:
                 from scope_profiler.h5schema import read_schema_version
 
                 read_schema_version(self._file)
+            if self._index_state is None:
+                # One read of the two index columns, here, rather than one per
+                # write_rank() call: see ColumnarIndex.
+                self._index_state = (
+                    ColumnarIndex()
+                    if mode == "w"
+                    else ColumnarIndex.from_file(self._file)
+                )
         except Exception:
             file_handle = getattr(self, "_file", None)
             if file_handle is not None:
@@ -739,6 +837,7 @@ class ProfilingWriter:
         cls,
         file_path,
         *,
+        index_state: ColumnarIndex | None = None,
         compression: str | None = None,
         compression_level: int | None = None,
         chunk_size: int | None = None,
@@ -747,10 +846,16 @@ class ProfilingWriter:
         return cls(
             file_path,
             mode="r+",
+            index_state=index_state,
             compression=compression,
             compression_level=compression_level,
             chunk_size=chunk_size,
         )
+
+    @property
+    def index_state(self) -> ColumnarIndex:
+        """This file's region-name ids and written ranks, for the next writer."""
+        return self._index_state
 
     def write_rank(self, rank: int, payload) -> bool:
         """Write one rank's payload; see :func:`write_rank_payload`."""
@@ -758,6 +863,7 @@ class ProfilingWriter:
             self._file,
             rank,
             payload,
+            index_state=self._index_state,
             compression=self._compression,
             compression_level=self._compression_level,
             chunk_size=self._chunk_size,

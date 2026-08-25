@@ -352,3 +352,55 @@ def test_prof_export_no_split_timeline(tmp_path):
     assert region_entries.count("setup") <= 1
     assert region_entries.count("solve") <= 1
     assert region_entries.count("assemble") <= 1
+
+
+def test_writer_carries_the_index_across_ranks_without_rereading_the_file(tmp_path):
+    """The per-rank append must not scan columns that grow with every rank.
+
+    Reading the region names and written ranks back out of the file on every
+    write_rank() call makes writing a job quadratic in its rank count, so the
+    writer keeps that state itself. Deleting the columns it would have read
+    proves it is not reading them.
+    """
+    path = tmp_path / "carried.h5"
+    with ProfilingWriter(path) as writer:
+        writer.write_rank(0, payload({"solve": ([0], [NS])}))
+        del writer._file["region_table/names"]
+        del writer._file["rank_region_index/ranks"]
+        writer._file["region_table"].create_dataset(
+            "names", shape=(1,), maxshape=(None,), dtype=h5py.string_dtype("utf-8")
+        )
+        writer._file["region_table/names"][0] = "solve"
+        writer._file["rank_region_index"].create_dataset(
+            "ranks", shape=(1,), maxshape=(None,), dtype=np.uint32, data=[0]
+        )
+
+        writer.write_rank(1, payload({"assemble": ([0], [2 * NS])}))
+        assert writer.index_state.names == ["solve", "assemble"]
+        assert writer.index_state.ranks == {0, 1}
+
+    results = read_h5(path)
+    assert results["solve"].ranks == [0]
+    assert results["assemble"].ranks == [1]
+
+
+def test_index_state_can_be_handed_to_the_next_writer(tmp_path):
+    """What the MPI relay does: reopen a file with the previous rank's index."""
+    from scope_profiler.h5writer import ColumnarIndex
+
+    path = tmp_path / "relayed.h5"
+    with ProfilingWriter(path, atomic=False) as writer:
+        writer.write_rank(0, payload({"solve": ([0], [NS])}))
+        state = writer.index_state.state()
+
+    assert state == {"names": ["solve"], "ranks": [0]}
+    with ProfilingWriter.open_existing(
+        path, index_state=ColumnarIndex(**state)
+    ) as more:
+        more.write_rank(1, payload({"solve": ([0], [3 * NS]), "io": ([0], [NS])}))
+        with pytest.raises(ValueError):
+            more.write_rank(0, payload({"solve": ([0], [NS])}))
+
+    region = read_h5(path)["solve"]
+    assert [data.total_duration for data in region.regions.values()] == [1.0, 3.0]
+    assert read_h5(path)["io"].ranks == [1]

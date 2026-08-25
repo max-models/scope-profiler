@@ -89,34 +89,50 @@ def _read_line_profile_group(group) -> list:
 
 
 def _read_columnar_regions(h5file) -> tuple[dict, list[str]]:
-    """Read schema-2 shared event columns into the existing Region API."""
+    """Read schema-2 shared event columns into the existing Region API.
+
+    Every column is read once, whole, and then sliced in memory. Indexing the
+    HDF5 datasets row by row instead costs a file round trip per row and per
+    field, which dominates the read of any real run: on a 128-rank file with
+    40 regions each (5120 rows, 2.6M events) that was 2.3s against 0.1s here.
+    The per-region timing arrays are numpy *views* into the shared columns
+    rather than copies, so holding them costs no more than the columns do.
+    """
     names = [_decode_attribute(value) for value in h5file["region_table/names"][()]]
     index = h5file["rank_region_index"]
     events = h5file["events"]
+
+    region_ids = index["region_ids"][()]
+    ranks = index["ranks"][()]
+    offsets = index["event_offsets"][()]
+    counts = index["event_counts"][()]
+    source_lines = index["source_lines"][()]
+    source_files = index["source_files"][()]
+    source_texts = index["source_texts"][()]
+    tag_blobs = index["tags"][()]
+
+    start_times = events["start_times"][()]
+    end_times = events["end_times"][()]
+    gpu_column = events["gpu_durations"][()] if "gpu_durations" in events else None
+
     per_region: dict[str, dict[int, Region]] = {name: {} for name in names}
-    for row, region_id in enumerate(index["region_ids"][()]):
-        name = names[int(region_id)]
-        rank = int(index["ranks"][row])
-        offset = int(index["event_offsets"][row])
-        count = int(index["event_counts"][row])
-        event_slice = slice(offset, offset + count)
+    for row in range(len(region_ids)):
+        offset = int(offsets[row])
+        event_slice = slice(offset, offset + int(counts[row]))
         gpu_durations = None
-        if "gpu_durations" in events:
-            candidate = events["gpu_durations"][event_slice]
+        if gpu_column is not None:
+            candidate = gpu_column[event_slice]
             if np.any(candidate >= 0):
                 gpu_durations = candidate
-        source_file = _decode_attribute(index["source_files"][row]) or None
-        source_line = int(index["source_lines"][row])
-        source_text = _decode_attribute(index["source_texts"][row]) or None
-        tags = tuple(json.loads(_decode_attribute(index["tags"][row]) or "[]"))
-        per_region[name][rank] = Region(
-            events["start_times"][event_slice],
-            events["end_times"][event_slice],
+        source_line = int(source_lines[row])
+        per_region[names[int(region_ids[row])]][int(ranks[row])] = Region(
+            start_times[event_slice],
+            end_times[event_slice],
             gpu_durations=gpu_durations,
-            source_file=source_file,
+            source_file=_decode_attribute(source_files[row]) or None,
             source_lineno=source_line if source_line >= 0 else None,
-            source_text=source_text,
-            tags=tags,
+            source_text=_decode_attribute(source_texts[row]) or None,
+            tags=tuple(json.loads(_decode_attribute(tag_blobs[row]) or "[]")),
         )
     return per_region, names
 

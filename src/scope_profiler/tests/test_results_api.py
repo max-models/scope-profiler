@@ -575,6 +575,43 @@ def test_nested_regions_expose_inclusive_and_exclusive_time(tmp_path):
     assert outer_call["exclusive_duration"] == pytest.approx(50e-9)
 
 
+def test_exclusive_time_is_reconstructed_lazily_and_once(tmp_path, monkeypatch):
+    """Nesting costs more than the rest of the load; only pay for it if asked.
+
+    Reading a file, listing regions and summarizing them (the CLI and MCP
+    path, via summary.region_rows) never needs exclusive time, and must not
+    reconstruct the call stack. The first caller that does need it pays for
+    every region at once, and nobody pays twice.
+    """
+    from scope_profiler import call_stack as call_stack_module
+
+    path = tmp_path / "lazy_exclusive.h5"
+    _write_sample_h5(path, {0: {"outer": ([0], [100]), "inner": ([10], [30])}})
+
+    builds = []
+    real_build = call_stack_module.build_call_stack
+    monkeypatch.setattr(
+        call_stack_module,
+        "build_call_stack",
+        lambda *args, **kwargs: builds.append(args) or real_build(*args, **kwargs),
+    )
+
+    results = read_h5(path)
+    assert sorted(results.region_names) == ["inner", "outer"]
+    assert results["outer"].total_duration == pytest.approx(100e-9)
+    assert results["outer"][0].durations_ns.tolist() == [100]
+    assert builds == []
+
+    assert results["inner"].exclusive_duration == pytest.approx(20e-9)
+    assert len(builds) == 1
+
+    # Both the region asked first and every other one are now filled in, and
+    # asking again does not rebuild.
+    assert results["outer"].exclusive_duration == pytest.approx(80e-9)
+    assert results["outer"][0].exclusive_durations_ns.tolist() == [80]
+    assert len(builds) == 1
+
+
 def test_top_level_exports_and_lazy_plotting():
     """Post-processing types are importable from the package root."""
     assert scope_profiler.read_h5 is read_h5
@@ -604,3 +641,26 @@ def test_top_level_exports_and_lazy_plotting():
 
     with pytest.raises(AttributeError):
         scope_profiler.not_a_real_attribute
+
+
+def test_merging_recomputes_exclusive_time_against_the_new_neighbours(tmp_path):
+    """A merged set owns its regions' nesting, even if it was already resolved.
+
+    merge_results() reuses the region objects, so a region whose exclusive
+    time was already asked for in one set must not carry that answer into a
+    set where it now has a call nested inside it.
+    """
+    from scope_profiler.results import merge_results
+
+    outer_path = tmp_path / "driver.h5"
+    inner_path = tmp_path / "kernels.h5"
+    _write_sample_h5(outer_path, {0: {"outer": ([0], [100])}})
+    _write_sample_h5(inner_path, {0: {"native:inner": ([10], [30])}})
+
+    driver = read_h5(outer_path)
+    # Resolved while "outer" is on its own: nothing is nested inside it yet.
+    assert driver["outer"].exclusive_duration == pytest.approx(100e-9)
+
+    merged = merge_results(driver, read_h5(inner_path))
+    assert merged["outer"].exclusive_duration == pytest.approx(80e-9)
+    assert merged["native:inner"].exclusive_duration == pytest.approx(20e-9)

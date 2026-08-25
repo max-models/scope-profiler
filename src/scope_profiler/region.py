@@ -46,8 +46,12 @@ class Region:
             None if gpu_durations is None else np.asarray(gpu_durations, dtype=np.int64)
         )
         # A Region does not know about other regions, so until it is attached
-        # to ProfilingResults exclusive time defaults to inclusive time.
-        self._exclusive_durations = self._durations.copy()
+        # to ProfilingResults exclusive time defaults to inclusive time. The
+        # array is built on first use: reconstructing the nesting is by far
+        # the most expensive part of loading a run, and most callers
+        # (durations, timelines, diffs) never ask for exclusive time at all.
+        self._exclusive_durations = None
+        self._exclusive_resolver = None
         self._num_calls = len(self._durations)
         self._source_file = source_file
         self._source_lineno = source_lineno
@@ -86,7 +90,47 @@ class Region:
         """Set exclusive durations after nesting has been reconstructed."""
         if len(durations) != self.num_calls:
             raise ValueError("exclusive durations must match the call count")
+        self._exclusive_resolver = None
         self._exclusive_durations = np.asarray(durations, dtype=self._durations.dtype)
+
+    def _attach_exclusive_resolver(self, resolver) -> None:
+        """Register the callback that reconstructs this region's nesting.
+
+        Called by :class:`~scope_profiler.results.ProfilingResults`, which is
+        the only object that can see the other regions a call is nested in.
+        It runs at most once, the first time any region asks for exclusive
+        time, and fills in every region of the result set at once.
+
+        Any previously computed exclusive durations are dropped: a region can
+        be put into a second result set (``merge_results`` reuses the region
+        objects), and against a different set of neighbours the same calls
+        have different exclusive time. The newest owner therefore wins, as it
+        did when every result set recomputed this eagerly on construction.
+        """
+        self._exclusive_durations = None
+        self._exclusive_resolver = resolver
+
+    def _exclusive_buffer(self) -> np.ndarray:
+        """The writable exclusive-duration array, without resolving nesting.
+
+        For the resolver itself: it fills this in place, per call index.
+        Defaults to the inclusive durations, which is what a region with no
+        nested calls ends up with anyway.
+        """
+        if self._exclusive_durations is None:
+            self._exclusive_durations = self._durations.copy()
+        return self._exclusive_durations
+
+    def _resolved_exclusive_durations(self) -> np.ndarray:
+        """Exclusive durations in nanoseconds, reconstructing nesting if needed."""
+        if self._exclusive_durations is None:
+            resolver = self._exclusive_resolver
+            if resolver is not None:
+                self._exclusive_resolver = None
+                resolver()
+            if self._exclusive_durations is None:
+                self._exclusive_durations = self._durations.copy()
+        return self._exclusive_durations
 
     def events(self, origin: float = 0.0) -> List[Dict[str, Any]]:
         """
@@ -188,7 +232,7 @@ class Region:
     @property
     def exclusive_durations_ns(self) -> np.ndarray:
         """Exclusive duration of every call in nanoseconds."""
-        return self._exclusive_durations
+        return self._resolved_exclusive_durations()
 
     @property
     def start_times(self) -> np.ndarray:
@@ -234,7 +278,7 @@ class Region:
     @property
     def exclusive_durations(self) -> np.ndarray:
         """Exclusive duration of every call in seconds."""
-        return self._exclusive_durations / NS_PER_SECOND
+        return self._resolved_exclusive_durations() / NS_PER_SECOND
 
     @property
     def num_calls(self) -> int:
@@ -264,7 +308,7 @@ class Region:
     def total_exclusive_duration(self) -> float:
         """Total time excluding nested regions, in seconds."""
         return (
-            float(np.sum(self._exclusive_durations)) / NS_PER_SECOND
+            float(np.sum(self._resolved_exclusive_durations())) / NS_PER_SECOND
             if self.has_timing
             else 0.0
         )
