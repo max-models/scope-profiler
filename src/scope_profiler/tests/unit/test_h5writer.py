@@ -122,6 +122,40 @@ def test_datasets_are_contiguous_and_exactly_sized(tmp_path):
         assert dataset.id.get_storage_size() == 5 * 8
 
 
+@pytest.mark.parametrize("compression", ["gzip", "lzf"])
+def test_timestamp_compression_and_chunk_size_round_trip(tmp_path, compression):
+    path = tmp_path / f"{compression}.h5"
+    starts = np.arange(25, dtype=np.int64)
+    ends = starts + 7
+    with ProfilingWriter(
+        path,
+        compression=compression,
+        compression_level=4 if compression == "gzip" else None,
+        chunk_size=8,
+    ) as writer:
+        writer.write_rank(0, payload({"solve": (starts, ends)}))
+
+    with h5py.File(path, "r") as handle:
+        dataset = handle["rank0/regions/solve/start_times"]
+        assert dataset.compression == compression
+        assert dataset.chunks == (8,)
+        assert dataset.shuffle is True
+        if compression == "gzip":
+            assert dataset.compression_opts == 4
+    assert read_h5(path)["solve"][0].start_times_ns.tolist() == starts.tolist()
+
+
+def test_chunking_can_be_enabled_without_compression(tmp_path):
+    path = tmp_path / "chunked.h5"
+    with ProfilingWriter(path, chunk_size=4) as writer:
+        writer.write_rank(0, payload({"solve": (range(10), range(1, 11))}))
+
+    with h5py.File(path, "r") as handle:
+        dataset = handle["rank0/regions/solve/start_times"]
+        assert dataset.compression is None
+        assert dataset.chunks == (4,)
+
+
 def test_a_rank_with_nothing_recorded_gets_no_group(tmp_path):
     """Rank groups are exactly the ranks that have something to report."""
     path = tmp_path / "one_silent.h5"
@@ -131,6 +165,39 @@ def test_a_rank_with_nothing_recorded_gets_no_group(tmp_path):
 
     with h5py.File(path, "r") as handle:
         assert sorted(handle) == ["metadata", "rank0"]
+
+
+def test_successful_writer_atomically_replaces_previous_file(tmp_path):
+    path = tmp_path / "atomic.h5"
+    with ProfilingWriter(path, {"generation": "old"}):
+        pass
+
+    with ProfilingWriter(path, {"generation": "new"}) as writer:
+        # The old file remains readable until the context commits.
+        with h5py.File(path, "r") as handle:
+            assert handle["metadata"].attrs["generation"] == "old"
+        writer.write_rank(0, payload({"solve": ([0], [NS])}))
+
+    with h5py.File(path, "r") as handle:
+        assert handle["metadata"].attrs["generation"] == "new"
+        assert "rank0/regions/solve" in handle
+    assert list(tmp_path.glob(".atomic.h5.*.tmp")) == []
+
+
+def test_failed_writer_preserves_previous_file_and_discards_temporary(tmp_path):
+    path = tmp_path / "atomic_failure.h5"
+    with ProfilingWriter(path, {"generation": "old"}):
+        pass
+
+    with pytest.raises(RuntimeError, match="interrupted"):
+        with ProfilingWriter(path, {"generation": "incomplete"}) as writer:
+            writer.write_rank(0, payload({"solve": ([0], [NS])}))
+            raise RuntimeError("interrupted")
+
+    with h5py.File(path, "r") as handle:
+        assert handle["metadata"].attrs["generation"] == "old"
+        assert "rank0" not in handle
+    assert list(tmp_path.glob(".atomic_failure.h5.*.tmp")) == []
 
 
 def test_metadata_round_trips_through_the_reader(tmp_path):

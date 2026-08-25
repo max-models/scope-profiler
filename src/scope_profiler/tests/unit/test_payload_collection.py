@@ -8,6 +8,7 @@ single-rank run can show.
 """
 
 import os
+from pathlib import Path
 
 import h5py
 import numpy as np
@@ -139,12 +140,15 @@ def test_results_without_a_file_still_stream(configured):
 
 
 def test_the_output_file_is_closed_even_on_error(configured, monkeypatch):
-    """A write failure must not leave the output file open."""
+    """A write failure preserves the previous file and removes its temporary."""
     comm = FakeComm(rank=0, size=2, payloads={1: payload(NS)})
     configured._comm = comm
     configured._rank, configured._size = 0, 2
 
     from scope_profiler import h5writer
+
+    with h5writer.ProfilingWriter(configured.file_path, {"previous": "profile"}):
+        pass
 
     def boom(*args, **kwargs):
         raise OSError("disk full")
@@ -155,9 +159,11 @@ def test_the_output_file_is_closed_even_on_error(configured, monkeypatch):
         ProfileManager._collect_payloads(
             payload(NS), write_file=True, need_results=False
         )
-    # Reopening proves the handle was released rather than left dangling.
+    # The destination still contains the complete previous run, not a partial
+    # metadata-only replacement from the failed write.
     with h5py.File(configured.file_path, "r") as handle:
-        assert "metadata" in handle
+        assert handle["metadata"].attrs["previous"] == "profile"
+    assert list(Path(configured.file_path).parent.glob(".*.tmp")) == []
 
 
 def test_no_collective_is_used_for_the_transport(configured):
@@ -242,14 +248,14 @@ def test_auto_prefers_parallel_hdf5_when_available(configured, monkeypatch):
     monkeypatch.setattr(
         h5writer,
         "write_parallel_payload",
-        lambda *args: calls.append(args),
+        lambda *args, **kwargs: calls.append((args, kwargs)),
     )
-    monkeypatch.setattr(os, "replace", lambda *args: calls.append(args))
+    monkeypatch.setattr(h5writer, "atomic_publish", lambda *args: calls.append(args))
 
     ProfileManager._write_payload_file(payload(NS))
 
     assert len(calls) == 2
-    assert calls[0][1] is comm
+    assert calls[0][0][1] is comm
     assert comm.barriers == 2
 
 

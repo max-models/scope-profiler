@@ -766,7 +766,15 @@ class ProfileManager:
 
         accumulator = cls._ResultAccumulator(config) if need_results else None
         writer = (
-            ProfilingWriter(config.file_path, config.metadata) if write_file else None
+            ProfilingWriter(
+                config.file_path,
+                config.metadata,
+                compression=config.hdf5_compression,
+                compression_level=config.hdf5_compression_level,
+                chunk_size=config.hdf5_chunk_size,
+            )
+            if write_file
+            else None
         )
         try:
             for source in range(config._size):
@@ -784,7 +792,11 @@ class ProfileManager:
                 # held at a time.
                 del incoming
             del payload
-        finally:
+        except Exception:
+            if writer is not None:
+                writer.close(commit=False)
+            raise
+        else:
             if writer is not None:
                 writer.close()
 
@@ -799,7 +811,7 @@ class ProfileManager:
         creates a temporary file and publishes it atomically after the last
         rank reports completion.
         """
-        from scope_profiler.h5writer import ProfilingWriter
+        from scope_profiler.h5writer import ProfilingWriter, atomic_publish
 
         config = cls.get_config()
         comm = config.comm
@@ -810,7 +822,13 @@ class ProfileManager:
 
         if rank == 0:
             try:
-                with ProfilingWriter(temp_path, config.metadata) as writer:
+                with ProfilingWriter(
+                    temp_path,
+                    config.metadata,
+                    compression=config.hdf5_compression,
+                    compression_level=config.hdf5_compression_level,
+                    chunk_size=config.hdf5_chunk_size,
+                ) as writer:
                     writer.write_rank(0, payload)
                 status = (True, "")
             except Exception as exc:
@@ -819,20 +837,25 @@ class ProfileManager:
             if size == 1:
                 if not status[0]:
                     raise OSError(status[1])
-                os.replace(temp_path, final_path)
+                atomic_publish(temp_path, final_path)
                 return
 
             comm.send(status, dest=1, tag=_WRITE_TOKEN_TAG)
             status = comm.recv(source=size - 1, tag=_WRITE_TOKEN_TAG)
             if not status[0]:
                 raise OSError(status[1])
-            os.replace(temp_path, final_path)
+            atomic_publish(temp_path, final_path)
             return
 
         status = comm.recv(source=rank - 1, tag=_WRITE_TOKEN_TAG)
         if status[0]:
             try:
-                with ProfilingWriter.open_existing(temp_path) as writer:
+                with ProfilingWriter.open_existing(
+                    temp_path,
+                    compression=config.hdf5_compression,
+                    compression_level=config.hdf5_compression_level,
+                    chunk_size=config.hdf5_chunk_size,
+                ) as writer:
                     writer.write_rank(rank, payload)
             except Exception as exc:
                 status = (False, f"rank {rank} could not write profiling data: {exc}")
@@ -843,6 +866,8 @@ class ProfileManager:
     def _write_payload_file(cls, payload) -> None:
         """Choose the MPI single-file backend and write this rank's payload."""
         from scope_profiler.h5writer import (
+            atomic_publish,
+            compression_filter_available,
             parallel_hdf5_available,
             write_parallel_payload,
         )
@@ -854,6 +879,7 @@ class ProfileManager:
         parallel_compatible = not config.use_likwid
         requested = config.output_mode
         available = parallel_hdf5_available()
+        filter_available = compression_filter_available(config.hdf5_compression)
 
         if requested == "parallel" and not available:
             raise RuntimeError(
@@ -866,22 +892,41 @@ class ProfileManager:
                 "initialization, while parallel HDF5 requires subsequent MPI "
                 "collectives. Use output_mode='direct'."
             )
+        if requested == "parallel" and not filter_available:
+            raise RuntimeError(
+                f"The parallel HDF5 library does not provide the requested "
+                f"{config.hdf5_compression!r} compression filter. Use "
+                "output_mode='direct', choose another filter, or rebuild "
+                "parallel HDF5 with that filter enabled."
+            )
 
-        use_parallel = requested != "direct" and available and parallel_compatible
+        use_parallel = (
+            requested != "direct"
+            and available
+            and parallel_compatible
+            and filter_available
+        )
         if not use_parallel:
             cls._write_payload_direct(payload)
             return
 
         temp_path = os.fspath(config.file_path) + ".scope-profiler.tmp"
         write_parallel_payload(
-            temp_path, config.comm, config._rank, payload, config.metadata
+            temp_path,
+            config.comm,
+            config._rank,
+            payload,
+            config.metadata,
+            compression=config.hdf5_compression,
+            compression_level=config.hdf5_compression_level,
+            chunk_size=config.hdf5_chunk_size,
         )
         # Closing an MPI-HDF5 file is collective, but implementations need not
         # return from close on every rank simultaneously. Do not let rank 0
         # rename while another rank is still releasing the temporary path.
         config.comm.Barrier()
         if config._rank == 0:
-            os.replace(temp_path, config.file_path)
+            atomic_publish(temp_path, config.file_path)
         # Callers may open the published path immediately after finalize().
         config.comm.Barrier()
 
@@ -1187,6 +1232,9 @@ class ProfileManager:
         buffer_limit: int | None = None,
         file_path: str | None = None,
         output_mode: str | None = None,
+        hdf5_compression: str | None = None,
+        hdf5_compression_level: int | None = None,
+        hdf5_chunk_size: int | None = None,
         label: str | None = None,
         capture_region_source: bool | None = None,
         config_path: str | os.PathLike[str] | None = None,
@@ -1240,6 +1288,13 @@ class ProfileManager:
             MPI file writer. ``auto`` prefers MPI-enabled h5py when compatible
             with the active instrumentation and otherwise lets ranks append
             directly to one serial-HDF5 file in token order.
+        hdf5_compression : {"gzip", "lzf", "zstd"} or None, optional
+            Compression filter for timestamp and GPU-duration datasets.
+        hdf5_compression_level : int or None, optional
+            GZIP level 0--9 or Zstandard level 1--22.
+        hdf5_chunk_size : int or None, optional
+            Maximum events per dataset chunk. Enables chunked partial reads
+            even without compression.
         label : str or None, optional
             Short name for this run (default: None, i.e. the output file's
             stem). Post-processing uses it wherever a run has to be named --
@@ -1295,6 +1350,9 @@ class ProfileManager:
             "buffer_limit": 1024,
             "file_path": "profiling_data.h5",
             "output_mode": "auto",
+            "hdf5_compression": None,
+            "hdf5_compression_level": None,
+            "hdf5_chunk_size": None,
             "label": None,
             "capture_region_source": False,
         }
@@ -1312,6 +1370,9 @@ class ProfileManager:
             "buffer_limit": buffer_limit,
             "file_path": file_path,
             "output_mode": output_mode,
+            "hdf5_compression": hdf5_compression,
+            "hdf5_compression_level": hdf5_compression_level,
+            "hdf5_chunk_size": hdf5_chunk_size,
             "label": label,
             "capture_region_source": capture_region_source,
         }

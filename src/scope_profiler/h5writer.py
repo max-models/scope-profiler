@@ -14,6 +14,11 @@ exactly two files that must change together, and lets the writer be tested
 without MPI or a full profiling run.
 """
 
+import errno
+import os
+import tempfile
+from pathlib import Path
+
 import h5py
 import numpy as np
 
@@ -21,9 +26,99 @@ from scope_profiler.h5schema import CURRENT_SCHEMA_VERSION, SCHEMA_ATTRIBUTE
 from scope_profiler.likwid_data import write_likwid_results
 
 
+def _fsync_file(path) -> None:
+    """Force a closed file's contents and metadata to stable storage."""
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _fsync_directory(path) -> None:
+    """Persist a directory entry update where the platform supports it."""
+    if not hasattr(os, "O_DIRECTORY"):
+        return
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError as exc:
+        if exc.errno in {errno.EINVAL, errno.ENOTSUP, errno.EACCES}:
+            return
+        raise
+    try:
+        try:
+            os.fsync(descriptor)
+        except OSError as exc:
+            # Some network and non-POSIX filesystems support atomic rename but
+            # not directory fsync. The file itself was already fsynced above.
+            if exc.errno not in {errno.EINVAL, errno.ENOTSUP, errno.EBADF}:
+                raise
+    finally:
+        os.close(descriptor)
+
+
+def atomic_publish(temporary_path, final_path) -> None:
+    """Durably replace ``final_path`` with a completed sibling file."""
+    temporary_path = os.fspath(temporary_path)
+    final_path = os.fspath(final_path)
+    _fsync_file(temporary_path)
+    os.replace(temporary_path, final_path)
+    _fsync_directory(os.path.dirname(os.path.abspath(final_path)))
+
+
 def parallel_hdf5_available() -> bool:
     """Whether this h5py build has the MPI-IO driver enabled."""
     return bool(getattr(h5py.get_config(), "mpi", False))
+
+
+def compression_filter_available(compression: str | None) -> bool:
+    """Whether the active HDF5 library can encode the requested filter."""
+    if compression is None:
+        return True
+    filter_ids = {
+        "gzip": h5py.h5z.FILTER_DEFLATE,
+        "lzf": h5py.h5z.FILTER_LZF,
+        "zstd": 32015,
+    }
+    if compression == "zstd":
+        try:
+            import hdf5plugin  # noqa: F401
+        except ImportError:
+            return False
+    return bool(h5py.h5z.filter_avail(filter_ids[compression]))
+
+
+def dataset_storage_options(
+    length: int,
+    compression: str | None = None,
+    compression_level: int | None = None,
+    chunk_size: int | None = None,
+) -> dict:
+    """Build h5py keyword arguments for one one-dimensional event dataset."""
+    options = {}
+    if chunk_size is not None:
+        options["chunks"] = (max(1, min(int(length), chunk_size)),)
+
+    if compression == "gzip":
+        options["compression"] = "gzip"
+        if compression_level is not None:
+            options["compression_opts"] = compression_level
+    elif compression == "lzf":
+        options["compression"] = "lzf"
+    elif compression == "zstd":
+        try:
+            import hdf5plugin
+        except ImportError as exc:
+            raise ImportError(
+                "Zstandard HDF5 compression requires hdf5plugin; install "
+                "scope-profiler[compression]."
+            ) from exc
+        options.update(hdf5plugin.Zstd(clevel=compression_level or 3))
+    if compression is not None:
+        # Byte shuffling groups equal-significance bytes before compression;
+        # monotonic int64 timestamps generally compress much better this way.
+        options["shuffle"] = True
+    return options
 
 
 def payload_layout(payload) -> dict:
@@ -56,7 +151,17 @@ def payload_layout(payload) -> dict:
     }
 
 
-def write_parallel_payload(file_path, comm, rank: int, payload, metadata: dict) -> None:
+def write_parallel_payload(
+    file_path,
+    comm,
+    rank: int,
+    payload,
+    metadata: dict,
+    *,
+    compression: str | None = None,
+    compression_level: int | None = None,
+    chunk_size: int | None = None,
+) -> None:
     """Collectively create one file, then let each rank write its own arrays.
 
     Parallel HDF5 requires metadata operations to be collective.  Only the
@@ -83,14 +188,32 @@ def write_parallel_payload(file_path, comm, rank: int, payload, metadata: dict) 
                     region_group = regions_group.create_group(name)
                     shapes = description["shapes"]
                     region_group.create_dataset(
-                        "start_times", shape=shapes[0], dtype=np.int64
+                        "start_times",
+                        shape=shapes[0],
+                        dtype=np.int64,
+                        **dataset_storage_options(
+                            shapes[0][0], compression, compression_level, chunk_size
+                        ),
                     )
                     region_group.create_dataset(
-                        "end_times", shape=shapes[1], dtype=np.int64
+                        "end_times",
+                        shape=shapes[1],
+                        dtype=np.int64,
+                        **dataset_storage_options(
+                            shapes[1][0], compression, compression_level, chunk_size
+                        ),
                     )
                     if len(shapes) > 2:
                         region_group.create_dataset(
-                            "gpu_durations", shape=shapes[2], dtype=np.int64
+                            "gpu_durations",
+                            shape=shapes[2],
+                            dtype=np.int64,
+                            **dataset_storage_options(
+                                shapes[2][0],
+                                compression,
+                                compression_level,
+                                chunk_size,
+                            ),
                         )
                     source = description["source"]
                     if source is not None:
@@ -116,13 +239,37 @@ def write_parallel_payload(file_path, comm, rank: int, payload, metadata: dict) 
                         function_group.attrs[key] = description[key]
                     shapes = description["shapes"]
                     function_group.create_dataset(
-                        "line_numbers", shape=shapes["line_numbers"], dtype=np.int64
+                        "line_numbers",
+                        shape=shapes["line_numbers"],
+                        dtype=np.int64,
+                        **dataset_storage_options(
+                            shapes["line_numbers"][0],
+                            compression,
+                            compression_level,
+                            chunk_size,
+                        ),
                     )
                     function_group.create_dataset(
-                        "hits", shape=shapes["hits"], dtype=np.int64
+                        "hits",
+                        shape=shapes["hits"],
+                        dtype=np.int64,
+                        **dataset_storage_options(
+                            shapes["hits"][0],
+                            compression,
+                            compression_level,
+                            chunk_size,
+                        ),
                     )
                     function_group.create_dataset(
-                        "times", shape=shapes["times"], dtype=np.float64
+                        "times",
+                        shape=shapes["times"],
+                        dtype=np.float64,
+                        **dataset_storage_options(
+                            shapes["times"][0],
+                            compression,
+                            compression_level,
+                            chunk_size,
+                        ),
                     )
 
         for name, arrays in payload.regions.items():
@@ -170,7 +317,14 @@ def write_metadata(h5file, metadata: dict) -> None:
 
 
 def write_regions(
-    group, regions: dict, sources: dict | None = None, tags: dict | None = None
+    group,
+    regions: dict,
+    sources: dict | None = None,
+    tags: dict | None = None,
+    *,
+    compression: str | None = None,
+    compression_level: int | None = None,
+    chunk_size: int | None = None,
 ) -> None:
     """Write one rank's recorded timestamps under ``<group>/regions``.
 
@@ -198,14 +352,26 @@ def write_regions(
         start_times, end_times = arrays[:2]
         region_grp = regions_grp.create_group(name)
         region_grp.create_dataset(
-            "start_times", data=np.asarray(start_times, dtype=np.int64)
+            "start_times",
+            data=np.asarray(start_times, dtype=np.int64),
+            **dataset_storage_options(
+                len(start_times), compression, compression_level, chunk_size
+            ),
         )
         region_grp.create_dataset(
-            "end_times", data=np.asarray(end_times, dtype=np.int64)
+            "end_times",
+            data=np.asarray(end_times, dtype=np.int64),
+            **dataset_storage_options(
+                len(end_times), compression, compression_level, chunk_size
+            ),
         )
         if len(arrays) > 2 and arrays[2] is not None:
             region_grp.create_dataset(
-                "gpu_durations", data=np.asarray(arrays[2], dtype=np.int64)
+                "gpu_durations",
+                data=np.asarray(arrays[2], dtype=np.int64),
+                **dataset_storage_options(
+                    len(arrays[2]), compression, compression_level, chunk_size
+                ),
             )
         source = sources.get(name)
         if source is not None:
@@ -217,7 +383,14 @@ def write_regions(
             region_grp.attrs.create("tags", list(tags[name]), dtype=h5py.string_dtype())
 
 
-def write_line_profile(group, records: list | None) -> None:
+def write_line_profile(
+    group,
+    records: list | None,
+    *,
+    compression: str | None = None,
+    compression_level: int | None = None,
+    chunk_size: int | None = None,
+) -> None:
     """Write copied line-profiler records for one rank."""
     if not records:
         return
@@ -228,12 +401,25 @@ def write_line_profile(group, records: list | None) -> None:
             function_grp.attrs[key] = record[key]
         function_grp.attrs["first_lineno"] = record["first_lineno"]
         function_grp.attrs["unit"] = record["unit"]
-        function_grp.create_dataset("line_numbers", data=record["line_numbers"])
-        function_grp.create_dataset("hits", data=record["hits"])
-        function_grp.create_dataset("times", data=record["times"])
+        for key in ("line_numbers", "hits", "times"):
+            function_grp.create_dataset(
+                key,
+                data=record[key],
+                **dataset_storage_options(
+                    len(record[key]), compression, compression_level, chunk_size
+                ),
+            )
 
 
-def write_rank_payload(h5file, rank: int, payload) -> bool:
+def write_rank_payload(
+    h5file,
+    rank: int,
+    payload,
+    *,
+    compression: str | None = None,
+    compression_level: int | None = None,
+    chunk_size: int | None = None,
+) -> bool:
     """Write one rank's payload into ``rank<N>``.
 
     A rank that recorded nothing gets no group at all, so the file's rank
@@ -260,14 +446,28 @@ def write_rank_payload(h5file, rank: int, payload) -> bool:
     # duplicate means a bug in the receive loop rather than something to merge.
     group = h5file.create_group(rank_group_name(rank))
     if payload.regions:
-        write_regions(group, payload.regions, payload.sources, payload.tags)
+        write_regions(
+            group,
+            payload.regions,
+            payload.sources,
+            payload.tags,
+            compression=compression,
+            compression_level=compression_level,
+            chunk_size=chunk_size,
+        )
     if payload.likwid:
         write_likwid_results(
             group,
             payload.likwid.values(),
             environment=payload.likwid_environment,
         )
-    write_line_profile(group, payload.line_profile)
+    write_line_profile(
+        group,
+        payload.line_profile,
+        compression=compression,
+        compression_level=compression_level,
+        chunk_size=chunk_size,
+    )
     return True
 
 
@@ -283,40 +483,122 @@ class ProfilingWriter:
     """
 
     def __init__(
-        self, file_path, metadata: dict | None = None, mode: str = "w"
+        self,
+        file_path,
+        metadata: dict | None = None,
+        mode: str = "w",
+        *,
+        atomic: bool | None = None,
+        compression: str | None = None,
+        compression_level: int | None = None,
+        chunk_size: int | None = None,
     ) -> None:
         """Open ``file_path`` for writing and store the run's metadata.
 
-        The file is opened with mode ``"w"``, so a previous run's output at
-        the same path is replaced rather than merged into -- which is what
-        makes a second ``finalize()`` in one process report only its own run.
+        New files are written to a unique sibling temporary path and atomically
+        replace ``file_path`` only after a successful close. A failed write
+        therefore preserves any previous profile at the destination.
         """
-        self._file = h5py.File(file_path, mode)
-        if mode == "w":
-            self._file.attrs[SCHEMA_ATTRIBUTE] = CURRENT_SCHEMA_VERSION
-            write_metadata(self._file, metadata or {})
-        else:
-            from scope_profiler.h5schema import read_schema_version
+        self._final_path = Path(file_path)
+        self._atomic = mode == "w" if atomic is None else atomic
+        self._temporary_path: Path | None = None
+        self._closed = False
+        self._compression = compression
+        self._compression_level = compression_level
+        self._chunk_size = chunk_size
+        if self._atomic and mode != "w":
+            raise ValueError("atomic output is only supported with mode='w'")
 
-            read_schema_version(self._file)
+        open_path = self._final_path
+        if self._atomic:
+            descriptor, temporary = tempfile.mkstemp(
+                prefix=f".{self._final_path.name}.",
+                suffix=".tmp",
+                dir=self._final_path.parent,
+            )
+            os.close(descriptor)
+            self._temporary_path = Path(temporary)
+            open_path = self._temporary_path
+
+        try:
+            self._file = h5py.File(open_path, mode)
+            if mode == "w":
+                self._file.attrs[SCHEMA_ATTRIBUTE] = CURRENT_SCHEMA_VERSION
+                write_metadata(self._file, metadata or {})
+            else:
+                from scope_profiler.h5schema import read_schema_version
+
+                read_schema_version(self._file)
+        except Exception:
+            file_handle = getattr(self, "_file", None)
+            if file_handle is not None:
+                file_handle.close()
+            if self._temporary_path is not None:
+                self._temporary_path.unlink(missing_ok=True)
+            raise
 
     @classmethod
-    def open_existing(cls, file_path) -> "ProfilingWriter":
+    def open_existing(
+        cls,
+        file_path,
+        *,
+        compression: str | None = None,
+        compression_level: int | None = None,
+        chunk_size: int | None = None,
+    ) -> "ProfilingWriter":
         """Open a completed prefix of an MPI output file for one more rank."""
-        return cls(file_path, mode="r+")
+        return cls(
+            file_path,
+            mode="r+",
+            compression=compression,
+            compression_level=compression_level,
+            chunk_size=chunk_size,
+        )
 
     def write_rank(self, rank: int, payload) -> bool:
         """Write one rank's payload; see :func:`write_rank_payload`."""
-        return write_rank_payload(self._file, rank, payload)
+        return write_rank_payload(
+            self._file,
+            rank,
+            payload,
+            compression=self._compression,
+            compression_level=self._compression_level,
+            chunk_size=self._chunk_size,
+        )
 
-    def close(self) -> None:
-        """Close the output file."""
-        self._file.close()
+    def close(self, *, commit: bool = True) -> None:
+        """Close the file and publish it, or discard an unsuccessful write."""
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            try:
+                self._file.flush()
+            finally:
+                self._file.close()
+            if self._temporary_path is not None:
+                if commit:
+                    atomic_publish(self._temporary_path, self._final_path)
+                else:
+                    self._temporary_path.unlink(missing_ok=True)
+        except Exception:
+            if self._temporary_path is not None:
+                self._temporary_path.unlink(missing_ok=True)
+            raise
 
     def __enter__(self) -> "ProfilingWriter":
         """Enter the context, returning the writer itself."""
         return self
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
-        """Close the file on the way out, including on error."""
-        self.close()
+        """Publish successful writes and discard failed ones."""
+        if exc_type is None:
+            self.close()
+            return
+        try:
+            self.close(commit=False)
+        except Exception as close_error:
+            if exc_value is not None and hasattr(exc_value, "add_note"):
+                exc_value.add_note(
+                    f"also failed to discard profiling output: {close_error}"
+                )

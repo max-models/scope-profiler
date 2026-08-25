@@ -18,8 +18,51 @@ configuration is global: every call to `profile()` or `profile_region()`
 | `buffer_limit`        | `int`  | `1024`                | Initial per-region buffer capacity. Buffers grow on demand, so this is a starting size, not a cap. |
 | `file_path`           | `str`  | `"profiling_data.h5"` | Output path for the merged HDF5 file written by `finalize()`.                                   |
 | `output_mode`         | `str`  | `"auto"`              | MPI writer: parallel HDF5 when available, otherwise direct token-ordered writes. Accepts `auto`, `direct`, or `parallel`. |
+| `hdf5_compression`   | `str` or `None` | `None`       | Compress timestamp, GPU-duration, and line-profile arrays with `gzip`, `lzf`, or optional `zstd`. |
+| `hdf5_compression_level` | `int` or `None` | `None`   | GZIP level 0--9 or Zstandard level 1--22. LZF has no level. |
+| `hdf5_chunk_size`    | `int` or `None` | `None`       | Maximum events per HDF5 chunk; enables chunked partial reads even without compression. |
 | `label`               | `str`  | `None`                | Short name for the run, used by post-processing wherever a run has to be named. See below.       |
 | `capture_region_source`| `bool` | `False`              | Record where each region is defined (see {doc}`hdf5_and_python_api`). Off by default; see below for its cost and how to turn it on. |
+
+## HDF5 compression and chunking
+
+The default remains contiguous and uncompressed, which minimizes write CPU
+cost for small profiles. Large traces can trade some CPU time for smaller files
+and chunk-addressable reads:
+
+```python
+ProfileManager.setup(
+    hdf5_compression="gzip",
+    hdf5_compression_level=4,
+    hdf5_chunk_size=65_536,
+)
+```
+
+`gzip` is portable across HDF5 installations and usually gives the smallest
+files of the built-in filters. `lzf` is faster but generally compresses less.
+Both use HDF5's byte-shuffle filter, which is particularly effective for
+nearby `int64` timestamps. Zstandard is available through the optional filter
+plugin:
+
+```bash
+pip install "scope-profiler[compression]"
+```
+
+```python
+ProfileManager.setup(
+    hdf5_compression="zstd",
+    hdf5_compression_level=3,
+    hdf5_chunk_size=65_536,
+)
+```
+
+Readers of a Zstandard-compressed file must also have `hdf5plugin` installed
+so HDF5 can load the filter. Compression automatically makes datasets chunked;
+set only `hdf5_chunk_size` when partial reads are desired without compression.
+In MPI `auto` mode, scope-profiler uses the direct single-file writer if the
+parallel HDF5 library lacks the requested filter. Explicit `output_mode="parallel"`
+instead fails early with a diagnostic, so a parallel-HDF5 test cannot silently
+exercise the direct backend.
 
 ## Enabling `capture_region_source`
 

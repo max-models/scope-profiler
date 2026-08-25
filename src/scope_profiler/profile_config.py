@@ -30,6 +30,9 @@ _CONFIG_FIELDS = {
     "buffer_limit",
     "file_path",
     "output_mode",
+    "hdf5_compression",
+    "hdf5_compression_level",
+    "hdf5_chunk_size",
     "label",
     "capture_region_source",
 }
@@ -224,6 +227,9 @@ class ProfilingConfig:
         buffer_limit: int = 1024,
         file_path: str = "profiling_data.h5",
         output_mode: str = "auto",
+        hdf5_compression: str | None = None,
+        hdf5_compression_level: int | None = None,
+        hdf5_chunk_size: int | None = None,
         label: str | None = None,
         capture_region_source: bool = False,
     ):
@@ -261,6 +267,15 @@ class ProfilingConfig:
             safe, otherwise serializes direct per-rank writes; ``"direct"``
             always uses the latter; ``"parallel"`` requires an MPI-enabled
             h5py build. Serial runs are unaffected.
+        hdf5_compression : str or None
+            Dataset compression: ``None``, ``"gzip"``, ``"lzf"``, or
+            ``"zstd"``. Zstandard requires the ``compression`` extra.
+        hdf5_compression_level : int or None
+            GZIP level 0--9 or Zstandard level 1--22. Ignored when compression
+            is disabled; LZF has no configurable level.
+        hdf5_chunk_size : int or None
+            Maximum number of events per HDF5 chunk. ``None`` leaves datasets
+            contiguous unless compression requires h5py to choose chunks.
         label : str or None
             Short name for this run, used by post-processing wherever a run
             has to be named: chart legends, the summary heading, the JSON
@@ -319,6 +334,37 @@ class ProfilingConfig:
                 f"got {output_mode!r}"
             )
         self._output_mode = output_mode
+        if isinstance(hdf5_compression, str):
+            hdf5_compression = hdf5_compression.strip().lower()
+            if hdf5_compression in {"", "none"}:
+                hdf5_compression = None
+        if hdf5_compression not in {None, "gzip", "lzf", "zstd"}:
+            raise ValueError(
+                "hdf5_compression must be None, 'gzip', 'lzf', or 'zstd', "
+                f"got {hdf5_compression!r}"
+            )
+        if hdf5_chunk_size is not None and (
+            isinstance(hdf5_chunk_size, bool)
+            or not isinstance(hdf5_chunk_size, int)
+            or hdf5_chunk_size <= 0
+        ):
+            raise ValueError("hdf5_chunk_size must be a positive integer or None")
+        if hdf5_compression_level is not None and (
+            isinstance(hdf5_compression_level, bool)
+            or not isinstance(hdf5_compression_level, int)
+        ):
+            raise ValueError("hdf5_compression_level must be an integer or None")
+        if hdf5_compression == "gzip" and hdf5_compression_level is not None:
+            if not 0 <= hdf5_compression_level <= 9:
+                raise ValueError("GZIP compression level must be between 0 and 9")
+        if hdf5_compression == "zstd" and hdf5_compression_level is not None:
+            if not 1 <= hdf5_compression_level <= 22:
+                raise ValueError("Zstandard compression level must be between 1 and 22")
+        if hdf5_compression == "lzf" and hdf5_compression_level is not None:
+            raise ValueError("LZF compression does not accept a compression level")
+        self._hdf5_compression = hdf5_compression
+        self._hdf5_compression_level = hdf5_compression_level
+        self._hdf5_chunk_size = hdf5_chunk_size
         self._capture_region_source = capture_region_source
 
         # Local queries, not collectives: nothing here has to be reached by
@@ -468,6 +514,21 @@ class ProfilingConfig:
     def output_mode(self) -> str:
         """MPI HDF5 output strategy: auto, direct, or parallel."""
         return self._output_mode
+
+    @property
+    def hdf5_compression(self) -> str | None:
+        """Compression filter used for timestamp datasets."""
+        return self._hdf5_compression
+
+    @property
+    def hdf5_compression_level(self) -> int | None:
+        """Configured GZIP or Zstandard compression level."""
+        return self._hdf5_compression_level
+
+    @property
+    def hdf5_chunk_size(self) -> int | None:
+        """Maximum number of events per timestamp chunk."""
+        return self._hdf5_chunk_size
 
     @property
     def use_likwid(self) -> bool:
