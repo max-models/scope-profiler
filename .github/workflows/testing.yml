@@ -315,7 +315,9 @@ jobs:
       - name: Test parallel HDF5 writer
         run: |
           python3 -c "import h5py; assert h5py.get_config().mpi"
-          mpirun -n 3 python3 \
+          # GitHub-hosted/container runners may expose fewer than three Open
+          # MPI slots even though the test intentionally exercises 3 ranks.
+          mpirun --oversubscribe -n 3 python3 \
             src/scope_profiler/tests/check_parallel_hdf5.py \
             "$RUNNER_TEMP/parallel-profiling-${{ matrix.python-version }}.h5"
 
