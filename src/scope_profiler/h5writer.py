@@ -71,6 +71,23 @@ def parallel_hdf5_available() -> bool:
     return bool(getattr(h5py.get_config(), "mpi", False))
 
 
+def compression_filter_available(compression: str | None) -> bool:
+    """Whether the active HDF5 library can encode the requested filter."""
+    if compression is None:
+        return True
+    filter_ids = {
+        "gzip": h5py.h5z.FILTER_DEFLATE,
+        "lzf": h5py.h5z.FILTER_LZF,
+        "zstd": 32015,
+    }
+    if compression == "zstd":
+        try:
+            import hdf5plugin  # noqa: F401
+        except ImportError:
+            return False
+    return bool(h5py.h5z.filter_avail(filter_ids[compression]))
+
+
 def dataset_storage_options(
     length: int,
     compression: str | None = None,
@@ -97,6 +114,10 @@ def dataset_storage_options(
                 "scope-profiler[compression]."
             ) from exc
         options.update(hdf5plugin.Zstd(clevel=compression_level or 3))
+    if compression is not None:
+        # Byte shuffling groups equal-significance bytes before compression;
+        # monotonic int64 timestamps generally compress much better this way.
+        options["shuffle"] = True
     return options
 
 

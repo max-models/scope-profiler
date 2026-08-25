@@ -114,6 +114,13 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
     FileNotFoundError
         If the specified HDF5 file does not exist.
     """
+    # Importing registers optional third-party HDF5 filters (notably Zstd)
+    # before any compressed dataset is opened. Built-in filters need nothing.
+    try:
+        import hdf5plugin  # noqa: F401
+    except ImportError:
+        pass
+
     file_path = Path(file_path)
     num_ranks = 0
     metadata: dict = {}

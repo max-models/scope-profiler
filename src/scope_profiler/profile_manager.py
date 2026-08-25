@@ -867,6 +867,7 @@ class ProfileManager:
         """Choose the MPI single-file backend and write this rank's payload."""
         from scope_profiler.h5writer import (
             atomic_publish,
+            compression_filter_available,
             parallel_hdf5_available,
             write_parallel_payload,
         )
@@ -878,6 +879,7 @@ class ProfileManager:
         parallel_compatible = not config.use_likwid
         requested = config.output_mode
         available = parallel_hdf5_available()
+        filter_available = compression_filter_available(config.hdf5_compression)
 
         if requested == "parallel" and not available:
             raise RuntimeError(
@@ -890,8 +892,20 @@ class ProfileManager:
                 "initialization, while parallel HDF5 requires subsequent MPI "
                 "collectives. Use output_mode='direct'."
             )
+        if requested == "parallel" and not filter_available:
+            raise RuntimeError(
+                f"The parallel HDF5 library does not provide the requested "
+                f"{config.hdf5_compression!r} compression filter. Use "
+                "output_mode='direct', choose another filter, or rebuild "
+                "parallel HDF5 with that filter enabled."
+            )
 
-        use_parallel = requested != "direct" and available and parallel_compatible
+        use_parallel = (
+            requested != "direct"
+            and available
+            and parallel_compatible
+            and filter_available
+        )
         if not use_parallel:
             cls._write_payload_direct(payload)
             return

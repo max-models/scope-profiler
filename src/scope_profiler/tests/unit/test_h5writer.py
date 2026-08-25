@@ -139,6 +139,7 @@ def test_timestamp_compression_and_chunk_size_round_trip(tmp_path, compression):
         dataset = handle["rank0/regions/solve/start_times"]
         assert dataset.compression == compression
         assert dataset.chunks == (8,)
+        assert dataset.shuffle is True
         if compression == "gzip":
             assert dataset.compression_opts == 4
     assert read_h5(path)["solve"][0].start_times_ns.tolist() == starts.tolist()
