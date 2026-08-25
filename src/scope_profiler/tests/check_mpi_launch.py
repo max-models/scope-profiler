@@ -51,7 +51,19 @@ def check(mode: str, expected_size: int) -> None:
 
     if config._rank == 0:
         with h5py.File(OUTPUT_FILE, "r") as f:
-            ranks = sorted(key for key in f if key.startswith("rank"))
+            if "rank_region_index" in f:
+                # Schema 2 stores timing data in shared columnar datasets;
+                # rank-local groups are only created for auxiliary data such
+                # as LIKWID and line-profiler records.
+                recorded = f["rank_region_index/ranks"][()]
+                ranks = sorted({f"rank{int(rank)}" for rank in recorded})
+            else:
+                # Keep the checker compatible with legacy schema-1 files.
+                ranks = sorted(
+                    key
+                    for key in f
+                    if key.startswith("rank") and key[4:].isdigit()
+                )
         expected_ranks = [f"rank{r}" for r in range(expected_size)]
         assert ranks == expected_ranks, f"expected {expected_ranks}, got {ranks}"
 
