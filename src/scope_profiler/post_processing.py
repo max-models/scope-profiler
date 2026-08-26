@@ -10,6 +10,7 @@ from pathlib import Path
 from scope_profiler.h5reader import read_h5
 from scope_profiler.plotting_scripts import (
     DEFAULT_CMAP,
+    plot_callgraph,
     plot_duration_histogram,
     plot_duration_timeseries,
     plot_durations,
@@ -33,6 +34,7 @@ from scope_profiler.speedscope_export import export_speedscope
 _PLOT_CATALOG: dict[str, tuple[str, bool]] = {
     "gantt": ("per-rank timeline of every call", True),
     "flame": ("reconstructed call-stack flame graph", False),
+    "callgraph": ("parent/child call graph from explicit call ids", False),
     "durations": ("bar chart of duration statistics per region", True),
     "timeseries": ("duration per call over wall-clock time", False),
     "speedup": ("scaling across multiple files (2+ files only)", False),
@@ -192,7 +194,7 @@ def _add_plot_output_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--backend",
-        choices=["matplotlib", "plotly", "plotext"],
+        choices=["matplotlib", "plotly", "pyvis", "plotext"],
         default="matplotlib",
         help=(
             "Renderer used for plots: static PNGs, interactive HTML, or "
@@ -204,6 +206,16 @@ def _add_plot_output_args(parser: argparse.ArgumentParser) -> None:
         type=str,
         default=DEFAULT_CMAP,
         help=f"Matplotlib colormap used for regions/files (default: {DEFAULT_CMAP!r}).",
+    )
+    parser.add_argument(
+        "--compact-callgraph",
+        action="store_true",
+        help="Collapse repeated callgraph invocations into one node per region.",
+    )
+    parser.add_argument(
+        "--fluid-callgraph",
+        action="store_true",
+        help="Use an interactive force-directed layout for the compact callgraph.",
     )
 
 
@@ -533,7 +545,7 @@ def _plot_output_targets(
     output_path = Path(args.output)
     ext = (
         "html"
-        if args.backend == "plotly"
+        if args.backend in {"plotly", "pyvis"}
         else "txt" if args.backend == "plotext" else "png"
     )
     is_single_plot_file = len(selected_plots) == 1 and output_path.suffix.lower() in {
@@ -624,7 +636,7 @@ def _render_selected_plots(
 
     ext = (
         "html"
-        if getattr(args, "backend", "matplotlib") == "plotly"
+        if getattr(args, "backend", "matplotlib") in {"plotly", "pyvis"}
         else "txt" if getattr(args, "backend", "matplotlib") == "plotext" else "png"
     )
     options = _plot_options(args, "")
@@ -654,6 +666,9 @@ def _render_selected_plots(
     )
     flame_data_path = _data_path(
         data_output_dir, selected_plots, "flame", "flame_data", data_format
+    )
+    callgraph_data_path = _data_path(
+        data_output_dir, selected_plots, "callgraph", "callgraph_data", data_format
     )
     durations_data_path = _data_path(
         data_output_dir, selected_plots, "durations", "durations_data", data_format
@@ -738,6 +753,23 @@ def _render_selected_plots(
             backend=args.backend,
         )
         saved.extend(path for path in (path, flame_data_path) if path)
+
+    if "callgraph" in selected_plots:
+        path = image_path("callgraph", "callgraph_plot")
+        plot_callgraph(
+            runs[0],
+            rank=(args.ranks[0] if args.ranks else 0),
+            include=args.include,
+            exclude=args.exclude,
+            filepath=path,
+            show=args.show,
+            data_filepath=callgraph_data_path,
+            data_format=data_format,
+            backend=args.backend,
+            compact=args.compact_callgraph,
+            fluid=args.fluid_callgraph,
+        )
+        saved.extend(path for path in (path, callgraph_data_path) if path)
 
     if "durations" in selected_plots:
         path = image_path("durations", "durations_plot")

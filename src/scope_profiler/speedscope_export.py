@@ -9,7 +9,11 @@ file keeps. Drop the file on https://www.speedscope.app to view it.
 Regions carry no call graph of their own, so the caller/callee relations are
 reconstructed from timestamp containment - the same reconstruction the flame
 chart and the ``.prof`` export use
-(:func:`~scope_profiler.call_stack.build_call_stack`).
+(:func:`~scope_profiler.call_stack.build_call_arrays`).
+
+An evented profile is two events per call, so the output is inherently
+proportional to the run. The reconstruction feeding it is not: it arrives as
+columns, and only the events themselves are ever built as dicts.
 """
 
 from __future__ import annotations
@@ -18,7 +22,7 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from scope_profiler.call_stack import build_call_stack
+from scope_profiler.call_stack import CallArrays, build_call_arrays
 from scope_profiler.plotting_scripts import (
     _as_runs,
     _filename_slug,
@@ -33,6 +37,8 @@ SCHEMA_URL = "https://www.speedscope.app/file-format-schema.json"
 # rather than converting back to the nanoseconds the HDF5 files store.
 TIME_UNIT = "seconds"
 
+NS_PER_SECOND = 1e9
+
 
 def _exporter_name() -> str:
     """Identify this package (and version) as the producer of the file."""
@@ -41,32 +47,8 @@ def _exporter_name() -> str:
     return f"scope-profiler@{__version__}"
 
 
-def _nested_intervals(calls: list[dict]) -> list[tuple[float, float]]:
-    """Return each call's interval, tightened to fit inside its parent's.
-
-    An evented profile is a stack machine: a frame can only close while it is
-    on top of the stack, so every call must lie entirely within its parent.
-    Reconstruction by containment does not guarantee that - a region that
-    starts inside another but ends after it is still recorded as its child -
-    so such an interval is clipped to the enclosing one. The clipping is
-    visible only where regions genuinely overlap, which no real call stack
-    does.
-    """
-    intervals: list[tuple[float, float]] = []
-    for call in calls:
-        start, end = call["start"], call["end"]
-        parent = call["parent"]
-        if parent is not None:
-            # Parents precede their children here, so the bound is final.
-            low, high = intervals[parent]
-            start = min(max(start, low), high)
-            end = min(max(end, start), high)
-        intervals.append((start, end))
-    return intervals
-
-
 def build_speedscope_profile(
-    calls: list[dict],
+    calls: CallArrays,
     name: str,
     frame_indices: dict[str, int],
     frames: list[dict],
@@ -76,11 +58,11 @@ def build_speedscope_profile(
 
     Parameters
     ----------
-    calls : list[dict]
+    calls : CallArrays
         Calls as returned by
-        :func:`~scope_profiler.call_stack.build_call_stack`:
-        each entry has ``name``, ``start`` and ``end`` in seconds, and
-        ``parent`` (an index into this list, or ``None`` for a top-level call).
+        :func:`~scope_profiler.call_stack.build_call_arrays`. Their intervals
+        are properly nested, which is exactly what an evented profile needs:
+        a frame can only close while it is on top of the stack.
     name : str
         Name of the profile, shown in speedscope's profile selector.
     frame_indices, frames : dict, list
@@ -98,11 +80,13 @@ def build_speedscope_profile(
     dict
         A profile object as described by the speedscope file format schema.
     """
-    intervals = _nested_intervals(calls)
+    starts = (calls.start_ns / NS_PER_SECOND).tolist()
+    ends = (calls.end_ns / NS_PER_SECOND).tolist()
+    names = [calls.names[row] for row in calls.region_index.tolist()]
 
     children: dict[int | None, list[int]] = {}
-    for index, call in enumerate(calls):
-        children.setdefault(call["parent"], []).append(index)
+    for index, parent in enumerate(calls.parent.tolist()):
+        children.setdefault(None if parent < 0 else parent, []).append(index)
 
     events = []
     # Depth-first over the reconstructed tree, siblings in start order (which
@@ -113,8 +97,8 @@ def build_speedscope_profile(
     ]
     while stack:
         index, closing = stack.pop()
-        start, end = intervals[index]
-        frame_name = calls[index]["name"]
+        start, end = starts[index], ends[index]
+        frame_name = names[index]
         if closing:
             events.append({"type": "C", "frame": frame_indices[frame_name], "at": end})
             continue
@@ -140,14 +124,14 @@ def build_speedscope_profile(
 
 
 def build_speedscope_document(
-    named_calls: Sequence[tuple[str, list[dict]]],
+    named_calls: Sequence[tuple[str, CallArrays]],
     name: str,
 ) -> dict:
     """Build a full speedscope document holding one profile per entry.
 
     Parameters
     ----------
-    named_calls : sequence of (str, list[dict])
+    named_calls : sequence of (str, CallArrays)
         Profile name and calls for each profile to include, e.g. one per rank.
     name : str
         Name of the document, shown in speedscope's title bar.
@@ -158,7 +142,7 @@ def build_speedscope_document(
         The document, ready to be serialized as JSON.
     """
     starts = [
-        calls[0]["start"] for _, calls in named_calls if calls
+        calls.start_ns[0] / NS_PER_SECOND for _, calls in named_calls if len(calls)
     ]  # calls are start-ordered
     origin = min(starts) if starts else 0.0
 
@@ -244,8 +228,8 @@ def export_speedscope(
         for rank in normalized_ranks:
             if rank < 0 or rank >= run.num_ranks:
                 raise ValueError(f"Invalid rank requested: {rank}")
-            calls = build_call_stack(regions, rank)
-            if calls:
+            calls = build_call_arrays(regions, rank)
+            if len(calls):
                 named_calls.append((f"rank {rank}", calls))
         if named_calls:
             prepared.append((label, named_calls))

@@ -7,13 +7,18 @@ import site
 import sys
 import sysconfig
 import threading
+import warnings
 from time import perf_counter_ns
 from types import FrameType
 from typing import TYPE_CHECKING, Callable, Dict, NamedTuple
 
 import numpy as np
 
-from scope_profiler.call_stack import exclusive_totals_ns
+from scope_profiler.call_stack import (
+    NestingError,
+    build_call_arrays,
+    regions_from_snapshot,
+)
 from scope_profiler.profile_config import ProfilingConfig, load_profiling_config
 from scope_profiler.region_profiler import (
     BaseProfileRegion,
@@ -137,6 +142,9 @@ class ProfileManager:
     """
 
     _regions = {}
+    # Next call id to hand out, so ids stay unique across the repeated
+    # finalize() calls of one run. Reset by setup(), which starts a new run.
+    _next_call_id = 0
     # Resolved on first use, never at import. Building a ProfilingConfig reads
     # the communicator, which imports mpi4py (i.e. calls MPI_Init) whenever the
     # process looks like an MPI rank -- so constructing one here would mean
@@ -577,6 +585,12 @@ class ProfileManager:
         written *and* what gets returned, so the output file and the in-memory
         results cannot disagree.
 
+        A region that is still open has a slot reserved but no end timestamp
+        written yet, so that call is left out entirely rather than snapshotted
+        half-finished. It stays in the buffer -- ``mark_written()`` refuses to
+        rewind under an open scope -- and is picked up whole by the next
+        finalize().
+
         Returns
         -------
         dict
@@ -589,14 +603,87 @@ class ProfileManager:
             # each finalize().
             if region.ptr == 0:
                 continue
-            starts = np.array(region.start_times[: region.ptr])
-            ends = np.array(region.end_times[: region.ptr])
+            keep = region.closed_slots()
+            if keep is None:
+                starts = np.array(region.start_times[: region.ptr])
+                ends = np.array(region.end_times[: region.ptr])
+            else:
+                starts = region.start_times[: region.ptr][keep]
+                ends = region.end_times[: region.ptr][keep]
+                if not starts.size:
+                    continue
             get_gpu_durations = getattr(region, "get_gpu_durations_numpy", None)
             if get_gpu_durations is None:
                 snapshot[name] = (starts, ends)
             else:
-                snapshot[name] = (starts, ends, np.array(get_gpu_durations()))
+                gpu_durations = np.array(get_gpu_durations())
+                if keep is not None:
+                    gpu_durations = gpu_durations[keep]
+                snapshot[name] = (starts, ends, gpu_durations)
         return snapshot
+
+    @classmethod
+    def _snapshot_call_graph(
+        cls, snapshot: Dict[str, tuple]
+    ) -> tuple[Dict[str, tuple], dict]:
+        """Attach explicit call and parent ids to a timestamp snapshot.
+
+        The ids are assigned once at finalization, when all regions for this
+        rank are available. This keeps the per-entry instrumentation path
+        unchanged while allowing readers to traverse the saved graph without
+        looking at timestamps.
+
+        Column-at-a-time throughout: a long run finalizes tens of millions of
+        events per rank, and a dict per call costs ~700 bytes and ~16 us
+        against ~80 bytes and ~0.2 us here. Nothing in this path may go
+        through :func:`~scope_profiler.call_stack.build_call_stack`.
+
+        A rank whose regions are not properly nested keeps its timings and
+        loses only the call graph: raising here would throw away a run that
+        has already finished computing.
+        """
+        if not snapshot:
+            return snapshot, {}
+
+        try:
+            arrays = build_call_arrays(regions_from_snapshot(snapshot, 0), rank=0)
+        except NestingError as error:
+            warnings.warn(
+                f"call graph not recorded: {error}", RuntimeWarning, stacklevel=2
+            )
+            return snapshot, None
+
+        # Ids continue where the last finalize() left off. Restarting at zero
+        # would hand two different calls the same id in a run that finalizes
+        # more than once, which is exactly what a long simulation writing
+        # periodic checkpoints does.
+        base = cls._next_call_id
+        cls._next_call_id = base + len(arrays)
+        ids = np.arange(base, base + len(arrays), dtype=np.int64)
+        parents = np.where(arrays.parent < 0, -1, arrays.parent + base)
+        totals = np.zeros(len(arrays.names), dtype=np.int64)
+        np.add.at(totals, arrays.region_index, arrays.exclusive_ns)
+        exclusive_totals = dict(zip(arrays.names, totals.tolist()))
+
+        updated = {}
+        for row, name in enumerate(arrays.names):
+            region_arrays = snapshot[name]
+            mine = arrays.region_index == row
+            # Scatter back into recording order: call_index says which slot
+            # of this region's buffers each sorted call came from.
+            slots = arrays.call_index[mine]
+            call_ids = np.full(len(region_arrays[0]), -1, dtype=np.int64)
+            parent_ids = np.full(len(region_arrays[0]), -1, dtype=np.int64)
+            call_ids[slots] = ids[mine]
+            parent_ids[slots] = parents[mine]
+            updated[name] = (
+                region_arrays[0],
+                region_arrays[1],
+                region_arrays[2] if len(region_arrays) > 2 else None,
+                call_ids,
+                parent_ids,
+            )
+        return updated, exclusive_totals
 
     @classmethod
     def _snapshot_sources(cls, names) -> Dict[str, tuple]:
@@ -663,6 +750,8 @@ class ProfileManager:
             for name, arrays in payload.regions.items():
                 starts, ends = arrays[:2]
                 gpu_durations = arrays[2] if len(arrays) > 2 else None
+                call_ids = arrays[3] if len(arrays) > 3 else None
+                parent_ids = arrays[4] if len(arrays) > 4 else None
                 source_file, source_lineno, source_text = sources.get(
                     name, (None, None, None)
                 )
@@ -670,6 +759,8 @@ class ProfileManager:
                     starts,
                     ends,
                     gpu_durations=gpu_durations,
+                    call_ids=call_ids,
+                    parent_ids=parent_ids,
                     source_file=source_file,
                     source_lineno=source_lineno,
                     source_text=source_text,
@@ -1168,10 +1259,12 @@ class ProfileManager:
 
         # 4. Reconstruct this rank's nesting, now that its region set is
         # complete (native traces included). Done here, once, rather than by
-        # every later reader of the file: see call_stack.exclusive_totals_ns.
-        exclusive_totals = (
-            exclusive_totals_ns(snapshot) if need_payload and snapshot else None
-        )
+        # every later reader of the file, and as columns rather than a dict
+        # per call: see ProfileManager._snapshot_call_graph.
+        if need_payload:
+            snapshot, exclusive_totals = cls._snapshot_call_graph(snapshot)
+        else:
+            exclusive_totals = None
 
         payload = RankPayload(
             regions=snapshot,
@@ -1485,6 +1578,8 @@ class ProfileManager:
             The new profiling configuration to apply.
         """
         cls._regions.clear()  # Clear old regions
+        # A new run gets a fresh id space; ids stay unique only within one.
+        cls._next_call_id = 0
         cls._config = config  # Update the config
         cls._update_region_cls()  # Set the proper region class
         # Rebind all registered decorator wrappers to the new region class.

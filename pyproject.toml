@@ -70,6 +70,10 @@ optional-dependencies.pproc = [
   "textual>=0.86",
 ]
 
+optional-dependencies.graph = [
+  "pyvis >= 0.3.2",
+]
+
 optional-dependencies.dev = [
   "black[jupyter]",
   "isort",

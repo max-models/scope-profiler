@@ -308,8 +308,8 @@ def test_prof_export_no_split_timeline(tmp_path):
     "two timelines" due to duplicate region entries or incorrect call stack
     reconstruction.
     """
-    from scope_profiler.call_stack import build_call_stack
-    from scope_profiler.prof_export import build_pstats_dict, export_prof
+    from scope_profiler.call_stack import build_call_arrays
+    from scope_profiler.prof_export import build_pstats_dict
 
     path = tmp_path / "multi_rank.h5"
     with ProfilingWriter(path) as writer:
@@ -331,10 +331,10 @@ def test_prof_export_no_split_timeline(tmp_path):
     regions = results.get_regions()
 
     # Build call stack for rank 0
-    calls = build_call_stack(regions, rank=0)
+    calls = build_call_arrays(regions, rank=0)
 
     # Verify no duplicate calls - each region should appear only once per call
-    region_names_in_calls = [call["name"] for call in calls]
+    region_names_in_calls = [calls.names[row] for row in calls.region_index.tolist()]
     call_counts = {}
     for name in region_names_in_calls:
         call_counts[name] = call_counts.get(name, 0) + 1

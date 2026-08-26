@@ -321,6 +321,22 @@ Calls are identified by position rather than by name, because a region that
 is called repeatedly — or recursively — contributes several entries under one
 name.
 
+Nesting is reconstructed by containment, so the intervals have to be properly
+nested: any two calls on a rank either nest completely or do not overlap.
+Anything else raises `NestingError`. Python regions always satisfy this; a
+mismatched `sp_begin`/`sp_end` pair in native code is the way to break it.
+
+On a long run, prefer `build_call_arrays()` to `call_stack()`. It is the same
+reconstruction returned as numpy columns rather than a dict per call, which is
+what makes it usable on millions of events:
+
+```python
+from scope_profiler import build_call_arrays
+
+calls = build_call_arrays(results.get_regions(), rank=0)
+print(calls.depth, calls.parent, calls.exclusive_ns)  # all indexed by call id
+```
+
 ```{note}
 Everything below has a command-line equivalent that needs no code:
 `scope-profiler plot default profiling_data.h5 -o figures/` writes the same charts

@@ -19,6 +19,8 @@ class Region:
         start_times: np.ndarray,
         end_times: np.ndarray,
         gpu_durations: np.ndarray | None = None,
+        call_ids: np.ndarray | None = None,
+        parent_ids: np.ndarray | None = None,
         source_file: str | None = None,
         source_lineno: int | None = None,
         source_text: str | None = None,
@@ -44,6 +46,12 @@ class Region:
         self._durations = end_times - start_times
         self._gpu_durations = (
             None if gpu_durations is None else np.asarray(gpu_durations, dtype=np.int64)
+        )
+        self._call_ids = (
+            None if call_ids is None else np.asarray(call_ids, dtype=np.int64)
+        )
+        self._parent_ids = (
+            None if parent_ids is None else np.asarray(parent_ids, dtype=np.int64)
         )
         # A Region does not know about other regions, so until it is attached
         # to ProfilingResults exclusive time defaults to inclusive time. The
@@ -179,8 +187,21 @@ class Region:
             }
             if gpu_durations is not None:
                 event["gpu_duration"] = float(gpu_durations[index])
+            if self._call_ids is not None:
+                event["call_id"] = int(self._call_ids[index])
+                event["parent_id"] = int(self._parent_ids[index])
             events.append(event)
         return events
+
+    @property
+    def call_ids(self):
+        """Explicit call ids, or None for legacy profiles."""
+        return self._call_ids
+
+    @property
+    def parent_ids(self):
+        """Explicit parent ids, or None for legacy profiles."""
+        return self._parent_ids
 
     @property
     def has_timing(self) -> bool:

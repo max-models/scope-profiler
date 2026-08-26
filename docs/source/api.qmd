@@ -72,6 +72,7 @@ Everything in this section is importable from the package root:
 
 ```python
 from scope_profiler import (
+    build_call_arrays,
     build_call_stack,
     read_h5,
     plot_flame,
@@ -154,6 +155,40 @@ when building your own nested visualisation.
 .. autofunction:: scope_profiler.call_stack.build_call_stack
 .. autofunction:: scope_profiler.call_stack.call_stack_roots
 .. autofunction:: scope_profiler.call_stack.call_stack_children
+```
+
+#### Intervals must be properly nested
+
+Two calls recorded on one rank either nest completely or do not overlap at
+all. A call that starts inside another and ends after it raises
+`NestingError` rather than being reconstructed under a guessed parent — there
+is no call stack that describes it, and every consumer (flame chart, `.prof`,
+speedscope, exclusive time) would otherwise have to invent one.
+
+A stack of `with` blocks or decorated functions always satisfies this. The
+realistic way to violate it is a mismatched `sp_begin`/`sp_end` pair in C or
+Fortran; see the [C](guide/c.qmd) and [Fortran](guide/fortran.qmd) guides.
+
+`finalize()` is deliberately more forgiving than the readers: a rank whose
+intervals do not nest keeps its timings and loses only the call graph, with a
+warning, rather than throwing away a run that has already finished computing.
+
+```{eval-rst}
+.. autoexception:: scope_profiler.call_stack.NestingError
+```
+
+#### Reconstruction at scale
+
+`build_call_stack` allocates a dict per call (~700 bytes), which is fine for
+inspecting a run and not fine for a long one. `build_call_arrays` returns the
+same reconstruction as numpy columns and is what the exporters and
+`finalize()` use — a run with ten million events per rank reconstructs in a
+couple of seconds instead of a couple of minutes.
+
+```{eval-rst}
+.. autofunction:: scope_profiler.call_stack.build_call_arrays
+.. autoclass:: scope_profiler.call_stack.CallArrays
+   :members:
 ```
 
 ### Plotting
