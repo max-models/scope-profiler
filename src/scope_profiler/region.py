@@ -47,7 +47,9 @@ class Region:
         self._gpu_durations = (
             None if gpu_durations is None else np.asarray(gpu_durations, dtype=np.int64)
         )
-        self._call_ids = None if call_ids is None else np.asarray(call_ids, dtype=np.int64)
+        self._call_ids = (
+            None if call_ids is None else np.asarray(call_ids, dtype=np.int64)
+        )
         self._parent_ids = (
             None if parent_ids is None else np.asarray(parent_ids, dtype=np.int64)
         )

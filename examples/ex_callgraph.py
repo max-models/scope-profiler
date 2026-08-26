@@ -49,10 +49,7 @@ def solve_fields(charge):
 
 @ProfileManager.profile("smooth_field")
 def smooth_field(charge, potential):
-    return [
-        0.5 * (charge[index] + potential[index])
-        for index in range(len(charge))
-    ]
+    return [0.5 * (charge[index] + potential[index]) for index in range(len(charge))]
 
 
 @ProfileManager.profile("apply_field_boundary")

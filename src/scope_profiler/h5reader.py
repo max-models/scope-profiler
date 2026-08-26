@@ -263,9 +263,7 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
                         else None
                     ),
                     call_ids=(
-                        region_grp["call_ids"][()]
-                        if "call_ids" in region_grp
-                        else None
+                        region_grp["call_ids"][()] if "call_ids" in region_grp else None
                     ),
                     parent_ids=(
                         region_grp["parent_ids"][()]

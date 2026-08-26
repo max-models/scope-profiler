@@ -26,11 +26,11 @@ from scope_profiler.h5reader import read_h5
 from scope_profiler.inspection import _metadata_sections, _time_span
 from scope_profiler.plotting_scripts import (
     available_likwid_metrics,
+    plot_callgraph,
     plot_duration_histogram,
     plot_duration_timeseries,
     plot_durations,
     plot_flame,
-    plot_callgraph,
     plot_gantt,
     plot_imbalance,
     plot_likwid,

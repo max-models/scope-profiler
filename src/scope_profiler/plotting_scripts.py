@@ -76,6 +76,8 @@ function spToggle() {
     path = Path(filepath)
     content = path.read_text(encoding="utf-8")
     path.write_text(content.replace("</body>", controls + "</body>"), encoding="utf-8")
+
+
 def _to_hex(color) -> str:
     """Convert a matplotlib color (e.g. an RGBA tuple) to a ``#rrggbb`` string."""
     if isinstance(color, str):
@@ -1186,33 +1188,56 @@ def plot_callgraph(
         node_keys = {key(node) for node in nodes}
         parents = {parent for parent, _ in (edges if compact else [])}
         children = {child for _, child in (edges if compact else [])}
-        max_total = max((node.get("total_duration", 0.0) for node in nodes), default=0.0)
+        max_total = max(
+            (node.get("total_duration", 0.0) for node in nodes), default=0.0
+        )
         for node in nodes:
             node_key = key(node)
             label = node["name"] if compact else f"{node['name']} (#{node['call_id']})"
             if compact:
                 name = node["name"]
                 category = (
-                    "recursive" if (name, name) in edges
-                    else "leaf" if name not in parents
-                    else "branch"
+                    "recursive"
+                    if (name, name) in edges
+                    else "leaf" if name not in parents else "branch"
                 )
-                size = 16 + 18 * (node["total_duration"] / max_total) ** 0.5 if max_total else 18
-                colors = {"branch": "#4f8cc9", "leaf": "#67b779", "recursive": "#d98b4a"}
+                size = (
+                    16 + 18 * (node["total_duration"] / max_total) ** 0.5
+                    if max_total
+                    else 18
+                )
+                colors = {
+                    "branch": "#4f8cc9",
+                    "leaf": "#67b779",
+                    "recursive": "#d98b4a",
+                }
                 title = (
                     f"<b>{name}</b><br>Calls: {node['calls']}<br>"
                     f"Total: {node['total_duration']:.6g} s<br>"
                     f"Average: {node['average_duration']:.6g} s"
                     + (f"<br>Source: {node['source']}" if node["source"] else "")
                 )
-                graph.add_node(node_key, label=label, title=title, level=node["depth"], size=size, color=colors[category])
+                graph.add_node(
+                    node_key,
+                    label=label,
+                    title=title,
+                    level=node["depth"],
+                    size=size,
+                    color=colors[category],
+                )
             else:
-                graph.add_node(node_key, label=label, title=node["name"], level=node["depth"])
-        graph_edges = edges if compact else [
-            (node["parent_id"], node["call_id"])
-            for node in nodes
-            if node["parent_id"] is not None
-        ]
+                graph.add_node(
+                    node_key, label=label, title=node["name"], level=node["depth"]
+                )
+        graph_edges = (
+            edges
+            if compact
+            else [
+                (node["parent_id"], node["call_id"])
+                for node in nodes
+                if node["parent_id"] is not None
+            ]
+        )
         for parent, child in graph_edges:
             if parent in node_keys and child in node_keys:
                 count = edge_counts.get((parent, child), 1) if compact else 1
@@ -1222,38 +1247,45 @@ def plot_callgraph(
                     arrows="to",
                     label=f"×{count}" if compact and count > 1 else "",
                     title=f"{count} calls" if compact else "",
-                    smooth={"type": "curvedCW"} if parent == child else {"type": "dynamic"},
+                    smooth=(
+                        {"type": "curvedCW"} if parent == child else {"type": "dynamic"}
+                    ),
                 )
         # Keep the call-depth structure legible while allowing nodes on the
         # same level to spread and settle horizontally like an Obsidian graph.
-        graph.set_options(json.dumps({
-            "layout": {
-                "hierarchical": {
-                    "enabled": True,
-                    "direction": "UD",
-                    "sortMethod": "directed",
-                    "levelSeparation": 140,
-                    "nodeSpacing": 180,
-                    "treeSpacing": 220,
+        graph.set_options(
+            json.dumps(
+                {
+                    "layout": {
+                        "hierarchical": {
+                            "enabled": True,
+                            "direction": "UD",
+                            "sortMethod": "directed",
+                            "levelSeparation": 140,
+                            "nodeSpacing": 180,
+                            "treeSpacing": 220,
+                        }
+                    },
+                    "physics": {
+                        "enabled": True,
+                        "solver": "hierarchicalRepulsion",
+                        "hierarchicalRepulsion": {
+                            "nodeDistance": 180,
+                            "centralGravity": 0.1,
+                            "springLength": 140,
+                            "springConstant": 0.01,
+                            "avoidOverlap": 1,
+                        },
+                        "stabilization": {"iterations": 250},
+                    },
                 }
-            },
-            "physics": {
-                "enabled": True,
-                "solver": "hierarchicalRepulsion",
-                "hierarchicalRepulsion": {
-                    "nodeDistance": 180,
-                    "centralGravity": 0.1,
-                    "springLength": 140,
-                    "springConstant": 0.01,
-                    "avoidOverlap": 1,
-                },
-                "stabilization": {"iterations": 250},
-            },
-        }))
+            )
+        )
         if filepath:
             output_path = Path(filepath)
         elif show:
             import tempfile
+
             output_path = Path(tempfile.mkdtemp()) / "callgraph.html"
         else:
             output_path = None
@@ -1262,6 +1294,7 @@ def plot_callgraph(
             _add_pyvis_controls(output_path)
             if show:
                 import webbrowser
+
                 webbrowser.open(output_path.resolve().as_uri())
         return graph if return_fig else None
     if data_filepath:
