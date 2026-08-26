@@ -14,6 +14,7 @@ import sys
 import webbrowser
 from collections import defaultdict
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -1219,8 +1220,10 @@ def _build_textual_app_class():
             if node is not None and node.payload.get("plot_name") in _PLOTEXT_TUI_PLOTS:
                 if self._plotext_refresh_timer is not None:
                     self._plotext_refresh_timer.stop()
+                # set_timer() takes no callback arguments, so the node is
+                # bound here rather than passed along.
                 self._plotext_refresh_timer = self.set_timer(
-                    0.2, self._show_plotext_in_detail, node
+                    0.2, partial(self._show_plotext_in_detail, node)
                 )
 
         def action_focus_navigation(self) -> None:
