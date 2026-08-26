@@ -1033,6 +1033,91 @@ def plot_flame(
     return rendered if return_fig else None
 
 
+def plot_callgraph(
+    profiling_data: ProfilingResults,
+    rank: int = 0,
+    include=None,
+    exclude=None,
+    filepath: str | None = None,
+    show: bool = False,
+    verbose: bool = True,
+    cmap: str = DEFAULT_CMAP,
+    data_filepath: str | Path | None = None,
+    data_format: str = "csv",
+    backend: str = "matplotlib",
+    return_fig: bool = False,
+) -> object | None:
+    """Plot the explicit call graph, without using timestamps or durations."""
+    if isinstance(profiling_data, Sequence) and not isinstance(profiling_data, ProfilingResults):
+        if len(profiling_data) != 1:
+            raise ValueError("callgraph accepts one profiling file at a time")
+        profiling_data = profiling_data[0]
+    nodes = profiling_data.call_graph(rank=rank, include=include, exclude=exclude)
+    if not nodes:
+        raise ValueError("No calls recorded for the requested rank or filters.")
+    if data_filepath:
+        rows = [
+            [node["call_id"], node["parent_id"], node["name"], node["depth"]]
+            for node in nodes
+        ]
+        if data_format == "json":
+            _write_json(data_filepath, {"calls": [dict(zip(
+                ("call_id", "parent_id", "name", "depth"), row
+            )) for row in rows]})
+        else:
+            _write_csv(data_filepath, ["call_id", "parent_id", "name", "depth"], rows)
+
+    if backend == "plotly":
+        try:
+            import plotly.graph_objects as go
+        except ImportError as exc:
+            raise ImportError("plotly is required for the callgraph plot") from exc
+        figure = go.Figure()
+        positions = {node["call_id"]: (index, -node["depth"]) for index, node in enumerate(nodes)}
+        for node in nodes:
+            parent = node["parent_id"]
+            if parent is not None and parent in positions:
+                x0, y0 = positions[parent]
+                x1, y1 = positions[node["call_id"]]
+                figure.add_trace(go.Scatter(x=[x0, x1], y=[y0, y1], mode="lines", line={"color": "#999"}, showlegend=False))
+        figure.add_trace(go.Scatter(
+            x=[positions[node["call_id"]][0] for node in nodes],
+            y=[positions[node["call_id"]][1] for node in nodes],
+            text=[f"{node['name']} ({node['call_id']})" for node in nodes],
+            mode="markers+text", textposition="bottom center", showlegend=False,
+        ))
+        figure.update_layout(title=f"Call graph (rank {rank})", xaxis_visible=False, yaxis_visible=False)
+        if filepath:
+            figure.write_html(str(filepath))
+        if show:
+            figure.show()
+        return figure if return_fig else None
+
+    import matplotlib.pyplot as plt
+    positions = {node["call_id"]: (index, -node["depth"]) for index, node in enumerate(nodes)}
+    fig, axis = plt.subplots(figsize=(max(8, len(nodes) * 0.8), max(3, 2 + max(node["depth"] for node in nodes))) )
+    for node in nodes:
+        parent = node["parent_id"]
+        if parent is not None and parent in positions:
+            x0, y0 = positions[parent]
+            x1, y1 = positions[node["call_id"]]
+            axis.plot([x0, x1], [y0, y1], color="#999999", linewidth=1, zorder=1)
+    colors = _get_cmap_colors(cmap, max(1, len({node["name"] for node in nodes})))
+    color_by_name = {name: colors[index % len(colors)] for index, name in enumerate(sorted({node["name"] for node in nodes}))}
+    axis.scatter([positions[node["call_id"]][0] for node in nodes], [positions[node["call_id"]][1] for node in nodes], c=[color_by_name[node["name"]] for node in nodes], s=140, zorder=2)
+    for node in nodes:
+        x, y = positions[node["call_id"]]
+        axis.text(x, y - 0.12, f"{node['name']}\n#{node['call_id']}", ha="center", va="top", fontsize=8)
+    axis.set_title(f"Call graph (rank {rank})")
+    axis.set_axis_off()
+    fig.tight_layout()
+    if filepath:
+        fig.savefig(filepath, bbox_inches="tight")
+    if show:
+        plt.show()
+    return (fig, axis) if return_fig else None
+
+
 _DURATION_METRICS: dict[str, tuple[str, str]] = {
     "avg": ("average_duration_seconds", "Average duration per call (seconds)"),
     "min": ("min_duration_seconds", "Minimum duration per call (seconds)"),

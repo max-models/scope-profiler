@@ -30,6 +30,7 @@ from scope_profiler.plotting_scripts import (
     plot_duration_timeseries,
     plot_durations,
     plot_flame,
+    plot_callgraph,
     plot_gantt,
     plot_imbalance,
     plot_likwid,
@@ -42,6 +43,7 @@ _PLOT_CATALOG = {
     "gantt": "Per-rank timeline of recorded calls",
     "durations": "Duration statistics by region",
     "flame": "Reconstructed nested call-stack flame graph",
+    "callgraph": "Call graph from explicit call and parent ids",
     "timeseries": "Duration of each call over time",
     "histogram": "Call-duration distribution by region",
     "imbalance": "Per-rank duration comparison",
@@ -742,6 +744,7 @@ def render_plot(
     functions = {
         "gantt": plot_gantt,
         "flame": plot_flame,
+        "callgraph": plot_callgraph,
         "durations": plot_durations,
         "timeseries": plot_duration_timeseries,
         "histogram": plot_duration_histogram,
@@ -783,6 +786,16 @@ def render_plot(
     elif name == "timeseries":
         plot_duration_timeseries(
             results, log_scale=bool(settings.get("log_scale", False)), **common
+        )
+    elif name == "callgraph":
+        plot_callgraph(
+            results,
+            rank=(ranks[0] if ranks else 0),
+            include=common["include"],
+            exclude=common["exclude"],
+            filepath=common["filepath"],
+            show=common["show"],
+            backend=common["backend"],
         )
     else:
         functions[name](results, **common)

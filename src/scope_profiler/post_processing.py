@@ -14,6 +14,7 @@ from scope_profiler.plotting_scripts import (
     plot_duration_timeseries,
     plot_durations,
     plot_flame,
+    plot_callgraph,
     plot_gantt,
     plot_imbalance,
     plot_likwid,
@@ -33,6 +34,7 @@ from scope_profiler.speedscope_export import export_speedscope
 _PLOT_CATALOG: dict[str, tuple[str, bool]] = {
     "gantt": ("per-rank timeline of every call", True),
     "flame": ("reconstructed call-stack flame graph", False),
+    "callgraph": ("parent/child call graph from explicit call ids", False),
     "durations": ("bar chart of duration statistics per region", True),
     "timeseries": ("duration per call over wall-clock time", False),
     "speedup": ("scaling across multiple files (2+ files only)", False),
@@ -655,6 +657,9 @@ def _render_selected_plots(
     flame_data_path = _data_path(
         data_output_dir, selected_plots, "flame", "flame_data", data_format
     )
+    callgraph_data_path = _data_path(
+        data_output_dir, selected_plots, "callgraph", "callgraph_data", data_format
+    )
     durations_data_path = _data_path(
         data_output_dir, selected_plots, "durations", "durations_data", data_format
     )
@@ -738,6 +743,21 @@ def _render_selected_plots(
             backend=args.backend,
         )
         saved.extend(path for path in (path, flame_data_path) if path)
+
+    if "callgraph" in selected_plots:
+        path = image_path("callgraph", "callgraph_plot")
+        plot_callgraph(
+            runs[0],
+            rank=(args.ranks[0] if args.ranks else 0),
+            include=args.include,
+            exclude=args.exclude,
+            filepath=path,
+            show=args.show,
+            data_filepath=callgraph_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
+        saved.extend(path for path in (path, callgraph_data_path) if path)
 
     if "durations" in selected_plots:
         path = image_path("durations", "durations_plot")
