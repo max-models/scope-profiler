@@ -186,6 +186,79 @@ _EMPTY_TIMES.flags.writeable = False
 # `np.full` would make creating a region proportional to its capacity, which
 # tests/test_overhead.py budgets against.
 _UNCLOSED = 0
+_AGGREGATE_STACK = []
+
+
+class AggregateProfileRegion:
+    """Low-memory region that records aggregate timing statistics only."""
+
+    __slots__ = (
+        "region_name", "config", "tags", "source_file", "source_lineno",
+        "source_text", "_completed", "_count", "_total", "_minimum",
+        "_maximum", "_exclusive", "_stack",
+    )
+
+    def __init__(self, region_name, config, tags=()):
+        self.region_name = region_name
+        self.config = config
+        self.tags = tuple(tags)
+        self.source_file = self.source_lineno = self.source_text = None
+        self._completed = 0
+        self._count = 0
+        self._total = 0
+        self._minimum = None
+        self._maximum = None
+        self._exclusive = 0
+        self._stack = []
+
+    @property
+    def ptr(self): return 0
+    @property
+    def num_calls(self): return self._completed + self._count
+    @property
+    def has_source(self): return self.source_text is not None
+    def set_source(self, filename, lineno, text):
+        if self.source_text is None and filename is not None:
+            self.source_file, self.source_lineno, self.source_text = filename, lineno, text
+    def add_function(self, func): pass
+    def get_aggregate(self):
+        return {
+            "count": self._count,
+            "total": self._total,
+            "minimum": 0 if self._minimum is None else self._minimum,
+            "maximum": 0 if self._maximum is None else self._maximum,
+            "exclusive": self._exclusive,
+        }
+    def _enter(self):
+        self._stack.append(perf_counter_ns())
+        _AGGREGATE_STACK.append(self)
+    def _leave(self):
+        duration = perf_counter_ns() - self._stack.pop()
+        _AGGREGATE_STACK.pop()
+        for parent in _AGGREGATE_STACK:
+            parent._exclusive -= duration
+        self._count += 1
+        self._total += duration
+        self._exclusive += duration
+        self._minimum = duration if self._minimum is None else min(self._minimum, duration)
+        self._maximum = duration if self._maximum is None else max(self._maximum, duration)
+        return duration
+    def __enter__(self):
+        self._enter(); return self
+    def __exit__(self, exc_type, exc_value, traceback): self._leave()
+    def wrap(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            self._enter()
+            try: return func(*args, **kwargs)
+            finally: self._leave()
+        return wrapper
+    def mark_written(self):
+        self._completed += self._count
+        self._count = self._total = self._exclusive = 0
+        self._minimum = self._maximum = None
+    def aggregate_snapshot(self):
+        return self.get_aggregate()
 
 
 # Base class with common functionality (buffer growth, HDF5 handling)

@@ -27,6 +27,7 @@ from scope_profiler.region_profiler import (
     DisabledProfileRegion,
     FullProfileRegion,
     LineProfilerRegion,
+    AggregateProfileRegion,
     NVTXProfileRegion,
     TimeOnlyProfileRegion,
     call_site_source,
@@ -110,6 +111,9 @@ class RankPayload(NamedTuple):
     events afterwards is the most expensive part of loading a profile. Every
     rank does its own, so the cost is spread over the job.
     """
+
+    aggregate_stats: dict | None = None
+    """Region name -> aggregate counters for aggregation mode."""
 
 
 class _ProfilingSession:
@@ -295,6 +299,8 @@ class ProfileManager:
             cls._region_cls = CUDATimingProfileRegion
         elif cfg.use_nvtx:
             cls._region_cls = NVTXProfileRegion
+        elif cfg.aggregation_mode:
+            cls._region_cls = AggregateProfileRegion
         else:
             cls._region_cls = TimeOnlyProfileRegion
 
@@ -770,6 +776,15 @@ class ProfileManager:
                     self._exclusive_totals.setdefault(name, {})[rank] = (
                         exclusive_totals[name]
                     )
+            for name, aggregate in (payload.aggregate_stats or {}).items():
+                self._per_region.setdefault(name, {})[rank] = Region(
+                    np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64),
+                    aggregate=aggregate,
+                    source_file=sources.get(name, (None, None, None))[0],
+                    source_lineno=sources.get(name, (None, None, None))[1],
+                    source_text=sources.get(name, (None, None, None))[2],
+                    tags=tags.get(name, ()),
+                )
 
         def build(self):
             """Return the assembled :class:`ProfilingResults`.
@@ -1046,6 +1061,7 @@ class ProfileManager:
 
         use_parallel = (
             requested != "direct"
+            and not config.aggregation_mode
             and available
             and parallel_compatible
             and filter_available
@@ -1226,9 +1242,22 @@ class ProfileManager:
         # 1. Copy this run's timestamps out of the live buffers. The copy is
         # both what gets written and what gets returned, so the file and the
         # in-memory results are assembled from the same bytes.
-        snapshot = cls._snapshot_regions() if need_payload else {}
-        sources = cls._snapshot_sources(snapshot) if need_payload else {}
-        tags = cls._snapshot_tags(snapshot) if need_payload else {}
+        aggregate_stats = (
+            {
+                name: region.aggregate_snapshot()
+                for name, region in cls._regions.items()
+                if region.num_calls
+            }
+            if need_payload and config.aggregation_mode else None
+        )
+        snapshot = (
+            cls._snapshot_regions()
+            if need_payload and not config.aggregation_mode
+            else {}
+        )
+        source_names = snapshot if not config.aggregation_mode else aggregate_stats
+        sources = cls._snapshot_sources(source_names) if need_payload else {}
+        tags = cls._snapshot_tags(source_names) if need_payload else {}
         line_profile = cls._snapshot_line_profile() if need_payload else None
 
         # The data is safely copied, so the run boundary can be marked now: a
@@ -1261,7 +1290,7 @@ class ProfileManager:
         # complete (native traces included). Done here, once, rather than by
         # every later reader of the file, and as columns rather than a dict
         # per call: see ProfileManager._snapshot_call_graph.
-        if need_payload:
+        if need_payload and not config.aggregation_mode:
             snapshot, exclusive_totals = cls._snapshot_call_graph(snapshot)
         else:
             exclusive_totals = None
@@ -1274,6 +1303,7 @@ class ProfileManager:
             tags=tags,
             line_profile=line_profile,
             exclusive_totals=exclusive_totals,
+            aggregate_stats=aggregate_stats,
         )
 
         # 5. Move every rank's payload to rank 0, which writes it straight into
@@ -1391,6 +1421,7 @@ class ProfileManager:
         hdf5_chunk_size: int | None = None,
         label: str | None = None,
         capture_region_source: bool | None = None,
+        aggregation_mode: bool | None = None,
         config_path: str | os.PathLike[str] | None = None,
     ):
         """
@@ -1478,6 +1509,12 @@ class ProfileManager:
 
                 ProfileManager.setup(capture_region_source=True)
 
+        aggregation_mode : bool, optional
+            Record only count, inclusive total, minimum, maximum, and
+            exclusive total per region. Timeline events are unavailable in
+            this mode; it cannot be combined with line, GPU, NVTX, or LIKWID
+            profiling.
+
         config_path : str or os.PathLike, optional
             TOML file containing a ``[profiling]`` table with these settings.
             Values passed directly to ``setup()`` take precedence.
@@ -1509,6 +1546,7 @@ class ProfileManager:
             "hdf5_chunk_size": None,
             "label": None,
             "capture_region_source": False,
+            "aggregation_mode": False,
         }
         if config_path is not None:
             settings.update(load_profiling_config(config_path))
@@ -1529,6 +1567,7 @@ class ProfileManager:
             "hdf5_chunk_size": hdf5_chunk_size,
             "label": label,
             "capture_region_source": capture_region_source,
+            "aggregation_mode": aggregation_mode,
         }
         settings.update(
             {key: value for key, value in explicit.items() if value is not None}

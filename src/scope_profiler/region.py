@@ -25,6 +25,7 @@ class Region:
         source_lineno: int | None = None,
         source_text: str | None = None,
         tags=(),
+        aggregate: dict | None = None,
     ) -> None:
         """
         Initialize a Region with timing information for multiple calls.
@@ -64,7 +65,8 @@ class Region:
         # recorded one. Saves reconstructing the nesting for the common case
         # of reporting a region's exclusive time without its per-call values.
         self._exclusive_total_ns = None
-        self._num_calls = len(self._durations)
+        self._aggregate = aggregate
+        self._num_calls = int(aggregate.get("count", 0)) if aggregate is not None else len(self._durations)
         self._source_file = source_file
         self._source_lineno = source_lineno
         self._source_text = source_text
@@ -206,7 +208,7 @@ class Region:
     @property
     def has_timing(self) -> bool:
         """Whether this region recorded any calls at all."""
-        return len(self._durations) > 0
+        return self.num_calls > 0
 
     @property
     def has_source(self) -> bool:
@@ -280,6 +282,8 @@ class Region:
     @property
     def first_start_time(self) -> float:
         """First start time in seconds."""
+        if self._aggregate is not None:
+            return 0.0
         return (
             float(np.min(self._start_times)) / NS_PER_SECOND if self.has_timing else 0.0
         )
@@ -287,6 +291,8 @@ class Region:
     @property
     def last_end_time(self) -> float:
         """Last end time in seconds."""
+        if self._aggregate is not None:
+            return 0.0
         return (
             float(np.max(self._end_times)) / NS_PER_SECOND if self.has_timing else 0.0
         )
@@ -326,6 +332,8 @@ class Region:
     @property
     def total_duration(self) -> float:
         """Total time spent in this region in seconds (sum of all durations)."""
+        if self._aggregate is not None:
+            return self._aggregate["total"] / NS_PER_SECOND
         return (
             float(np.sum(self._durations)) / NS_PER_SECOND if self.has_timing else 0.0
         )
@@ -345,6 +353,8 @@ class Region:
     @property
     def total_exclusive_duration(self) -> float:
         """Total time excluding nested regions, in seconds."""
+        if self._aggregate is not None:
+            return self._aggregate["exclusive"] / NS_PER_SECOND
         if not self.has_timing:
             return 0.0
         if self._exclusive_durations is None and self._exclusive_total_ns is not None:
@@ -359,6 +369,8 @@ class Region:
     @property
     def average_duration(self) -> float:
         """Average duration per call in seconds."""
+        if self._aggregate is not None:
+            return self.total_duration / self.num_calls if self.num_calls else 0.0
         return (
             float(np.mean(self._durations)) / NS_PER_SECOND if self.has_timing else 0.0
         )
@@ -373,6 +385,8 @@ class Region:
     @property
     def min_duration(self) -> float:
         """Minimum duration among all calls in seconds."""
+        if self._aggregate is not None:
+            return self._aggregate["minimum"] / NS_PER_SECOND
         return (
             float(np.min(self._durations)) / NS_PER_SECOND if self.has_timing else 0.0
         )
@@ -380,6 +394,8 @@ class Region:
     @property
     def max_duration(self) -> float:
         """Maximum duration among all calls in seconds."""
+        if self._aggregate is not None:
+            return self._aggregate["maximum"] / NS_PER_SECOND
         return (
             float(np.max(self._durations)) / NS_PER_SECOND if self.has_timing else 0.0
         )
@@ -387,16 +403,22 @@ class Region:
     @property
     def first_duration(self) -> float:
         """Duration of the first recorded call, in seconds."""
+        if self._aggregate is not None:
+            return 0.0
         return float(self._durations[0]) / NS_PER_SECOND if self.has_timing else 0.0
 
     @property
     def last_duration(self) -> float:
         """Duration of the last recorded call, in seconds."""
+        if self._aggregate is not None:
+            return 0.0
         return float(self._durations[-1]) / NS_PER_SECOND if self.has_timing else 0.0
 
     @property
     def std_duration(self) -> float:
         """Standard deviation of durations in seconds."""
+        if self._aggregate is not None:
+            return 0.0
         return (
             float(np.std(self._durations)) / NS_PER_SECOND if self.has_timing else 0.0
         )

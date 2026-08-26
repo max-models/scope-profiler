@@ -153,6 +153,8 @@ def append_columnar_rank(
         across ranks. Recovered from the file when omitted, which costs a read
         of two columns that grow with every rank written.
     """
+    if getattr(payload, "aggregate_stats", None) is not None:
+        return append_aggregate_rank(h5file, rank, payload, index_state=index_state)
     if not payload.regions:
         return False
     index_state = (
@@ -241,6 +243,35 @@ def append_columnar_rank(
         index["exclusive_totals"],
         [exclusive_totals.get(name, _NO_EXCLUSIVE_TOTAL) for name in names],
     )
+    return True
+
+
+def append_aggregate_rank(h5file, rank, payload, *, index_state=None) -> bool:
+    """Append one rank of aggregate-only statistics."""
+    stats = payload.aggregate_stats or {}
+    if not stats:
+        return False
+    index_state = ColumnarIndex.from_file(h5file) if index_state is None else index_state
+    if rank in index_state.ranks:
+        raise ValueError(f"rank {rank} was written more than once")
+    names = list(stats)
+    new_names = index_state.register(names)
+    if new_names:
+        _append(h5file["region_table/names"], new_names)
+    index = h5file["rank_region_index"]
+    for name, dtype in (("aggregate_counts", np.uint64), ("aggregate_totals", np.int64),
+                        ("aggregate_minimums", np.int64), ("aggregate_maximums", np.int64),
+                        ("aggregate_exclusives", np.int64)):
+        if name not in index:
+            index.create_dataset(name, shape=(0,), maxshape=(None,), dtype=dtype)
+    _append(index["region_ids"], [index_state.name_to_id[name] for name in names])
+    _append(index["ranks"], np.full(len(names), rank, dtype=np.uint32))
+    _append(index["aggregate_counts"], [stats[name]["count"] for name in names])
+    _append(index["aggregate_totals"], [stats[name]["total"] for name in names])
+    _append(index["aggregate_minimums"], [stats[name]["minimum"] for name in names])
+    _append(index["aggregate_maximums"], [stats[name]["maximum"] for name in names])
+    _append(index["aggregate_exclusives"], [stats[name]["exclusive"] for name in names])
+    index_state.ranks.add(int(rank))
     return True
 
 
@@ -775,6 +806,7 @@ def write_rank_payload(
     bool
         True if a group was created, False if the payload was empty.
     """
+    aggregate = getattr(payload, "aggregate_stats", None) is not None
     if "region_table" not in h5file:
         h5file.attrs[SCHEMA_ATTRIBUTE] = CURRENT_SCHEMA_VERSION
         h5file.attrs["storage_layout"] = "columnar"
@@ -784,7 +816,9 @@ def write_rank_payload(
             compression_level=compression_level,
             chunk_size=chunk_size,
         )
-    if not payload.regions and not payload.likwid and not payload.line_profile:
+    if aggregate:
+        h5file.attrs["storage_layout"] = "aggregate"
+    if not payload.regions and not payload.likwid and not payload.line_profile and not getattr(payload, "aggregate_stats", None):
         return False
     wrote_regions = append_columnar_rank(
         h5file,
