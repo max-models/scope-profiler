@@ -18,7 +18,10 @@ def test_aggregation_mode_keeps_statistics_without_events(tmp_path):
     results = ProfileManager.finalize(verbose=False, return_results=True)
     assert results["outer"][0].num_calls == 3
     assert results["inner"][0].num_calls == 3
-    assert results["outer"][0].total_exclusive_duration < results["outer"][0].total_duration
+    assert (
+        results["outer"][0].total_exclusive_duration
+        < results["outer"][0].total_duration
+    )
     assert results["inner"][0].total_exclusive_duration == pytest.approx(
         results["inner"][0].total_duration
     )
@@ -36,7 +39,9 @@ def test_aggregation_mode_keeps_statistics_without_events(tmp_path):
     assert loaded["outer"][0].events() == []
 
 
-@pytest.mark.parametrize("option", ["use_line_profiler", "use_gpu_timing", "use_likwid", "use_nvtx"])
+@pytest.mark.parametrize(
+    "option", ["use_line_profiler", "use_gpu_timing", "use_likwid", "use_nvtx"]
+)
 def test_aggregation_mode_rejects_event_extensions(option):
     with pytest.raises(ValueError, match="aggregation_mode"):
         ProfileManager.setup(aggregation_mode=True, **{option: True})

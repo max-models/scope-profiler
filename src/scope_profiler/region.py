@@ -66,7 +66,11 @@ class Region:
         # of reporting a region's exclusive time without its per-call values.
         self._exclusive_total_ns = None
         self._aggregate = aggregate
-        self._num_calls = int(aggregate.get("count", 0)) if aggregate is not None else len(self._durations)
+        self._num_calls = (
+            int(aggregate.get("count", 0))
+            if aggregate is not None
+            else len(self._durations)
+        )
         self._source_file = source_file
         self._source_lineno = source_lineno
         self._source_text = source_text

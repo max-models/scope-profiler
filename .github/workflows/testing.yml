@@ -49,6 +49,7 @@ jobs:
           scope-profiler plot default profiling_data.h5 --show -o figures
 
       - name: Run Python examples
+        shell: bash
         run: |
           set -euo pipefail
           for example in \

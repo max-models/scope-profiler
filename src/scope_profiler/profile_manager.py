@@ -21,13 +21,13 @@ from scope_profiler.call_stack import (
 )
 from scope_profiler.profile_config import ProfilingConfig, load_profiling_config
 from scope_profiler.region_profiler import (
+    AggregateProfileRegion,
     BaseProfileRegion,
     CUDATimingNVTXProfileRegion,
     CUDATimingProfileRegion,
     DisabledProfileRegion,
     FullProfileRegion,
     LineProfilerRegion,
-    AggregateProfileRegion,
     NVTXProfileRegion,
     TimeOnlyProfileRegion,
     call_site_source,
@@ -778,7 +778,8 @@ class ProfileManager:
                     )
             for name, aggregate in (payload.aggregate_stats or {}).items():
                 self._per_region.setdefault(name, {})[rank] = Region(
-                    np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64),
+                    np.empty(0, dtype=np.int64),
+                    np.empty(0, dtype=np.int64),
                     aggregate=aggregate,
                     source_file=sources.get(name, (None, None, None))[0],
                     source_lineno=sources.get(name, (None, None, None))[1],
@@ -1248,7 +1249,8 @@ class ProfileManager:
                 for name, region in cls._regions.items()
                 if region.num_calls
             }
-            if need_payload and config.aggregation_mode else None
+            if need_payload and config.aggregation_mode
+            else None
         )
         snapshot = (
             cls._snapshot_regions()

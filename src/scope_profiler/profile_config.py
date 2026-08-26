@@ -368,7 +368,9 @@ class ProfilingConfig:
         self._hdf5_compression_level = hdf5_compression_level
         self._hdf5_chunk_size = hdf5_chunk_size
         self._capture_region_source = capture_region_source
-        if aggregation_mode and (use_line_profiler or use_gpu_timing or use_likwid or use_nvtx):
+        if aggregation_mode and (
+            use_line_profiler or use_gpu_timing or use_likwid or use_nvtx
+        ):
             raise ValueError(
                 "aggregation_mode cannot be combined with line, GPU, NVTX, or LIKWID timing"
             )

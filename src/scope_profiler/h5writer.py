@@ -251,7 +251,9 @@ def append_aggregate_rank(h5file, rank, payload, *, index_state=None) -> bool:
     stats = payload.aggregate_stats or {}
     if not stats:
         return False
-    index_state = ColumnarIndex.from_file(h5file) if index_state is None else index_state
+    index_state = (
+        ColumnarIndex.from_file(h5file) if index_state is None else index_state
+    )
     if rank in index_state.ranks:
         raise ValueError(f"rank {rank} was written more than once")
     names = list(stats)
@@ -259,9 +261,13 @@ def append_aggregate_rank(h5file, rank, payload, *, index_state=None) -> bool:
     if new_names:
         _append(h5file["region_table/names"], new_names)
     index = h5file["rank_region_index"]
-    for name, dtype in (("aggregate_counts", np.uint64), ("aggregate_totals", np.int64),
-                        ("aggregate_minimums", np.int64), ("aggregate_maximums", np.int64),
-                        ("aggregate_exclusives", np.int64)):
+    for name, dtype in (
+        ("aggregate_counts", np.uint64),
+        ("aggregate_totals", np.int64),
+        ("aggregate_minimums", np.int64),
+        ("aggregate_maximums", np.int64),
+        ("aggregate_exclusives", np.int64),
+    ):
         if name not in index:
             index.create_dataset(name, shape=(0,), maxshape=(None,), dtype=dtype)
     _append(index["region_ids"], [index_state.name_to_id[name] for name in names])
@@ -818,7 +824,12 @@ def write_rank_payload(
         )
     if aggregate:
         h5file.attrs["storage_layout"] = "aggregate"
-    if not payload.regions and not payload.likwid and not payload.line_profile and not getattr(payload, "aggregate_stats", None):
+    if (
+        not payload.regions
+        and not payload.likwid
+        and not payload.line_profile
+        and not getattr(payload, "aggregate_stats", None)
+    ):
         return False
     wrote_regions = append_columnar_rank(
         h5file,

@@ -159,17 +159,30 @@ def _read_aggregate_regions(h5file):
     names = [_decode_attribute(value) for value in h5file["region_table/names"][()]]
     index = h5file["rank_region_index"]
     per_region = {name: {} for name in names}
-    fields = [(key, index[key][()]) for key in (
-        "region_ids", "ranks", "aggregate_counts", "aggregate_totals",
-        "aggregate_minimums", "aggregate_maximums", "aggregate_exclusives",
-    )]
+    fields = [
+        (key, index[key][()])
+        for key in (
+            "region_ids",
+            "ranks",
+            "aggregate_counts",
+            "aggregate_totals",
+            "aggregate_minimums",
+            "aggregate_maximums",
+            "aggregate_exclusives",
+        )
+    ]
     for row, values in enumerate(zip(*(array for _, array in fields))):
         region_id, rank, count, total, minimum, maximum, exclusive = values
         per_region[names[int(region_id)]][int(rank)] = Region(
-            np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64),
-            aggregate={"count": int(count), "total": int(total),
-                       "minimum": int(minimum), "maximum": int(maximum),
-                       "exclusive": int(exclusive)},
+            np.empty(0, dtype=np.int64),
+            np.empty(0, dtype=np.int64),
+            aggregate={
+                "count": int(count),
+                "total": int(total),
+                "minimum": int(minimum),
+                "maximum": int(maximum),
+                "exclusive": int(exclusive),
+            },
         )
     return per_region, names, {}
 
@@ -231,9 +244,11 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
             }
 
         if schema_version == 2:
-            reader = (_read_aggregate_regions
-                      if f.attrs.get("storage_layout", "columnar") == "aggregate"
-                      else _read_columnar_regions)
+            reader = (
+                _read_aggregate_regions
+                if f.attrs.get("storage_layout", "columnar") == "aggregate"
+                else _read_columnar_regions
+            )
             _region_dict, region_names, exclusive_totals = reader(f)
             recorded_ranks = f["rank_region_index/ranks"][()]
             inferred_ranks = (
