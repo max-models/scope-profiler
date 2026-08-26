@@ -408,9 +408,7 @@ def payload_layout(payload) -> dict:
                 "has_gpu": len(arrays) > 2 and arrays[2] is not None,
                 "source": sources.get(name),
                 "tags": tuple(tags.get(name, ())),
-                "exclusive_total": int(
-                    exclusive_totals.get(name, _NO_EXCLUSIVE_TOTAL)
-                ),
+                "exclusive_total": int(exclusive_totals.get(name, _NO_EXCLUSIVE_TOTAL)),
             }
             for name, arrays in payload.regions.items()
         },
