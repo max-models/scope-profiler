@@ -1111,6 +1111,27 @@ def plot_callgraph(
             region.name: region
             for region in profiling_data.get_regions(include=include, exclude=exclude)
         }
+        # The call graph is a DAG in call-id order.  Use per-invocation
+        # exclusive time as the node weight and dynamic programming to find
+        # the longest cumulative root-to-leaf chain.
+        exclusive_by_call = {}
+        cumulative_by_call = {}
+        for node in nodes:
+            region = regions_by_name.get(node["name"])
+            rank_region = region.regions.get(rank) if region is not None else None
+            if rank_region is None or node["call_index"] >= len(rank_region.exclusive_durations):
+                exclusive = 0.0
+            else:
+                exclusive = float(rank_region.exclusive_durations[node["call_index"]])
+            exclusive_by_call[node["call_id"]] = exclusive
+            parent_total = cumulative_by_call.get(node["parent_id"], 0.0)
+            cumulative_by_call[node["call_id"]] = exclusive + parent_total
+        endpoint = max(cumulative_by_call, key=cumulative_by_call.get, default=None)
+        critical_ids = set()
+        by_id = {node["call_id"]: node for node in nodes}
+        while endpoint is not None and endpoint in by_id:
+            critical_ids.add(endpoint)
+            endpoint = by_id[endpoint]["parent_id"]
         compact_nodes = []
         seen_names = set()
         for node in nodes:
@@ -1120,6 +1141,10 @@ def plot_callgraph(
                 rank_region = region.regions.get(rank)
                 calls = rank_region.num_calls if rank_region is not None else 0
                 total = rank_region.total_duration if rank_region is not None else 0.0
+                exclusive_total = (
+                    float(np.sum(rank_region.exclusive_durations))
+                    if rank_region is not None else 0.0
+                )
                 source = ""
                 if rank_region is not None and rank_region.has_source:
                     source = f"{rank_region.source_file}:{rank_region.source_lineno}"
@@ -1129,8 +1154,14 @@ def plot_callgraph(
                         "depth": node["depth"],
                         "calls": calls,
                         "total_duration": total,
+                        "exclusive_duration": exclusive_total,
                         "average_duration": total / calls if calls else 0.0,
                         "source": source,
+                        "critical": any(
+                            candidate["name"] == node["name"]
+                            for candidate in nodes
+                            if candidate["call_id"] in critical_ids
+                        ),
                     }
                 )
         edge_counts = {}
@@ -1187,34 +1218,31 @@ def plot_callgraph(
         key = (lambda node: node["name"]) if compact else (lambda node: node["call_id"])
         node_keys = {key(node) for node in nodes}
         parents = {parent for parent, _ in (edges if compact else [])}
-        children = {child for _, child in (edges if compact else [])}
         max_total = max(
-            (node.get("total_duration", 0.0) for node in nodes), default=0.0
+            (node.get("exclusive_duration", 0.0) for node in nodes), default=0.0
         )
         for node in nodes:
             node_key = key(node)
             label = node["name"] if compact else f"{node['name']} (#{node['call_id']})"
             if compact:
                 name = node["name"]
-                category = (
-                    "recursive"
-                    if (name, name) in edges
-                    else "leaf" if name not in parents else "branch"
-                )
                 size = (
-                    16 + 18 * (node["total_duration"] / max_total) ** 0.5
+                    16 + 18 * (node["exclusive_duration"] / max_total) ** 0.5
                     if max_total
                     else 18
                 )
-                colors = {
-                    "branch": "#4f8cc9",
-                    "leaf": "#67b779",
-                    "recursive": "#d98b4a",
-                }
+                intensity = node["exclusive_duration"] / max_total if max_total else 0.0
+                red = int(224 - 130 * intensity)
+                green = int(242 - 150 * intensity)
+                blue = int(255 - 25 * intensity)
+                background = f"#{red:02x}{green:02x}{blue:02x}"
+                border = "#dc2626" if node["critical"] else "#64748b"
                 title = (
                     f"<b>{name}</b><br>Calls: {node['calls']}<br>"
                     f"Total: {node['total_duration']:.6g} s<br>"
+                    f"Exclusive: {node['exclusive_duration']:.6g} s<br>"
                     f"Average: {node['average_duration']:.6g} s"
+                    + ("<br><b>Critical path</b>" if node["critical"] else "")
                     + (f"<br>Source: {node['source']}" if node["source"] else "")
                 )
                 graph.add_node(
@@ -1223,7 +1251,12 @@ def plot_callgraph(
                     title=title,
                     level=node["depth"],
                     size=size,
-                    color=colors[category],
+                    borderWidth=4 if node["critical"] else 1,
+                    color={
+                        "background": background,
+                        "border": border,
+                        "highlight": {"background": "#fef08a", "border": "#b91c1c"},
+                    },
                 )
             else:
                 graph.add_node(
@@ -1241,6 +1274,11 @@ def plot_callgraph(
         for parent, child in graph_edges:
             if parent in node_keys and child in node_keys:
                 count = edge_counts.get((parent, child), 1) if compact else 1
+                critical_edge = compact and all(
+                    node["critical"]
+                    for node in nodes
+                    if node["name"] in {parent, child}
+                )
                 graph.add_edge(
                     parent,
                     child,
@@ -1250,6 +1288,8 @@ def plot_callgraph(
                     smooth=(
                         {"type": "curvedCW"} if parent == child else {"type": "dynamic"}
                     ),
+                    color="#dc2626" if critical_edge else "#94a3b8",
+                    width=3 if critical_edge else 1,
                 )
         # Keep the call-depth structure legible while allowing nodes on the
         # same level to spread and settle horizontally like an Obsidian graph.
