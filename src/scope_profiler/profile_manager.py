@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Callable, Dict, NamedTuple
 
 import numpy as np
 
+from scope_profiler.call_stack import exclusive_totals_ns
 from scope_profiler.profile_config import ProfilingConfig, load_profiling_config
 from scope_profiler.region_profiler import (
     BaseProfileRegion,
@@ -33,6 +34,23 @@ if TYPE_CHECKING:  # imported lazily in read_results() to keep imports cheap
 # Tag for the payload messages, on a communicator of our own (see finalize).
 _PAYLOAD_TAG = 0x5C09
 _WRITE_TOKEN_TAG = 0x5C0A
+
+
+class _WriteToken(NamedTuple):
+    """Ownership of the output file, as it is relayed from rank to rank.
+
+    A NamedTuple so it pickles as a plain tuple for mpi4py, and so a receiver
+    can index it positionally without importing this module.
+    """
+
+    ok: bool
+    """False once any rank has failed to write; later ranks then stand down."""
+
+    message: str
+    """Why the write failed, reported by rank 0 at the end of the relay."""
+
+    index: dict | None
+    """:meth:`~scope_profiler.h5writer.ColumnarIndex.state` of the file so far."""
 
 
 class RankPayload(NamedTuple):
@@ -77,6 +95,16 @@ class RankPayload(NamedTuple):
 
     line_profile: list | None = None
     """Line-profiler records for this rank, when line profiling is enabled."""
+
+    exclusive_totals: dict | None = None
+    """Region name -> total exclusive nanoseconds on this rank.
+
+    Computed here rather than by whoever reads the run back: a rank holds its
+    whole region set in memory at finalize(), which is exactly the set
+    exclusive time is defined against, and reconstructing the nesting from the
+    events afterwards is the most expensive part of loading a profile. Every
+    rank does its own, so the cost is spread over the job.
+    """
 
 
 class _ProfilingSession:
@@ -619,6 +647,7 @@ class ProfileManager:
             self._per_region: Dict[str, dict] = {}
             self._likwid: Dict[int, dict] = {}
             self._line_profile: Dict[int, list] = {}
+            self._exclusive_totals: Dict[str, dict] = {}
 
         def add(self, rank: int, payload: "RankPayload") -> None:
             """Fold one rank's payload into the result set."""
@@ -630,6 +659,7 @@ class ProfileManager:
                 self._line_profile[rank] = payload.line_profile
             sources = payload.sources or {}
             tags = payload.tags or {}
+            exclusive_totals = payload.exclusive_totals or {}
             for name, arrays in payload.regions.items():
                 starts, ends = arrays[:2]
                 gpu_durations = arrays[2] if len(arrays) > 2 else None
@@ -645,6 +675,10 @@ class ProfileManager:
                     source_text=source_text,
                     tags=tags.get(name, ()),
                 )
+                if name in exclusive_totals:
+                    self._exclusive_totals.setdefault(name, {})[rank] = (
+                        exclusive_totals[name]
+                    )
 
         def build(self):
             """Return the assembled :class:`ProfilingResults`.
@@ -668,6 +702,7 @@ class ProfileManager:
                 likwid=self._likwid,
                 line_profile=self._line_profile,
                 file_path=self._config.file_path,
+                exclusive_totals=self._exclusive_totals,
             )
 
     @classmethod
@@ -810,8 +845,19 @@ class ProfileManager:
         and closes the file before handing ownership to the next rank.  Rank 0
         creates a temporary file and publishes it atomically after the last
         rank reports completion.
+
+        The token carries the file's :class:`~scope_profiler.h5writer.ColumnarIndex`
+        state -- the region names already assigned an id, and the ranks already
+        written -- so each rank appends without first reading back index
+        columns that grow with every rank before it. That read made the whole
+        relay quadratic in the rank count; the state itself is a few ints and
+        the region names, which do not grow with the job.
         """
-        from scope_profiler.h5writer import ProfilingWriter, atomic_publish
+        from scope_profiler.h5writer import (
+            ColumnarIndex,
+            ProfilingWriter,
+            atomic_publish,
+        )
 
         config = cls.get_config()
         comm = config.comm
@@ -830,37 +876,44 @@ class ProfileManager:
                     chunk_size=config.hdf5_chunk_size,
                 ) as writer:
                     writer.write_rank(0, payload)
-                status = (True, "")
+                    token = _WriteToken(True, "", writer.index_state.state())
             except Exception as exc:
-                status = (False, f"rank 0 could not write profiling data: {exc}")
+                token = _WriteToken(
+                    False, f"rank 0 could not write profiling data: {exc}", None
+                )
 
             if size == 1:
-                if not status[0]:
-                    raise OSError(status[1])
+                if not token.ok:
+                    raise OSError(token.message)
                 atomic_publish(temp_path, final_path)
                 return
 
-            comm.send(status, dest=1, tag=_WRITE_TOKEN_TAG)
-            status = comm.recv(source=size - 1, tag=_WRITE_TOKEN_TAG)
-            if not status[0]:
-                raise OSError(status[1])
+            comm.send(token, dest=1, tag=_WRITE_TOKEN_TAG)
+            token = comm.recv(source=size - 1, tag=_WRITE_TOKEN_TAG)
+            if not token[0]:
+                raise OSError(token[1])
             atomic_publish(temp_path, final_path)
             return
 
-        status = comm.recv(source=rank - 1, tag=_WRITE_TOKEN_TAG)
-        if status[0]:
+        token = comm.recv(source=rank - 1, tag=_WRITE_TOKEN_TAG)
+        if token[0]:
+            index_state = ColumnarIndex(**token[2]) if token[2] is not None else None
             try:
                 with ProfilingWriter.open_existing(
                     temp_path,
+                    index_state=index_state,
                     compression=config.hdf5_compression,
                     compression_level=config.hdf5_compression_level,
                     chunk_size=config.hdf5_chunk_size,
                 ) as writer:
                     writer.write_rank(rank, payload)
+                    token = _WriteToken(True, "", writer.index_state.state())
             except Exception as exc:
-                status = (False, f"rank {rank} could not write profiling data: {exc}")
+                token = _WriteToken(
+                    False, f"rank {rank} could not write profiling data: {exc}", None
+                )
         destination = rank + 1 if rank + 1 < size else 0
-        comm.send(status, dest=destination, tag=_WRITE_TOKEN_TAG)
+        comm.send(token, dest=destination, tag=_WRITE_TOKEN_TAG)
 
     @classmethod
     def _write_payload_file(cls, payload) -> None:
@@ -1113,6 +1166,13 @@ class ProfileManager:
         if native_traces is not None and need_payload:
             snapshot = cls._merge_native_snapshot(snapshot, native_traces, config)
 
+        # 4. Reconstruct this rank's nesting, now that its region set is
+        # complete (native traces included). Done here, once, rather than by
+        # every later reader of the file: see call_stack.exclusive_totals_ns.
+        exclusive_totals = (
+            exclusive_totals_ns(snapshot) if need_payload and snapshot else None
+        )
+
         payload = RankPayload(
             regions=snapshot,
             likwid={result.tag: result for result in likwid_results},
@@ -1120,9 +1180,10 @@ class ProfileManager:
             sources=sources,
             tags=tags,
             line_profile=line_profile,
+            exclusive_totals=exclusive_totals,
         )
 
-        # 3. Move every rank's payload to rank 0, which writes it straight into
+        # 5. Move every rank's payload to rank 0, which writes it straight into
         # the single output file. Nothing is staged on the filesystem, so no
         # shared $TMPDIR is required, and a rank that never reports is a hang
         # rather than a silently missing group.
@@ -1140,7 +1201,7 @@ class ProfileManager:
             else:
                 results = cls._collect_payloads(payload, write_file, need_results)
 
-        # 4. Summarize. With a file, it is read back so that the table has one
+        # 6. Summarize. With a file, it is read back so that the table has one
         # implementation; without one, the same table comes from the results.
         # Non-root ranks hold an empty result set, for which this does nothing.
         if verbose and rank == 0 and write_file:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from numbers import Integral
 
 SCHEMA_ATTRIBUTE = "scope_profiler_schema"
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 
 class HDF5SchemaError(ValueError):
@@ -18,7 +18,7 @@ def read_schema_version(h5file) -> int:
     Files written before schema versioning was introduced have no attribute;
     they are the original layout and are therefore treated as version 1.
     """
-    raw_version = h5file.attrs.get(SCHEMA_ATTRIBUTE, CURRENT_SCHEMA_VERSION)
+    raw_version = h5file.attrs.get(SCHEMA_ATTRIBUTE, 1)
     if isinstance(raw_version, bool) or not isinstance(raw_version, Integral):
         raise HDF5SchemaError(
             f"HDF5 schema version attribute {SCHEMA_ATTRIBUTE!r} must be an integer, "
@@ -49,6 +49,6 @@ def migrate_schema(h5file, version: int) -> int:
     here without spreading version checks through the HDF5 parser. Migration
     is read-only: the input file is never modified.
     """
-    if version == 1:
+    if version in {1, 2}:
         return version
     raise HDF5SchemaError(f"No migration registered for schema version {version}")

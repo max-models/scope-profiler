@@ -38,11 +38,11 @@ pip install "scope-profiler[mpi]"
    timestamp arrays are never sent to rank 0. With an MPI-enabled h5py build,
    ordinary region data is written through parallel HDF5. Otherwise a tiny
    point-to-point ownership token moves through the ranks: each rank opens the
-   serial-HDF5 file, appends its `rank<N>` group, closes it, then passes the
+   serial-HDF5 file, appends its indexed event slice, closes it, then passes the
    token. The last rank reports completion to rank 0, which atomically publishes
    the file under its final name.
 
-   A rank that entered no region simply has no `rank<N>` group. And
+   A rank that entered no region contributes no rank/region index row. And
    because every rank must reach `finalize()`, one that dies first leaves
    the job waiting rather than quietly dropping its data from the output.
 

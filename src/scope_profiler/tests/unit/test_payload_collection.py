@@ -105,7 +105,7 @@ def test_a_silent_rank_yields_no_group_but_still_sends(configured, tmp_path):
     # Rank 1 was still received -- skipping the receive would deadlock.
     assert comm.recv_order == [1, 2]
     with h5py.File(configured.file_path, "r") as handle:
-        assert sorted(handle) == ["metadata", "rank0", "rank2"]
+        assert handle["rank_region_index/ranks"][()].tolist() == [0, 2]
     assert list(results["solve"].regions) == [0, 2]
 
 
@@ -202,16 +202,23 @@ def test_direct_writer_appends_a_rank_after_receiving_the_token(configured, tmp_
     temp_path = configured.file_path + ".scope-profiler.tmp"
     with ProfilingWriter(temp_path, configured.metadata) as writer:
         writer.write_rank(0, payload(NS))
+        writer_index = writer.index_state
 
-    comm = FakeComm(rank=1, size=2, payloads={0: (True, "")})
+    index_state = writer_index.state()
+    comm = FakeComm(rank=1, size=2, payloads={0: (True, "", index_state)})
     configured._comm = comm
     configured._rank, configured._size = 1, 2
 
     ProfileManager._write_payload_direct(payload(2 * NS, name="remote"))
 
-    assert comm.sent == [(0, (True, ""))]
+    # The token this rank passes on carries the index it just extended, so the
+    # next rank appends without reading the growing columns back.
+    assert comm.sent == [
+        (0, (True, "", {"names": ["solve", "remote"], "ranks": [0, 1]}))
+    ]
     with h5py.File(temp_path, "r") as handle:
-        assert "rank1/regions/remote" in handle
+        assert handle["region_table/names"][()].tolist() == [b"solve", b"remote"]
+        assert handle["rank_region_index/ranks"][()].tolist() == [0, 1]
 
 
 def test_direct_writer_publishes_single_rank_file_atomically(configured):
@@ -227,13 +234,13 @@ def test_direct_writer_publishes_single_rank_file_atomically(configured):
 def test_direct_writer_forwards_an_existing_failure_without_opening_file(
     configured,
 ):
-    comm = FakeComm(rank=1, size=3, payloads={0: (False, "rank 0 failed")})
+    comm = FakeComm(rank=1, size=3, payloads={0: (False, "rank 0 failed", None)})
     configured._comm = comm
     configured._rank, configured._size = 1, 3
 
     ProfileManager._write_payload_direct(payload(NS))
 
-    assert comm.sent == [(2, (False, "rank 0 failed"))]
+    assert comm.sent == [(2, (False, "rank 0 failed", None))]
     assert not os.path.exists(configured.file_path + ".scope-profiler.tmp")
 
 

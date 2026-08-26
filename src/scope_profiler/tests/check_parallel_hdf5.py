@@ -15,7 +15,6 @@ import sys
 import h5py
 
 from scope_profiler import ProfileManager, read_h5
-from scope_profiler.h5writer import compression_filter_available
 
 
 def main() -> int:
@@ -28,7 +27,12 @@ def main() -> int:
     # Line-profiler records have rank-local, variable-length layouts. Including
     # them here proves the collective schema phase handles more than timing
     # arrays while still leaving all bulk data on its owning rank.
-    compression = "gzip" if compression_filter_available("gzip") else None
+    #
+    # Do not apply HDF5 filters in this MPI-IO check. Parallel HDF5 filter
+    # pipelines are not portable across HDF5 builds: some versions reject
+    # filtered hyperslab writes even when h5py requests collective I/O. The
+    # serial writer tests cover compression; this check isolates MPI-IO.
+    compression = None
     ProfileManager.setup(
         file_path=output,
         output_mode="parallel",
@@ -84,11 +88,9 @@ def main() -> int:
             *(f"rank-{owner}" for owner in range(size)),
         ]
         with h5py.File(output, "r") as handle:
-            dataset = handle["rank0/regions/common/start_times"]
-            assert dataset.compression == compression
-            if compression:
-                assert dataset.compression_opts == 4
-            assert dataset.chunks == (1,)
+            dataset = handle["events/start_times"]
+            assert dataset.compression is None
+            assert dataset.chunks == (2,)
     else:
         assert not results.is_root
         assert results.region_names == []

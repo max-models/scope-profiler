@@ -51,6 +51,7 @@ class ProfilingResults:
         line_profile: Dict[int, list] | None = None,
         file_path: str | Path = "",
         is_root: bool = True,
+        exclusive_totals: Dict[str, Dict[int, int]] | None = None,
     ) -> None:
         """
         Assemble a result set from already-loaded regions.
@@ -73,6 +74,13 @@ class ProfilingResults:
         is_root : bool, optional
             Whether this rank holds the run's data (default: True). See
             :attr:`is_root`.
+        exclusive_totals : dict, optional
+            Region name -> {rank: total exclusive nanoseconds}, as computed by
+            the run itself and stored in its output file. Only pass values
+            computed against *these* regions: exclusive time is defined
+            against everything else recorded on the same rank, so a total
+            carried over from a different result set would be wrong. Omitting
+            them costs nothing but a call-stack reconstruction on first use.
         """
         self._is_root = is_root
         self._region_dict = dict(regions)
@@ -95,11 +103,40 @@ class ProfilingResults:
         # before it existed, or from a run that set deactivate_file_output
         # and never called finalize(return_results=True) either.
         self._finalize_time = self._metadata_time("finalize_time_ns")
-        self._populate_exclusive_durations()
+        # Deferred, not skipped: every region is told how to reconstruct its
+        # nesting, and the first one asked for exclusive time does it for all
+        # of them. Building the call stack up front costs more than the whole
+        # rest of the load (4.4s of a 6.4s read on a 2.6M-event file), and
+        # only some callers need it -- see _populate_exclusive_durations.
+        self._exclusive_populated = False
+        totals = exclusive_totals or {}
+        for name, region in self._region_dict.items():
+            for rank, rank_region in region.regions.items():
+                # Attach first: this drops whatever a previous owner of the
+                # region computed, including its stored total.
+                rank_region._attach_exclusive_resolver(
+                    self._populate_exclusive_durations
+                )
+                stored = totals.get(name, {}).get(rank)
+                if stored is not None:
+                    rank_region._set_exclusive_total(stored)
 
     def _populate_exclusive_durations(self) -> None:
-        """Derive per-call exclusive durations from all recorded intervals."""
+        """Derive per-call exclusive durations from all recorded intervals.
+
+        Runs at most once per result set, on first access of any exclusive
+        duration (see :meth:`Region._resolved_exclusive_durations`), and
+        fills in every rank and region: the nesting of one region's calls is
+        only visible against all the others recorded on the same rank, so
+        there is nothing cheaper to compute for a single region alone.
+        """
         from scope_profiler.call_stack import build_call_stack
+
+        if self._exclusive_populated:
+            return
+        # Set before the loop: build_call_stack reads only start/end times,
+        # but a region reached through it must not re-enter this.
+        self._exclusive_populated = True
 
         for rank in sorted(
             {rank for region in self._region_dict.values() for rank in region.ranks}
@@ -111,7 +148,7 @@ class ProfilingResults:
                 if rank in region.regions
             }
             for call in calls:
-                durations = by_region[call["name"]]._exclusive_durations
+                durations = by_region[call["name"]]._exclusive_buffer()
                 durations[call["call_index"]] = round(
                     call["exclusive_duration"] * NS_PER_SECOND
                 )

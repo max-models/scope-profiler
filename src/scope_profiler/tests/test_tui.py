@@ -290,3 +290,34 @@ def test_tui_is_listed_in_top_level_help(capsys):
         cli_main(["--help"])
 
     assert "tui" in capsys.readouterr().out
+
+
+def test_changing_a_plot_setting_reschedules_the_plotext_refresh(sample_file):
+    """Regression: ``set_timer()`` accepts no arguments for its callback.
+
+    Changing any of the plot settings while a plotext-capable plot is
+    selected crashed the whole app with a TypeError, because the selected
+    node was passed to ``set_timer`` as a third positional argument.
+    """
+    import asyncio
+
+    from scope_profiler.tui import _build_textual_app_class
+
+    model = build_browser_model(sample_file)
+    durations = _find(model.root, "Durations")
+    assert durations is not None
+    app = _build_textual_app_class()(model)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            app.selected_browser_node = durations
+            app._schedule_plotext_refresh()
+            await pilot.pause()
+            first = app._plotext_refresh_timer
+            assert first is not None
+            # A second change replaces the pending refresh rather than adding one.
+            app._schedule_plotext_refresh()
+            await pilot.pause()
+            assert app._plotext_refresh_timer is not first
+
+    asyncio.run(scenario())
