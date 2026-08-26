@@ -26,10 +26,12 @@ def main():
         return_results=True,
     ) as run:
         work_region = ProfileManager.profile("work")(work)
+        total = ProfileManager.profile_region("total")
         outer = ProfileManager.profile_region("outer")
-        for _ in range(10):
-            with outer:
-                work_region()
+        with total:
+            for _ in range(10):
+                with outer:
+                    work_region()
 
     results = run.results
     results.print_summary(title="Aggregate profiling results")

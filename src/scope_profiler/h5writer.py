@@ -405,9 +405,12 @@ def payload_layout(payload) -> dict:
         "regions": {
             name: {
                 "shapes": [tuple(np.shape(array)) for array in arrays],
+                "has_gpu": len(arrays) > 2 and arrays[2] is not None,
                 "source": sources.get(name),
                 "tags": tuple(tags.get(name, ())),
-                "exclusive_total": int(exclusive_totals.get(name, _NO_EXCLUSIVE_TOTAL)),
+                "exclusive_total": int(
+                    exclusive_totals.get(name, _NO_EXCLUSIVE_TOTAL)
+                ),
             }
             for name, arrays in payload.regions.items()
         },
@@ -458,7 +461,7 @@ def write_parallel_payload(
             count = description["shapes"][0][0]
             pairs.append((owner, name, event_offset, count, description))
             event_offset += count
-            any_gpu = any_gpu or len(description["shapes"]) > 2
+            any_gpu = any_gpu or description["has_gpu"]
 
     def fixed_string_data(values):
         encoded = [str(value).encode("utf-8") for value in values]
@@ -594,7 +597,7 @@ def write_parallel_payload(
                     [
                         (
                             np.asarray(arrays[2], dtype=np.int64)
-                            if len(arrays) > 2
+                            if len(arrays) > 2 and arrays[2] is not None
                             else np.full(
                                 len(arrays[0]), _NO_GPU_DURATION, dtype=np.int64
                             )
