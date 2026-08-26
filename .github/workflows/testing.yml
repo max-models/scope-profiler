@@ -48,6 +48,27 @@ jobs:
           python3 src/scope_profiler/tests/examples.py
           scope-profiler plot default profiling_data.h5 --show -o figures
 
+      - name: Run Python examples
+        shell: bash
+        run: |
+          set -euo pipefail
+          for example in \
+            examples/ex_aggregation.py \
+            examples/ex_callgraph.py \
+            examples/ex_class_profiling.py \
+            examples/ex_in_memory_results.py \
+            examples/ex_lazy_setup.py \
+            examples/ex_line_profiling.py \
+            examples/ex_maxplotlib_plotting.py \
+            examples/ex_recursive_profiling.py \
+            examples/ex_region_source.py \
+            examples/ex_self_recursive_region.py
+          do
+            echo "Running $example"
+            python3 "$example"
+          done
+          scope-profiler run --quiet -o cli_example.h5 examples/ex_cli_profiling.py
+
       # Keep a small baseline/candidate workflow example in CI. Call counts
       # are deterministic on shared runners, so this validates the regression
       # gate without making the job depend on noisy wall-clock timings.

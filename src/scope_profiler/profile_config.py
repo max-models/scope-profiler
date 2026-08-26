@@ -35,6 +35,7 @@ _CONFIG_FIELDS = {
     "hdf5_chunk_size",
     "label",
     "capture_region_source",
+    "aggregation_mode",
 }
 
 
@@ -232,6 +233,7 @@ class ProfilingConfig:
         hdf5_chunk_size: int | None = None,
         label: str | None = None,
         capture_region_source: bool = False,
+        aggregation_mode: bool = False,
     ):
         """Initialize the profiling configuration.
 
@@ -366,6 +368,13 @@ class ProfilingConfig:
         self._hdf5_compression_level = hdf5_compression_level
         self._hdf5_chunk_size = hdf5_chunk_size
         self._capture_region_source = capture_region_source
+        if aggregation_mode and (
+            use_line_profiler or use_gpu_timing or use_likwid or use_nvtx
+        ):
+            raise ValueError(
+                "aggregation_mode cannot be combined with line, GPU, NVTX, or LIKWID timing"
+            )
+        self._aggregation_mode = aggregation_mode
 
         # Local queries, not collectives: nothing here has to be reached by
         # every rank in lockstep. Rank 0 writes the whole output file at
@@ -569,6 +578,11 @@ class ProfilingConfig:
     def capture_region_source(self) -> bool:
         """Return whether a region's defining source is captured at creation."""
         return self._capture_region_source
+
+    @property
+    def aggregation_mode(self) -> bool:
+        """Whether regions retain aggregates instead of individual events."""
+        return self._aggregation_mode
 
     @property
     def start_time_ns(self) -> int:

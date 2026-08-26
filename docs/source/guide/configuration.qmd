@@ -23,6 +23,7 @@ configuration is global: every call to `profile()` or `profile_region()`
 | `hdf5_chunk_size`    | `int` or `None` | `None`       | Maximum events per HDF5 chunk; enables chunked partial reads even without compression. |
 | `label`               | `str`  | `None`                | Short name for the run, used by post-processing wherever a run has to be named. See below.       |
 | `capture_region_source`| `bool` | `False`              | Record where each region is defined (see {doc}`hdf5_and_python_api`). Off by default; see below for its cost and how to turn it on. |
+| `aggregation_mode`     | `bool` | `False`              | Keep only count, total, minimum, maximum, and exclusive total per region; individual timeline events are unavailable. |
 
 ## HDF5 compression and chunking
 
