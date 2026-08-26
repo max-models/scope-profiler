@@ -532,6 +532,8 @@ def test_reader_call_stack(tmp_path):
         ("leaf", 2),
         ("inner", 1),
     ]
+    assert [call["call_id"] for call in calls] == [0, 1, 2, 3]
+    assert [call["parent"] for call in calls] == [None, 0, 1, 0]
     # Relative timestamps by default: the outermost call starts at zero.
     assert calls[0]["start"] == 0.0
     assert calls[0]["duration"] == pytest.approx(100.0)

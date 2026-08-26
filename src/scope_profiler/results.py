@@ -470,9 +470,9 @@ class ProfilingResults:
         Returns
         -------
         List[dict]
-            One entry per call, parents before children, with keys ``name``,
-            ``start``, ``end``, ``duration``, ``depth`` and ``parent`` (the
-            index of the enclosing call in this list, or None). See
+            One entry per call, parents before children, with keys ``call_id``,
+            ``name``, ``start``, ``end``, ``duration``, ``depth`` and
+            ``parent`` (the enclosing call's id, or None). See
             :func:`~scope_profiler.call_stack.build_call_stack`.
         """
         from scope_profiler.call_stack import build_call_stack
@@ -484,6 +484,58 @@ class ProfilingResults:
             rank=rank,
             origin=origin,
         )
+
+    def call_graph(self, rank: int = 0, include=None, exclude=None) -> List[dict]:
+        """Return call relationships without timestamps or durations.
+
+        New profiles persist ``call_id`` and ``parent_id`` for every Python
+        event. Legacy profiles fall back to the timestamp-based call stack.
+        The returned nodes contain only ``call_id``, ``parent_id``, ``name``,
+        ``call_index`` and ``depth``.
+        """
+        regions = self.get_regions(include=include, exclude=exclude)
+        nodes = []
+        explicit = all(
+            rank in region.regions and region.regions[rank].call_ids is not None
+            for region in regions
+        ) if regions else False
+        if not explicit:
+            return [
+                {
+                    "call_id": call["call_id"],
+                    "parent_id": call["parent"],
+                    "name": call["name"],
+                    "call_index": call["call_index"],
+                    "depth": call["depth"],
+                }
+                for call in self.call_stack(
+                    rank=rank, include=include, exclude=exclude
+                )
+            ]
+        for region in regions:
+            data = region.regions.get(rank)
+            if data is None:
+                continue
+            for index, (call_id, parent_id) in enumerate(
+                zip(data.call_ids, data.parent_ids)
+            ):
+                nodes.append({
+                    "call_id": int(call_id),
+                    "parent_id": None if int(parent_id) < 0 else int(parent_id),
+                    "name": region.name,
+                    "call_index": index,
+                })
+        by_id = {node["call_id"]: node for node in nodes}
+        for node in nodes:
+            depth = 0
+            parent = node["parent_id"]
+            seen = set()
+            while parent is not None and parent in by_id and parent not in seen:
+                seen.add(parent)
+                depth += 1
+                parent = by_id[parent]["parent_id"]
+            node["depth"] = depth
+        return sorted(nodes, key=lambda node: node["call_id"])
 
     def print_summary(
         self,

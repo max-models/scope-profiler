@@ -29,11 +29,13 @@ def build_call_stack(regions: Iterable, rank: int, origin: float = 0.0) -> List[
     -------
     list of dict
         One dict per call, ordered by start time (parents before children),
-        with keys ``name``, ``start``, ``end``, ``duration`` (the inclusive
-        duration), ``inclusive_duration``, ``exclusive_duration`` (seconds),
-        ``depth`` (0 for a top-level call) and ``parent`` (the index of the
-        enclosing call in this same list, or None). A ``color`` key carries
-        whatever the plotting code assigned to the region.
+        with keys ``call_id``, ``name``, ``start``, ``end``, ``duration`` (the
+        inclusive duration), ``inclusive_duration``, ``exclusive_duration``
+        (seconds), ``depth`` (0 for a top-level call) and ``parent`` (the
+        ``call_id`` of the enclosing call in this same list, or None). A
+        ``color`` key carries whatever the plotting code assigned to the
+        region. ``call_id`` is stable for the returned list and is unique
+        within this rank/stack reconstruction.
 
     Notes
     -----
@@ -66,6 +68,10 @@ def build_call_stack(regions: Iterable, rank: int, origin: float = 0.0) -> List[
 
     open_stack: List[int] = []
     for index, call in enumerate(calls):
+        # Assign the id after sorting: parent references and ids then use one
+        # common coordinate system, while the recorded per-region call_index
+        # remains available for callers that need the raw storage order.
+        call["call_id"] = index
         while open_stack and calls[open_stack[-1]]["end"] <= call["start"]:
             open_stack.pop()
         call["depth"] = len(open_stack)

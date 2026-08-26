@@ -120,6 +120,8 @@ def _read_columnar_regions(h5file) -> tuple[dict, list[str], dict]:
     start_times = events["start_times"][()]
     end_times = events["end_times"][()]
     gpu_column = events["gpu_durations"][()] if "gpu_durations" in events else None
+    call_column = events["call_ids"][()] if "call_ids" in events else None
+    parent_column = events["parent_ids"][()] if "parent_ids" in events else None
 
     per_region: dict[str, dict[int, Region]] = {name: {} for name in names}
     exclusive_totals: dict[str, dict[int, int]] = {}
@@ -135,11 +137,15 @@ def _read_columnar_regions(h5file) -> tuple[dict, list[str], dict]:
             candidate = gpu_column[event_slice]
             if np.any(candidate >= 0):
                 gpu_durations = candidate
+        call_ids = call_column[event_slice] if call_column is not None else None
+        parent_ids = parent_column[event_slice] if parent_column is not None else None
         source_line = int(source_lines[row])
         per_region[name][rank] = Region(
             start_times[event_slice],
             end_times[event_slice],
             gpu_durations=gpu_durations,
+            call_ids=call_ids,
+            parent_ids=parent_ids,
             source_file=_decode_attribute(source_files[row]) or None,
             source_lineno=source_line if source_line >= 0 else None,
             source_text=_decode_attribute(source_texts[row]) or None,
@@ -254,6 +260,16 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
                     gpu_durations=(
                         region_grp["gpu_durations"][()]
                         if "gpu_durations" in region_grp
+                        else None
+                    ),
+                    call_ids=(
+                        region_grp["call_ids"][()]
+                        if "call_ids" in region_grp
+                        else None
+                    ),
+                    parent_ids=(
+                        region_grp["parent_ids"][()]
+                        if "parent_ids" in region_grp
                         else None
                     ),
                     source_file=(

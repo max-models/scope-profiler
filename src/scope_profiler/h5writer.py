@@ -114,7 +114,7 @@ def initialize_columnar_layout(
         index.create_dataset(name, shape=(0,), maxshape=(None,), dtype=_STRING_DTYPE)
 
     events = h5file.create_group("events")
-    for name in ("start_times", "end_times"):
+    for name in ("start_times", "end_times", "call_ids", "parent_ids"):
         events.create_dataset(
             name,
             shape=(0,),
@@ -189,6 +189,8 @@ def append_columnar_rank(
 
     _append(events["start_times"], _concatenate(payload.regions, names, 0))
     _append(events["end_times"], _concatenate(payload.regions, names, 1))
+    _append(events["call_ids"], _concatenate(payload.regions, names, 3))
+    _append(events["parent_ids"], _concatenate(payload.regions, names, 4))
     if "gpu_durations" in events:
         _append(
             events["gpu_durations"],
@@ -240,7 +242,15 @@ def append_columnar_rank(
 def _concatenate(regions: dict, names: list, position: int) -> np.ndarray:
     """One int64 array of every named region's ``position``-th timing array."""
     return np.concatenate(
-        [np.asarray(regions[name][position], dtype=np.int64) for name in names]
+        [
+            np.asarray(
+                regions[name][position]
+                if len(regions[name]) > position
+                else np.full(len(regions[name][0]), -1, dtype=np.int64),
+                dtype=np.int64,
+            )
+            for name in names
+        ]
         or [np.empty(0, dtype=np.int64)]
     )
 
@@ -452,7 +462,7 @@ def write_parallel_payload(
             pair_index.create_dataset(name, shape=(len(pairs),), dtype=dtype)
 
         events = h5file.create_group("events")
-        for name in ("start_times", "end_times"):
+        for name in ("start_times", "end_times", "call_ids", "parent_ids"):
             events.create_dataset(
                 name,
                 shape=(event_offset,),
@@ -521,6 +531,12 @@ def write_parallel_payload(
             events["start_times"][own_slice] = starts
         with events["end_times"].collective:
             events["end_times"][own_slice] = ends
+        for field, column in (("call_ids", 3), ("parent_ids", 4)):
+            values = np.concatenate(
+                [np.asarray(arrays[column], dtype=np.int64) for arrays in payload.regions.values()]
+            ) if payload.regions else np.empty(0, dtype=np.int64)
+            with events[field].collective:
+                events[field][own_slice] = values
         if any_gpu:
             gpu_values = (
                 np.concatenate(
@@ -663,6 +679,9 @@ def write_regions(
                     len(arrays[2]), compression, compression_level, chunk_size
                 ),
             )
+        if len(arrays) > 4:
+            for field, values in (("call_ids", arrays[3]), ("parent_ids", arrays[4])):
+                region_grp.create_dataset(field, data=np.asarray(values, dtype=np.int64))
         source = sources.get(name)
         if source is not None:
             source_file, source_lineno, source_text = source

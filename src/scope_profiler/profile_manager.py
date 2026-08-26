@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Callable, Dict, NamedTuple
 
 import numpy as np
 
-from scope_profiler.call_stack import exclusive_totals_ns
+from scope_profiler.call_stack import build_call_stack
 from scope_profiler.profile_config import ProfilingConfig, load_profiling_config
 from scope_profiler.region_profiler import (
     BaseProfileRegion,
@@ -599,6 +599,50 @@ class ProfileManager:
         return snapshot
 
     @classmethod
+    def _snapshot_call_graph(cls, snapshot: Dict[str, tuple]) -> tuple[Dict[str, tuple], dict]:
+        """Attach explicit call and parent ids to a timestamp snapshot.
+
+        The ids are assigned once at finalization, when all regions for this
+        rank are available.  This keeps the per-entry instrumentation path
+        unchanged while allowing readers to traverse the saved graph without
+        looking at timestamps.
+        """
+        if not snapshot:
+            return snapshot, {}
+        from scope_profiler.mpi_region import MPIRegion
+        from scope_profiler.region import Region
+
+        regions = [
+            MPIRegion(name=name, regions={0: Region(arrays[0], arrays[1])})
+            for name, arrays in snapshot.items()
+        ]
+        calls = build_call_stack(regions, rank=0)
+        exclusive_totals = dict.fromkeys(snapshot, 0)
+        ids = {name: np.full(len(arrays[0]), -1, dtype=np.int64)
+               for name, arrays in snapshot.items()}
+        parents = {name: np.full(len(arrays[0]), -1, dtype=np.int64)
+                   for name, arrays in snapshot.items()}
+        for call in calls:
+            name = call["name"]
+            index = call["call_index"]
+            ids[name][index] = call["call_id"]
+            if call["parent"] is not None:
+                parents[name][index] = call["parent"]
+            exclusive_totals[name] += round(
+                call["exclusive_duration"] * 1e9
+            )
+        return {
+            name: (
+                arrays[0],
+                arrays[1],
+                arrays[2] if len(arrays) > 2 else None,
+                ids[name],
+                parents[name],
+            )
+            for name, arrays in snapshot.items()
+        }, exclusive_totals
+
+    @classmethod
     def _snapshot_sources(cls, names) -> Dict[str, tuple]:
         """Call-site source of every named region that captured one.
 
@@ -663,6 +707,8 @@ class ProfileManager:
             for name, arrays in payload.regions.items():
                 starts, ends = arrays[:2]
                 gpu_durations = arrays[2] if len(arrays) > 2 else None
+                call_ids = arrays[3] if len(arrays) > 3 else None
+                parent_ids = arrays[4] if len(arrays) > 4 else None
                 source_file, source_lineno, source_text = sources.get(
                     name, (None, None, None)
                 )
@@ -670,6 +716,8 @@ class ProfileManager:
                     starts,
                     ends,
                     gpu_durations=gpu_durations,
+                    call_ids=call_ids,
+                    parent_ids=parent_ids,
                     source_file=source_file,
                     source_lineno=source_lineno,
                     source_text=source_text,
@@ -1166,13 +1214,14 @@ class ProfileManager:
         if native_traces is not None and need_payload:
             snapshot = cls._merge_native_snapshot(snapshot, native_traces, config)
 
+        if need_payload:
+            snapshot, exclusive_totals = cls._snapshot_call_graph(snapshot)
+        else:
+            exclusive_totals = None
+
         # 4. Reconstruct this rank's nesting, now that its region set is
         # complete (native traces included). Done here, once, rather than by
         # every later reader of the file: see call_stack.exclusive_totals_ns.
-        exclusive_totals = (
-            exclusive_totals_ns(snapshot) if need_payload and snapshot else None
-        )
-
         payload = RankPayload(
             regions=snapshot,
             likwid={result.tag: result for result in likwid_results},
