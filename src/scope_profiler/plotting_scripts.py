@@ -1119,7 +1119,9 @@ def plot_callgraph(
         for node in nodes:
             region = regions_by_name.get(node["name"])
             rank_region = region.regions.get(rank) if region is not None else None
-            if rank_region is None or node["call_index"] >= len(rank_region.exclusive_durations):
+            if rank_region is None or node["call_index"] >= len(
+                rank_region.exclusive_durations
+            ):
                 exclusive = 0.0
             else:
                 exclusive = float(rank_region.exclusive_durations[node["call_index"]])
@@ -1143,7 +1145,8 @@ def plot_callgraph(
                 total = rank_region.total_duration if rank_region is not None else 0.0
                 exclusive_total = (
                     float(np.sum(rank_region.exclusive_durations))
-                    if rank_region is not None else 0.0
+                    if rank_region is not None
+                    else 0.0
                 )
                 source = ""
                 if rank_region is not None and rank_region.has_source:
