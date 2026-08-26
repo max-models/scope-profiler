@@ -40,6 +40,42 @@ def _write_json(filepath: str | Path, payload: dict) -> None:
         f.write("\n")
 
 
+def _add_pyvis_controls(filepath: str | Path) -> None:
+    """Add lightweight search/focus/collapse controls to a PyVis document."""
+    controls = """
+<div id="scope-profiler-controls" style="position:fixed;top:12px;left:12px;z-index:10;background:white;padding:8px;border:1px solid #bbb;border-radius:4px;font:14px sans-serif">
+  <input id="sp-search" placeholder="Search region..." />
+  <button onclick="spFocus()">Focus</button>
+  <button onclick="spReset()">Reset</button>
+  <button onclick="spToggle()">Expand / collapse</button>
+</div>
+<script>
+const spHidden = new Set();
+function spName() { return document.getElementById('sp-search').value.toLowerCase(); }
+function spMatches() { return nodes.get().filter(n => String(n.label || '').toLowerCase().includes(spName())); }
+function spFocus() {
+  const hits = spMatches().map(n => n.id), keep = new Set(hits);
+  let changed = true;
+  while (changed) { changed = false; edges.get().forEach(e => {
+    if (keep.has(e.from) && !keep.has(e.to)) { keep.add(e.to); changed = true; }
+    if (keep.has(e.to) && !keep.has(e.from)) { keep.add(e.from); changed = true; }
+  }); }
+  nodes.get().forEach(n => nodes.update({id:n.id, hidden:!keep.has(n.id)}));
+  network.fit();
+}
+function spReset() { spHidden.clear(); nodes.get().forEach(n => nodes.update({id:n.id, hidden:false})); network.fit(); }
+function spToggle() {
+  const hits = spMatches(); if (!hits.length) return;
+  const roots = new Set(hits.map(n => n.id)), descendants = new Set();
+  function walk(id) { edges.get().forEach(e => { if (e.from === id && !descendants.has(e.to)) { descendants.add(e.to); walk(e.to); } }); }
+  roots.forEach(walk); const hide = [...descendants].some(id => !spHidden.has(id));
+  descendants.forEach(id => { if (hide) spHidden.add(id); else spHidden.delete(id); nodes.update({id:id, hidden:hide}); });
+}
+</script>
+"""
+    path = Path(filepath)
+    content = path.read_text(encoding="utf-8")
+    path.write_text(content.replace("</body>", controls + "</body>"), encoding="utf-8")
 def _to_hex(color) -> str:
     """Convert a matplotlib color (e.g. an RGBA tuple) to a ``#rrggbb`` string."""
     if isinstance(color, str):
@@ -1046,26 +1082,222 @@ def plot_callgraph(
     data_format: str = "csv",
     backend: str = "matplotlib",
     return_fig: bool = False,
+    compact: bool = False,
+    fluid: bool = False,
 ) -> object | None:
-    """Plot the explicit call graph, without using timestamps or durations."""
-    if isinstance(profiling_data, Sequence) and not isinstance(profiling_data, ProfilingResults):
+    """Plot the explicit call graph, without using timestamps or durations.
+
+    When ``compact`` is true, all invocations of a region are represented by
+    one node named after that region.  Edges then describe distinct
+    caller/callee region relationships rather than individual call IDs.
+    ``fluid`` applies a deterministic force-directed layout to the compact
+    graph, similar to an Obsidian-style node graph.
+    """
+    if isinstance(profiling_data, Sequence) and not isinstance(
+        profiling_data, ProfilingResults
+    ):
         if len(profiling_data) != 1:
             raise ValueError("callgraph accepts one profiling file at a time")
         profiling_data = profiling_data[0]
     nodes = profiling_data.call_graph(rank=rank, include=include, exclude=exclude)
     if not nodes:
         raise ValueError("No calls recorded for the requested rank or filters.")
-    if data_filepath:
-        rows = [
-            [node["call_id"], node["parent_id"], node["name"], node["depth"]]
+    edges = None
+    compact = compact or fluid
+    if compact:
+        regions_by_name = {
+            region.name: region
+            for region in profiling_data.get_regions(include=include, exclude=exclude)
+        }
+        compact_nodes = []
+        seen_names = set()
+        for node in nodes:
+            if node["name"] not in seen_names:
+                seen_names.add(node["name"])
+                region = regions_by_name[node["name"]]
+                rank_region = region.regions.get(rank)
+                calls = rank_region.num_calls if rank_region is not None else 0
+                total = rank_region.total_duration if rank_region is not None else 0.0
+                source = ""
+                if rank_region is not None and rank_region.has_source:
+                    source = f"{rank_region.source_file}:{rank_region.source_lineno}"
+                compact_nodes.append(
+                    {
+                        "name": node["name"],
+                        "depth": node["depth"],
+                        "calls": calls,
+                        "total_duration": total,
+                        "average_duration": total / calls if calls else 0.0,
+                        "source": source,
+                    }
+                )
+        edge_counts = {}
+        by_id = {node["call_id"]: node for node in nodes}
+        for node in nodes:
+            parent = by_id.get(node["parent_id"])
+            if parent is not None:
+                edge = (parent["name"], node["name"])
+                edge_counts[edge] = edge_counts.get(edge, 0) + 1
+        edges = sorted(edge_counts)
+        nodes = compact_nodes
+
+    def fluid_positions():
+        """Return a small deterministic force-directed layout for the graph."""
+        names = [node["name"] for node in nodes]
+        if not fluid or len(names) < 2:
+            return None
+        index = {name: i for i, name in enumerate(names)}
+        points = np.column_stack(
+            (
+                np.cos(np.linspace(0, 2 * np.pi, len(names), endpoint=False)),
+                np.sin(np.linspace(0, 2 * np.pi, len(names), endpoint=False)),
+            )
+        ).astype(float)
+        graph_edges = [(index[parent], index[child]) for parent, child in edges]
+        for step in range(120):
+            delta = points[:, None, :] - points[None, :, :]
+            distance = np.maximum(np.linalg.norm(delta, axis=2), 1e-3)
+            force = (delta / distance[:, :, None] ** 2).sum(axis=1)
+            for left, right in graph_edges:
+                vector = points[right] - points[left]
+                distance_edge = max(float(np.linalg.norm(vector)), 1e-3)
+                pull = vector * (distance_edge - 0.8) / distance_edge
+                force[left] += pull
+                force[right] -= pull
+            temperature = 0.08 * (1.0 - step / 120.0)
+            points += np.clip(force, -temperature, temperature)
+        points -= points.mean(axis=0)
+        scale = max(float(np.abs(points).max()), 1e-6)
+        points /= scale
+        return {name: tuple(point) for name, point in zip(names, points)}
+
+    fluid_layout = fluid_positions()
+
+    if backend == "pyvis":
+        try:
+            from pyvis.network import Network
+        except ImportError as exc:
+            raise ImportError(
+                "pyvis is required for the pyvis callgraph backend. "
+                "Install scope-profiler[graph]."
+            ) from exc
+        graph = Network(height="800px", width="100%", directed=True)
+        key = (lambda node: node["name"]) if compact else (lambda node: node["call_id"])
+        node_keys = {key(node) for node in nodes}
+        parents = {parent for parent, _ in (edges if compact else [])}
+        children = {child for _, child in (edges if compact else [])}
+        max_total = max((node.get("total_duration", 0.0) for node in nodes), default=0.0)
+        for node in nodes:
+            node_key = key(node)
+            label = node["name"] if compact else f"{node['name']} (#{node['call_id']})"
+            if compact:
+                name = node["name"]
+                category = (
+                    "recursive" if (name, name) in edges
+                    else "leaf" if name not in parents
+                    else "branch"
+                )
+                size = 16 + 18 * (node["total_duration"] / max_total) ** 0.5 if max_total else 18
+                colors = {"branch": "#4f8cc9", "leaf": "#67b779", "recursive": "#d98b4a"}
+                title = (
+                    f"<b>{name}</b><br>Calls: {node['calls']}<br>"
+                    f"Total: {node['total_duration']:.6g} s<br>"
+                    f"Average: {node['average_duration']:.6g} s"
+                    + (f"<br>Source: {node['source']}" if node["source"] else "")
+                )
+                graph.add_node(node_key, label=label, title=title, level=node["depth"], size=size, color=colors[category])
+            else:
+                graph.add_node(node_key, label=label, title=node["name"], level=node["depth"])
+        graph_edges = edges if compact else [
+            (node["parent_id"], node["call_id"])
             for node in nodes
+            if node["parent_id"] is not None
         ]
-        if data_format == "json":
-            _write_json(data_filepath, {"calls": [dict(zip(
-                ("call_id", "parent_id", "name", "depth"), row
-            )) for row in rows]})
+        for parent, child in graph_edges:
+            if parent in node_keys and child in node_keys:
+                count = edge_counts.get((parent, child), 1) if compact else 1
+                graph.add_edge(
+                    parent,
+                    child,
+                    arrows="to",
+                    label=f"×{count}" if compact and count > 1 else "",
+                    title=f"{count} calls" if compact else "",
+                    smooth={"type": "curvedCW"} if parent == child else {"type": "dynamic"},
+                )
+        # Keep the call-depth structure legible while allowing nodes on the
+        # same level to spread and settle horizontally like an Obsidian graph.
+        graph.set_options(json.dumps({
+            "layout": {
+                "hierarchical": {
+                    "enabled": True,
+                    "direction": "UD",
+                    "sortMethod": "directed",
+                    "levelSeparation": 140,
+                    "nodeSpacing": 180,
+                    "treeSpacing": 220,
+                }
+            },
+            "physics": {
+                "enabled": True,
+                "solver": "hierarchicalRepulsion",
+                "hierarchicalRepulsion": {
+                    "nodeDistance": 180,
+                    "centralGravity": 0.1,
+                    "springLength": 140,
+                    "springConstant": 0.01,
+                    "avoidOverlap": 1,
+                },
+                "stabilization": {"iterations": 250},
+            },
+        }))
+        if filepath:
+            output_path = Path(filepath)
+        elif show:
+            import tempfile
+            output_path = Path(tempfile.mkdtemp()) / "callgraph.html"
         else:
-            _write_csv(data_filepath, ["call_id", "parent_id", "name", "depth"], rows)
+            output_path = None
+        if output_path is not None:
+            graph.write_html(str(output_path), open_browser=False)
+            _add_pyvis_controls(output_path)
+            if show:
+                import webbrowser
+                webbrowser.open(output_path.resolve().as_uri())
+        return graph if return_fig else None
+    if data_filepath:
+        if compact:
+            if data_format == "json":
+                _write_json(
+                    data_filepath,
+                    {
+                        "regions": nodes,
+                        "edges": [
+                            {"parent": parent, "child": child}
+                            for parent, child in edges
+                        ],
+                    },
+                )
+            else:
+                _write_csv(data_filepath, ["parent", "child"], edges)
+        else:
+            rows = [
+                [node["call_id"], node["parent_id"], node["name"], node["depth"]]
+                for node in nodes
+            ]
+            if data_format == "json":
+                _write_json(
+                    data_filepath,
+                    {
+                        "calls": [
+                            dict(zip(("call_id", "parent_id", "name", "depth"), row))
+                            for row in rows
+                        ]
+                    },
+                )
+            else:
+                _write_csv(
+                    data_filepath, ["call_id", "parent_id", "name", "depth"], rows
+                )
 
     if backend == "plotly":
         try:
@@ -1073,20 +1305,48 @@ def plot_callgraph(
         except ImportError as exc:
             raise ImportError("plotly is required for the callgraph plot") from exc
         figure = go.Figure()
-        positions = {node["call_id"]: (index, -node["depth"]) for index, node in enumerate(nodes)}
-        for node in nodes:
-            parent = node["parent_id"]
-            if parent is not None and parent in positions:
+        key = (lambda node: node["name"]) if compact else (lambda node: node["call_id"])
+        positions = fluid_layout or {
+            key(node): (index, -node["depth"]) for index, node in enumerate(nodes)
+        }
+        graph_edges = (
+            edges
+            if compact
+            else [
+                (node["parent_id"], node["call_id"])
+                for node in nodes
+                if node["parent_id"] is not None
+            ]
+        )
+        for parent, child in graph_edges:
+            if parent in positions and child in positions:
                 x0, y0 = positions[parent]
-                x1, y1 = positions[node["call_id"]]
-                figure.add_trace(go.Scatter(x=[x0, x1], y=[y0, y1], mode="lines", line={"color": "#999"}, showlegend=False))
-        figure.add_trace(go.Scatter(
-            x=[positions[node["call_id"]][0] for node in nodes],
-            y=[positions[node["call_id"]][1] for node in nodes],
-            text=[f"{node['name']} ({node['call_id']})" for node in nodes],
-            mode="markers+text", textposition="bottom center", showlegend=False,
-        ))
-        figure.update_layout(title=f"Call graph (rank {rank})", xaxis_visible=False, yaxis_visible=False)
+                x1, y1 = positions[child]
+                figure.add_trace(
+                    go.Scatter(
+                        x=[x0, x1],
+                        y=[y0, y1],
+                        mode="lines",
+                        line={"color": "#999"},
+                        showlegend=False,
+                    )
+                )
+        figure.add_trace(
+            go.Scatter(
+                x=[positions[key(node)][0] for node in nodes],
+                y=[positions[key(node)][1] for node in nodes],
+                text=[
+                    node["name"] if compact else f"{node['name']} ({node['call_id']})"
+                    for node in nodes
+                ],
+                mode="markers+text",
+                textposition="bottom center",
+                showlegend=False,
+            )
+        )
+        figure.update_layout(
+            title=f"Call graph (rank {rank})", xaxis_visible=False, yaxis_visible=False
+        )
         if filepath:
             figure.write_html(str(filepath))
         if show:
@@ -1094,20 +1354,47 @@ def plot_callgraph(
         return figure if return_fig else None
 
     import matplotlib.pyplot as plt
-    positions = {node["call_id"]: (index, -node["depth"]) for index, node in enumerate(nodes)}
-    fig, axis = plt.subplots(figsize=(max(8, len(nodes) * 0.8), max(3, 2 + max(node["depth"] for node in nodes))) )
-    for node in nodes:
-        parent = node["parent_id"]
-        if parent is not None and parent in positions:
+
+    key = (lambda node: node["name"]) if compact else (lambda node: node["call_id"])
+    positions = fluid_layout or {
+        key(node): (index, -node["depth"]) for index, node in enumerate(nodes)
+    }
+    fig, axis = plt.subplots(
+        figsize=(
+            max(8, len(nodes) * 0.8),
+            max(3, 2 + max(node["depth"] for node in nodes)),
+        )
+    )
+    graph_edges = (
+        edges
+        if compact
+        else [
+            (node["parent_id"], node["call_id"])
+            for node in nodes
+            if node["parent_id"] is not None
+        ]
+    )
+    for parent, child in graph_edges:
+        if parent in positions and child in positions:
             x0, y0 = positions[parent]
-            x1, y1 = positions[node["call_id"]]
+            x1, y1 = positions[child]
             axis.plot([x0, x1], [y0, y1], color="#999999", linewidth=1, zorder=1)
     colors = _get_cmap_colors(cmap, max(1, len({node["name"] for node in nodes})))
-    color_by_name = {name: colors[index % len(colors)] for index, name in enumerate(sorted({node["name"] for node in nodes}))}
-    axis.scatter([positions[node["call_id"]][0] for node in nodes], [positions[node["call_id"]][1] for node in nodes], c=[color_by_name[node["name"]] for node in nodes], s=140, zorder=2)
+    color_by_name = {
+        name: colors[index % len(colors)]
+        for index, name in enumerate(sorted({node["name"] for node in nodes}))
+    }
+    axis.scatter(
+        [positions[key(node)][0] for node in nodes],
+        [positions[key(node)][1] for node in nodes],
+        c=[color_by_name[node["name"]] for node in nodes],
+        s=140,
+        zorder=2,
+    )
     for node in nodes:
-        x, y = positions[node["call_id"]]
-        axis.text(x, y - 0.12, f"{node['name']}\n#{node['call_id']}", ha="center", va="top", fontsize=8)
+        x, y = positions[key(node)]
+        label = node["name"] if compact else f"{node['name']}\n#{node['call_id']}"
+        axis.text(x, y - 0.12, label, ha="center", va="top", fontsize=8)
     axis.set_title(f"Call graph (rank {rank})")
     axis.set_axis_off()
     fig.tight_layout()

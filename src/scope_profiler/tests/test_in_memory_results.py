@@ -124,3 +124,63 @@ def test_finalize_returns_none_by_default(tmp_path):
     ProfileManager.setup(file_path=str(tmp_path / "profiling_data.h5"))
     _run("step", 1)
     assert ProfileManager.finalize(verbose=False) is None
+
+
+def _nested_run():
+    with ProfileManager.profile_region("outer"):
+        with ProfileManager.profile_region("middle"):
+            with ProfileManager.profile_region("leaf"):
+                sleep(0.0001)
+
+
+def test_call_graph_uses_the_recorded_ids_and_renests_when_filtered(tmp_path):
+    """The explicit-id path, which a file written by this run always takes.
+
+    Filtering must renest exactly as the timestamp fallback does: a call
+    whose parent was excluded moves up to its nearest surviving ancestor
+    rather than keeping an id that is no longer in the graph.
+    """
+    ProfileManager.setup(file_path=str(tmp_path / "profiling_data.h5"))
+    _nested_run()
+    results = ProfileManager.finalize(verbose=False, return_results=True)
+
+    assert results["leaf"][0].call_ids is not None  # the explicit path
+    assert [
+        (node["name"], node["parent_id"], node["depth"])
+        for node in results.call_graph()
+    ] == [("outer", None, 0), ("middle", 0, 1), ("leaf", 1, 2)]
+
+    assert [
+        (node["name"], node["parent_id"], node["depth"])
+        for node in results.call_graph(exclude="middle")
+    ] == [("outer", None, 0), ("leaf", 0, 1)]
+
+
+def test_call_graph_agrees_with_the_timestamp_reconstruction(tmp_path):
+    """Stored ids and reconstructed nesting describe the same graph.
+
+    The two number their calls differently on purpose - call_stack's
+    ``call_id`` is a position in the list it returns, so it renumbers over
+    whatever survived a filter, while call_graph reports the id the run
+    recorded. What must match is the shape: same calls, same depths, and
+    each one hanging off the same parent.
+    """
+    ProfileManager.setup(file_path=str(tmp_path / "profiling_data.h5"))
+    _nested_run()
+    results = ProfileManager.finalize(verbose=False, return_results=True)
+
+    def shape(nodes, id_key, parent_key):
+        by_id = {node[id_key]: node for node in nodes}
+        return [
+            (
+                node["name"],
+                node["depth"],
+                None if node[parent_key] is None else by_id[node[parent_key]]["name"],
+            )
+            for node in nodes
+        ]
+
+    for kwargs in ({}, {"exclude": "middle"}, {"exclude": "outer"}):
+        stored = shape(results.call_graph(**kwargs), "call_id", "parent_id")
+        reconstructed = shape(results.call_stack(**kwargs), "call_id", "parent")
+        assert stored == reconstructed, kwargs

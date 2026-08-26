@@ -10,11 +10,11 @@ from pathlib import Path
 from scope_profiler.h5reader import read_h5
 from scope_profiler.plotting_scripts import (
     DEFAULT_CMAP,
+    plot_callgraph,
     plot_duration_histogram,
     plot_duration_timeseries,
     plot_durations,
     plot_flame,
-    plot_callgraph,
     plot_gantt,
     plot_imbalance,
     plot_likwid,
@@ -194,7 +194,7 @@ def _add_plot_output_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--backend",
-        choices=["matplotlib", "plotly", "plotext"],
+        choices=["matplotlib", "plotly", "pyvis", "plotext"],
         default="matplotlib",
         help=(
             "Renderer used for plots: static PNGs, interactive HTML, or "
@@ -206,6 +206,16 @@ def _add_plot_output_args(parser: argparse.ArgumentParser) -> None:
         type=str,
         default=DEFAULT_CMAP,
         help=f"Matplotlib colormap used for regions/files (default: {DEFAULT_CMAP!r}).",
+    )
+    parser.add_argument(
+        "--compact-callgraph",
+        action="store_true",
+        help="Collapse repeated callgraph invocations into one node per region.",
+    )
+    parser.add_argument(
+        "--fluid-callgraph",
+        action="store_true",
+        help="Use an interactive force-directed layout for the compact callgraph.",
     )
 
 
@@ -535,7 +545,7 @@ def _plot_output_targets(
     output_path = Path(args.output)
     ext = (
         "html"
-        if args.backend == "plotly"
+        if args.backend in {"plotly", "pyvis"}
         else "txt" if args.backend == "plotext" else "png"
     )
     is_single_plot_file = len(selected_plots) == 1 and output_path.suffix.lower() in {
@@ -626,7 +636,7 @@ def _render_selected_plots(
 
     ext = (
         "html"
-        if getattr(args, "backend", "matplotlib") == "plotly"
+        if getattr(args, "backend", "matplotlib") in {"plotly", "pyvis"}
         else "txt" if getattr(args, "backend", "matplotlib") == "plotext" else "png"
     )
     options = _plot_options(args, "")
@@ -756,6 +766,8 @@ def _render_selected_plots(
             data_filepath=callgraph_data_path,
             data_format=data_format,
             backend=args.backend,
+            compact=args.compact_callgraph,
+            fluid=args.fluid_callgraph,
         )
         saved.extend(path for path in (path, callgraph_data_path) if path)
 

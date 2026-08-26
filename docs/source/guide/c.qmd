@@ -57,6 +57,14 @@ int main(void)
 Regions may nest, and a region may re-enter itself recursively — each entry
 reserves its own slot, exactly as in the Python API.
 
+Nesting must be *proper*: a region entered inside another has to be left
+before it. Post-processing reconstructs the call graph from the recorded
+intervals, so a `sp_begin`/`sp_end` pair that crosses another region's
+boundary — rather than sitting inside or outside it — has no call stack to
+recover, and reading the trace back raises `NestingError`. The timings
+themselves are still recorded and readable; it is the nesting, the flame
+chart and the exclusive times that cannot be derived.
+
 ## The API
 
 | Call | Purpose |

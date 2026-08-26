@@ -24,11 +24,37 @@ def _nested_file_data():
 
 
 def _calls(*specs):
-    """Build the call list ``build_pstats_dict`` expects, in seconds."""
-    return [
-        {"name": name, "start": start, "end": end, "parent": parent}
-        for name, start, end, parent in specs
+    """Build the CallArrays ``build_pstats_dict`` expects, from seconds.
+
+    The ``parent`` column of each spec is not passed through -- nesting is
+    reconstructed from the intervals, which is the only way the exporter can
+    ever receive it. It is kept in the specs as documentation of the shape
+    each test is describing.
+    """
+    from collections import defaultdict
+
+    import numpy as np
+
+    from scope_profiler.call_stack import build_call_arrays
+    from scope_profiler.mpi_region import MPIRegion
+    from scope_profiler.region import Region
+
+    intervals = defaultdict(list)
+    for name, start, end, _parent in specs:
+        intervals[name].append((round(start * 1e9), round(end * 1e9)))
+    regions = [
+        MPIRegion(
+            name=name,
+            regions={
+                0: Region(
+                    np.array([s for s, _ in calls], dtype=np.int64),
+                    np.array([e for _, e in calls], dtype=np.int64),
+                )
+            },
+        )
+        for name, calls in intervals.items()
     ]
+    return build_call_arrays(regions, rank=0)
 
 
 def _stats_of(path):
@@ -76,18 +102,18 @@ def test_build_pstats_dict_counts_recursion_like_cprofile():
     assert entry[3] == pytest.approx(1.0)
 
 
-def test_build_pstats_dict_clamps_partial_overlap():
-    # "long" is reconstructed as a child of "short" because it starts inside
-    # it, even though it runs past its end - self time must not go negative.
-    calls = _calls(
-        ("short", 0.0, 0.5, None),
-        ("long", 0.1, 2.0, 0),
-    )
+def test_build_pstats_dict_rejects_partial_overlap():
+    """Self time can no longer go negative, because the input cannot exist.
 
-    stats = build_pstats_dict(calls)
+    'long' would be reconstructed as a child of 'short' because it starts
+    inside it, even though it runs past its end - which used to be clamped
+    to keep pstats' tt from going negative. build_call_arrays refuses the
+    intervals outright instead.
+    """
+    from scope_profiler.call_stack import NestingError
 
-    assert stats[("~", 0, "short")][2] == 0.0
-    assert all(entry[2] >= 0.0 for entry in stats.values())
+    with pytest.raises(NestingError):
+        _calls(("short", 0.0, 0.5, None), ("long", 0.1, 2.0, 0))
 
 
 def test_build_pstats_dict_synthetic_root():

@@ -187,6 +187,7 @@ def test_plot_section_exposes_existing_plot_kinds(sample_file):
         "Gantt",
         "Durations",
         "Flame",
+        "Callgraph",
         "Timeseries",
         "Histogram",
         "Imbalance",

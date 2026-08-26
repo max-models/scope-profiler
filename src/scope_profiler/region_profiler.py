@@ -172,6 +172,21 @@ def _import_nvtx():
 _EMPTY_TIMES = np.empty(0, dtype=np.int64)
 _EMPTY_TIMES.flags.writeable = False
 
+# End-time value of a slot that has been reserved but not yet written: the
+# call is still running. Entering a region hands out its slot before the code
+# runs, so a finalize() in the middle of a call would otherwise copy out an
+# uninitialised end timestamp -- as garbage from `np.empty` in the decorator
+# form, which does not touch either buffer until the call returns.
+#
+# Zero is the marker, and it costs nothing on either axis. A monotonic clock
+# reading is never 0 (it counts from boot, not from an epoch the process can
+# reach), which is the same reasoning that makes the native implementations
+# return a *negative* timestamp for a failed clock read rather than 0. And
+# `np.zeros` is calloc, so allocating and growing a buffer stays O(1) --
+# `np.full` would make creating a region proportional to its capacity, which
+# tests/test_overhead.py budgets against.
+_UNCLOSED = 0
+
 
 # Base class with common functionality (buffer growth, HDF5 handling)
 class BaseProfileRegion:
@@ -191,6 +206,7 @@ class BaseProfileRegion:
         "buffer_limit",
         "capacity",
         "_completed",
+        "_emitted",
         "_scope_ptr_stack",
         "_push_scope",
         "_pop_scope",
@@ -222,6 +238,10 @@ class BaseProfileRegion:
         # this to `ptr` rather than being incremented on every entry, which
         # takes one attribute write out of the hot path.
         self._completed = 0
+        # Slots already handed to a finalize() that could not rewind the
+        # buffer afterwards, so the next one skips them instead of reporting
+        # the same call twice. None whenever the buffer is clean.
+        self._emitted = None
 
         # Preallocate buffers (skipped entirely when no timing is recorded).
         # `buffer_limit` is the *initial* capacity: `_grow` doubles it as
@@ -238,7 +258,7 @@ class BaseProfileRegion:
         if self._records_time:
             self.capacity = self.buffer_limit
             self.start_times = np.empty(self.capacity, dtype=np.int64)
-            self.end_times = np.empty(self.capacity, dtype=np.int64)
+            self.end_times = np.zeros(self.capacity, dtype=np.int64)
         else:
             self.capacity = 0
             self.start_times = _EMPTY_TIMES
@@ -292,7 +312,7 @@ class BaseProfileRegion:
         """
         capacity = max(1, self.capacity * 2)
         start_times = np.empty(capacity, dtype=np.int64)
-        end_times = np.empty(capacity, dtype=np.int64)
+        end_times = np.zeros(capacity, dtype=np.int64)
         start_times[: self.capacity] = self.start_times
         end_times[: self.capacity] = self.end_times
         self.start_times = start_times
@@ -337,6 +357,32 @@ class BaseProfileRegion:
         """Return durations (end - start) for buffered entries as a NumPy array."""
         return self.end_times[: self.ptr] - self.start_times[: self.ptr]
 
+    def open_slots(self) -> np.ndarray:
+        """Buffer slots whose call is still running, in ascending order.
+
+        A slot is open until its end time is written, which is what
+        distinguishes a call in flight from one that has returned. Both region
+        forms are covered: the context manager writes its start on entry, the
+        decorator writes nothing until the call returns.
+        """
+        if not self.ptr:
+            return _EMPTY_TIMES
+        return np.flatnonzero(self.end_times[: self.ptr] == _UNCLOSED)
+
+    def closed_slots(self) -> "np.ndarray | None":
+        """Mask of buffered slots this finalize() should copy out.
+
+        A slot qualifies once its end time is written and it has not already
+        gone out with an earlier finalize(). None -- the usual case -- means
+        every slot qualifies and the caller can skip the mask entirely.
+        """
+        if not self.ptr:
+            return None
+        mask = self.end_times[: self.ptr] != _UNCLOSED
+        if self._emitted is not None:
+            mask[: self._emitted.size] &= ~self._emitted
+        return None if mask.all() else mask
+
     def mark_written(self) -> None:
         """Record that everything buffered so far has been handed to finalize().
 
@@ -348,14 +394,50 @@ class BaseProfileRegion:
         the in-memory view of the region, which callers inspect after
         ``finalize()``.
 
-        A region that is currently open has a slot reserved in the buffer and
-        an index waiting to be popped on exit, so rewinding under it would let
-        the next call overwrite a live slot. Such a region is left untouched.
+        A call still running has a slot reserved that finalize() did not copy
+        out, so it must survive the rewind. It is moved to the front of the
+        buffer rather than pinning everything behind it: leaving the whole
+        buffer in place would make the next finalize() re-report every
+        completed call sitting below it, with a second set of call ids.
+
+        The one case that still cannot rewind is a call entered through the
+        decorator form, which keeps its slot index in the wrapper's own frame
+        where nothing can remap it. Recognisable because such a slot is open
+        without appearing in ``_scope_ptr_stack``. There the buffer stays put
+        and the slots already copied out are recorded instead, so the next
+        finalize() skips them rather than reporting those calls again.
         """
-        if self._scope_ptr_stack:
+        open_slots = self.open_slots()
+        if open_slots.size == 0:
+            if self.ptr:
+                self.end_times[: self.ptr] = _UNCLOSED
+            self._completed += self.ptr
+            self.ptr = 0
+            self._emitted = None
             return
-        self._completed += self.ptr
-        self.ptr = 0
+        if open_slots.tolist() != sorted(self._scope_ptr_stack):
+            self._emitted = self.end_times[: self.ptr] != _UNCLOSED
+            return
+        self._completed += self.ptr - open_slots.size
+        self._compact(open_slots)
+        self._emitted = None
+
+    def _compact(self, keep: np.ndarray) -> None:
+        """Move the still-open slots to the front and rewind ``ptr`` onto them.
+
+        ``keep`` is ascending, so the destinations never run ahead of the
+        sources. The scope stack is rewritten in place, which keeps the
+        ``_push_scope``/``_pop_scope`` bindings made in ``__init__`` valid.
+        """
+        count = keep.size
+        self.start_times[:count] = self.start_times[keep]
+        # Every slot from here up is unwritten again, including the ones the
+        # kept calls vacated: a later finalize() must not read a stale end
+        # time as "this call has returned".
+        self.end_times[: self.ptr] = _UNCLOSED
+        remapped = {int(old): new for new, old in enumerate(keep.tolist())}
+        self._scope_ptr_stack[:] = [remapped[slot] for slot in self._scope_ptr_stack]
+        self.ptr = count
 
     def get_end_times_numpy(self) -> np.ndarray:
         """Return end times offset by the run's start time."""
@@ -504,6 +586,18 @@ class CUDATimingProfileRegion(TimeOnlyProfileRegion):
         slot = self._pop_scope()
         self._gpu_end_events[slot] = self._gpu_backend.record_event()
         self.end_times[slot] = perf_counter_ns()
+
+    def _compact(self, keep: np.ndarray) -> None:
+        """Move the CUDA events and device durations alongside the timestamps."""
+        kept = keep.tolist()
+        start_events = [self._gpu_start_events[slot] for slot in kept]
+        end_events = [self._gpu_end_events[slot] for slot in kept]
+        durations = self.gpu_durations[keep].copy()
+        super()._compact(keep)
+        count = len(kept)
+        self._gpu_start_events[:count] = start_events
+        self._gpu_end_events[:count] = end_events
+        self.gpu_durations[:count] = durations
 
     def get_gpu_durations_numpy(self) -> np.ndarray:
         """Synchronize recorded CUDA events and return device durations in ns."""

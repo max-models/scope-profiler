@@ -31,7 +31,12 @@ def _write_sample_h5(path, rank_regions, metadata=None):
 
 @pytest.fixture
 def sample_file(tmp_path):
-    """Two ranks; 'setup' runs once, 'solve' twice, with known durations."""
+    """Two ranks; 'setup' runs once, 'solve' twice, with known durations.
+
+    Every rank's intervals are properly nested (here: disjoint), which
+    call_stack.build_call_arrays requires - a 'setup' straddling the first
+    'solve' is not something a stack of ``with`` blocks can produce.
+    """
     path = tmp_path / "sample.h5"
     _write_sample_h5(
         path,
@@ -42,7 +47,7 @@ def sample_file(tmp_path):
             },
             1: {
                 "setup": ([0], [3 * NS]),
-                "solve": ([2 * NS, 5 * NS], [6 * NS, 9 * NS]),
+                "solve": ([3 * NS, 7 * NS], [7 * NS, 11 * NS]),
             },
         },
     )
@@ -121,7 +126,7 @@ def test_mpi_region_aggregates_over_ranks(sample_file):
     assert sorted(solve.durations.tolist()) == pytest.approx([2.0, 3.0, 4.0, 4.0])
     assert solve.total_durations() == pytest.approx({0: 5.0, 1: 8.0})
     assert solve.first_start_time == pytest.approx(2.0)
-    assert solve.last_end_time == pytest.approx(9.0)
+    assert solve.last_end_time == pytest.approx(11.0)
     # rank 0 starts first (tied at t=2, rank 0 wins), rank 1 ends last (t=9).
     assert solve.first_duration == pytest.approx(2.0)
     assert solve.last_duration == pytest.approx(4.0)
@@ -549,6 +554,54 @@ def test_reader_call_stack(tmp_path):
     assert [call["depth"] for call in results.call_stack(exclude="inner")] == [0, 1]
 
 
+def test_call_graph_renests_around_filtered_regions(tmp_path):
+    """A surviving call hangs off its nearest surviving ancestor.
+
+    Leaving the excluded parent's id in place would return a graph whose
+    edges point at nodes that are not in it, and report the child at the
+    depth it had before filtering.
+    """
+    path = tmp_path / "filtered_graph.h5"
+    _write_sample_h5(
+        path,
+        {
+            0: {
+                "outer": ([0], [100]),
+                "middle": ([10], [80]),
+                "leaf": ([20], [40]),
+            }
+        },
+    )
+    results = read_h5(path)
+
+    assert [
+        (node["name"], node["parent_id"], node["depth"])
+        for node in results.call_graph(rank=0)
+    ] == [
+        ("outer", None, 0),
+        ("middle", 0, 1),
+        ("leaf", 1, 2),
+    ]
+
+    # 'middle' gone: 'leaf' becomes a child of 'outer', one level shallower.
+    assert [
+        (node["name"], node["parent_id"], node["depth"])
+        for node in results.call_graph(rank=0, exclude="middle")
+    ] == [
+        ("outer", None, 0),
+        ("leaf", 0, 1),
+    ]
+
+    # Dropping a root promotes what was under it.
+    assert [
+        (node["name"], node["parent_id"], node["depth"])
+        for node in results.call_graph(rank=0, exclude="outer")
+    ] == [
+        ("middle", None, 0),
+        ("leaf", 0, 1),
+    ]
+
+
 def test_nested_regions_expose_inclusive_and_exclusive_time(tmp_path):
     path = tmp_path / "nested_durations.h5"
     _write_sample_h5(
@@ -591,10 +644,10 @@ def test_exclusive_time_is_reconstructed_lazily_and_once(tmp_path, monkeypatch):
     _write_sample_h5(path, {0: {"outer": ([0], [100]), "inner": ([10], [30])}})
 
     builds = []
-    real_build = call_stack_module.build_call_stack
+    real_build = call_stack_module.build_call_arrays
     monkeypatch.setattr(
         call_stack_module,
-        "build_call_stack",
+        "build_call_arrays",
         lambda *args, **kwargs: builds.append(args) or real_build(*args, **kwargs),
     )
 

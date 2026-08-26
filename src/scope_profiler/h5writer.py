@@ -114,6 +114,11 @@ def initialize_columnar_layout(
         index.create_dataset(name, shape=(0,), maxshape=(None,), dtype=_STRING_DTYPE)
 
     events = h5file.create_group("events")
+    # call_ids/parent_ids are unique within a rank, not across the file: every
+    # rank numbers its own calls from its own id space. This column is the
+    # concatenation of all of them, so the same id appears once per rank.
+    # Slice by rank (as _read_columnar_regions does) before treating an id as
+    # a key; a file-wide id -> call mapping built from this column collides.
     for name in ("start_times", "end_times", "call_ids", "parent_ids"):
         events.create_dataset(
             name,
@@ -244,9 +249,11 @@ def _concatenate(regions: dict, names: list, position: int) -> np.ndarray:
     return np.concatenate(
         [
             np.asarray(
-                regions[name][position]
-                if len(regions[name]) > position
-                else np.full(len(regions[name][0]), -1, dtype=np.int64),
+                (
+                    regions[name][position]
+                    if len(regions[name]) > position
+                    else np.full(len(regions[name][0]), -1, dtype=np.int64)
+                ),
                 dtype=np.int64,
             )
             for name in names
@@ -532,9 +539,16 @@ def write_parallel_payload(
         with events["end_times"].collective:
             events["end_times"][own_slice] = ends
         for field, column in (("call_ids", 3), ("parent_ids", 4)):
-            values = np.concatenate(
-                [np.asarray(arrays[column], dtype=np.int64) for arrays in payload.regions.values()]
-            ) if payload.regions else np.empty(0, dtype=np.int64)
+            values = (
+                np.concatenate(
+                    [
+                        np.asarray(arrays[column], dtype=np.int64)
+                        for arrays in payload.regions.values()
+                    ]
+                )
+                if payload.regions
+                else np.empty(0, dtype=np.int64)
+            )
             with events[field].collective:
                 events[field][own_slice] = values
         if any_gpu:
@@ -680,8 +694,17 @@ def write_regions(
                 ),
             )
         if len(arrays) > 4:
+            # Stored like the timestamps, not raw: these are the most
+            # compressible columns in the file (parent_ids is near-constant,
+            # call_ids near-monotone) and they double the bytes per event.
             for field, values in (("call_ids", arrays[3]), ("parent_ids", arrays[4])):
-                region_grp.create_dataset(field, data=np.asarray(values, dtype=np.int64))
+                region_grp.create_dataset(
+                    field,
+                    data=np.asarray(values, dtype=np.int64),
+                    **dataset_storage_options(
+                        len(values), compression, compression_level, chunk_size
+                    ),
+                )
         source = sources.get(name)
         if source is not None:
             source_file, source_lineno, source_text = source

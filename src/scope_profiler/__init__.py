@@ -3,6 +3,9 @@
 from importlib.metadata import PackageNotFoundError, version
 
 from scope_profiler.call_stack import (
+    CallArrays,
+    NestingError,
+    build_call_arrays,
     build_call_stack,
     call_stack_children,
     call_stack_roots,
@@ -41,11 +44,14 @@ _LAZY_ATTRS = {
 }
 
 __all__ = [
+    "CallArrays",
     "LikwidRegionResult",
     "MPIRegion",
+    "NestingError",
     "ProfileManager",
     "ProfilingResults",
     "Region",
+    "build_call_arrays",
     "build_call_stack",
     "call_stack_children",
     "call_stack_roots",

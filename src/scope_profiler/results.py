@@ -130,28 +130,24 @@ class ProfilingResults:
         only visible against all the others recorded on the same rank, so
         there is nothing cheaper to compute for a single region alone.
         """
-        from scope_profiler.call_stack import build_call_stack
+        from scope_profiler.call_stack import build_call_arrays
 
         if self._exclusive_populated:
             return
-        # Set before the loop: build_call_stack reads only start/end times,
+        # Set before the loop: build_call_arrays reads only start/end times,
         # but a region reached through it must not re-enter this.
         self._exclusive_populated = True
 
         for rank in sorted(
             {rank for region in self._region_dict.values() for rank in region.ranks}
         ):
-            calls = build_call_stack(self._region_dict.values(), rank)
-            by_region = {
-                region.name: region.regions[rank]
-                for region in self._region_dict.values()
-                if rank in region.regions
-            }
-            for call in calls:
-                durations = by_region[call["name"]]._exclusive_buffer()
-                durations[call["call_index"]] = round(
-                    call["exclusive_duration"] * NS_PER_SECOND
-                )
+            # Columns, not one dict per call: this runs over every event in
+            # the run, which for a long simulation is tens of millions.
+            arrays = build_call_arrays(self._region_dict.values(), rank)
+            for row, name in enumerate(arrays.names):
+                mine = arrays.region_index == row
+                durations = self._region_dict[name].regions[rank]._exclusive_buffer()
+                durations[arrays.call_index[mine]] = arrays.exclusive_ns[mine]
 
     def _metadata_time(self, key: str) -> float | None:
         """Read a ``*_time_ns`` metadata field as seconds, or None if unusable."""
@@ -492,13 +488,23 @@ class ProfilingResults:
         event. Legacy profiles fall back to the timestamp-based call stack.
         The returned nodes contain only ``call_id``, ``parent_id``, ``name``,
         ``call_index`` and ``depth``.
+
+        Filtering renests: a call whose parent was excluded is reported under
+        its nearest surviving ancestor, with the depth that implies, exactly
+        as :meth:`call_stack` does. Leaving the excluded id in ``parent_id``
+        would hand back a graph with edges pointing at nodes that are not in
+        it.
+
+        ``call_id`` is unique within this rank, not across the file - each
+        rank numbers its own calls.
         """
-        regions = self.get_regions(include=include, exclude=exclude)
-        nodes = []
-        explicit = all(
-            rank in region.regions and region.regions[rank].call_ids is not None
-            for region in regions
-        ) if regions else False
+        retained = {
+            region.name for region in self.get_regions(include=include, exclude=exclude)
+        }
+        on_rank = [region for region in self.get_regions() if rank in region.regions]
+        explicit = bool(on_rank) and all(
+            region.regions[rank].call_ids is not None for region in on_rank
+        )
         if not explicit:
             return [
                 {
@@ -508,34 +514,51 @@ class ProfilingResults:
                     "call_index": call["call_index"],
                     "depth": call["depth"],
                 }
-                for call in self.call_stack(
-                    rank=rank, include=include, exclude=exclude
-                )
+                for call in self.call_stack(rank=rank, include=include, exclude=exclude)
             ]
-        for region in regions:
-            data = region.regions.get(rank)
-            if data is None:
-                continue
+
+        # Every call on the rank, filtered or not: an excluded region in the
+        # middle of the chain still has to be walked through to find what a
+        # surviving call now hangs off.
+        parent_of: dict[int, int | None] = {}
+        kept: dict[int, tuple[str, int]] = {}
+        for region in on_rank:
+            data = region.regions[rank]
+            keep_region = region.name in retained
             for index, (call_id, parent_id) in enumerate(
-                zip(data.call_ids, data.parent_ids)
+                zip(data.call_ids.tolist(), data.parent_ids.tolist())
             ):
-                nodes.append({
-                    "call_id": int(call_id),
-                    "parent_id": None if int(parent_id) < 0 else int(parent_id),
-                    "name": region.name,
-                    "call_index": index,
-                })
-        by_id = {node["call_id"]: node for node in nodes}
-        for node in nodes:
-            depth = 0
-            parent = node["parent_id"]
-            seen = set()
-            while parent is not None and parent in by_id and parent not in seen:
-                seen.add(parent)
-                depth += 1
-                parent = by_id[parent]["parent_id"]
-            node["depth"] = depth
-        return sorted(nodes, key=lambda node: node["call_id"])
+                parent_of[call_id] = None if parent_id < 0 else parent_id
+                if keep_region:
+                    kept[call_id] = (region.name, index)
+
+        # A parent always has a smaller id than its child, so one ascending
+        # pass resolves whole ancestor chains without recursing or revisiting:
+        # by the time a call is reached, its parent's answer is already known.
+        nearest: dict[int, int | None] = {}
+        depths: dict[int, int] = {}
+        for call_id in sorted(parent_of):
+            parent_id = parent_of[call_id]
+            if parent_id is None:
+                ancestor = None
+            elif parent_id in kept:
+                ancestor = parent_id
+            else:
+                ancestor = nearest.get(parent_id)
+            nearest[call_id] = ancestor
+            if call_id in kept:
+                depths[call_id] = 0 if ancestor is None else depths[ancestor] + 1
+
+        return [
+            {
+                "call_id": call_id,
+                "parent_id": nearest[call_id],
+                "name": kept[call_id][0],
+                "call_index": kept[call_id][1],
+                "depth": depths[call_id],
+            }
+            for call_id in sorted(kept)
+        ]
 
     def print_summary(
         self,
