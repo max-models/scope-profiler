@@ -52,6 +52,10 @@ class Region:
         # (durations, timelines, diffs) never ask for exclusive time at all.
         self._exclusive_durations = None
         self._exclusive_resolver = None
+        # Total exclusive nanoseconds computed by the writer, when the file
+        # recorded one. Saves reconstructing the nesting for the common case
+        # of reporting a region's exclusive time without its per-call values.
+        self._exclusive_total_ns = None
         self._num_calls = len(self._durations)
         self._source_file = source_file
         self._source_lineno = source_lineno
@@ -101,14 +105,27 @@ class Region:
         It runs at most once, the first time any region asks for exclusive
         time, and fills in every region of the result set at once.
 
-        Any previously computed exclusive durations are dropped: a region can
-        be put into a second result set (``merge_results`` reuses the region
-        objects), and against a different set of neighbours the same calls
-        have different exclusive time. The newest owner therefore wins, as it
-        did when every result set recomputed this eagerly on construction.
+        Any previously computed exclusive durations are dropped, including a
+        total the writer supplied: a region can be put into a second result
+        set (``merge_results`` reuses the region objects), and against a
+        different set of neighbours the same calls have different exclusive
+        time. The newest owner therefore wins, as it did when every result set
+        recomputed this eagerly on construction, and it is the owner that
+        re-supplies a stored total via :meth:`_set_exclusive_total`.
         """
         self._exclusive_durations = None
+        self._exclusive_total_ns = None
         self._exclusive_resolver = resolver
+
+    def _set_exclusive_total(self, total_ns) -> None:
+        """Adopt an exclusive total the run itself computed, in nanoseconds.
+
+        Only the result set that owns this region may call this: the value is
+        only meaningful against the region set it was computed with. Left
+        alone, the per-call durations remain lazy -- asking for those still
+        reconstructs the nesting, and then wins over this.
+        """
+        self._exclusive_total_ns = None if total_ns is None else int(total_ns)
 
     def _exclusive_buffer(self) -> np.ndarray:
         """The writable exclusive-duration array, without resolving nesting.
@@ -307,11 +324,11 @@ class Region:
     @property
     def total_exclusive_duration(self) -> float:
         """Total time excluding nested regions, in seconds."""
-        return (
-            float(np.sum(self._resolved_exclusive_durations())) / NS_PER_SECOND
-            if self.has_timing
-            else 0.0
-        )
+        if not self.has_timing:
+            return 0.0
+        if self._exclusive_durations is None and self._exclusive_total_ns is not None:
+            return self._exclusive_total_ns / NS_PER_SECOND
+        return float(np.sum(self._resolved_exclusive_durations())) / NS_PER_SECOND
 
     @property
     def exclusive_duration(self) -> float:

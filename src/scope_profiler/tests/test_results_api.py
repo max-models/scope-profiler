@@ -664,3 +664,44 @@ def test_merging_recomputes_exclusive_time_against_the_new_neighbours(tmp_path):
     merged = merge_results(driver, read_h5(inner_path))
     assert merged["outer"].exclusive_duration == pytest.approx(80e-9)
     assert merged["native:inner"].exclusive_duration == pytest.approx(20e-9)
+
+
+def test_merging_discards_the_exclusive_totals_stored_in_each_file(tmp_path):
+    """The stored total is only valid against the regions it was computed with.
+
+    Both files here record their own exclusive time, correctly, for their own
+    contents. Merged, "outer" has a call nested inside it that its own run
+    never saw, so the stored value must be dropped rather than reported.
+    """
+    from scope_profiler.call_stack import exclusive_totals_ns
+    from scope_profiler.h5writer import ProfilingWriter
+    from scope_profiler.profile_manager import RankPayload
+    from scope_profiler.results import merge_results
+
+    def write(path, regions):
+        arrays = {
+            name: tuple(np.asarray(values, dtype=np.int64) for values in pair)
+            for name, pair in regions.items()
+        }
+        with ProfilingWriter(path) as writer:
+            writer.write_rank(
+                0,
+                RankPayload(
+                    regions=arrays,
+                    likwid={},
+                    likwid_environment={},
+                    exclusive_totals=exclusive_totals_ns(arrays),
+                ),
+            )
+
+    driver_path = tmp_path / "driver.h5"
+    kernels_path = tmp_path / "kernels.h5"
+    write(driver_path, {"outer": ([0], [100])})
+    write(kernels_path, {"native:inner": ([10], [30])})
+
+    driver = read_h5(driver_path)
+    assert driver["outer"].exclusive_duration == pytest.approx(100e-9)
+
+    merged = merge_results(driver, read_h5(kernels_path))
+    assert merged["outer"].exclusive_duration == pytest.approx(80e-9)
+    assert merged["native:inner"].exclusive_duration == pytest.approx(20e-9)

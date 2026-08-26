@@ -121,3 +121,46 @@ def call_stack_children(calls: List[dict]) -> List[List[int]]:
         if parent is not None:
             children[parent].append(index)
     return children
+
+
+def exclusive_totals_ns(regions: dict, rank: int = 0) -> dict:
+    """Total exclusive time per region, in nanoseconds, for one rank's regions.
+
+    The write-side counterpart of
+    :meth:`ProfilingResults._populate_exclusive_durations
+    <scope_profiler.results.ProfilingResults._populate_exclusive_durations>`,
+    and deliberately computed the same way: the per-call values are rounded to
+    nanoseconds individually and then summed, so a total stored in the output
+    file is bit-identical to the one a reader would reconstruct from the
+    events.
+
+    ``finalize()`` calls this because a rank already holds its whole region
+    set in memory, which is exactly the set exclusive time is defined against
+    -- and reconstructing the nesting is by far the most expensive part of
+    reading a run back (12s for 6.4M events, against 0.15s per 100k events
+    here, spread over the ranks).
+
+    Parameters
+    ----------
+    regions : dict
+        Region name -> ``(start_times, end_times, ...)`` int64 arrays in
+        nanoseconds, as :meth:`ProfileManager._snapshot_regions` returns them.
+    rank : int, optional
+        Rank to label the temporary regions with; irrelevant to the result.
+
+    Returns
+    -------
+    dict
+        Region name -> total exclusive nanoseconds, for every named region.
+    """
+    from scope_profiler.mpi_region import MPIRegion
+    from scope_profiler.region import NS_PER_SECOND, Region
+
+    wrapped = [
+        MPIRegion(name=name, regions={rank: Region(arrays[0], arrays[1])})
+        for name, arrays in regions.items()
+    ]
+    totals = dict.fromkeys(regions, 0)
+    for call in build_call_stack(wrapped, rank):
+        totals[call["name"]] += round(call["exclusive_duration"] * NS_PER_SECOND)
+    return totals

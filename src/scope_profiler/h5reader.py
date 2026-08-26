@@ -88,7 +88,7 @@ def _read_line_profile_group(group) -> list:
     return records
 
 
-def _read_columnar_regions(h5file) -> tuple[dict, list[str]]:
+def _read_columnar_regions(h5file) -> tuple[dict, list[str], dict]:
     """Read schema-2 shared event columns into the existing Region API.
 
     Every column is read once, whole, and then sliced in memory. Indexing the
@@ -110,13 +110,24 @@ def _read_columnar_regions(h5file) -> tuple[dict, list[str]]:
     source_files = index["source_files"][()]
     source_texts = index["source_texts"][()]
     tag_blobs = index["tags"][()]
+    # Absent in files written before the run stored its own exclusive totals;
+    # _NO_EXCLUSIVE_TOTAL marks a row whose writer did not compute one. Either
+    # way the reader falls back to reconstructing the nesting on demand.
+    totals_column = (
+        index["exclusive_totals"][()] if "exclusive_totals" in index else None
+    )
 
     start_times = events["start_times"][()]
     end_times = events["end_times"][()]
     gpu_column = events["gpu_durations"][()] if "gpu_durations" in events else None
 
     per_region: dict[str, dict[int, Region]] = {name: {} for name in names}
+    exclusive_totals: dict[str, dict[int, int]] = {}
     for row in range(len(region_ids)):
+        name = names[int(region_ids[row])]
+        rank = int(ranks[row])
+        if totals_column is not None and totals_column[row] >= 0:
+            exclusive_totals.setdefault(name, {})[rank] = int(totals_column[row])
         offset = int(offsets[row])
         event_slice = slice(offset, offset + int(counts[row]))
         gpu_durations = None
@@ -125,7 +136,7 @@ def _read_columnar_regions(h5file) -> tuple[dict, list[str]]:
             if np.any(candidate >= 0):
                 gpu_durations = candidate
         source_line = int(source_lines[row])
-        per_region[names[int(region_ids[row])]][int(ranks[row])] = Region(
+        per_region[name][rank] = Region(
             start_times[event_slice],
             end_times[event_slice],
             gpu_durations=gpu_durations,
@@ -134,7 +145,7 @@ def _read_columnar_regions(h5file) -> tuple[dict, list[str]]:
             source_text=_decode_attribute(source_texts[row]) or None,
             tags=tuple(json.loads(_decode_attribute(tag_blobs[row]) or "[]")),
         )
-    return per_region, names
+    return per_region, names, exclusive_totals
 
 
 def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
@@ -183,6 +194,7 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
     # Read the file
     _region_dict = {}
     region_names = []
+    exclusive_totals: dict[str, dict[int, int]] = {}
     with h5py.File(file_path, "r") as f:
         schema_version = read_schema_version(f)
         migrate_schema(f, schema_version)
@@ -193,7 +205,7 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
             }
 
         if schema_version == 2:
-            _region_dict, region_names = _read_columnar_regions(f)
+            _region_dict, region_names, exclusive_totals = _read_columnar_regions(f)
             recorded_ranks = f["rank_region_index/ranks"][()]
             inferred_ranks = (
                 int(np.max(recorded_ranks)) + 1 if len(recorded_ranks) else 0
@@ -281,6 +293,7 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
         "likwid": likwid,
         "line_profile": line_profile,
         "file_path": file_path,
+        "exclusive_totals": exclusive_totals,
     }
 
 

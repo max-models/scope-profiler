@@ -51,6 +51,7 @@ class ProfilingResults:
         line_profile: Dict[int, list] | None = None,
         file_path: str | Path = "",
         is_root: bool = True,
+        exclusive_totals: Dict[str, Dict[int, int]] | None = None,
     ) -> None:
         """
         Assemble a result set from already-loaded regions.
@@ -73,6 +74,13 @@ class ProfilingResults:
         is_root : bool, optional
             Whether this rank holds the run's data (default: True). See
             :attr:`is_root`.
+        exclusive_totals : dict, optional
+            Region name -> {rank: total exclusive nanoseconds}, as computed by
+            the run itself and stored in its output file. Only pass values
+            computed against *these* regions: exclusive time is defined
+            against everything else recorded on the same rank, so a total
+            carried over from a different result set would be wrong. Omitting
+            them costs nothing but a call-stack reconstruction on first use.
         """
         self._is_root = is_root
         self._region_dict = dict(regions)
@@ -101,11 +109,17 @@ class ProfilingResults:
         # rest of the load (4.4s of a 6.4s read on a 2.6M-event file), and
         # only some callers need it -- see _populate_exclusive_durations.
         self._exclusive_populated = False
-        for region in self._region_dict.values():
-            for rank_region in region.regions.values():
+        totals = exclusive_totals or {}
+        for name, region in self._region_dict.items():
+            for rank, rank_region in region.regions.items():
+                # Attach first: this drops whatever a previous owner of the
+                # region computed, including its stored total.
                 rank_region._attach_exclusive_resolver(
                     self._populate_exclusive_durations
                 )
+                stored = totals.get(name, {}).get(rank)
+                if stored is not None:
+                    rank_region._set_exclusive_total(stored)
 
     def _populate_exclusive_durations(self) -> None:
         """Derive per-call exclusive durations from all recorded intervals.

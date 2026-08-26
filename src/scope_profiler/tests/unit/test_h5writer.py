@@ -17,7 +17,11 @@ NS = 1_000_000_000
 
 
 def payload(
-    regions=None, likwid=None, environment=None, line_profile=None
+    regions=None,
+    likwid=None,
+    environment=None,
+    line_profile=None,
+    exclusive_totals=None,
 ) -> RankPayload:
     """A RankPayload with plain int64 timestamp arrays."""
     return RankPayload(
@@ -28,6 +32,7 @@ def payload(
         likwid=likwid or {},
         likwid_environment=environment or {},
         line_profile=line_profile,
+        exclusive_totals=exclusive_totals,
     )
 
 
@@ -404,3 +409,67 @@ def test_index_state_can_be_handed_to_the_next_writer(tmp_path):
     region = read_h5(path)["solve"]
     assert [data.total_duration for data in region.regions.values()] == [1.0, 3.0]
     assert read_h5(path)["io"].ranks == [1]
+
+
+NESTED = {"outer": ([0, 200], [100, 300]), "inner": ([10, 250], [30, 280])}
+
+
+def test_stored_exclusive_totals_match_reconstruction_exactly(tmp_path):
+    """The run's own totals must equal what a reader derives from the events.
+
+    They are two paths to the same number -- the writer's, from the region
+    set it holds in memory, and the reader's, from the call stack it rebuilds
+    -- so any difference would make a summary depend on which one ran.
+    """
+    from scope_profiler.call_stack import exclusive_totals_ns
+
+    path = tmp_path / "totals.h5"
+    regions = {
+        name: tuple(np.asarray(v) for v in arrays) for name, arrays in NESTED.items()
+    }
+    totals = exclusive_totals_ns(regions)
+    # outer spans 100+100ns with 20+30ns of inner inside it.
+    assert totals == {"outer": 150, "inner": 50}
+
+    with ProfilingWriter(path) as writer:
+        writer.write_rank(0, payload(NESTED, exclusive_totals=totals))
+
+    with h5py.File(path, "r") as handle:
+        assert handle["rank_region_index/exclusive_totals"][()].tolist() == [150, 50]
+
+    results = read_h5(path)
+    served_from_file = results["outer"].exclusive_duration
+    # Asking for the per-call values rebuilds the nesting; the total must not move.
+    assert results["outer"][0].exclusive_durations_ns.tolist() == [80, 70]
+    assert results["outer"].exclusive_duration == served_from_file == 150e-9
+
+
+def test_a_file_without_stored_totals_still_reports_exclusive_time(tmp_path):
+    """Files from before the column existed, and native-trace imports.
+
+    A row with no stored total falls back to reconstructing the nesting, and
+    appending to such a file backfills the column rather than failing.
+    """
+    path = tmp_path / "no_totals.h5"
+    with ProfilingWriter(path, atomic=False) as writer:
+        writer.write_rank(0, payload(NESTED))
+    with h5py.File(path, "r+") as handle:
+        # A file written before the column existed at all.
+        del handle["rank_region_index/exclusive_totals"]
+
+    assert read_h5(path)["outer"].exclusive_duration == 150e-9
+
+    with ProfilingWriter.open_existing(path) as writer:
+        writer.write_rank(
+            1, payload(NESTED, exclusive_totals={"outer": 150, "inner": 50})
+        )
+
+    with h5py.File(path, "r") as handle:
+        # Rank 0's rows are backfilled as "not computed", rank 1's are stored.
+        assert handle["rank_region_index/exclusive_totals"][()].tolist() == [
+            -1,
+            -1,
+            150,
+            50,
+        ]
+    assert read_h5(path)["outer"].exclusive_duration == 300e-9

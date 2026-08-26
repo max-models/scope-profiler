@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Callable, Dict, NamedTuple
 
 import numpy as np
 
+from scope_profiler.call_stack import exclusive_totals_ns
 from scope_profiler.profile_config import ProfilingConfig, load_profiling_config
 from scope_profiler.region_profiler import (
     BaseProfileRegion,
@@ -94,6 +95,16 @@ class RankPayload(NamedTuple):
 
     line_profile: list | None = None
     """Line-profiler records for this rank, when line profiling is enabled."""
+
+    exclusive_totals: dict | None = None
+    """Region name -> total exclusive nanoseconds on this rank.
+
+    Computed here rather than by whoever reads the run back: a rank holds its
+    whole region set in memory at finalize(), which is exactly the set
+    exclusive time is defined against, and reconstructing the nesting from the
+    events afterwards is the most expensive part of loading a profile. Every
+    rank does its own, so the cost is spread over the job.
+    """
 
 
 class _ProfilingSession:
@@ -636,6 +647,7 @@ class ProfileManager:
             self._per_region: Dict[str, dict] = {}
             self._likwid: Dict[int, dict] = {}
             self._line_profile: Dict[int, list] = {}
+            self._exclusive_totals: Dict[str, dict] = {}
 
         def add(self, rank: int, payload: "RankPayload") -> None:
             """Fold one rank's payload into the result set."""
@@ -647,6 +659,7 @@ class ProfileManager:
                 self._line_profile[rank] = payload.line_profile
             sources = payload.sources or {}
             tags = payload.tags or {}
+            exclusive_totals = payload.exclusive_totals or {}
             for name, arrays in payload.regions.items():
                 starts, ends = arrays[:2]
                 gpu_durations = arrays[2] if len(arrays) > 2 else None
@@ -662,6 +675,10 @@ class ProfileManager:
                     source_text=source_text,
                     tags=tags.get(name, ()),
                 )
+                if name in exclusive_totals:
+                    self._exclusive_totals.setdefault(name, {})[rank] = (
+                        exclusive_totals[name]
+                    )
 
         def build(self):
             """Return the assembled :class:`ProfilingResults`.
@@ -685,6 +702,7 @@ class ProfileManager:
                 likwid=self._likwid,
                 line_profile=self._line_profile,
                 file_path=self._config.file_path,
+                exclusive_totals=self._exclusive_totals,
             )
 
     @classmethod
@@ -1148,6 +1166,13 @@ class ProfileManager:
         if native_traces is not None and need_payload:
             snapshot = cls._merge_native_snapshot(snapshot, native_traces, config)
 
+        # 4. Reconstruct this rank's nesting, now that its region set is
+        # complete (native traces included). Done here, once, rather than by
+        # every later reader of the file: see call_stack.exclusive_totals_ns.
+        exclusive_totals = (
+            exclusive_totals_ns(snapshot) if need_payload and snapshot else None
+        )
+
         payload = RankPayload(
             regions=snapshot,
             likwid={result.tag: result for result in likwid_results},
@@ -1155,9 +1180,10 @@ class ProfileManager:
             sources=sources,
             tags=tags,
             line_profile=line_profile,
+            exclusive_totals=exclusive_totals,
         )
 
-        # 3. Move every rank's payload to rank 0, which writes it straight into
+        # 5. Move every rank's payload to rank 0, which writes it straight into
         # the single output file. Nothing is staged on the filesystem, so no
         # shared $TMPDIR is required, and a rank that never reports is a hang
         # rather than a silently missing group.
@@ -1175,7 +1201,7 @@ class ProfileManager:
             else:
                 results = cls._collect_payloads(payload, write_file, need_results)
 
-        # 4. Summarize. With a file, it is read back so that the table has one
+        # 6. Summarize. With a file, it is read back so that the table has one
         # implementation; without one, the same table comes from the results.
         # Non-root ranks hold an empty result set, for which this does nothing.
         if verbose and rank == 0 and write_file:

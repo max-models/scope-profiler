@@ -24,6 +24,10 @@ from scope_profiler.likwid_data import write_likwid_results
 
 _STRING_DTYPE = h5py.string_dtype(encoding="utf-8")
 _NO_GPU_DURATION = -1
+# Exclusive time is never negative, so this marks a row whose writer did not
+# compute one -- a native-trace import, say. The reader falls back to
+# reconstructing the nesting for those.
+_NO_EXCLUSIVE_TOTAL = -1
 
 
 def _append(dataset, values) -> int:
@@ -100,6 +104,10 @@ def initialize_columnar_layout(
         ("event_offsets", np.uint64),
         ("event_counts", np.uint64),
         ("source_lines", np.int64),
+        # Exclusive nanoseconds per (rank, region), computed by the run that
+        # recorded it; _NO_EXCLUSIVE_TOTAL where it was not. See
+        # call_stack.exclusive_totals_ns.
+        ("exclusive_totals", np.int64),
     ):
         index.create_dataset(name, shape=(0,), maxshape=(None,), dtype=dtype)
     for name in ("source_files", "source_texts", "tags"):
@@ -199,7 +207,18 @@ def append_columnar_rank(
         )
 
     resolved_sources = [sources.get(name, ("", -1, "")) for name in names]
+    exclusive_totals = payload.exclusive_totals or {}
     index = h5file["rank_region_index"]
+    if "exclusive_totals" not in index:
+        # A file this process did not create, from a version that predates the
+        # column. Backfill the rows already in it as "not computed".
+        index.create_dataset(
+            "exclusive_totals",
+            shape=(len(index["ranks"]),),
+            maxshape=(None,),
+            dtype=np.int64,
+            fillvalue=_NO_EXCLUSIVE_TOTAL,
+        )
     _append(index["region_ids"], [index_state.name_to_id[name] for name in names])
     _append(index["ranks"], np.full(len(names), rank, dtype=np.uint32))
     _append(index["event_offsets"], offsets)
@@ -211,6 +230,10 @@ def append_columnar_rank(
     _append(index["source_files"], [source[0] or "" for source in resolved_sources])
     _append(index["source_texts"], [source[2] or "" for source in resolved_sources])
     _append(index["tags"], [json.dumps(list(tags.get(name, ()))) for name in names])
+    _append(
+        index["exclusive_totals"],
+        [exclusive_totals.get(name, _NO_EXCLUSIVE_TOTAL) for name in names],
+    )
     return True
 
 
@@ -323,12 +346,14 @@ def payload_layout(payload) -> dict:
     """Return the small, array-free schema needed for collective creation."""
     sources = payload.sources or {}
     tags = payload.tags or {}
+    exclusive_totals = payload.exclusive_totals or {}
     return {
         "regions": {
             name: {
                 "shapes": [tuple(np.shape(array)) for array in arrays],
                 "source": sources.get(name),
                 "tags": tuple(tags.get(name, ())),
+                "exclusive_total": int(exclusive_totals.get(name, _NO_EXCLUSIVE_TOTAL)),
             }
             for name, arrays in payload.regions.items()
         },
@@ -416,6 +441,7 @@ def write_parallel_payload(
             ("event_offsets", np.uint64),
             ("event_counts", np.uint64),
             ("source_lines", np.int64),
+            ("exclusive_totals", np.int64),
         ):
             pair_index.create_dataset(name, shape=(len(pairs),), dtype=dtype)
         for name, dtype in (
@@ -461,6 +487,10 @@ def write_parallel_payload(
             pair_index["source_files"][:] = encoded_source_files
             pair_index["source_texts"][:] = encoded_source_texts
             pair_index["tags"][:] = encoded_tags
+            pair_index["exclusive_totals"][:] = [
+                description.get("exclusive_total", _NO_EXCLUSIVE_TOTAL)
+                for *_, description in pairs
+            ]
         comm.Barrier()
 
         own_pairs = [pair for pair in pairs if pair[0] == rank]
