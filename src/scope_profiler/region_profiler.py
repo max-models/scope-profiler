@@ -235,8 +235,11 @@ class AggregateProfileRegion:
     def _leave(self):
         duration = perf_counter_ns() - self._stack.pop()
         _AGGREGATE_STACK.pop()
-        for parent in _AGGREGATE_STACK:
-            parent._exclusive -= duration
+        if _AGGREGATE_STACK:
+            # Only the direct parent subtracts this duration. Its own
+            # inclusive duration is then subtracted from its parent when it
+            # exits, preventing nested children from being subtracted twice.
+            _AGGREGATE_STACK[-1]._exclusive -= duration
         self._count += 1
         self._total += duration
         self._exclusive += duration
