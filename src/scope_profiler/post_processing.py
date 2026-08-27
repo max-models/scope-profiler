@@ -62,6 +62,7 @@ _PLOTEXT_SIMPLE_PLOTS = frozenset(
         "imbalance",
     }
 )
+_PYVIS_PLOTS = frozenset({"callgraph"})
 
 
 @dataclass(frozen=True)
@@ -197,8 +198,8 @@ def _add_plot_output_args(parser: argparse.ArgumentParser) -> None:
         choices=["matplotlib", "plotly", "pyvis", "plotext"],
         default="matplotlib",
         help=(
-            "Renderer used for plots: static PNGs, interactive HTML, or "
-            "terminal text (simple plots only)."
+            "Renderer used for plots: matplotlib/plotly support chart plots; "
+            "pyvis supports callgraph only; plotext supports simple plots only."
         ),
     )
     parser.add_argument(
@@ -551,11 +552,6 @@ def _plot_output_targets(
         return OutputTargets(directory=None, single_file=None, statistics_path=None)
 
     output_path = Path(args.output)
-    ext = (
-        "html"
-        if args.backend in {"plotly", "pyvis"}
-        else "txt" if args.backend == "plotext" else "png"
-    )
     is_single_plot_file = len(selected_plots) == 1 and output_path.suffix.lower() in {
         ".png",
         ".html",
@@ -978,6 +974,15 @@ def main(argv: list[str] | None = None):
             parser.error(
                 "--backend plotext supports simple plots only; unsupported plot(s): "
                 + ", ".join(unsupported)
+            )
+    elif args.backend == "pyvis":
+        unsupported = sorted(selected_plots - _PYVIS_PLOTS)
+        if unsupported:
+            parser.error(
+                "--backend pyvis supports the interactive callgraph only; "
+                "unsupported plot(s): "
+                + ", ".join(unsupported)
+                + ". Use --backend matplotlib or plotly for these plots."
             )
     output_targets = _plot_output_targets(args, selected_plots)
 

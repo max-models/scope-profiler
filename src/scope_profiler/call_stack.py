@@ -46,6 +46,8 @@ class CallArrays(NamedTuple):
     """
 
     names: List[str]
+    source_files: List[str | None]
+    source_lines: List[int | None]
     region_index: np.ndarray
     call_index: np.ndarray
     start_ns: np.ndarray
@@ -85,6 +87,8 @@ def build_call_arrays(regions: Iterable, rank: int) -> CallArrays:
         without one containing the other.
     """
     names: List[str] = []
+    source_files: List[str | None] = []
+    source_lines: List[int | None] = []
     starts: List[np.ndarray] = []
     ends: List[np.ndarray] = []
     region_index: List[np.ndarray] = []
@@ -96,6 +100,8 @@ def build_call_arrays(regions: Iterable, rank: int) -> CallArrays:
         region_starts = np.asarray(region_data.start_times_ns, dtype=np.int64)
         region_ends = np.asarray(region_data.end_times_ns, dtype=np.int64)
         names.append(region.name)
+        source_files.append(region_data.source_file)
+        source_lines.append(region_data.source_lineno)
         starts.append(region_starts)
         ends.append(region_ends)
         region_index.append(np.full(region_starts.size, len(names) - 1, dtype=np.int64))
@@ -105,6 +111,8 @@ def build_call_arrays(regions: Iterable, rank: int) -> CallArrays:
         empty = np.empty(0, dtype=np.int64)
         return CallArrays(
             names,
+            source_files,
+            source_lines,
             empty,
             empty.copy(),
             empty.copy(),
@@ -148,6 +156,8 @@ def build_call_arrays(regions: Iterable, rank: int) -> CallArrays:
 
     return CallArrays(
         names=names,
+        source_files=source_files,
+        source_lines=source_lines,
         region_index=region_of,
         call_index=call_of,
         start_ns=start_ns,
@@ -245,13 +255,15 @@ def build_call_stack(regions: Iterable, rank: int, origin: float = 0.0) -> List[
     -------
     list of dict
         One dict per call, ordered by start time (parents before children),
-        with keys ``call_id``, ``name``, ``start``, ``end``, ``duration`` (the
-        inclusive duration), ``inclusive_duration``, ``exclusive_duration``
-        (seconds), ``depth`` (0 for a top-level call) and ``parent`` (the
-        ``call_id`` of the enclosing call in this same list, or None). A
-        ``color`` key carries whatever the plotting code assigned to the
-        region. ``call_id`` is stable for the returned list and is unique
-        within this rank/stack reconstruction.
+        with keys ``call_id``, ``name``, ``call_path``, ``start``, ``end``,
+        ``duration`` (the inclusive duration), ``inclusive_duration``,
+        ``exclusive_duration`` (seconds), ``depth`` (0 for a top-level call)
+        and ``parent`` (the ``call_id`` of the enclosing call in this same
+        list, or None). ``call_path`` joins a call and each of its ancestors
+        with ``" > "``, keeping same-named regions at different call sites
+        distinct. A ``color`` key carries whatever the plotting code assigned
+        to the region. ``call_id`` is stable for the returned list and is
+        unique within this rank/stack reconstruction.
 
     Raises
     ------
@@ -291,6 +303,11 @@ def build_call_stack(regions: Iterable, rank: int, origin: float = 0.0) -> List[
                 "exclusive_duration": float(exclusive[call_id]),
                 "depth": int(arrays.depth[call_id]),
                 "parent": None if parent < 0 else parent,
+                "call_path": (
+                    name if parent < 0 else f"{calls[parent]['call_path']} > {name}"
+                ),
+                "source_file": arrays.source_files[region_row],
+                "source_lineno": arrays.source_lines[region_row],
                 "color": colors[name],
             }
         )

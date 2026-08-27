@@ -1,9 +1,11 @@
 import marshal
 import pstats
 
+import numpy as np
 import pytest
 
 from scope_profiler import read_h5
+from scope_profiler.call_stack import build_call_arrays
 from scope_profiler.post_processing import export_main
 from scope_profiler.prof_export import build_pstats_dict, export_prof
 from scope_profiler.tests.test_post_processing import _write_sample_h5
@@ -69,7 +71,7 @@ def test_build_pstats_dict_nesting_and_self_time():
         ("child", 0.5, 0.7, 0),
     )
 
-    stats = build_pstats_dict(calls)
+    stats = build_pstats_dict(calls, call_paths=False)
 
     main = stats[("~", 0, "main")]
     child = stats[("~", 0, "child")]
@@ -93,7 +95,7 @@ def test_build_pstats_dict_counts_recursion_like_cprofile():
         ("recurse", 0.2, 0.6, 0),
     )
 
-    entry = build_pstats_dict(calls)[("~", 0, "recurse")]
+    entry = build_pstats_dict(calls, call_paths=False)[("~", 0, "recurse")]
 
     # One primitive call, two total, and the shared seconds counted once.
     assert entry[0] == 1
@@ -127,6 +129,59 @@ def test_build_pstats_dict_synthetic_root():
         assert root_key in stats[("~", 0, name)][4]
 
 
+def test_build_pstats_dict_call_paths_keep_contexts_separate():
+    """The same region below two parents becomes two SnakeViz tree nodes."""
+    calls = _calls(
+        ("phase_a", 0.0, 1.0, None),
+        ("work", 0.1, 0.4, 0),
+        ("phase_b", 2.0, 3.0, None),
+        ("work", 2.1, 2.7, 2),
+    )
+
+    stats = build_pstats_dict(calls, root_name="<run>")
+    phase_a = ("~", 0, "phase_a")
+    phase_b = ("~", 0, "phase_b")
+    work_a = ("~", 0, "phase_a > work")
+    work_b = ("~", 0, "phase_b > work")
+
+    assert {key[2] for key in stats} == {
+        "<run>",
+        "phase_a",
+        "phase_a > work",
+        "phase_b",
+        "phase_b > work",
+    }
+    assert stats[work_a][:4] == (1, 1, pytest.approx(0.3), pytest.approx(0.3))
+    assert stats[work_b][:4] == (1, 1, pytest.approx(0.6), pytest.approx(0.6))
+    assert stats[work_a][4] == {phase_a: stats[work_a][:4]}
+    assert stats[work_b][4] == {phase_b: stats[work_b][:4]}
+
+
+def test_build_pstats_dict_uses_captured_source_location():
+    from scope_profiler.mpi_region import MPIRegion
+    from scope_profiler.region import Region
+
+    calls = build_call_arrays(
+        [
+            MPIRegion(
+                "solve",
+                {
+                    0: Region(
+                        np.array([0], dtype=np.int64),
+                        np.array([1_000_000_000], dtype=np.int64),
+                        source_file="solver.py",
+                        source_lineno=42,
+                    )
+                },
+            )
+        ],
+        rank=0,
+    )
+
+    stats = build_pstats_dict(calls)
+    assert ("solver.py", 42, "solve") in stats
+
+
 def test_export_prof_readable_by_pstats(tmp_path):
     h5_file = tmp_path / "profiling_data.h5"
     _write_sample_h5(h5_file, _nested_file_data())
@@ -137,13 +192,20 @@ def test_export_prof_readable_by_pstats(tmp_path):
 
     stats = pstats.Stats(str(written[0]))
     names = {key[2] for key in stats.stats}
-    assert {"main", "setup", "solve", "assemble"} <= names
+    assert {
+        "main",
+        "main > setup",
+        "main > solve",
+        "main > solve > assemble",
+    } <= names
 
     # main: 0.1s wall, minus setup (0.02) and solve (0.07); solve minus assemble.
     assert stats.stats[("~", 0, "main")][2] == pytest.approx(0.01)
-    assert stats.stats[("~", 0, "solve")][2] == pytest.approx(0.04)
-    assert stats.stats[("~", 0, "assemble")][3] == pytest.approx(0.03)
-    assert stats.stats[("~", 0, "assemble")][4].keys() == {("~", 0, "solve")}
+    assert stats.stats[("~", 0, "main > solve")][2] == pytest.approx(0.04)
+    assert stats.stats[("~", 0, "main > solve > assemble")][3] == pytest.approx(0.03)
+    assert stats.stats[("~", 0, "main > solve > assemble")][4].keys() == {
+        ("~", 0, "main > solve")
+    }
     assert stats.total_calls == 5  # four regions plus the synthetic root
 
 
@@ -199,7 +261,12 @@ def test_cli_export_prof_without_plots(tmp_path, capsys):
     assert "snakeviz" in capsys.readouterr().out
 
     stats = _stats_of(prof_file)
-    assert {key[2] for key in stats} >= {"main", "setup", "solve", "assemble"}
+    assert {key[2] for key in stats} >= {
+        "main",
+        "main > setup",
+        "main > solve",
+        "main > solve > assemble",
+    }
 
 
 def test_cli_export_prof_with_rank_selection(tmp_path):
@@ -236,8 +303,10 @@ def test_exported_prof_loads_in_snakeviz(tmp_path):
     assert set(tree) == {
         "~:0(<profiling_data rank 0>)",
         "~:0(main)",
-        "~:0(setup)",
-        "~:0(solve)",
-        "~:0(assemble)",
+        "~:0(main > setup)",
+        "~:0(main > solve)",
+        "~:0(main > solve > assemble)",
     }
-    assert set(tree["~:0(solve)"]["children"]) == {"~:0(assemble)"}
+    assert set(tree["~:0(main > solve)"]["children"]) == {
+        "~:0(main > solve > assemble)"
+    }

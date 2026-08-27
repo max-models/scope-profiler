@@ -414,6 +414,11 @@ plot_flame(results, ranks=[0], filepath="flame.png", show=True)
 The call stack is reconstructed from timestamp containment: a region whose
 interval falls inside another's becomes its child. Unlike the Gantt chart,
 the flame graph draws one panel per rank, defaulting to rank 0 only.
+Frame labels use the full reconstructed call path (for example,
+`timestep > assembly > solve`), so same-named regions below different parents
+remain distinguishable. Colors still identify the underlying region. When
+source capture is enabled, the flame data export includes each frame's
+`source_file` and `source_lineno`; Plotly hover cards show the same location.
 
 ## Duration over time from Python
 

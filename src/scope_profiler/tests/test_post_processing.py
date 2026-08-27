@@ -14,6 +14,7 @@ from scope_profiler.plotting_scripts import (
     _display_matplotlib_figure_in_notebook,
     _duration_timeseries,
     _group_regions,
+    _hover_summary,
     _render,
     _set_xticks,
     _stacked_segments,
@@ -247,6 +248,190 @@ def test_plot_durations_rejects_stacking_a_min_or_max(tmp_path):
         )
 
 
+def _plotly_figure(plot_func, *args, **kwargs):
+    """Render one plot to a Plotly figure, hover text included."""
+    pytest.importorskip("plotly")
+    return plot_func(
+        *args, backend="plotly", return_fig=True, show=False, verbose=False, **kwargs
+    )
+
+
+def _hover_texts(figure):
+    """Every hover string in a figure, flattened out of its traces."""
+    texts = []
+    for trace in figure.data:
+        hovertext = getattr(trace, "hovertext", None)
+        if hovertext is None:
+            continue
+        if isinstance(hovertext, str):
+            texts.append(hovertext)
+            continue
+        for entry in hovertext:
+            texts.extend(entry if isinstance(entry, (list, tuple)) else [entry])
+    return [text for text in texts if text]
+
+
+def test_hover_summary_reports_every_statistic_the_region_does(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data())
+    region = read_h5(file_path).get_region("step")
+
+    text = _hover_summary(region)
+    lines = text.split("<br>")
+
+    assert lines[0] == "<b>step</b>"
+    # The hover box is the region's own get_summary(), not a second list of
+    # statistics that could drift from it.
+    # The heading replaces "name"; "inclusive_duration" is an alias of
+    # "total_duration" and is not repeated.
+    assert len(lines) == 1 + len(region.get_summary()) - 2
+    assert "calls: 2" in lines
+    assert any(line.startswith("total: 1e-06 s") for line in lines)
+
+
+def test_hover_summary_survives_a_broken_call_graph(tmp_path):
+    file_path = tmp_path / "overlapping.h5"
+    # "solve" starts inside "setup" and ends after it: no nesting, so no
+    # exclusive time -- but the other statistics are still recorded.
+    _write_sample_h5(
+        file_path,
+        {0: {"setup": ([0], [100]), "solve": ([20], [220])}},
+    )
+    region = read_h5(file_path).get_region("setup")
+
+    text = _hover_summary(region)
+
+    assert "calls: 1" in text
+    assert "self:" not in text
+
+
+def test_plotly_duration_bars_hover_with_the_region_summary(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data())
+
+    figure = _plotly_figure(plot_durations, read_h5(file_path))
+
+    texts = _hover_texts(figure)
+    assert len(texts) == 4  # one per region bar
+    assert any(text.startswith("<b>step</b>") for text in texts)
+    assert all("calls: " in text and "total: " in text for text in texts)
+
+
+def test_plotly_combined_duration_bar_names_its_members(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data())
+
+    figure = _plotly_figure(
+        plot_durations,
+        read_h5(file_path),
+        combine_regions={"work": ["assemble", "solve"]},
+    )
+
+    # A combined bar has no region object behind it, so it says what it
+    # pools instead of borrowing one member's summary.
+    combined = [text for text in _hover_texts(figure) if text.startswith("<b>work")]
+    assert combined and "combines: assemble, solve" in combined[0]
+
+
+def test_plotly_gantt_hover_names_the_rank_and_the_call(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data(rank_count=2))
+
+    figure = _plotly_figure(plot_gantt, read_h5(file_path))
+
+    texts = _hover_texts(figure)
+    assert any(text.startswith("<b>step (rank 1)</b>") for text in texts)
+    assert all("this call: " in text for text in texts)
+
+
+def test_plotly_flame_hover_uses_markers_over_the_shapes(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data())
+
+    figure = _plotly_figure(plot_flame, read_h5(file_path))
+
+    # Plotly draws the frames as layout shapes, which cannot hover; the
+    # hover comes from the invisible marker trace laid over them.
+    assert len(figure.layout.shapes) == 5  # one per call
+    assert len(figure.data) == 1
+    assert figure.data[0].marker.opacity == 0.0
+    texts = _hover_texts(figure)
+    assert any(
+        "call: step &gt; solve" in text or "call: step > solve" in text
+        for text in texts
+    )
+
+
+def test_plotly_heatmap_hovers_each_rank_region_cell(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data(rank_count=2))
+
+    figure = _plotly_figure(plot_rank_heatmap, read_h5(file_path))
+
+    texts = _hover_texts(figure)
+    assert len(texts) == 2 * 4  # ranks x regions
+    assert any(text.startswith("<b>solve (rank 1)</b>") for text in texts)
+
+
+def test_plotly_scaling_hover_describes_the_run_behind_each_point(tmp_path):
+    slow, fast = tmp_path / "slow.h5", tmp_path / "fast.h5"
+    _write_sample_h5(slow, _sample_file_data(1, 10, 40), {"num_ranks": 1})
+    _write_sample_h5(fast, _sample_file_data(2, 10, 20), {"num_ranks": 2})
+
+    figure = _plotly_figure(plot_speedup, [read_h5(slow), read_h5(fast)])
+
+    texts = _hover_texts(figure)
+    assert any("@ num_ranks = 2" in text for text in texts)
+    assert all("speedup: " in text for text in texts)
+
+
+def test_plotly_timeseries_hover_sits_on_the_line_not_the_band(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data())
+
+    figure = _plotly_figure(plot_duration_timeseries, read_h5(file_path))
+
+    with_hover = [trace for trace in figure.data if trace.hovertext is not None]
+    # One band plus one line per region; only the lines carry hover.
+    assert len(figure.data) == 8
+    assert len(with_hover) == 4
+
+
+def test_plotly_hover_is_written_into_the_exported_html(tmp_path):
+    pytest.importorskip("plotly")
+    file_path = tmp_path / "nested.h5"
+    out_file = tmp_path / "imbalance.html"
+    _write_sample_h5(file_path, _nested_file_data(rank_count=2))
+
+    # plot_imbalance renders without handing back a figure, so the exported
+    # document is where its hover text can be checked.
+    plot_imbalance(
+        read_h5(file_path),
+        filepath=str(out_file),
+        backend="plotly",
+        show=False,
+        verbose=False,
+    )
+
+    assert "step (rank 1)" in out_file.read_text(encoding="utf-8")
+
+
+def test_matplotlib_plots_skip_building_hover_text(tmp_path, monkeypatch):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data())
+
+    def fail(*args, **kwargs):
+        raise AssertionError("hover text must not be built for matplotlib")
+
+    monkeypatch.setattr("scope_profiler.plotting_scripts._hover_summary", fail)
+    plot_durations(
+        read_h5(file_path),
+        filepath=tmp_path / "durations.png",
+        show=False,
+        verbose=False,
+    )
+
+
 def test_simple_plotext_backend_writes_terminal_plot(tmp_path):
     file_path = tmp_path / "run.h5"
     out_file = tmp_path / "durations.txt"
@@ -263,6 +448,17 @@ def test_simple_plotext_backend_writes_terminal_plot(tmp_path):
 
     assert saved_paths == [out_file]
     assert "Region duration comparison" in out_file.read_text()
+
+
+def test_pyvis_backend_rejects_flame_before_rendering(tmp_path, capsys):
+    """PyVis only renders the explicit callgraph, not time-based charts."""
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
+
+    with pytest.raises(SystemExit):
+        main(["flame", str(file_path), "--backend", "pyvis"])
+
+    assert "pyvis supports the interactive callgraph only" in capsys.readouterr().err
 
 
 def test_plot_helpers_can_return_rendered_figures(tmp_path):
@@ -802,13 +998,41 @@ def test_plot_gantt_export_data_json(tmp_path):
     assert regions == {"setup", "solve"}
 
 
-def test_plot_flame_export_data_json(tmp_path):
+def test_plot_flame_export_data_json(tmp_path, monkeypatch):
     file_path = tmp_path / "run.h5"
     data_file = tmp_path / "flame_data.json"
 
-    rank_regions = {0: {"fib": ([0, 10, 60], [100, 90, 80])}}
+    rank_regions = {
+        0: {
+            "phase_a": ([0], [100]),
+            "phase_b": ([200], [300]),
+            "work": ([10, 210], [90, 290]),
+        }
+    }
     _write_sample_h5(file_path, rank_regions)
+    with h5py.File(file_path, "a") as h5file:
+        source_attrs = h5file["rank0/regions/work"].attrs
+        source_attrs["source_file"] = "solver.py"
+        source_attrs["source_lineno"] = 42
+        source_attrs["source_text"] = "with ProfileManager.profile_region('work'):"
     results = read_h5(file_path)
+
+    frame_labels = []
+
+    class _RecordingCanvas:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def flame_chart(self, labels, *args, **kwargs):
+            frame_labels.extend(labels)
+
+        def __getattr__(self, name):
+            return lambda *args, **kwargs: None
+
+    import scope_profiler.plotting_scripts as plotting_scripts
+
+    monkeypatch.setattr(plotting_scripts, "_get_canvas", lambda: _RecordingCanvas)
+    monkeypatch.setattr(plotting_scripts, "_render", lambda *args, **kwargs: None)
 
     plot_flame(
         results,
@@ -819,9 +1043,15 @@ def test_plot_flame_export_data_json(tmp_path):
     )
 
     payload = json.loads(data_file.read_text(encoding="utf-8"))
-    assert payload["colors"]["fib"].startswith("#")
-    depths = sorted(call["depth"] for call in payload["calls"])
-    assert depths == [0, 1, 2]
+    assert payload["colors"]["work"].startswith("#")
+    calls = {call["call_path"]: call for call in payload["calls"]}
+    assert set(calls) == {"phase_a", "phase_a > work", "phase_b", "phase_b > work"}
+    assert calls["phase_a > work"]["parent_call_id"] == calls["phase_a"]["call_id"]
+    assert calls["phase_b > work"]["parent_call_id"] == calls["phase_b"]["call_id"]
+    assert calls["phase_a > work"]["exclusive_duration_seconds"] == pytest.approx(80e-9)
+    assert calls["phase_a > work"]["source_file"] == "solver.py"
+    assert calls["phase_a > work"]["source_lineno"] == 42
+    assert frame_labels == ["phase_a", "phase_a > work", "phase_b", "phase_b > work"]
 
 
 def test_plot_durations_export_data_json(tmp_path):
