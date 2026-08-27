@@ -334,6 +334,11 @@ graph does, and both export only the ranks selected with `--ranks` (rank 0 by
 default). {doc}`/cli` documents what that reconstruction implies for
 partially overlapping regions and recursion.
 
+The `.prof` export preserves reconstructed call paths for SnakeViz: a `solve`
+region reached through `assembly` and one reached through `postprocess`
+appear as `assembly > solve` and `postprocess > solve` respectively. This
+makes the tree larger, but prevents different call sites from being conflated.
+
 ## Files without timing data
 
 A run that entered no region records nothing to plot. Rather than failing
