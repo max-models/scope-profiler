@@ -94,7 +94,7 @@ usage: scope-profiler inspect [-h] [--include INCLUDE [INCLUDE ...]]
 | `--regions-only`  | Print only the region statistics                                        |
 
 ```bash
-scope-profiler inspect profiling_data.h5
+scope-profiler inspect profiling_data.h5 --regions-only
 scope-profiler inspect 'run_*.h5' --regions-only --sort calls
 scope-profiler inspect profiling_data.h5 --regions-only --columns region ranks calls total avg
 scope-profiler inspect profiling_data.h5 --export-metadata metadata.json --quiet
@@ -103,42 +103,9 @@ scope-profiler inspect profiling_data.h5 --source solve assemble
 
 Example output:
 
-```text
-==============================================================================
-profiling_data.h5
-2 rank(s), 4 region(s), 0.18 MiB, 0.0951538 s wall clock
-==============================================================================
-
-Metadata
-  Run
-    timestamp              : 2026-07-26T18:57:49
-    user                   : mlindqvi
-    hostname               : lrdn1234
-    ...
-  System
-    chip_information       : AMD EPYC 9654 96-Core Processor
-  Parallelism
-    mpi_size               : 2
-    omp_num_threads        : 8
-    total_cores            : 16
-  Slurm
-    SLURM_JOB_ID           : 9988776
-    ...
-  Modules (4)
-    profile/base
-    gcc/12.3.0
-    openmpi/4.1.6--gcc--12.3.0
-    python/3.11.7
-
-Regions (4)
-  region    ranks  calls  total [s]    avg [s]
-  ---------------------------------------------
-  timestep      2      8   0.139235  0.0174044
-  solve         2      8  0.0991292  0.0123911
-  setup         2      2  0.0473326  0.0236663
-  assemble      2      8  0.0399496  0.0049937
-  ---------------------------------------------
-  TOTAL               26   0.325647
+```{eval-rst}
+.. literalinclude:: _generated/inspect-summary.txt
+   :language: text
 ```
 
 Region durations are in seconds, aggregated over the selected ranks. See
