@@ -189,7 +189,9 @@ def _region_detail_html(region, ranks) -> str:
             f"<p class='muted'>{_text(region.source_file)}:{_text(region.source_lineno)}</p>"
         )
         if region.source_text:
-            parts.append(f"<pre><code>{_text(region.source_text.rstrip())}</code></pre>")
+            parts.append(
+                f"<pre><code>{_text(region.source_text.rstrip())}</code></pre>"
+            )
     if region.has_gpu_timing:
         parts.append(
             f"<p>GPU total: {_seconds(region.gpu_total_duration)}, "
@@ -223,9 +225,11 @@ def _region_table(results, rows, ranks, columns) -> str:
     for row in rows:
         region = results.get_region(row["name"])
         cells = "".join(
-            f'<td class="bar-cell">{cell(row, key)}</td>'
-            if key == "total"
-            else f"<td>{cell(row, key)}</td>"
+            (
+                f'<td class="bar-cell">{cell(row, key)}</td>'
+                if key == "total"
+                else f"<td>{cell(row, key)}</td>"
+            )
             for key in keys
         )
         body_rows.append(f'<tr class="region-row">{cells}</tr>')
@@ -238,7 +242,11 @@ def _region_table(results, rows, ranks, columns) -> str:
     if not rows:
         body = f'<tr><td colspan="{len(keys)}">No regions recorded.</td></tr>'
     return (
-        "<table><thead><tr>" + headers + "</tr></thead><tbody>" + body + "</tbody></table>"
+        "<table><thead><tr>"
+        + headers
+        + "</tr></thead><tbody>"
+        + body
+        + "</tbody></table>"
     )
 
 
