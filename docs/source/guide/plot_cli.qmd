@@ -46,13 +46,9 @@ Choose a plot preset and give it an output directory:
 scope-profiler plot default run_2.h5 -o figures
 ```
 
-```text
-Plotting Gantt chart for ranks: [0, 1]
-Plotting duration comparison (total) for files: run_2
-Outputs saved to:
-  figures/gantt_plot.png
-  figures/durations_plot.png
-  figures/region_statistics.json
+```{eval-rst}
+.. literalinclude:: ../_generated/plot-cli-default.txt
+   :language: text
 ```
 
 Without `-o/--output` nothing is written; use `--show` to open the charts

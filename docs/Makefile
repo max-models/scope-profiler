@@ -14,6 +14,9 @@ markdown:
 readme-figures:
 	@python3 generate_readme_figures.py
 
+readme: readme-figures
+	@cd .. && quarto render README.qmd --to gfm --no-execute --output README.md
+
 docs-figures:
 	@python3 generate_docs_figures.py
 
@@ -26,9 +29,11 @@ figures: readme-figures docs-figures
 help:
 	@$(SPHINXBUILD) -M help "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
-.PHONY: help markdown readme-figures docs-figures generated-output figures Makefile
+.PHONY: help markdown readme readme-figures docs-figures generated-output figures Makefile
 
-html: figures generated-output markdown
+# Figure assets are versioned under ``figures/``. Refresh them explicitly with
+# ``make figures``; a normal docs build only copies those canonical assets.
+html: generated-output markdown
 	@$(SPHINXBUILD) -M html "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
 # Catch-all target: route all unknown targets to Sphinx using the new

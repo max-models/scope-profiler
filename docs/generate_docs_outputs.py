@@ -12,6 +12,7 @@ import io
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -75,6 +76,20 @@ def make_plot_cli_profile(path: Path) -> None:
                         sum(range(100))
 
 
+def make_diff_profile(path: Path, solve_seconds: float, *, teardown: bool) -> None:
+    """Create one side of the reproducible ``scope-profiler check`` example."""
+    from scope_profiler import ProfileManager
+
+    with ProfileManager.session(file_path=path, verbose=False):
+        with ProfileManager.profile_region("setup"):
+            time.sleep(0.001)
+        with ProfileManager.profile_region("solve"):
+            time.sleep(solve_seconds)
+        if teardown:
+            with ProfileManager.profile_region("teardown"):
+                time.sleep(0.001)
+
+
 def write_inspect_output(profile: Path, output_name: str, display_name: str) -> None:
     """Run the public inspect command and hide its temporary input path."""
     inspected = subprocess.run(
@@ -108,6 +123,100 @@ def main() -> None:
         run_two = Path(tmp) / "run_2.h5"
         make_plot_cli_profile(run_two)
         write_inspect_output(run_two, "plot-cli-inspect.txt", "run_2.h5")
+
+        plotted = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "scope_profiler",
+                "plot",
+                "default",
+                str(run_two),
+                "-o",
+                "figures",
+            ],
+            cwd=Path(tmp),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        write_output("plot-cli-default.txt", plotted.stdout)
+
+        baseline = Path(tmp) / "baseline.h5"
+        candidate = Path(tmp) / "candidate.h5"
+        make_diff_profile(baseline, 0.003, teardown=False)
+        make_diff_profile(candidate, 0.006, teardown=True)
+        checked = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "scope_profiler",
+                "check",
+                str(baseline),
+                str(candidate),
+                "--max-regression",
+                "5",
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        if checked.returncode != 1:
+            raise RuntimeError("The generated check example must report a regression")
+        write_output(
+            "check-output.txt",
+            checked.stdout.replace(str(baseline), "baseline.h5").replace(
+                str(candidate), "candidate.h5"
+            ),
+        )
+
+        line_profile = subprocess.run(
+            [sys.executable, str(ROOT / "examples" / "ex_line_profiling.py")],
+            cwd=Path(tmp),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        write_output(
+            "line-profiler-output.txt",
+            line_profile.stdout.replace(str(ROOT / "examples"), "examples"),
+        )
+
+        line_profile_path = Path(tmp) / "profiling_data.h5"
+        from scope_profiler import read_h5
+
+        records = io.StringIO()
+        with contextlib.redirect_stdout(records):
+            results = read_h5(line_profile_path)
+            for record in results.line_profile.get(0, []):
+                seconds_per_unit = record["unit"]
+                for line, hits, elapsed in zip(
+                    record["line_numbers"], record["hits"], record["times"]
+                ):
+                    print(record["function"], line, hits, elapsed * seconds_per_unit)
+        write_output("line-profiler-api.txt", records.getvalue())
+
+        line_profile_cli = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "scope_profiler",
+                "line-profile",
+                str(line_profile_path),
+                "--rank",
+                "0",
+                "--function",
+                "compute",
+            ],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        write_output(
+            "line-profiler-cli.txt",
+            line_profile_cli.stdout.replace(str(line_profile_path), "profiling_data.h5"),
+        )
 
 
 if __name__ == "__main__":

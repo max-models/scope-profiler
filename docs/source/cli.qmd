@@ -221,20 +221,9 @@ tail-latency or MPI-balance budget.
 
 Example output:
 
-```text
-==============================================================================
-a: baseline - baseline.h5  (2 rank(s))
-b: candidate - candidate.h5  (2 rank(s))
-==============================================================================
-
-Regions (3)
-  region     total [s] (a)  total [s] (b)  delta  delta [%]
-  -----------------------------------------------------------
-  solve            0.0991         0.1487  +0.05        +50%
-  teardown              -         0.0123  +0.01           -
-  setup            0.0473         0.0473  +0.00          +0%
-  -----------------------------------------------------------
-  Only in b: teardown
+```{eval-rst}
+.. literalinclude:: _generated/check-output.txt
+   :language: text
 ```
 
 A region present in only one file still gets a `delta` (treating the missing
