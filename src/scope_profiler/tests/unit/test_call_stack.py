@@ -130,6 +130,28 @@ def test_arrays_and_dicts_agree():
     ]
 
 
+def test_call_stack_carries_a_region_source_location():
+    region = MPIRegion(
+        name="solve",
+        regions={
+            0: Region(
+                np.array([0], dtype=np.int64),
+                np.array([10], dtype=np.int64),
+                source_file="solver.py",
+                source_lineno=42,
+                source_text="with ProfileManager.profile_region('solve'):",
+            )
+        },
+    )
+
+    arrays = build_call_arrays([region], rank=0)
+    call = build_call_stack([region], rank=0)[0]
+
+    assert arrays.source_files == ["solver.py"]
+    assert arrays.source_lines == [42]
+    assert (call["source_file"], call["source_lineno"]) == ("solver.py", 42)
+
+
 def test_exclusive_totals_match_the_per_call_values():
     """The write-side total and the read-side sum are the same integers."""
     snapshot = {

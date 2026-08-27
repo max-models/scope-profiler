@@ -31,19 +31,21 @@ from scope_profiler.plotting_scripts import (
 )
 from scope_profiler.results import ProfilingResults
 
-# pstats keys are (filename, lineno, funcname) triples, and
-# ``pstats.func_std_string`` renders a key starting with ("~", 0) as the bare
-# function name - the convention cProfile uses for builtins. Regions have no
-# source location, so borrowing it keeps them labelled "solve" rather than
-# "profiling_data.h5:0(solve)" in snakeviz.
+# pstats keys are (filename, lineno, funcname) triples. Source-aware profiles
+# use the region's captured Python location; ``~:0`` remains the conventional
+# cProfile-style fallback for native regions and older files without source.
 PSEUDO_FILENAME = "~"
 PSEUDO_LINENO = 0
 
 NS_PER_SECOND = 1e9
 
 
-def _key(name: str) -> tuple[str, int, str]:
-    """Build the pstats key identifying a region by name."""
+def _key(
+    name: str, source_file: str | None = None, source_lineno: int | None = None
+) -> tuple[str, int, str]:
+    """Build a pstats key, using the captured source location when present."""
+    if source_file and source_lineno is not None:
+        return (source_file, source_lineno, name)
     return (PSEUDO_FILENAME, PSEUDO_LINENO, name)
 
 
@@ -122,13 +124,17 @@ def build_pstats_dict(
     region_calls = per_region()
     region_self = per_region(self_time)
     region_cumulative = per_region(cumulative)
+    region_keys = [
+        _key(name, calls.source_files[row], calls.source_lines[row])
+        for row, name in enumerate(calls.names)
+    ]
 
     # [primitive_calls, total_calls, self_time, cumulative_time, callers]
     stats: dict[tuple[str, int, str], list] = {}
     for row, name in enumerate(calls.names):
         if not region_calls[row]:
             continue
-        stats[_key(name)] = [
+        stats[region_keys[row]] = [
             int(region_primitive[row]),
             int(region_calls[row]),
             float(region_self[row]),
@@ -154,12 +160,10 @@ def build_pstats_dict(
 
     for index in np.flatnonzero(pair_calls):
         row, caller_column = divmod(int(index), num_regions + 1)
-        caller = (
-            root_key if caller_column == 0 else _key(calls.names[caller_column - 1])
-        )
+        caller = root_key if caller_column == 0 else region_keys[caller_column - 1]
         if caller is None:
             continue
-        stats[_key(calls.names[row])][4][caller] = [
+        stats[region_keys[row]][4][caller] = [
             int(pair_primitive[index]),
             int(pair_calls[index]),
             float(pair_self[index]),
@@ -181,7 +185,9 @@ def build_pstats_dict(
     }
 
 
-def _call_path_ids(calls: CallArrays) -> tuple[np.ndarray, list[str], np.ndarray]:
+def _call_path_ids(
+    calls: CallArrays,
+) -> tuple[np.ndarray, list[str], np.ndarray, np.ndarray]:
     """Assign a compact identity to each distinct root-to-call path.
 
     Calls are start-sorted with parents before children, so a child's path is
@@ -192,6 +198,7 @@ def _call_path_ids(calls: CallArrays) -> tuple[np.ndarray, list[str], np.ndarray
     path_ids = np.empty(len(calls), dtype=np.int64)
     path_names: list[str] = []
     path_parents: list[int] = []
+    path_region_rows: list[int] = []
     identities: dict[tuple[int, int], int] = {}
 
     for call_id, region_row in enumerate(calls.region_index):
@@ -207,16 +214,22 @@ def _call_path_ids(calls: CallArrays) -> tuple[np.ndarray, list[str], np.ndarray
                 name if parent_path < 0 else f"{path_names[parent_path]} > {name}"
             )
             path_parents.append(parent_path)
+            path_region_rows.append(int(region_row))
         path_ids[call_id] = path_id
 
-    return path_ids, path_names, np.asarray(path_parents, dtype=np.int64)
+    return (
+        path_ids,
+        path_names,
+        np.asarray(path_parents, dtype=np.int64),
+        np.asarray(path_region_rows, dtype=np.int64),
+    )
 
 
 def _build_call_path_pstats_dict(
     calls: CallArrays, root_name: str | None
 ) -> dict[tuple[str, int, str], tuple]:
     """Build a pstats tree whose nodes are reconstructed call paths."""
-    path_ids, path_names, path_parents = _call_path_ids(calls)
+    path_ids, path_names, path_parents, path_region_rows = _call_path_ids(calls)
     path_count = len(path_names)
     duration = (calls.end_ns - calls.start_ns) / NS_PER_SECOND
     self_time = calls.exclusive_ns / NS_PER_SECOND
@@ -227,7 +240,14 @@ def _build_call_path_pstats_dict(
     counts = per_path()
     total_self = per_path(self_time)
     total_cumulative = per_path(duration)
-    keys = [_key(name) for name in path_names]
+    keys = [
+        _key(
+            name,
+            calls.source_files[int(region_row)],
+            calls.source_lines[int(region_row)],
+        )
+        for name, region_row in zip(path_names, path_region_rows)
+    ]
     stats: dict[tuple[str, int, str], list] = {
         keys[path_id]: [
             int(counts[path_id]),

@@ -225,8 +225,10 @@ def _hover_summary(
     for key, value in summary.items():
         if key in _HOVER_SKIP:
             continue
-        lines.append(f"{_HOVER_LABELS.get(key, key.replace('_', ' '))}: "
-                     f"{_hover_value(key, value)}")
+        lines.append(
+            f"{_HOVER_LABELS.get(key, key.replace('_', ' '))}: "
+            f"{_hover_value(key, value)}"
+        )
     return "<br>".join(lines)
 
 
@@ -261,9 +263,9 @@ class _PlotlyHover:
 
     If the figure does not have the expected number of traces the texts are
     dropped rather than applied to the wrong traces. Hover is a nicety and a
-    mislabelled plot is worse than a plain one; ``test_plotly_hover_*``
-    covers every plot so the drift shows up as a failing test rather than as
-    silently missing hover.
+    mislabelled plot is worse than a plain one; the ``test_plotly_*`` hover
+    tests cover every plot, so drift shows up there rather than as silently
+    missing hover.
     """
 
     def __init__(self, backend: str = "plotly") -> None:
@@ -394,9 +396,10 @@ def _render(
     if backend == "plotly":
         fig = canvas.plot_plotly(show=False)
         # Before saving or showing: the hover text is part of the figure.
-        if hover is not None:
-            hover.apply(fig)
         layout = dict(plotly_layout or {})
+        if hover is not None and hover.apply(fig):
+            # Multi-line summaries read as a block, not centred prose.
+            layout.setdefault("hoverlabel", {"align": "left"})
         if x_tick_rotation is not None:
             layout["xaxis_tickangle"] = x_tick_rotation
         if layout:
@@ -1163,6 +1166,8 @@ def plot_flame(
                             "parent_call_id": call["parent"],
                             "region": call["name"],
                             "call_path": call["call_path"],
+                            "source_file": call["source_file"],
+                            "source_lineno": call["source_lineno"],
                             "depth": call["depth"],
                             "start_seconds": call["start"],
                             "end_seconds": call["end"],
@@ -1183,6 +1188,8 @@ def plot_flame(
                             call["parent"],
                             call["name"],
                             call["call_path"],
+                            call["source_file"],
+                            call["source_lineno"],
                             call["depth"],
                             call["start"],
                             call["end"],
@@ -1199,6 +1206,8 @@ def plot_flame(
                     "parent_call_id",
                     "region",
                     "call_path",
+                    "source_file",
+                    "source_lineno",
                     "depth",
                     "start_seconds",
                     "end_seconds",
@@ -1291,14 +1300,20 @@ def plot_flame(
         marker_text: list[str] = []
         marker_spacing = total_span / 40 if total_span > 0 else 0.0
         for call in calls if hover.enabled else ():
+            extra = [
+                ("call", call["call_path"]),
+                ("this call", f"{call['inclusive_duration']:.6g} s"),
+                ("this call, self", f"{call['exclusive_duration']:.6g} s"),
+            ]
+            if call["source_file"]:
+                location = call["source_file"]
+                if call["source_lineno"] is not None:
+                    location += f":{call['source_lineno']}"
+                extra.append(("source", location))
             text = _hover_summary(
                 run.get_region(call["name"])[rank],
                 title=f"{call['name']} (rank {rank})",
-                extra=[
-                    ("call", call["call_path"]),
-                    ("this call", f"{call['inclusive_duration']:.6g} s"),
-                    ("this call, self", f"{call['exclusive_duration']:.6g} s"),
-                ],
+                extra=extra,
             )
             start = call["start"] - first_start
             span = call["end"] - call["start"]
@@ -1425,6 +1440,14 @@ def plot_callgraph(
                         "exclusive_duration": exclusive_total,
                         "average_duration": total / calls if calls else 0.0,
                         "source": source,
+                        # The node's hover box, from the region's own
+                        # get_summary() rather than a second set of numbers
+                        # assembled here.
+                        "summary": (
+                            _hover_summary(rank_region, title=node["name"])
+                            if rank_region is not None
+                            else f"<b>{node['name']}</b>"
+                        ),
                         "critical": any(
                             candidate["name"] == node["name"]
                             for candidate in nodes
@@ -1493,7 +1516,6 @@ def plot_callgraph(
             node_key = key(node)
             label = node["name"] if compact else f"{node['name']} (#{node['call_id']})"
             if compact:
-                name = node["name"]
                 size = (
                     16 + 18 * (node["exclusive_duration"] / max_total) ** 0.5
                     if max_total
@@ -1506,10 +1528,7 @@ def plot_callgraph(
                 background = f"#{red:02x}{green:02x}{blue:02x}"
                 border = "#dc2626" if node["critical"] else "#64748b"
                 title = (
-                    f"<b>{name}</b><br>Calls: {node['calls']}<br>"
-                    f"Total: {node['total_duration']:.6g} s<br>"
-                    f"Exclusive: {node['exclusive_duration']:.6g} s<br>"
-                    f"Average: {node['average_duration']:.6g} s"
+                    node["summary"]
                     + ("<br><b>Critical path</b>" if node["critical"] else "")
                     + (f"<br>Source: {node['source']}" if node["source"] else "")
                 )
@@ -2608,9 +2627,9 @@ def plot_duration_timeseries(
                 color=color,
                 label=region_name,
             )
-            region, title = _hover_region(
-                run.get_region(region_name), normalized_ranks
-            )
+            if not hover.enabled:
+                continue
+            region, title = _hover_region(run.get_region(region_name), normalized_ranks)
             hover.add(
                 [
                     _hover_summary(
@@ -2647,8 +2666,9 @@ def plot_duration_timeseries(
     if not single_panel:
         canvas.suptitle("Region duration over time")
 
-    rendered = _render(canvas, filepath, show, backend, return_fig=return_fig,
-                       hover=hover)
+    rendered = _render(
+        canvas, filepath, show, backend, return_fig=return_fig, hover=hover
+    )
     return rendered if return_fig else None
 
 
@@ -2800,18 +2820,19 @@ def plot_speedup(
             color=_to_hex(colors[idx]),
             label=region_name,
         )
-        hover.add(
-            _scaling_hover_texts(
-                region_at_key[region_name],
-                region_name,
-                x_field,
-                plot_keys,
-                speedups,
-                "speedup",
-                means,
-                ranks,
+        if hover.enabled:
+            hover.add(
+                _scaling_hover_texts(
+                    region_at_key[region_name],
+                    region_name,
+                    x_field,
+                    plot_keys,
+                    speedups,
+                    "speedup",
+                    means,
+                    ranks,
+                )
             )
-        )
         if data_filepath:
             for key, speedup in zip(plot_keys, speedups):
                 data_rows.append([region_name, key, speedup])
@@ -2973,18 +2994,19 @@ def plot_weak_scaling(
             color=_to_hex(colors[idx]),
             label=region_name,
         )
-        hover.add(
-            _scaling_hover_texts(
-                region_at_key[region_name],
-                region_name,
-                x_field,
-                plot_keys,
-                runtimes,
-                "normalized runtime",
-                means,
-                ranks,
+        if hover.enabled:
+            hover.add(
+                _scaling_hover_texts(
+                    region_at_key[region_name],
+                    region_name,
+                    x_field,
+                    plot_keys,
+                    runtimes,
+                    "normalized runtime",
+                    means,
+                    ranks,
+                )
             )
-        )
         if data_filepath:
             for key, runtime in zip(plot_keys, runtimes):
                 data_rows.append([region_name, key, runtime])
@@ -3115,20 +3137,23 @@ def plot_rank_heatmap(
         # One hover text per cell, in the matrix's own (rank, region) shape:
         # a cell is one region on one rank, so that rank's Region describes
         # it.
-        hover.add(
-            [
+        if hover.enabled:
+            hover.add(
                 [
-                    _hover_summary(
-                        run.get_region(region_name)[rank],
-                        title=f"{region_name} (rank {rank})",
-                    )
-                    if rank in run.get_region(region_name)
-                    else f"<b>{region_name} (rank {rank})</b><br>not entered"
-                    for region_name in region_names
+                    [
+                        (
+                            _hover_summary(
+                                run.get_region(region_name)[rank],
+                                title=f"{region_name} (rank {rank})",
+                            )
+                            if rank in run.get_region(region_name)
+                            else f"<b>{region_name} (rank {rank})</b><br>not entered"
+                        )
+                        for region_name in region_names
+                    ]
+                    for rank in selected_ranks
                 ]
-                for rank in selected_ranks
-            ]
-        )
+            )
         canvas.set_xticks(
             list(range(len(region_names))), labels=region_names, row=row, col=col
         )
@@ -3232,18 +3257,19 @@ def plot_scaling_efficiency(
                 color=_to_hex(colors[index]),
                 label=name,
             )
-            hover.add(
-                _scaling_hover_texts(
-                    region_at_key[name],
-                    name,
-                    x_field,
-                    plot_keys,
-                    efficiencies,
-                    "efficiency",
-                    means,
-                    ranks,
+            if hover.enabled:
+                hover.add(
+                    _scaling_hover_texts(
+                        region_at_key[name],
+                        name,
+                        x_field,
+                        plot_keys,
+                        efficiencies,
+                        "efficiency",
+                        means,
+                        ranks,
+                    )
                 )
-            )
     if not plotted:
         raise ValueError("No valid scaling-efficiency data could be computed.")
 
@@ -3421,15 +3447,19 @@ def plot_imbalance(
             color = _to_hex(color_map[region_name])
             # A point is one region on one rank, described by that rank's
             # own Region; the line and its markers share the text.
-            texts = [
-                # No value line: the plotted statistic is one of the ones
-                # that rank's own summary already lists.
-                _hover_summary(
-                    run.get_region(region_name)[int(rank)],
-                    title=f"{region_name} (rank {int(rank)})",
-                )
-                for rank in region_ranks
-            ]
+            texts = (
+                [
+                    # No value line: the plotted statistic is one of the
+                    # ones that rank's own summary already lists.
+                    _hover_summary(
+                        run.get_region(region_name)[int(rank)],
+                        title=f"{region_name} (rank {int(rank)})",
+                    )
+                    for rank in region_ranks
+                ]
+                if hover.enabled
+                else None
+            )
             canvas.add_line(
                 region_ranks,
                 values,
@@ -3576,22 +3606,23 @@ def plot_duration_histogram(
                 color=color,
                 label=region_name,
             )
-            region, title = _hover_region(
-                run.get_region(region_name), normalized_ranks
-            )
-            hover.add(
-                [
-                    _hover_summary(
-                        region,
-                        title=title,
-                        extra=[
-                            ("bin", f"{low:.6g} - {high:.6g} s"),
-                            ("calls in bin", int(count)),
-                        ],
-                    )
-                    for low, high, count in zip(edges[:-1], edges[1:], counts)
-                ]
-            )
+            if hover.enabled:
+                region, title = _hover_region(
+                    run.get_region(region_name), normalized_ranks
+                )
+                hover.add(
+                    [
+                        _hover_summary(
+                            region,
+                            title=title,
+                            extra=[
+                                ("bin", f"{low:.6g} - {high:.6g} s"),
+                                ("calls in bin", int(count)),
+                            ],
+                        )
+                        for low, high, count in zip(edges[:-1], edges[1:], counts)
+                    ]
+                )
             if data_filepath:
                 label = labels[idx]
                 for center, low, high, count in zip(
@@ -3830,12 +3861,13 @@ def plot_likwid(
             edgecolor="black",
             alpha=0.8,
         )
-        hover.add(
-            [
-                _likwid_bar_hover(run, rank, region_name, label, metric, value)
-                for region_name, value in zip(region_names, bar_values)
-            ]
-        )
+        if hover.enabled:
+            hover.add(
+                [
+                    _likwid_bar_hover(run, rank, region_name, label, metric, value)
+                    for region_name, value in zip(region_names, bar_values)
+                ]
+            )
         if data_filepath:
             for region_name, value in zip(region_names, bar_values):
                 data_rows.append([label, region_name, value])

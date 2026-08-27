@@ -267,6 +267,17 @@ pages open in a browser:
 scope-profiler plot default run_2.h5 -o figures_html --backend plotly
 ```
 
+Hovering any bar, point, cell or flame frame shows the summary of the region
+it belongs to — the same statistics
+`Region.get_summary()` reports (calls, total, self, average,
+min, max, first, last, std, and the GPU totals when there are any), plus what
+identifies the thing under the cursor: the hovered call's own start and
+duration on the Gantt chart, the bin on the histogram, the run behind a
+scaling point. A bar showing one rank's data is described by that rank's
+region; a bar pooled over ranks by the pooled one. A `--combine-regions` bar
+has no single region behind it, so it lists its members and their pooled
+statistics instead.
+
 The matplotlib backend (the default) writes `.png` and needs no extra
 dependency; the Plotly backend writes `.html` and likewise needs nothing
 beyond Plotly itself.
@@ -298,7 +309,7 @@ scope-profiler export plot-data run_2.h5 -o data
 ```text
 gantt_data.csv                    file, rank, region, start_seconds, end_seconds
 flame_data.csv                    file, rank, call_id, parent_call_id, region, call_path,
-                                  depth, start_seconds, end_seconds,
+                                  source_file, source_lineno, depth, start_seconds, end_seconds,
                                   inclusive_duration_seconds, exclusive_duration_seconds
 durations_data.csv                file, region, metric, value_seconds
 duration_timeseries_data.csv      file, region, call_index, time_seconds,

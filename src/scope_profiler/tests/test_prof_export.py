@@ -1,9 +1,11 @@
 import marshal
 import pstats
 
+import numpy as np
 import pytest
 
 from scope_profiler import read_h5
+from scope_profiler.call_stack import build_call_arrays
 from scope_profiler.post_processing import export_main
 from scope_profiler.prof_export import build_pstats_dict, export_prof
 from scope_profiler.tests.test_post_processing import _write_sample_h5
@@ -153,6 +155,31 @@ def test_build_pstats_dict_call_paths_keep_contexts_separate():
     assert stats[work_b][:4] == (1, 1, pytest.approx(0.6), pytest.approx(0.6))
     assert stats[work_a][4] == {phase_a: stats[work_a][:4]}
     assert stats[work_b][4] == {phase_b: stats[work_b][:4]}
+
+
+def test_build_pstats_dict_uses_captured_source_location():
+    from scope_profiler.mpi_region import MPIRegion
+    from scope_profiler.region import Region
+
+    calls = build_call_arrays(
+        [
+            MPIRegion(
+                "solve",
+                {
+                    0: Region(
+                        np.array([0], dtype=np.int64),
+                        np.array([1_000_000_000], dtype=np.int64),
+                        source_file="solver.py",
+                        source_lineno=42,
+                    )
+                },
+            )
+        ],
+        rank=0,
+    )
+
+    stats = build_pstats_dict(calls)
+    assert ("solver.py", 42, "solve") in stats
 
 
 def test_export_prof_readable_by_pstats(tmp_path):
