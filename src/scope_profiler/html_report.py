@@ -10,10 +10,18 @@ import html
 from collections.abc import Sequence
 from pathlib import Path
 
+import linecache
+
+import numpy as np
+
 from scope_profiler.h5reader import read_h5
 from scope_profiler.inspection import _json_safe
 from scope_profiler.results import ProfilingResults
-from scope_profiler.summary import normalize_region_table_columns, region_rows
+from scope_profiler.summary import (
+    _region_durations,
+    normalize_region_table_columns,
+    region_rows,
+)
 
 _STYLE = """
 body { color: #1f2937; font: 15px/1.45 system-ui, sans-serif; margin: 2rem auto;
@@ -46,6 +54,26 @@ details { margin: .75rem 0; } summary { cursor: pointer; font-weight: 600; }
 .rank-table th, .rank-table td { padding: .3rem .6rem; }
 .tag { display: inline-block; background: #e0e7ff; color: #3730a3; border-radius: .3rem;
        padding: .1rem .5rem; margin: 0 .3rem .3rem 0; font-size: .85em; }
+th[data-key] { cursor: pointer; user-select: none; }
+th[data-key]:hover { color: #2563eb; }
+th[data-key]::after { content: ""; display: inline-block; width: .6em; }
+th[data-sort-dir="asc"]::after { content: "\\25b4"; }
+th[data-sort-dir="desc"]::after { content: "\\25be"; }
+.spark { display: block; }
+.call-tree, .call-tree ul { list-style: none; margin: 0; padding-left: 1.1rem; }
+.call-tree { padding-left: 0; }
+.call-tree > li { margin: .2rem 0; }
+.call-tree summary { font-weight: normal; }
+.call-tree .recursive { color: #6b7280; font-style: italic; }
+
+@media print {
+  body { max-width: 100%; }
+  .region-row { cursor: default; }
+  tr.region-detail[hidden] { display: table-row !important; }
+  details:not([open]) > *:not(summary) { display: block !important; }
+  th { position: static; }
+  table, .chart, .call-tree { break-inside: avoid; }
+}
 """
 
 _SCRIPT = """
@@ -57,6 +85,34 @@ document.querySelectorAll(".region-row").forEach(function (row) {
     detail.hidden = !opening;
     var icon = row.querySelector(".toggle-icon");
     if (icon) icon.textContent = opening ? "\\u25be" : "\\u25b8";
+  });
+});
+
+document.querySelectorAll("table.region-stats").forEach(function (table) {
+  var headerRow = table.tHead.rows[0];
+  Array.prototype.forEach.call(headerRow.cells, function (th) {
+    var key = th.dataset.key;
+    if (!key) return;
+    th.addEventListener("click", function () {
+      var ascending = th.dataset.sortDir !== "asc";
+      Array.prototype.forEach.call(headerRow.cells, function (cell) {
+        delete cell.dataset.sortDir;
+      });
+      th.dataset.sortDir = ascending ? "asc" : "desc";
+      var bodies = Array.prototype.slice.call(table.tBodies);
+      bodies.sort(function (a, b) {
+        var av = a.dataset[key];
+        var bv = b.dataset[key];
+        var an = parseFloat(av);
+        var bn = parseFloat(bv);
+        var cmp =
+          !isNaN(an) && !isNaN(bn) ? an - bn : String(av).localeCompare(String(bv));
+        return ascending ? cmp : -cmp;
+      });
+      bodies.forEach(function (tbody) {
+        table.appendChild(tbody);
+      });
+    });
   });
 });
 """
@@ -205,9 +261,38 @@ def _region_detail_html(region, ranks) -> str:
     return "".join(parts)
 
 
+def _sparkline_svg(durations, width: int = 90, height: int = 22) -> str:
+    """Tiny inline SVG trend line of a region's call durations, in call order."""
+    values = np.asarray(durations, dtype=float)
+    if values.size < 2:
+        return ""
+    if values.size > 200:
+        values = values[np.linspace(0, values.size - 1, 200).astype(int)]
+    lo, hi = float(values.min()), float(values.max())
+    span = hi - lo
+    xs = np.linspace(0, width, values.size)
+    ys = (
+        np.full(values.size, height / 2.0)
+        if span == 0
+        else height - 2 - (values - lo) / span * (height - 4)
+    )
+    points = " ".join(f"{x:.1f},{y:.1f}" for x, y in zip(xs, ys))
+    fill_points = f"0,{height} {points} {width},{height}"
+    return (
+        f'<svg class="spark" viewBox="0 0 {width} {height}" width="{width}" '
+        f'height="{height}" preserveAspectRatio="none">'
+        f'<polygon points="{fill_points}" fill="#bfdbfe" opacity="0.5"></polygon>'
+        f'<polyline points="{points}" fill="none" stroke="#2563eb" '
+        'stroke-width="1.4"></polyline></svg>'
+    )
+
+
 def _region_table(results, rows, ranks, columns) -> str:
     selected_columns = normalize_region_table_columns(columns)
-    headers = "".join(f"<th>{_text(header)}</th>" for _, header in selected_columns)
+    headers = "".join(
+        f'<th data-key="{key}">{_text(header)}</th>' for key, header in selected_columns
+    )
+    headers += "<th>trend</th>"
     keys = [key for key, _ in selected_columns]
     max_total = max((row["total"] or 0.0 for row in rows), default=0.0)
 
@@ -221,7 +306,11 @@ def _region_table(results, rows, ranks, columns) -> str:
             return f'<span class="bar" style="width:{width:.4g}%"></span><span>{text}</span>'
         return text
 
-    body_rows = []
+    def sort_value(row, key) -> str:
+        value = row["num_ranks"] if key == "ranks" else row[key]
+        return "" if value is None else str(value)
+
+    body_groups = []
     for row in rows:
         region = results.get_region(row["name"])
         cells = "".join(
@@ -232,28 +321,152 @@ def _region_table(results, rows, ranks, columns) -> str:
             )
             for key in keys
         )
-        body_rows.append(f'<tr class="region-row">{cells}</tr>')
-        body_rows.append(
-            '<tr class="region-detail" hidden>'
-            f'<td colspan="{len(keys)}">{_region_detail_html(region, ranks)}</td>'
-            "</tr>"
+        cells += f"<td>{_sparkline_svg(_region_durations(region, ranks))}</td>"
+        data_attrs = " ".join(
+            f'data-{key}="{_text(sort_value(row, key))}"' for key in keys
         )
-    body = "".join(body_rows)
+        body_groups.append(
+            f"<tbody {data_attrs}>"
+            f'<tr class="region-row">{cells}</tr>'
+            '<tr class="region-detail" hidden>'
+            f'<td colspan="{len(keys) + 1}">{_region_detail_html(region, ranks)}</td>'
+            "</tr></tbody>"
+        )
+    body = "".join(body_groups)
     if not rows:
-        body = f'<tr><td colspan="{len(keys)}">No regions recorded.</td></tr>'
+        body = f'<tbody><tr><td colspan="{len(keys) + 1}">No regions recorded.</td></tr></tbody>'
     return (
-        "<table><thead><tr>"
+        '<table class="region-stats"><thead><tr>'
         + headers
-        + "</tr></thead><tbody>"
+        + "</tr></thead>"
         + body
-        + "</tbody></table>"
+        + "</table>"
     )
+
+
+def _name_call_tree(nodes):
+    """Collapse per-call ``call_graph()`` nodes into a name-level tree.
+
+    Returns ``(roots, children_of)``: ``roots`` are region names ever called
+    with no parent, in first-seen order; ``children_of`` maps a region name
+    to the distinct child names it was ever seen calling, also in first-seen
+    order. Distinct call instances of the same name collapse onto one node,
+    since the tree describes region structure, not individual calls.
+    """
+    name_of_call = {node["call_id"]: node["name"] for node in nodes}
+    roots: list[str] = []
+    seen_roots: set[str] = set()
+    children_of: dict[str, list[str]] = {}
+    seen_edges: set[tuple[str, str]] = set()
+    for node in nodes:
+        parent_id = node["parent_id"]
+        name = node["name"]
+        if parent_id is None:
+            if name not in seen_roots:
+                seen_roots.add(name)
+                roots.append(name)
+            continue
+        parent_name = name_of_call.get(parent_id)
+        if parent_name is None:
+            continue
+        edge = (parent_name, name)
+        if edge not in seen_edges:
+            seen_edges.add(edge)
+            children_of.setdefault(parent_name, []).append(name)
+    return roots, children_of
+
+
+def _render_call_tree_node(name, children_of, stats, path) -> str:
+    row = stats.get(name)
+    calls = row["calls"] if row else 0
+    total = row["total"] if row else None
+    label = f"<code>{_text(name)}</code> — {_text(calls)} call(s), {_seconds(total)}"
+    if name in path:
+        return f'<li>{label} <span class="recursive">(recursive)</span></li>'
+    children = children_of.get(name, [])
+    if not children:
+        return f"<li>{label}</li>"
+    inner = "".join(
+        _render_call_tree_node(child, children_of, stats, path | {name})
+        for child in children
+    )
+    return f"<li><details><summary>{label}</summary><ul>{inner}</ul></details></li>"
+
+
+def _call_tree_html(results, rows, include, exclude, ranks) -> str:
+    """Nested view of which region calls which, reconstructed from timestamps."""
+    rank = ranks[0] if ranks else 0
+    if rank >= results.num_ranks:
+        return '<p class="muted">Call tree unavailable: no data for the selected ranks.</p>'
+    try:
+        nodes = results.call_graph(rank=rank, include=include, exclude=exclude)
+    except (ValueError, KeyError) as exc:
+        return f'<p class="muted">Call tree unavailable: {_text(exc)}</p>'
+    if not nodes:
+        return '<p class="muted">No calls recorded on this rank.</p>'
+
+    roots, children_of = _name_call_tree(nodes)
+    stats = {row["name"]: row for row in rows}
+    roots.sort(key=lambda name: -(stats.get(name, {}).get("total") or 0.0))
+    body = "".join(
+        _render_call_tree_node(name, children_of, stats, frozenset()) for name in roots
+    )
+    return (
+        f'<p class="muted">Reconstructed from call timestamps on rank {rank}.</p>'
+        f'<ul class="call-tree">{body}</ul>'
+    )
+
+
+def _line_profile_html(results, ranks) -> str:
+    """Per-line timings from ``line_profiler``, one table per profiled function."""
+    available = results.line_profile
+    selected_ranks = sorted(
+        available if ranks is None else [rank for rank in ranks if rank in available]
+    )
+    sections = []
+    for rank in selected_ranks:
+        for record in available.get(rank, []):
+            unit = record["unit"]
+            total_time = float(np.sum(record["times"])) * unit
+            table_rows = []
+            for line, hits, elapsed in zip(
+                record["line_numbers"], record["hits"], record["times"]
+            ):
+                seconds = float(elapsed) * unit
+                per_hit = seconds / int(hits) if hits else 0.0
+                percent = 100.0 * seconds / total_time if total_time else 0.0
+                source = linecache.getline(record["filename"], int(line)).rstrip("\n")
+                table_rows.append(
+                    "<tr>"
+                    f"<td>{_text(int(line))}</td><td>{_text(int(hits))}</td>"
+                    f"<td>{_text(f'{seconds:.6g}')}</td>"
+                    f"<td>{_text(f'{per_hit:.6g}')}</td>"
+                    f"<td>{_text(f'{percent:.2f}')}</td>"
+                    f"<td><code>{_text(source)}</code></td>"
+                    "</tr>"
+                )
+            sections.append(
+                f"<h4>Rank {rank} · {_text(record['region'])} · "
+                f"{_text(record['function'])} ({_text(record['filename'])}:"
+                f"{_text(record['first_lineno'])})</h4>"
+                "<table class='rank-table'><thead><tr><th>line</th><th>hits</th>"
+                "<th>time [s]</th><th>per hit [s]</th><th>% time</th><th>source</th>"
+                "</tr></thead><tbody>" + "".join(table_rows) + "</tbody></table>"
+            )
+    if not sections:
+        return '<p class="muted">No line-profile records for the selected ranks.</p>'
+    return "".join(sections)
 
 
 def _chart_sections(runs, include, exclude, ranks) -> str:
     """Render Plotly charts inline, or explain why the optional extra is absent."""
     try:
-        from scope_profiler.plotting_scripts import plot_durations, plot_gantt
+        from scope_profiler.plotting_scripts import (
+            plot_durations,
+            plot_flame,
+            plot_gantt,
+            plot_rank_heatmap,
+        )
     except ImportError:
         return (
             '<section><h2>Charts</h2><p class="muted">Charts require '
@@ -303,6 +516,45 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
         )
     except (ImportError, ValueError) as exc:
         failures.append(f"Region durations: {exc}")
+
+    try:
+        charts.append(
+            (
+                "Rank heatmap",
+                plot_rank_heatmap(
+                    runs,
+                    include=include,
+                    exclude=exclude,
+                    ranks=ranks,
+                    show=False,
+                    verbose=False,
+                    backend="plotly",
+                    return_fig=True,
+                ),
+            )
+        )
+    except (ImportError, ValueError) as exc:
+        failures.append(f"Rank heatmap: {exc}")
+
+    for run in runs:
+        try:
+            charts.append(
+                (
+                    f"Flame: {run.display_label}",
+                    plot_flame(
+                        run,
+                        include=include,
+                        exclude=exclude,
+                        ranks=ranks,
+                        show=False,
+                        verbose=False,
+                        backend="plotly",
+                        return_fig=True,
+                    ),
+                )
+            )
+        except (ImportError, ValueError) as exc:
+            failures.append(f"Flame for {run.display_label}: {exc}")
 
     fragments = []
     include_plotlyjs = True
@@ -364,10 +616,19 @@ def create_html_report(
             f'<div class="fact"><strong>{_text(name)}:</strong> {_text(value)}</div>'
             for name, value in facts
         )
+        line_profile_html = (
+            f"<details><summary>Line profile</summary>"
+            f"{_line_profile_html(results, ranks)}</details>"
+            if any(results.line_profile.values())
+            else ""
+        )
         sections.append(
             f'<section><h2>{_text(results.display_label)}</h2><div class="facts">{facts_html}</div>'
             f'<div class="overview">{_overview_html(results, rows)}</div>'
             f"<h3>Region statistics</h3>{_region_table(results, rows, ranks, columns)}"
+            f"<details><summary>Call tree</summary>"
+            f"{_call_tree_html(results, rows, include, exclude, ranks)}</details>"
+            f"{line_profile_html}"
             f"<details><summary>Metadata</summary>{_metadata_table(results.metadata)}</details></section>"
         )
 
