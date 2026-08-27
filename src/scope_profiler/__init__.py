@@ -41,6 +41,7 @@ _LAZY_ATTRS = {
     "export_speedscope": "speedscope_export",
     "collect_file_metadata": "inspection",
     "inspect_file": "inspection",
+    "create_html_report": "html_report",
 }
 
 __all__ = [

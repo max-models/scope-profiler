@@ -65,6 +65,7 @@ optional-dependencies.pproc = [
   "matplotlib",
   "maxplotlibx >= 0.1.8",
   "pandas",
+  "plotly",
   "snakeviz",
   "tabulate",
   "textual>=0.86",

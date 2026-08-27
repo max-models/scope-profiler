@@ -177,6 +177,25 @@ payload = write_metadata_json("profiling_data.h5", "metadata.json")
 payload = collect_file_metadata(["run_1.h5", "run_2.h5"])  # no file written
 ```
 
+## `scope-profiler report`
+
+Write a self-contained HTML report containing the selected per-region
+statistics and the complete metadata for one or more profiling files. It has
+no plotting dependency, so it is suitable for copying from a compute node and
+opening later in a browser.
+
+```bash
+scope-profiler report profiling_data.h5 -o report.html
+scope-profiler report 'run_*.h5' -o comparison.html --sort calls
+scope-profiler report profiling_data.h5 -o report.html --include solve --ranks 0-3
+```
+
+`--include`, `--exclude`, `--ranks`, `--sort`, and `--columns` use the same
+meaning as `scope-profiler inspect` and control the region-statistics table.
+Metadata is always retained in the report. With `scope-profiler[pproc]`
+installed, reports also embed interactive Plotly timelines and duration charts;
+pass `--no-charts` for the compact table-only version.
+
 ## `scope-profiler diff`
 
 Compare region statistics between two merged HDF5 profiling files, region by

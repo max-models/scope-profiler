@@ -33,6 +33,7 @@ You can also profile a script without changing its source:
 scope-profiler run my_script.py
 scope-profiler inspect profiling_data.h5
 scope-profiler plot default profiling_data.h5 -o figures
+scope-profiler report profiling_data.h5 -o report.html
 ```
 
 ## Example output
