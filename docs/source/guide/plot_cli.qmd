@@ -46,13 +46,9 @@ Choose a plot preset and give it an output directory:
 scope-profiler plot default run_2.h5 -o figures
 ```
 
-```text
-Plotting Gantt chart for ranks: [0, 1]
-Plotting duration comparison (total) for files: run_2
-Outputs saved to:
-  figures/gantt_plot.png
-  figures/durations_plot.png
-  figures/region_statistics.json
+```{eval-rst}
+.. literalinclude:: ../_generated/plot-cli-default.txt
+   :language: text
 ```
 
 Without `-o/--output` nothing is written; use `--show` to open the charts
@@ -67,18 +63,12 @@ LIKWID hardware counter table per rank and event group when the run recorded
 any:
 
 ```bash
-scope-profiler inspect run_2.h5
+scope-profiler inspect run_2.h5 --regions-only
 ```
 
-```text
-run_2.h5  (2 rank(s))
-  region        ranks  calls  total [s]   avg [s]
-  -----------------------------------------------
-  main              1      1    0.16637   0.16637
-  matmul            1      3   0.125949  0.041983
-  memory_bound      1      1   0.035121  0.035121
-  -----------------------------------------------
-  TOTAL                    5    0.32744
+```{eval-rst}
+.. literalinclude:: ../_generated/plot-cli-inspect.txt
+   :language: text
 ```
 
 `--sort` reorders it (`total`, `calls`, `avg`, `min`, `max`, `std` or
@@ -113,20 +103,17 @@ rank 0 only; pass `--ranks` to render more (one panel each).
 ## Duration bar charts
 
 One bar chart is written per duration statistic. By default only `total` time
-is shown; `--metrics` selects which statistics to include:
+is shown; request other statistics with `--metrics`:
 
 ```bash
-scope-profiler plot durations run_2.h5 -o figures --metrics avg total
+scope-profiler plot durations run_2.h5 -o figures
 ```
-
-![Average duration per call, by region](../_static/figures/cli/durations_plot_avg.png)
 
 ![Total duration, by region](../_static/figures/cli/durations_plot_total.png)
 
-The two views tell different stories: `setup` and `solve` cost about the same
-per call, but `solve` runs once per timestep and so accounts for three times
-as much total time. With several input files, bars are grouped per region so
-runs can be compared side by side.
+For example, `--metrics avg total` also writes an average-per-call chart. With
+several input files, bars are grouped per region so runs can be compared side
+by side.
 
 ## Duration over time
 

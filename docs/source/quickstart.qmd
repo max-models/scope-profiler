@@ -80,14 +80,9 @@ results = run.results
 
 Output:
 
-```text
-profiling_data.h5  (1 rank(s))
-  region           ranks  calls   total [s]     avg [s]
-  ------------------------------------------------------
-  matrix_multiply      1    100    0.523189    0.005231
-  time_step            1   1000         ...         ...
-  ------------------------------------------------------
-  TOTAL                     1100         ...
+```{eval-rst}
+.. literalinclude:: _generated/quickstart-overview.txt
+   :language: text
 ```
 
 The same table is available from `ProfilingResults.print_summary()` and from
@@ -139,12 +134,7 @@ with ProfileManager.session():
 python example.py
 ```
 
-```text
-profiling_data.h5  (1 rank(s))
-  region     ranks  calls    total [s]      avg [s]
-  --------------------------------------------------
-  main           1      1   0.00150371   0.00150371
-  iteration      1     10    3.832e-06    3.832e-07
-  --------------------------------------------------
-  TOTAL                11   0.00150754
+```{eval-rst}
+.. literalinclude:: _generated/quickstart-complete.txt
+   :language: text
 ```
