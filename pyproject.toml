@@ -76,7 +76,7 @@ optional-dependencies.graph = [
 
 optional-dependencies.dev = [
   "black[jupyter]",
-  "isort",
+  "isort >= 9.0.0",
   "ruff",
   "scope-profiler[docs,fortran,line-profiler,mcp,mpi,nvtx,pproc,test,tui]",
 ]
