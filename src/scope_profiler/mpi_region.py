@@ -66,7 +66,7 @@ class MPIRegion:
     @property
     def has_source(self) -> bool:
         """Whether any rank captured this region's call-site source."""
-        return self.source_text is not None
+        return self.source_file is not None
 
     @property
     def has_gpu_timing(self) -> bool:

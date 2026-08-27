@@ -387,17 +387,22 @@ class ProfileManager:
         direct-call form, same as e.g. the stdlib ``logging`` module's
         caller detection.
         """
-        if (
-            isinstance(region, DisabledProfileRegion)
-            or not cls._config.capture_region_source
-        ):
+        if isinstance(region, DisabledProfileRegion):
             return
         frame = sys._getframe(2)  # profile_region() -> here -> caller
         if cls._is_internal_frame(frame):
             return
         filename = frame.f_code.co_filename
         lineno = frame.f_lineno
-        region.set_source(filename, lineno, call_site_source(filename, lineno))
+        region.set_source(
+            filename,
+            lineno,
+            (
+                call_site_source(filename, lineno)
+                if cls._config.capture_region_source
+                else None
+            ),
+        )
 
     @classmethod
     def profile(
@@ -709,7 +714,7 @@ class ProfileManager:
         sources = {}
         for name in names:
             region = cls._regions.get(name)
-            if region is not None and region.source_text is not None:
+            if region is not None and region.source_file is not None:
                 sources[name] = (
                     region.source_file,
                     region.source_lineno,
@@ -1639,12 +1644,15 @@ class ProfileManager:
         its own -- skipping this on rebind would silently drop it.
         """
         region = cls.profile_region(name)
-        if cls._config.capture_region_source and not isinstance(
-            region, DisabledProfileRegion
-        ):
-            source = function_source(func)
-            if source is not None:
-                region.set_source(*source)
+        if not isinstance(region, DisabledProfileRegion):
+            if cls._config.capture_region_source:
+                source = function_source(func)
+                if source is not None:
+                    region.set_source(*source)
+            else:
+                code = getattr(func, "__code__", None)
+                if code is not None:
+                    region.set_source(code.co_filename, code.co_firstlineno, None)
         _bound[0] = region
         _bound[1] = region.wrap(func)
         return region

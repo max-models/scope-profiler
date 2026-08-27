@@ -125,9 +125,9 @@ results.get_regions(exclude="io.*")
 
 ### Where a region is defined
 
-A region can record the source it was created from: the `with` block for
-the context-manager form, or the whole function body for the decorator form.
-It is off by default -- turn it on with `capture_region_source=True` (see
+A region records its defining filename and line by default: the `with` block
+for the context-manager form, or the function for the decorator form. Full
+source text is opt-in with `capture_region_source=True` (see
 {doc}`configuration` for what it costs and why it isn't on unconditionally):
 
 ```python

@@ -231,10 +231,10 @@ class AggregateProfileRegion:
 
     @property
     def has_source(self):
-        return self.source_text is not None
+        return self.source_file is not None
 
     def set_source(self, filename, lineno, text):
-        if self.source_text is None and filename is not None:
+        if self.source_file is None and filename is not None:
             self.source_file, self.source_lineno, self.source_text = (
                 filename,
                 lineno,
@@ -406,7 +406,7 @@ class BaseProfileRegion:
         keeps only the first location, matching how their timings are already
         pooled together under one name (see issue #161).
         """
-        if self.source_text is not None or filename is None:
+        if self.source_file is not None or filename is None:
             return
         self.source_file = filename
         self.source_lineno = lineno
@@ -415,7 +415,7 @@ class BaseProfileRegion:
     @property
     def has_source(self) -> bool:
         """Whether this region's call-site source was captured."""
-        return self.source_text is not None
+        return self.source_file is not None
 
     def _grow(self) -> None:
         """Double the timestamp buffers, preserving already-recorded slots.
