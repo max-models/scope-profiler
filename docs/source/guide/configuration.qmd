@@ -67,6 +67,11 @@ exercise the direct backend.
 
 ## Enabling `capture_region_source`
 
+Every Python region records just its defining
+filename and line number for decorators and direct context-manager regions,
+using a one-time frame/code-object lookup. It neither reads nor parses source
+files and adds no per-call work.
+
 Off by default, because its cost -- while cheap for a typical file -- is not
 always. Capturing a region's source parses its defining file's AST and walks
 it once per distinct file, the first time any of its regions is created --

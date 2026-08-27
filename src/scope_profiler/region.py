@@ -217,7 +217,7 @@ class Region:
     @property
     def has_source(self) -> bool:
         """Whether this region's call-site source was captured."""
-        return self._source_text is not None
+        return self._source_file is not None
 
     @property
     def has_gpu_timing(self) -> bool:
