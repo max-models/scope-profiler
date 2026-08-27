@@ -196,6 +196,14 @@ Metadata is always retained in the report. With `scope-profiler[pproc]`
 installed, reports also embed interactive Plotly timelines and duration charts;
 pass `--no-charts` for the compact table-only version.
 
+Each run's section opens with a short auto-generated overview -- the
+region that dominates the recorded time, a load-imbalance callout when one
+region's slowest rank is well above the per-rank average, and a note about
+regions called often enough that timer overhead itself becomes measurable.
+Clicking a row in the region table expands it in place to show the captured
+call-site source, tags, and a per-rank calls/total/avg/min/max breakdown, all
+without any JavaScript dependency beyond a small inline toggle script.
+
 ## `scope-profiler diff`
 
 Compare region statistics between two merged HDF5 profiling files, region by

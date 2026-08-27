@@ -46,6 +46,39 @@ def test_report_can_omit_embedded_charts(tmp_path):
     assert "<h2>Charts</h2>" not in report.read_text(encoding="utf-8")
 
 
+def test_report_overview_flags_hot_spot_and_imbalance(tmp_path):
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    _write_sample_h5(
+        profile,
+        {
+            0: {"solve": ([0], [10])},
+            1: {"solve": ([0], [20])},
+        },
+    )
+
+    cli_main(["report", str(profile), "-o", str(report)])
+
+    document = report.read_text(encoding="utf-8")
+    assert '<div class="overview">' in document
+    assert "<code>solve</code> dominates the recorded time" in document
+    assert "unevenly distributed across" in document
+
+
+def test_report_region_rows_are_clickable_with_call_site_detail(tmp_path):
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    _write_sample_h5(profile, _sample_file_data(1, 10, 20))
+
+    cli_main(["report", str(profile), "-o", str(report)])
+
+    document = report.read_text(encoding="utf-8")
+    assert 'class="region-row"' in document
+    assert 'class="region-detail" hidden' in document
+    assert "class='rank-table'" in document
+    assert "region-row" in document and 'addEventListener("click"' in document
+
+
 def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
