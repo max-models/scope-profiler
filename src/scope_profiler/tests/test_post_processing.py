@@ -1,3 +1,4 @@
+import csv
 import json
 import sys
 import types
@@ -12,8 +13,10 @@ from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.plotting_scripts import (
     _display_matplotlib_figure_in_notebook,
     _duration_timeseries,
+    _group_regions,
     _render,
     _set_xticks,
+    _stacked_segments,
     available_likwid_metrics,
     collect_region_statistics,
     plot_duration_histogram,
@@ -158,6 +161,90 @@ def test_plot_durations_comparison(tmp_path):
     metric_file = out_file
     assert metric_file.exists()
     assert metric_file.stat().st_size > 0
+
+
+def _nested_file_data(rank_count=1):
+    """One outer region per rank, with two children and some self time."""
+    return {
+        rank: {
+            "step": ([0, 1000], [500, 1500]),
+            "assemble": ([10], [110]),
+            "solve": ([200], [400]),
+            "inner": ([250], [300]),
+        }
+        for rank in range(rank_count)
+    }
+
+
+def test_stacked_segments_split_self_time_from_children(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data())
+    run = read_h5(file_path)
+
+    _, members = _group_regions([region.name for region in run.get_regions()], None)
+    segments = _stacked_segments(run, members)
+
+    # "step" spans 0-500 and 1000-1500: 100 ns in assemble, 200 in solve,
+    # and everything else its own.
+    assert segments["step"] == {"self": 700.0, "assemble": 100.0, "solve": 200.0}
+    # "inner" is a child of "solve", not of "step" -- only direct children
+    # become segments, and solve's self time excludes it.
+    assert segments["solve"] == {"self": 150.0, "inner": 50.0}
+    assert segments["inner"] == {"self": 50.0}
+
+
+def test_stacked_segments_fold_same_bar_nesting_into_self(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data())
+    run = read_h5(file_path)
+
+    names = [region.name for region in run.get_regions()]
+    _, members = _group_regions(names, {"solver": ["solve", "inner"]})
+    segments = _stacked_segments(run, members)
+
+    # "inner" nests inside "solve", and both are the same bar, so its time
+    # stays in that bar's self time instead of becoming a segment of itself.
+    assert segments["solver"] == {"self": 200.0}
+    assert segments["step"]["solver"] == 200.0
+
+
+def test_plot_durations_stacked_bars_sum_to_the_plain_bar(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    data_path = tmp_path / "durations.csv"
+    _write_sample_h5(file_path, _nested_file_data())
+
+    saved_paths = plot_durations(
+        read_h5(file_path),
+        metric="total",
+        stack_children=True,
+        filepath=tmp_path / "durations.png",
+        data_filepath=data_path,
+        show=False,
+        verbose=False,
+    )
+
+    assert len(saved_paths) == 1
+    rows = list(csv.DictReader(data_path.open()))
+    assert {row["segment"] for row in rows} == {"self", "assemble", "solve", "inner"}
+    stacked = sum(
+        float(row["value_seconds"]) for row in rows if row["region"] == "step"
+    )
+    # 500 + 500 ns of "step", split across its own time and its children.
+    assert stacked == pytest.approx(1000 / 1e9)
+
+
+def test_plot_durations_rejects_stacking_a_min_or_max(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data())
+
+    with pytest.raises(ValueError, match="stack_children"):
+        plot_durations(
+            read_h5(file_path),
+            metric="max",
+            stack_children=True,
+            show=False,
+            verbose=False,
+        )
 
 
 def test_simple_plotext_backend_writes_terminal_plot(tmp_path):

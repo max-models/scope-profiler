@@ -250,6 +250,14 @@ def _add_duration_args(parser: argparse.ArgumentParser) -> None:
         metavar="NAME=PATTERN[,PATTERN...]",
         help="Merge regions into named bars using regex patterns.",
     )
+    parser.add_argument(
+        "--stack-children",
+        action="store_true",
+        help=(
+            "Split each bar into the region's own time plus one stacked "
+            "segment per region called from it (total/avg only)."
+        ),
+    )
 
 
 def _add_log_scale_arg(parser: argparse.ArgumentParser) -> None:
@@ -603,6 +611,7 @@ def _plot_options(args: argparse.Namespace, name: str):
         "sort_by": getattr(args, "sort_by", None),
         "top_n": getattr(args, "top_n", None),
         "combine_regions": getattr(args, "combine_regions", None),
+        "stack_children": getattr(args, "stack_children", False),
         "log_scale": getattr(args, "log_scale", False),
         "histogram_bins": getattr(args, "bins", 30),
         "imbalance_metric": (
@@ -787,6 +796,7 @@ def _render_selected_plots(
                     sort_by=options["sort_by"],
                     top_n=options["top_n"],
                     combine_regions=options["combine_regions"],
+                    stack_children=options["stack_children"],
                     cmap=args.cmap,
                     log_scale=options["log_scale"],
                     data_filepath=durations_data_path,

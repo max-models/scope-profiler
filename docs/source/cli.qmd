@@ -330,6 +330,7 @@ usage: scope-profiler plot [-h]
 | `--sort-by`           | durations, likwid | Order the bar chart's regions by this statistic, descending (`name` sorts alphabetically). Default: order of first appearance |
 | `--top-n`             | durations, likwid | Keep only the top N regions after `--sort-by` |
 | `--combine-regions`   | durations  | Merge several regions into one bar: `NAME=PATTERN1,PATTERN2` (repeat once per group). Region names are matched against the comma-separated regexes like `--include`; a region matched by more than one group is claimed by whichever group is listed first |
+| `--stack-children`    | durations  | Split each bar into the region's own (exclusive) time plus one stacked segment per region called directly from it, so a bar shows where its time went. Nesting is reconstructed from timestamps, as in the flame chart; children filtered out of the bars still get a segment. Only `total` and `avg` decompose this way |
 | `--log-scale`         | durations, timeseries, histogram, imbalance, likwid | Logarithmic y-axis |
 | `--bins`             | histogram  | Number of duration bins (default: 30) |
 | `--metric`           | imbalance  | Per-call duration statistic plotted per rank: any of `avg`, `min`, `max`, `total` (default: `total`) |

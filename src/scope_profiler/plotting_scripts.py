@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from scope_profiler.call_stack import build_call_stack
+from scope_profiler.region import NS_PER_SECOND
 from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import _name_selected
 
@@ -1488,6 +1489,13 @@ _DURATION_METRICS: dict[str, tuple[str, str]] = {
     "total": ("total_duration_seconds", "Total duration (seconds)"),
 }
 
+# Metrics whose bar is a sum over calls, and so can be split into self time
+# plus one segment per child region (see ``plot_durations(stack_children=)``).
+_STACKABLE_METRICS = frozenset({"avg", "total"})
+
+# Label of the stacked segment holding a region's own, non-nested time.
+_SELF_SEGMENT = "self"
+
 
 def _pooled_metric_value(
     run: ProfilingResults,
@@ -1628,6 +1636,135 @@ def _sort_and_limit_region_names(
     return ordered
 
 
+def _stacked_segments(
+    run: ProfilingResults,
+    region_members: dict[str, list[str]],
+    ranks: list[int] | None = None,
+) -> dict[str, dict[str, float]]:
+    """Split each bar's inclusive time into self time plus its direct children.
+
+    Regions record no call graph, so the nesting is reconstructed from
+    timestamp containment (:func:`~scope_profiler.call_stack.build_call_arrays`)
+    -- the same call graph the flame chart draws, over *all* the run's
+    regions, not just the plotted ones, since a region filtered out of the
+    bars is still somebody's parent.
+
+    Every call is credited to the bar its parent belongs to. A call whose
+    parent is in the same bar (a recursive region, or two members of one
+    ``combine_regions`` group nested in each other) is left in that bar's
+    self time rather than becoming a segment of itself, so a bar's segments
+    always sum to time spent inside it, counted once.
+
+    Returns ``{bar name: {segment label: total nanoseconds}}``, where the
+    ``"self"`` segment is exclusive time and every other key is a child
+    region's name -- its bar name when that child is itself a plotted bar.
+    """
+    from scope_profiler.call_stack import build_call_arrays
+
+    regions = run.get_regions()
+    bar_of_region = {
+        member: bar for bar, members in region_members.items() for member in members
+    }
+    available = sorted({rank for region in regions for rank in region.ranks})
+    selected = available if ranks is None else [r for r in available if r in ranks]
+
+    totals: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for rank in selected:
+        calls = build_call_arrays(regions, rank)
+        if not len(calls):
+            continue
+
+        bar_names = list(
+            dict.fromkeys(bar_of_region.get(name, name) for name in calls.names)
+        )
+        index_of = {name: index for index, name in enumerate(bar_names)}
+        row_bar = np.array(
+            [index_of[bar_of_region.get(name, name)] for name in calls.names]
+        )
+        call_bar = row_bar[calls.region_index]
+
+        self_ns = np.bincount(
+            call_bar, weights=calls.exclusive_ns, minlength=len(bar_names)
+        )
+        for index, name in enumerate(bar_names):
+            totals[name]["self"] += float(self_ns[index])
+
+        nested = calls.parent >= 0
+        parent_bar = call_bar[calls.parent[nested]]
+        child_bar = call_bar[nested]
+        outside = parent_bar != child_bar
+        if not outside.any():
+            continue
+        durations = (calls.end_ns - calls.start_ns)[nested][outside]
+        # One key per (parent bar, child bar) pair; np.unique rather than a
+        # dense len(bars)**2 histogram, which a run with many regions would
+        # not fit.
+        keys = (
+            parent_bar[outside].astype(np.int64) * len(bar_names) + child_bar[outside]
+        )
+        unique_keys, inverse = np.unique(keys, return_inverse=True)
+        sums = np.bincount(inverse, weights=durations, minlength=unique_keys.size)
+        for key, total in zip(unique_keys, sums):
+            parent_name = bar_names[int(key) // len(bar_names)]
+            child_name = bar_names[int(key) % len(bar_names)]
+            totals[parent_name][child_name] += float(total)
+
+    return {name: dict(segments) for name, segments in totals.items()}
+
+
+def _stacked_bar_values(
+    runs: Sequence[ProfilingResults],
+    region_names: list[str],
+    region_members: dict[str, list[str]],
+    ranks: list[int] | None,
+    metric_key: str,
+) -> tuple[list[str], list[dict[str, np.ndarray]]]:
+    """Build the per-run stacked bar heights, in seconds.
+
+    Returns the ordered segment labels (``"self"`` first, then children by
+    descending total across every run) and, per run, a
+    ``{segment label: heights indexed like region_names}`` mapping.
+    """
+    per_run = [_stacked_segments(run, region_members, ranks=ranks) for run in runs]
+
+    pooled: dict[str, float] = defaultdict(float)
+    for segments in per_run:
+        for region_name in region_names:
+            for label, value in segments.get(region_name, {}).items():
+                if label != "self":
+                    pooled[label] += value
+    segment_labels = ["self"] + sorted(
+        pooled, key=lambda label: (-pooled[label], label)
+    )
+
+    values: list[dict[str, np.ndarray]] = []
+    for run, segments in zip(runs, per_run):
+        # ``avg`` divides the whole bar by the same call count the unstacked
+        # bar uses, so stacking rescales a bar without changing its height.
+        if metric_key == "avg":
+            scales = [
+                _pooled_metric_value(run, region_members[name], "count", ranks=ranks)
+                for name in region_names
+            ]
+        else:
+            scales = [1.0] * len(region_names)
+        run_values: dict[str, np.ndarray] = {}
+        for label in segment_labels:
+            heights = np.array(
+                [
+                    (
+                        segments.get(name, {}).get(label, 0.0) / NS_PER_SECOND / scale
+                        if scale
+                        else float("nan")
+                    )
+                    for name, scale in zip(region_names, scales)
+                ]
+            )
+            run_values[label] = heights
+        values.append(run_values)
+    return segment_labels, values
+
+
 def plot_durations(
     profiling_data: ProfilingResults | Sequence[ProfilingResults],
     ranks: list[int] | int | None = None,
@@ -1638,6 +1775,7 @@ def plot_durations(
     sort_by: str | None = None,
     top_n: int | None = None,
     combine_regions: dict[str, list[str] | str] | None = None,
+    stack_children: bool = False,
     filepath: str | None = None,
     show: bool = False,
     verbose: bool = True,
@@ -1661,6 +1799,17 @@ def plot_durations(
         several groups is claimed by whichever group is listed first.
     metric : str
         Duration metric to render (``avg``, ``min``, ``max`` or ``total``).
+    stack_children : bool
+        Split each bar into the region's own (exclusive) time plus one
+        segment per region called directly from it, stacked on top of each
+        other, so a bar shows where its time went instead of only how much
+        there was. The nesting comes from timestamp containment, the same
+        reconstruction the flame chart uses, over every region in the run --
+        a child that is filtered out of the bars still gets its own segment.
+        Only ``total`` and ``avg`` decompose this way; ``min``/``max`` are
+        rejected. Colors then identify segments rather than runs, so with
+        several runs the bars are still grouped per region in run order but
+        the legend names the segments.
     backend : str
         Backend to use for rendering: "matplotlib" (default) or "plotly".
     return_fig : bool
@@ -1686,6 +1835,17 @@ def plot_durations(
             f"Unknown metric(s) {unknown_metrics}. "
             f"Valid options are: {list(_DURATION_METRICS)}"
         )
+
+    if stack_children:
+        # A bar's segments have to sum to the bar: totals and per-call
+        # averages do, a minimum or maximum over calls does not.
+        unstackable = [key for key in metric_keys if key not in _STACKABLE_METRICS]
+        if unstackable:
+            raise ValueError(
+                f"stack_children does not apply to metric(s) {unstackable}: "
+                f"only {sorted(_STACKABLE_METRICS)} decompose into "
+                "self time plus children."
+            )
 
     if labels is None:
         labels = _unique_labels([run.display_label for run in runs])
@@ -1720,6 +1880,10 @@ def plot_durations(
     fig_height = max(4.5, 2.5 + 0.35 * num_readers, 3.0 + label_space)
     bottom_margin = (label_space + 0.25) / fig_height
     width = min(0.8 / max(num_readers, 1), 0.35)
+    # Bars are drawn narrower than their spacing only when stacking: runs
+    # then share their segment colors, so touching bars would read as one
+    # block. Elsewhere the historical flush grouping is kept.
+    bar_width = width * 0.85 if stack_children and num_readers > 1 else width
 
     saved_paths: list[str] = []
     rendered_figures: list[object] = []
@@ -1728,20 +1892,47 @@ def plot_durations(
     for metric_key in metric_keys:
         stat_key, ylabel = _DURATION_METRICS[metric_key]
 
-        values = [
-            [
-                _pooled_metric_value(
-                    run, region_members[region_name], stat_key, ranks=ranks
-                )
-                for region_name in region_names
+        segment_labels: list[str] = []
+        stacked_values: list[dict[str, np.ndarray]] = []
+        if stack_children:
+            segment_labels, stacked_values = _stacked_bar_values(
+                runs, region_names, region_members, ranks, metric_key
+            )
+            segment_colors = dict(
+                zip(segment_labels, _get_cmap_colors(cmap, len(segment_labels)))
+            )
+            values = [
+                [
+                    float(sum(run_values[segment][index] for segment in segment_labels))
+                    for index in range(len(region_names))
+                ]
+                for run_values in stacked_values
             ]
-            for run in runs
-        ]
+        else:
+            values = [
+                [
+                    _pooled_metric_value(
+                        run, region_members[region_name], stat_key, ranks=ranks
+                    )
+                    for region_name in region_names
+                ]
+                for run in runs
+            ]
 
         if data_filepath:
-            for label, file_values in zip(labels, values):
-                for region_name, value in zip(region_names, file_values):
-                    data_rows.append([label, region_name, metric_key, value])
+            if stack_children:
+                for label, run_values in zip(labels, stacked_values):
+                    for segment in segment_labels:
+                        for region_name, value in zip(
+                            region_names, run_values[segment]
+                        ):
+                            data_rows.append(
+                                [label, region_name, metric_key, segment, float(value)]
+                            )
+            else:
+                for label, file_values in zip(labels, values):
+                    for region_name, value in zip(region_names, file_values):
+                        data_rows.append([label, region_name, metric_key, value])
 
         canvas = Canvas(
             figsize=(fig_width, fig_height),
@@ -1754,15 +1945,34 @@ def plot_durations(
 
         for idx, (label, file_values) in enumerate(zip(labels, values)):
             offsets = x_positions + offset_start + idx * width
-            canvas.bar(
-                offsets,
-                file_values,
-                width=width,
-                label=label if num_readers > 1 else None,
-                color=_to_hex(colors[idx]),
-                edgecolor="black",
-                alpha=0.8,
-            )
+            run_values = stacked_values[idx] if stack_children else {}
+            if not stack_children:
+                canvas.bar(
+                    offsets,
+                    file_values,
+                    width=bar_width,
+                    label=label if num_readers > 1 else None,
+                    color=_to_hex(colors[idx]),
+                    edgecolor="black",
+                    alpha=0.8,
+                )
+                continue
+
+            # Stack by drawing each segment's cumulative top as an opaque bar
+            # from zero, tallest first, so the next one paints over it. That
+            # needs nothing from the backend beyond a plain bar -- maxplotlib
+            # forwards neither Matplotlib's ``bottom`` nor Plotly's ``base``.
+            heights = np.vstack([run_values[segment] for segment in segment_labels])
+            cumulative = np.cumsum(np.nan_to_num(heights), axis=0)
+            for position in range(len(segment_labels) - 1, -1, -1):
+                canvas.bar(
+                    offsets,
+                    cumulative[position],
+                    width=bar_width,
+                    label=segment_labels[position] if idx == 0 else None,
+                    color=_to_hex(segment_colors[segment_labels[position]]),
+                    edgecolor="black",
+                )
 
         tick_rotation_applied = _set_xticks(
             canvas,
@@ -1772,11 +1982,14 @@ def plot_durations(
             ha="right",
         )
         canvas.set_ylabel(ylabel)
-        canvas.set_title(f"Region duration comparison ({metric_key})")
+        title = f"Region duration comparison ({metric_key})"
+        if stack_children:
+            title += ", children stacked"
+        canvas.set_title(title)
         canvas.set_grid(True)
         if log_scale:
             canvas.set_yscale("log")
-        if num_readers > 1:
+        if stack_children or num_readers > 1:
             canvas.set_legend()
 
         metric_filepath = None
@@ -1791,6 +2004,9 @@ def plot_durations(
             metric_filepath,
             show,
             backend,
+            # Overlapping bars, not Plotly's default side-by-side grouping:
+            # the stack is drawn as bars painted over each other.
+            plotly_layout={"barmode": "overlay"} if stack_children else None,
             x_tick_rotation=None if tick_rotation_applied else 45,
             return_fig=return_fig,
         )
@@ -1799,24 +2015,45 @@ def plot_durations(
 
     if data_filepath:
         if data_format == "json":
-            bars = [
-                {
-                    "file": file,
-                    "region": region,
-                    "metric": metric,
-                    "value_seconds": value,
+            if stack_children:
+                bars = [
+                    {
+                        "file": file,
+                        "region": region,
+                        "metric": metric,
+                        "segment": segment,
+                        "value_seconds": value,
+                    }
+                    for file, region, metric, segment, value in data_rows
+                ]
+                colors_map = {
+                    segment: _to_hex(color)
+                    for segment, color in zip(
+                        segment_labels, _get_cmap_colors(cmap, len(segment_labels))
+                    )
                 }
-                for file, region, metric, value in data_rows
-            ]
-            colors_map = {label: _to_hex(color) for label, color in zip(labels, colors)}
+            else:
+                bars = [
+                    {
+                        "file": file,
+                        "region": region,
+                        "metric": metric,
+                        "value_seconds": value,
+                    }
+                    for file, region, metric, value in data_rows
+                ]
+                colors_map = {
+                    label: _to_hex(color) for label, color in zip(labels, colors)
+                }
             _write_json(
                 data_filepath,
                 {"bars": bars, "colors": colors_map, "metrics": metric_keys},
             )
         else:
-            _write_csv(
-                data_filepath, ["file", "region", "metric", "value_seconds"], data_rows
-            )
+            header = ["file", "region", "metric", "value_seconds"]
+            if stack_children:
+                header = ["file", "region", "metric", "segment", "value_seconds"]
+            _write_csv(data_filepath, header, data_rows)
 
     if return_fig:
         return rendered_figures[0]
