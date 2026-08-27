@@ -29,9 +29,7 @@ from scope_profiler.benchmark import (
     BenchmarkError,
 )
 from scope_profiler.benchmark import compare_benchmarks as _compare_benchmarks
-from scope_profiler.benchmark import (
-    load_config,
-)
+from scope_profiler.benchmark import load_config
 from scope_profiler.benchmark import run_benchmark as _run_benchmark
 from scope_profiler.diff import METRICS as DIFF_METRICS
 from scope_profiler.diff import diff_rows
