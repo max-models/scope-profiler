@@ -948,10 +948,19 @@ def plot_flame(
                         {
                             "file": label,
                             "rank": rank,
+                            "call_id": call["call_id"],
+                            "parent_call_id": call["parent"],
                             "region": call["name"],
+                            "call_path": call["call_path"],
                             "depth": call["depth"],
                             "start_seconds": call["start"],
                             "end_seconds": call["end"],
+                            "inclusive_duration_seconds": call[
+                                "inclusive_duration"
+                            ],
+                            "exclusive_duration_seconds": call[
+                                "exclusive_duration"
+                            ],
                         }
                     )
             _write_json(data_filepath, {"calls": call_records, "colors": colors})
@@ -963,15 +972,32 @@ def plot_flame(
                         [
                             label,
                             rank,
+                            call["call_id"],
+                            call["parent"],
                             call["name"],
+                            call["call_path"],
                             call["depth"],
                             call["start"],
                             call["end"],
+                            call["inclusive_duration"],
+                            call["exclusive_duration"],
                         ]
                     )
             _write_csv(
                 data_filepath,
-                ["file", "rank", "region", "depth", "start_seconds", "end_seconds"],
+                [
+                    "file",
+                    "rank",
+                    "call_id",
+                    "parent_call_id",
+                    "region",
+                    "call_path",
+                    "depth",
+                    "start_seconds",
+                    "end_seconds",
+                    "inclusive_duration_seconds",
+                    "exclusive_duration_seconds",
+                ],
                 rows,
             )
 
@@ -1034,7 +1060,7 @@ def plot_flame(
         max_depth = max(call["depth"] for call in calls)
 
         canvas.flame_chart(
-            [call["name"] for call in calls],
+            [call["call_path"] for call in calls],
             [call["parent"] for call in calls],
             [call["end"] - call["start"] for call in calls],
             start_times=[call["start"] - first_start for call in calls],

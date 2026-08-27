@@ -293,7 +293,9 @@ scope-profiler export plot-data run_2.h5 -o data
 
 ```text
 gantt_data.csv                    file, rank, region, start_seconds, end_seconds
-flame_data.csv                    file, rank, region, depth, start_seconds, end_seconds
+flame_data.csv                    file, rank, call_id, parent_call_id, region, call_path,
+                                  depth, start_seconds, end_seconds,
+                                  inclusive_duration_seconds, exclusive_duration_seconds
 durations_data.csv                file, region, metric, value_seconds
 duration_timeseries_data.csv      file, region, call_index, time_seconds,
                                   mean/min/max_duration_seconds, num_ranks

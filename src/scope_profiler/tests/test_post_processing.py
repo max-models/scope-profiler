@@ -802,13 +802,36 @@ def test_plot_gantt_export_data_json(tmp_path):
     assert regions == {"setup", "solve"}
 
 
-def test_plot_flame_export_data_json(tmp_path):
+def test_plot_flame_export_data_json(tmp_path, monkeypatch):
     file_path = tmp_path / "run.h5"
     data_file = tmp_path / "flame_data.json"
 
-    rank_regions = {0: {"fib": ([0, 10, 60], [100, 90, 80])}}
+    rank_regions = {
+        0: {
+            "phase_a": ([0], [100]),
+            "phase_b": ([200], [300]),
+            "work": ([10, 210], [90, 290]),
+        }
+    }
     _write_sample_h5(file_path, rank_regions)
     results = read_h5(file_path)
+
+    frame_labels = []
+
+    class _RecordingCanvas:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def flame_chart(self, labels, *args, **kwargs):
+            frame_labels.extend(labels)
+
+        def __getattr__(self, name):
+            return lambda *args, **kwargs: None
+
+    import scope_profiler.plotting_scripts as plotting_scripts
+
+    monkeypatch.setattr(plotting_scripts, "_get_canvas", lambda: _RecordingCanvas)
+    monkeypatch.setattr(plotting_scripts, "_render", lambda *args, **kwargs: None)
 
     plot_flame(
         results,
@@ -819,9 +842,15 @@ def test_plot_flame_export_data_json(tmp_path):
     )
 
     payload = json.loads(data_file.read_text(encoding="utf-8"))
-    assert payload["colors"]["fib"].startswith("#")
-    depths = sorted(call["depth"] for call in payload["calls"])
-    assert depths == [0, 1, 2]
+    assert payload["colors"]["work"].startswith("#")
+    calls = {call["call_path"]: call for call in payload["calls"]}
+    assert set(calls) == {"phase_a", "phase_a > work", "phase_b", "phase_b > work"}
+    assert calls["phase_a > work"]["parent_call_id"] == calls["phase_a"]["call_id"]
+    assert calls["phase_b > work"]["parent_call_id"] == calls["phase_b"]["call_id"]
+    assert calls["phase_a > work"]["exclusive_duration_seconds"] == pytest.approx(
+        80e-9
+    )
+    assert frame_labels == ["phase_a", "phase_a > work", "phase_b", "phase_b > work"]
 
 
 def test_plot_durations_export_data_json(tmp_path):

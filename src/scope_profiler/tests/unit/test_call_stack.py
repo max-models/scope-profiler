@@ -122,6 +122,12 @@ def test_arrays_and_dicts_agree():
     assert [call["name"] for call in calls] == [
         arrays.names[row] for row in arrays.region_index.tolist()
     ]
+    assert [call["call_path"] for call in calls] == [
+        "outer",
+        "outer > inner",
+        "outer > inner > leaf",
+        "outer > inner",
+    ]
 
 
 def test_exclusive_totals_match_the_per_call_values():
