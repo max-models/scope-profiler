@@ -128,9 +128,7 @@ def test_region_durations_chart_is_stacked_and_sorted_by_total(tmp_path, monkeyp
         captured.update(kwargs)
         return None
 
-    monkeypatch.setattr(
-        plotting_scripts, "plot_gantt", lambda *args, **kwargs: None
-    )
+    monkeypatch.setattr(plotting_scripts, "plot_gantt", lambda *args, **kwargs: None)
     monkeypatch.setattr(plotting_scripts, "plot_durations", fake_plot_durations)
     monkeypatch.setattr(
         plotting_scripts, "plot_rank_heatmap", lambda *args, **kwargs: None

@@ -7,10 +7,9 @@ machine immediately after a run, and can be opened locally in any browser.
 from __future__ import annotations
 
 import html
+import linecache
 from collections.abc import Sequence
 from pathlib import Path
-
-import linecache
 
 import numpy as np
 
