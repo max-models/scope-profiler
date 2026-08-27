@@ -294,9 +294,7 @@ def build_call_stack(regions: Iterable, rank: int, origin: float = 0.0) -> List[
                 "depth": int(arrays.depth[call_id]),
                 "parent": None if parent < 0 else parent,
                 "call_path": (
-                    name
-                    if parent < 0
-                    else f"{calls[parent]['call_path']} > {name}"
+                    name if parent < 0 else f"{calls[parent]['call_path']} > {name}"
                 ),
                 "color": colors[name],
             }

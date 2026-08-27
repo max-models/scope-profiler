@@ -847,9 +847,7 @@ def test_plot_flame_export_data_json(tmp_path, monkeypatch):
     assert set(calls) == {"phase_a", "phase_a > work", "phase_b", "phase_b > work"}
     assert calls["phase_a > work"]["parent_call_id"] == calls["phase_a"]["call_id"]
     assert calls["phase_b > work"]["parent_call_id"] == calls["phase_b"]["call_id"]
-    assert calls["phase_a > work"]["exclusive_duration_seconds"] == pytest.approx(
-        80e-9
-    )
+    assert calls["phase_a > work"]["exclusive_duration_seconds"] == pytest.approx(80e-9)
     assert frame_labels == ["phase_a", "phase_a > work", "phase_b", "phase_b > work"]
 
 

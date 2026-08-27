@@ -955,12 +955,8 @@ def plot_flame(
                             "depth": call["depth"],
                             "start_seconds": call["start"],
                             "end_seconds": call["end"],
-                            "inclusive_duration_seconds": call[
-                                "inclusive_duration"
-                            ],
-                            "exclusive_duration_seconds": call[
-                                "exclusive_duration"
-                            ],
+                            "inclusive_duration_seconds": call["inclusive_duration"],
+                            "exclusive_duration_seconds": call["exclusive_duration"],
                         }
                     )
             _write_json(data_filepath, {"calls": call_records, "colors": colors})

@@ -215,7 +215,9 @@ def main() -> None:
         )
         write_output(
             "line-profiler-cli.txt",
-            line_profile_cli.stdout.replace(str(line_profile_path), "profiling_data.h5"),
+            line_profile_cli.stdout.replace(
+                str(line_profile_path), "profiling_data.h5"
+            ),
         )
 
 
