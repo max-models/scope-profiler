@@ -265,6 +265,17 @@ def test_simple_plotext_backend_writes_terminal_plot(tmp_path):
     assert "Region duration comparison" in out_file.read_text()
 
 
+def test_pyvis_backend_rejects_flame_before_rendering(tmp_path, capsys):
+    """PyVis only renders the explicit callgraph, not time-based charts."""
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
+
+    with pytest.raises(SystemExit):
+        main(["flame", str(file_path), "--backend", "pyvis"])
+
+    assert "pyvis supports the interactive callgraph only" in capsys.readouterr().err
+
+
 def test_plot_helpers_can_return_rendered_figures(tmp_path):
     file_path = tmp_path / "run.h5"
     _write_sample_h5(file_path, _sample_file_data(1, 10, 20))

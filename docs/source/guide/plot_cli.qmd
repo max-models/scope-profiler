@@ -281,6 +281,10 @@ Plotext writes plain text and is intentionally limited to simple duration,
 scaling, histogram, and imbalance plots; use Matplotlib or Plotly for Gantt,
 flame, heatmap, and hardware-counter visualizations.
 
+PyVis renders the interactive `callgraph` only; it cannot render timeline or
+flame charts. For example, use `scope-profiler plot callgraph run.h5 --backend
+pyvis`, or choose Matplotlib/Plotly for `flame`.
+
 ## Exporting the data behind the charts
 
 `scope-profiler export plot-data` writes the exact series each chart was drawn
