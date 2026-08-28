@@ -521,9 +521,7 @@ def node_detail_text(node: BrowserNode) -> str:
         unit = float(record["unit"])
         total_raw = float(np.sum(record["times"]))
         rows = []
-        timings = list(
-            zip(record["line_numbers"], record["hits"], record["times"])
-        )
+        timings = list(zip(record["line_numbers"], record["hits"], record["times"]))
         sources = [
             linecache.getline(record["filename"], int(line))
             .rstrip("\r\n")
