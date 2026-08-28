@@ -33,6 +33,7 @@ def test_help_lists_plot_export_and_not_pproc(capsys):
     out = capsys.readouterr().out
     assert "plot" in out
     assert "export" in out
+    assert "report" in out
     assert "pproc" not in out
 
 
