@@ -11,6 +11,7 @@ import re
 import socket
 import subprocess
 import sys
+import threading
 import webbrowser
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -49,6 +50,7 @@ _PLOT_CATALOG = {
     "imbalance": "Per-rank duration comparison",
 }
 _PLOTEXT_TUI_PLOTS = frozenset({"durations"})
+_PLOTEXT_RENDER_LOCK = threading.RLock()
 
 
 @dataclass
@@ -301,7 +303,13 @@ def _duration(value) -> str:
 def _line_table(
     headers, rows, *, compact: bool = False, maxcolwidths: tuple[int, ...] | None = None
 ) -> str:
-    rows = list(rows)
+    def safe_value(value):
+        try:
+            return _format_scalar(value)
+        except Exception:  # noqa: BLE001 -- arbitrary user metadata must not kill TUI
+            return f"<unprintable {type(value).__name__}>"
+
+    rows = [tuple(safe_value(value) for value in row) for row in rows]
     from tabulate import tabulate
 
     return tabulate(
@@ -518,14 +526,18 @@ def node_detail_text(node: BrowserNode) -> str:
 
     if kind == "line_profile_record":
         record = payload["record"]
+        linecache.checkcache(record["filename"])
         unit = float(record["unit"])
         total_raw = float(np.sum(record["times"]))
         rows = []
         timings = list(zip(record["line_numbers"], record["hits"], record["times"]))
         sources = [
-            linecache.getline(record["filename"], int(line))
-            .rstrip("\r\n")
-            .expandtabs(4)
+            (
+                linecache.getline(record["filename"], int(line))
+                .rstrip("\r\n")
+                .expandtabs(4)
+                or "<source unavailable>"
+            )
             for line, _, _ in timings
         ]
         base_indentation = (
@@ -827,6 +839,20 @@ def render_plotext_text(
     width: int = 100,
     height: int = 35,
 ) -> str:
+    """Render a Plotext chart while protecting its process-global state."""
+    with _PLOTEXT_RENDER_LOCK:
+        return _render_plotext_text_unlocked(
+            node, settings=settings, width=width, height=height
+        )
+
+
+def _render_plotext_text_unlocked(
+    node: BrowserNode,
+    *,
+    settings: dict[str, Any] | None = None,
+    width: int = 100,
+    height: int = 35,
+) -> str:
     """Render a simple Plotext chart as text for display inside Textual."""
     if node.kind not in {"plot", "plot_likwid"}:
         raise ValueError("Select an individual plot before rendering.")
@@ -1057,8 +1083,14 @@ def _build_textual_app_class():
             self._plotext_refresh_timer = None
 
         def _detail(self, node: BrowserNode):
+            try:
+                detail_text = node_detail_text(node)
+            except Exception as exc:  # noqa: BLE001 -- keep interactive browser alive
+                detail_text = (
+                    f"Unable to render {node.label}\n\n" f"{type(exc).__name__}: {exc}"
+                )
             return Text(
-                node_detail_text(node),
+                detail_text,
                 no_wrap=node.kind not in {"metadata", "metadata_section", "modules"},
             )
 
@@ -1322,7 +1354,9 @@ def _build_textual_app_class():
                     saved = render_plot(
                         node, filepath=filepath, show=False, settings=settings
                     )
-            except (ImportError, RuntimeError, ValueError) as exc:
+            except (
+                Exception
+            ) as exc:  # noqa: BLE001 -- external plotting must not kill TUI
                 self.notify(str(exc), severity="error", timeout=8)
                 return
             if saved:
@@ -1348,7 +1382,9 @@ def _build_textual_app_class():
                     width=width,
                     height=height,
                 )
-            except (ImportError, RuntimeError, ValueError) as exc:
+            except (
+                Exception
+            ) as exc:  # noqa: BLE001 -- external plotting must not kill TUI
                 if isinstance(exc, ValueError) and str(exc).startswith(
                     "Invalid region filter:"
                 ):
@@ -1361,6 +1397,8 @@ def _build_textual_app_class():
                 return
             from rich.text import Text
 
+            if node is not self.selected_browser_node:
+                return
             detail.update(Text.from_ansi(plot_text))
 
         def action_show_snakeviz(self) -> None:
