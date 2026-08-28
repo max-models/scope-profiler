@@ -96,7 +96,7 @@ def test_matplotlib_show_falls_back_outside_jupyter(monkeypatch):
             raise AssertionError("show-only render should not save")
 
     class _Canvas:
-        def plot(self, **kwargs):
+        def render(self, **kwargs):
             return _Figure(), []
 
     ipython = types.ModuleType("IPython")
@@ -344,18 +344,17 @@ def test_plotly_gantt_hover_names_the_rank_and_the_call(tmp_path):
     assert all("this call: " in text for text in texts)
 
 
-def test_plotly_flame_hover_uses_markers_over_the_shapes(tmp_path):
+def test_plotly_flame_hover_names_each_call(tmp_path):
     file_path = tmp_path / "nested.h5"
     _write_sample_h5(file_path, _nested_file_data())
 
     figure = _plotly_figure(plot_flame, read_h5(file_path))
 
-    # Plotly draws the frames as layout shapes, which cannot hover; the
-    # hover comes from the invisible marker trace laid over them.
-    assert len(figure.layout.shapes) == 5  # one per call
+    # maxplotlib draws flame frames as a single Bar trace, one frame per
+    # point, and carries hover text on that trace directly.
     assert len(figure.data) == 1
-    assert figure.data[0].marker.opacity == 0.0
     texts = _hover_texts(figure)
+    assert len(texts) == 5  # one per call
     assert any(
         "call: step &gt; solve" in text or "call: step > solve" in text
         for text in texts
