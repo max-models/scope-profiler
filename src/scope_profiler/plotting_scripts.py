@@ -98,17 +98,13 @@ def _get_canvas():
     except ImportError as exc:
         raise ImportError(
             "maxplotlib is required for plotting. Install scope-profiler[pproc] "
-            "or maxplotlibx (>= 0.1.7, for its gantt and flame charts)."
+            "or maxplotlibx (>= 0.1.9, for its gantt/flame charts and native "
+            "hover support)."
         ) from exc
     return Canvas
 
 
 DEFAULT_CMAP = "tab20"
-
-# Plotly hover markers laid over one flame frame (see plot_flame): enough
-# that a wide frame is hoverable along its length, few enough that a run
-# with many calls does not turn into a scatter plot of its own.
-_FLAME_HOVER_POINTS = 20
 
 
 _FALLBACK_COLORS = (
@@ -244,85 +240,13 @@ def _hover_region(region, ranks: list[int] | None):
     return region, region.name
 
 
-class _PlotlyHover:
-    """Hover text for the traces a canvas is about to produce.
-
-    maxplotlib's Plotly backend forwards only position, name and color to the
-    traces it builds, so hover text cannot be passed through ``Canvas``
-    kwargs -- the Matplotlib backend would hand the same kwargs to
-    ``ax.bar`` and raise. It is collected here instead: one entry per
-    drawing call, in the order the calls are made, which is the order the
-    traces end up in the figure (maxplotlib walks its subplots in creation
-    order and each subplot's draw calls in order). Drawing calls with
-    nothing to say still record ``None``, because it is a text's position in
-    the list that identifies its trace.
-
-    :meth:`add_points` covers what Plotly draws as *shapes* rather than
-    traces -- the flame chart. Shapes carry no hover at all, so an invisible
-    marker is placed at each frame's centre instead.
-
-    If the figure does not have the expected number of traces the texts are
-    dropped rather than applied to the wrong traces. Hover is a nicety and a
-    mislabelled plot is worse than a plain one; the ``test_plotly_*`` hover
-    tests cover every plot, so drift shows up there rather than as silently
-    missing hover.
-    """
-
-    def __init__(self, backend: str = "plotly") -> None:
-        # Only Plotly has hover. Building the text is per-point work over
-        # every call in the run for some plots, so the other backends say so
-        # up front and their call sites skip it entirely.
-        self.enabled = backend == "plotly"
-        self.traces: list[object] = []
-        self.points: list[dict] = []
-
-    def add(self, text=None) -> None:
-        """Record one drawing call's hover text (``None`` for no hover)."""
-        self.traces.append(text)
-
-    def add_points(self, x, y, text, row: int | None = None, col: int | None = None):
-        """Place invisible hover markers, for shape-drawn plots."""
-        self.points.append(
-            {"x": list(x), "y": list(y), "text": list(text), "row": row, "col": col}
-        )
-
-    def apply(self, figure) -> bool:
-        """Attach the collected text to a built Plotly figure."""
-        import plotly.graph_objects as go
-
-        applied = False
-        traces = list(figure.data)
-        if len(traces) == len(self.traces):
-            for trace, text in zip(traces, self.traces):
-                if text is None:
-                    continue
-                trace.update(hovertext=text, hoverinfo="text")
-                applied = True
-        for layer in self.points:
-            figure.add_trace(
-                go.Scatter(
-                    x=layer["x"],
-                    y=layer["y"],
-                    mode="markers",
-                    marker=dict(size=12, opacity=0.0),
-                    hovertext=layer["text"],
-                    hoverinfo="text",
-                    showlegend=False,
-                ),
-                row=None if layer["row"] is None else layer["row"] + 1,
-                col=None if layer["col"] is None else layer["col"] + 1,
-            )
-            applied = True
-        return applied
-
-
 def _add_gantt_bars(
     canvas,
     row: int | None,
     lanes: Sequence[str],
     bars: Sequence[tuple[int, float, float, str]],
     alpha: float = 0.7,
-    hover: "_PlotlyHover | None" = None,
+    hover_enabled: bool = False,
     lane_hover: Sequence[str] | None = None,
 ) -> None:
     """Draw ``Canvas.gantt`` bars, every call of a lane on that lane's row.
@@ -340,7 +264,9 @@ def _add_gantt_bars(
 
     ``lane_hover`` gives each lane's region summary; the hovered call's own
     start and duration are added to it per drawing call, since that is what
-    distinguishes one bar of a lane from the next.
+    distinguishes one bar of a lane from the next. ``hover=`` is a
+    backend-neutral ``Canvas`` kwarg: Plotly renders it, other backends
+    ignore it.
     """
     col = None if row is None else 0
     n_lanes = len(lanes)
@@ -359,6 +285,16 @@ def _add_gantt_bars(
         for lane, start, duration in group:
             starts[lane] = start
             durations[lane] = duration
+        hover_kwargs = {}
+        if hover_enabled:
+            texts = [""] * n_lanes
+            if lane_hover:
+                for lane, start, duration in group:
+                    texts[lane] = (
+                        f"{lane_hover[lane]}<br>this call: {start:.6g} s "
+                        f"+ {duration:.6g} s"
+                    )
+            hover_kwargs["hover"] = texts
         canvas.gantt(
             list(lanes),
             starts,
@@ -368,17 +304,8 @@ def _add_gantt_bars(
             color=color,
             edgecolor="black",
             alpha=alpha,
+            **hover_kwargs,
         )
-        if hover is None or not hover.enabled:
-            continue
-        texts = [""] * n_lanes
-        if lane_hover:
-            for lane, start, duration in group:
-                texts[lane] = (
-                    f"{lane_hover[lane]}<br>this call: {start:.6g} s "
-                    f"+ {duration:.6g} s"
-                )
-        hover.add(texts)
 
 
 def _render(
@@ -390,16 +317,14 @@ def _render(
     x_tick_rotation: float | None = None,
     return_fig: bool = False,
     matplotlib_postprocess=None,
-    hover: "_PlotlyHover | None" = None,
 ) -> tuple[object, object] | object:
     """Save and/or display a canvas."""
     if backend == "plotly":
         fig = canvas.plot_plotly(show=False)
-        # Before saving or showing: the hover text is part of the figure.
         layout = dict(plotly_layout or {})
-        if hover is not None and hover.apply(fig):
-            # Multi-line summaries read as a block, not centred prose.
-            layout.setdefault("hoverlabel", {"align": "left"})
+        # Multi-line hover summaries (drawn via Canvas ``hover=`` kwargs)
+        # read as a block, not centred prose.
+        layout.setdefault("hoverlabel", {"align": "left"})
         if x_tick_rotation is not None:
             layout["xaxis_tickangle"] = x_tick_rotation
         if layout:
@@ -429,7 +354,7 @@ def _render(
         # maxplotlib does not currently expose tick-label rotation through
         # its backend-neutral Canvas API, so rotate the labels after the
         # Matplotlib figure has been materialized and before saving/showing.
-        fig, axes = canvas.plot(backend="matplotlib", savefig=bool(filepath))
+        fig, axes = canvas.render(backend="matplotlib", savefig=bool(filepath))
         if matplotlib_postprocess is not None:
             matplotlib_postprocess(fig, axes)
         if x_tick_rotation is not None:
@@ -997,7 +922,7 @@ def plot_gantt(
     # One lane per (region, rank): every call of a region lands on the same
     # row, so a panel is as tall as the number of lanes it draws.
     single_panel = len(prepared) == 1
-    hover = _PlotlyHover(backend)
+    hover_enabled = backend == "plotly"
     panel_lanes: list[list[str]] = []
     panel_bars: list[list[tuple[int, float, float, str]]] = []
     panel_lane_hover: list[list[str]] = []
@@ -1017,7 +942,7 @@ def plot_gantt(
                 lanes.append(f"{region.name} (rank {rank})")
                 # A lane is one region on one rank, so it is that rank's
                 # Region that describes it.
-                if hover.enabled:
+                if hover_enabled:
                     lane_hover.append(
                         _hover_summary(
                             region_data, title=f"{region.name} (rank {rank})"
@@ -1058,7 +983,9 @@ def plot_gantt(
         row = None if single_panel else idx
         col = None if single_panel else 0
 
-        _add_gantt_bars(canvas, row, lanes, bars, hover=hover, lane_hover=lane_hover)
+        _add_gantt_bars(
+            canvas, row, lanes, bars, hover_enabled=hover_enabled, lane_hover=lane_hover
+        )
 
         canvas.set_yticks(list(range(len(lanes))), labels=lanes, row=row, col=col)
         canvas.set_xlim(
@@ -1086,7 +1013,6 @@ def plot_gantt(
         backend,
         plotly_layout={"barmode": "overlay"},
         return_fig=return_fig,
-        hover=hover,
     )
     return rendered if return_fig else None
 
@@ -1267,7 +1193,7 @@ def plot_flame(
             )
             fig.subplots_adjust(right=0.8)
 
-    hover = _PlotlyHover(backend)
+    hover_enabled = backend == "plotly"
     for idx, (run, rank, calls) in enumerate(prepared):
         row = None if single_panel else idx
         col = None if single_panel else 0
@@ -1275,6 +1201,28 @@ def plot_flame(
         first_start = min(call["start"] for call in calls)
         total_span = max(call["end"] for call in calls) - first_start
         max_depth = max(call["depth"] for call in calls)
+
+        hover_texts = None
+        if hover_enabled:
+            hover_texts = []
+            for call in calls:
+                extra = [
+                    ("call", call["call_path"]),
+                    ("this call", f"{call['inclusive_duration']:.6g} s"),
+                    ("this call, self", f"{call['exclusive_duration']:.6g} s"),
+                ]
+                if call["source_file"]:
+                    location = call["source_file"]
+                    if call["source_lineno"] is not None:
+                        location += f":{call['source_lineno']}"
+                    extra.append(("source", location))
+                hover_texts.append(
+                    _hover_summary(
+                        run.get_region(call["name"])[rank],
+                        title=f"{call['name']} (rank {rank})",
+                        extra=extra,
+                    )
+                )
 
         canvas.flame_chart(
             [call["call_path"] for call in calls],
@@ -1284,47 +1232,13 @@ def plot_flame(
             row=row,
             col=col,
             edgecolor="black",
+            hover=hover_texts,
             # Canvas.flame_chart colors frames by depth from a colormap and
             # ignores per-frame colors. Only the matplotlib backend takes a
             # matplotlib colormap name; the Plotly one needs a Plotly
             # colorscale, so it keeps its own default.
             **({} if backend == "plotly" else {"colormap": cmap}),
         )
-
-        # Plotly draws flame frames as layout shapes, which carry no hover of
-        # their own, so invisible markers are laid over them. A frame gets
-        # several, spread across its width, so hovering anywhere along a wide
-        # frame finds it rather than only its centre.
-        marker_x: list[float] = []
-        marker_y: list[float] = []
-        marker_text: list[str] = []
-        marker_spacing = total_span / 40 if total_span > 0 else 0.0
-        for call in calls if hover.enabled else ():
-            extra = [
-                ("call", call["call_path"]),
-                ("this call", f"{call['inclusive_duration']:.6g} s"),
-                ("this call, self", f"{call['exclusive_duration']:.6g} s"),
-            ]
-            if call["source_file"]:
-                location = call["source_file"]
-                if call["source_lineno"] is not None:
-                    location += f":{call['source_lineno']}"
-                extra.append(("source", location))
-            text = _hover_summary(
-                run.get_region(call["name"])[rank],
-                title=f"{call['name']} (rank {rank})",
-                extra=extra,
-            )
-            start = call["start"] - first_start
-            span = call["end"] - call["start"]
-            count = 1
-            if marker_spacing > 0:
-                count = int(min(_FLAME_HOVER_POINTS, max(1, span / marker_spacing)))
-            for index in range(count):
-                marker_x.append(start + span * (index + 0.5) / count)
-                marker_y.append(call["depth"] + 0.45)
-                marker_text.append(text)
-        hover.add_points(marker_x, marker_y, marker_text, row=row, col=col)
 
         canvas.set_yticks(list(range(max_depth + 1)), row=row, col=col)
         # The frames are drawn as rectangles, which don't drive autorange, so
@@ -1346,7 +1260,6 @@ def plot_flame(
         backend,
         return_fig=return_fig,
         matplotlib_postprocess=add_region_legend if backend == "matplotlib" else None,
-        hover=hover,
     )
     return rendered if return_fig else None
 
@@ -2260,7 +2173,7 @@ def plot_durations(
         )
 
         # Create grouped bar chart
-        hover = _PlotlyHover(backend)
+        hover_enabled = backend == "plotly"
         x_positions = np.arange(len(region_names))
         offset_start = -0.5 * width * (num_readers - 1)
 
@@ -2270,6 +2183,20 @@ def plot_durations(
             offsets = x_positions + offset_start + idx * width
             run_values = stacked_values[idx] if stack_children else {}
             if not stack_children:
+                bar_hover = None
+                if hover_enabled:
+                    bar_hover = [
+                        _duration_bar_hover(
+                            run,
+                            region_name,
+                            region_members[region_name],
+                            ranks,
+                            # No bar value line: the bar's height is one
+                            # of the statistics the summary already lists.
+                            run_label=run_label,
+                        )
+                        for region_name in region_names
+                    ]
                 canvas.bar(
                     offsets,
                     file_values,
@@ -2278,22 +2205,8 @@ def plot_durations(
                     color=_to_hex(colors[idx]),
                     edgecolor="black",
                     alpha=0.8,
+                    hover=bar_hover,
                 )
-                if hover.enabled:
-                    hover.add(
-                        [
-                            _duration_bar_hover(
-                                run,
-                                region_name,
-                                region_members[region_name],
-                                ranks,
-                                # No bar value line: the bar's height is one
-                                # of the statistics the summary already lists.
-                                run_label=run_label,
-                            )
-                            for region_name in region_names
-                        ]
-                    )
                 continue
 
             # Stack by drawing each segment's cumulative top as an opaque bar
@@ -2304,20 +2217,11 @@ def plot_durations(
             cumulative = np.cumsum(np.nan_to_num(heights), axis=0)
             for position in range(len(segment_labels) - 1, -1, -1):
                 segment = segment_labels[position]
-                canvas.bar(
-                    offsets,
-                    cumulative[position],
-                    width=bar_width,
-                    label=segment if idx == 0 else None,
-                    color=_to_hex(segment_colors[segment]),
-                    edgecolor="black",
-                )
-                if not hover.enabled:
-                    continue
                 # A segment describes the region whose time it is: its own
                 # for a child, the bar's own for "self".
-                hover.add(
-                    [
+                segment_hover = None
+                if hover_enabled:
+                    segment_hover = [
                         _duration_bar_hover(
                             run,
                             region_name if segment == _SELF_SEGMENT else segment,
@@ -2337,6 +2241,14 @@ def plot_durations(
                         )
                         for index, region_name in enumerate(region_names)
                     ]
+                canvas.bar(
+                    offsets,
+                    cumulative[position],
+                    width=bar_width,
+                    label=segment if idx == 0 else None,
+                    color=_to_hex(segment_colors[segment]),
+                    edgecolor="black",
+                    hover=segment_hover,
                 )
 
         tick_rotation_applied = _set_xticks(
@@ -2374,7 +2286,6 @@ def plot_durations(
             plotly_layout={"barmode": "overlay"} if stack_children else None,
             x_tick_rotation=None if tick_rotation_applied else 45,
             return_fig=return_fig,
-            hover=hover,
         )
         if return_fig:
             rendered_figures.append(rendered)
@@ -2599,13 +2510,15 @@ def plot_duration_timeseries(
         gridspec_kw=_panel_gridspec(fig_width, fig_height, 12, not single_panel),
     )
 
-    hover = _PlotlyHover(backend)
+    hover_enabled = backend == "plotly"
     for idx, (run, series) in enumerate(prepared):
         row = None if single_panel else idx
         col = None if single_panel else 0
 
         for region_name, values in series:
             color = _to_hex(color_map[region_name])
+            # The band is the line's min-max envelope; hover belongs on the
+            # line, one entry per call.
             canvas.fill_between(
                 values["time"],
                 values["min"],
@@ -2615,23 +2528,12 @@ def plot_duration_timeseries(
                 color=color,
                 alpha=0.25,
             )
-            # The band is the line's min-max envelope; hover belongs on the
-            # line, one entry per call.
-            hover.add()
-            canvas.add_line(
-                values["time"],
-                values["mean"],
-                row=row,
-                col=col,
-                linewidth=1.8,
-                color=color,
-                label=region_name,
-            )
-            if not hover.enabled:
-                continue
-            region, title = _hover_region(run.get_region(region_name), normalized_ranks)
-            hover.add(
-                [
+            line_hover = None
+            if hover_enabled:
+                region, title = _hover_region(
+                    run.get_region(region_name), normalized_ranks
+                )
+                line_hover = [
                     _hover_summary(
                         region,
                         title=title,
@@ -2649,6 +2551,15 @@ def plot_duration_timeseries(
                     )
                     for index in range(values["time"].size)
                 ]
+            canvas.add_line(
+                values["time"],
+                values["mean"],
+                row=row,
+                col=col,
+                linewidth=1.8,
+                color=color,
+                label=region_name,
+                hover=line_hover,
             )
 
         canvas.set_xlabel("Time (seconds)", row=row, col=col)
@@ -2666,9 +2577,7 @@ def plot_duration_timeseries(
     if not single_panel:
         canvas.suptitle("Region duration over time")
 
-    rendered = _render(
-        canvas, filepath, show, backend, return_fig=return_fig, hover=hover
-    )
+    rendered = _render(canvas, filepath, show, backend, return_fig=return_fig)
     return rendered if return_fig else None
 
 
@@ -2779,7 +2688,7 @@ def plot_speedup(
     x_position = {key: (key if is_scaling else i) for i, key in enumerate(x_keys)}
 
     canvas = Canvas(figsize=(fig_width, fig_height))
-    hover = _PlotlyHover(backend)
+    hover_enabled = backend == "plotly"
     plotted = 0
     data_rows = []
 
@@ -2813,26 +2722,26 @@ def plot_speedup(
             continue
 
         plotted += 1
+        line_hover = None
+        if hover_enabled:
+            line_hover = _scaling_hover_texts(
+                region_at_key[region_name],
+                region_name,
+                x_field,
+                plot_keys,
+                speedups,
+                "speedup",
+                means,
+                ranks,
+            )
         canvas.add_line(
             plot_x,
             speedups,
             linewidth=1.8,
             color=_to_hex(colors[idx]),
             label=region_name,
+            hover=line_hover,
         )
-        if hover.enabled:
-            hover.add(
-                _scaling_hover_texts(
-                    region_at_key[region_name],
-                    region_name,
-                    x_field,
-                    plot_keys,
-                    speedups,
-                    "speedup",
-                    means,
-                    ranks,
-                )
-            )
         if data_filepath:
             for key, speedup in zip(plot_keys, speedups):
                 data_rows.append([region_name, key, speedup])
@@ -2870,7 +2779,6 @@ def plot_speedup(
             linewidth=1.5,
             label="Ideal scaling",
         )
-        hover.add()
         canvas.set_xticks(x_line)
     else:
         canvas.set_xticks(list(range(len(x_keys))), labels=[str(key) for key in x_keys])
@@ -2881,9 +2789,7 @@ def plot_speedup(
     canvas.set_grid(True)
     canvas.set_legend()
 
-    rendered = _render(
-        canvas, filepath, show, backend, return_fig=return_fig, hover=hover
-    )
+    rendered = _render(canvas, filepath, show, backend, return_fig=return_fig)
     return rendered if return_fig else None
 
 
@@ -2955,7 +2861,7 @@ def plot_weak_scaling(
     x_position = {key: (key if is_scaling else i) for i, key in enumerate(x_keys)}
 
     canvas = Canvas(figsize=(fig_width, fig_height))
-    hover = _PlotlyHover(backend)
+    hover_enabled = backend == "plotly"
     plotted = 0
     data_rows = []
 
@@ -2987,26 +2893,26 @@ def plot_weak_scaling(
         if not plot_x:
             continue
         plotted += 1
+        line_hover = None
+        if hover_enabled:
+            line_hover = _scaling_hover_texts(
+                region_at_key[region_name],
+                region_name,
+                x_field,
+                plot_keys,
+                runtimes,
+                "normalized runtime",
+                means,
+                ranks,
+            )
         canvas.add_line(
             plot_x,
             runtimes,
             linewidth=1.8,
             color=_to_hex(colors[idx]),
             label=region_name,
+            hover=line_hover,
         )
-        if hover.enabled:
-            hover.add(
-                _scaling_hover_texts(
-                    region_at_key[region_name],
-                    region_name,
-                    x_field,
-                    plot_keys,
-                    runtimes,
-                    "normalized runtime",
-                    means,
-                    ranks,
-                )
-            )
         if data_filepath:
             for key, runtime in zip(plot_keys, runtimes):
                 data_rows.append([region_name, key, runtime])
@@ -3048,16 +2954,13 @@ def plot_weak_scaling(
         linewidth=1.5,
         label="Ideal weak scaling",
     )
-    hover.add()
     canvas.set_xlabel(x_label)
     canvas.set_ylabel("Normalized runtime")
     canvas.set_title(f"Weak scaling (baseline: {x_label} = {baseline_key})")
     canvas.set_grid(True)
     canvas.set_legend()
 
-    rendered = _render(
-        canvas, filepath, show, backend, return_fig=return_fig, hover=hover
-    )
+    rendered = _render(canvas, filepath, show, backend, return_fig=return_fig)
     return rendered if return_fig else None
 
 
@@ -3129,31 +3032,32 @@ def plot_rank_heatmap(
         gridspec_kw={"right": 0.86},
     )
     single_panel = len(prepared) == 1
-    hover = _PlotlyHover(backend)
+    hover_enabled = backend == "plotly"
     for index, (run, selected_ranks, region_names, matrix) in enumerate(prepared):
         row = None if single_panel else index
         col = None if single_panel else 0
-        canvas.imshow(matrix, cmap=cmap, aspect="auto", row=row, col=col)
         # One hover text per cell, in the matrix's own (rank, region) shape:
         # a cell is one region on one rank, so that rank's Region describes
         # it.
-        if hover.enabled:
-            hover.add(
+        cell_hover = None
+        if hover_enabled:
+            cell_hover = [
                 [
-                    [
-                        (
-                            _hover_summary(
-                                run.get_region(region_name)[rank],
-                                title=f"{region_name} (rank {rank})",
-                            )
-                            if rank in run.get_region(region_name)
-                            else f"<b>{region_name} (rank {rank})</b><br>not entered"
+                    (
+                        _hover_summary(
+                            run.get_region(region_name)[rank],
+                            title=f"{region_name} (rank {rank})",
                         )
-                        for region_name in region_names
-                    ]
-                    for rank in selected_ranks
+                        if rank in run.get_region(region_name)
+                        else f"<b>{region_name} (rank {rank})</b><br>not entered"
+                    )
+                    for region_name in region_names
                 ]
-            )
+                for rank in selected_ranks
+            ]
+        canvas.imshow(
+            matrix, cmap=cmap, aspect="auto", row=row, col=col, hover=cell_hover
+        )
         canvas.set_xticks(
             list(range(len(region_names))), labels=region_names, row=row, col=col
         )
@@ -3170,9 +3074,7 @@ def plot_rank_heatmap(
 
     if not single_panel:
         canvas.suptitle("Rank × region duration")
-    rendered = _render(
-        canvas, filepath, show, backend, return_fig=return_fig, hover=hover
-    )
+    rendered = _render(canvas, filepath, show, backend, return_fig=return_fig)
     return rendered if return_fig else None
 
 
@@ -3231,7 +3133,7 @@ def plot_scaling_efficiency(
     )
     data_rows = []
     plotted = 0
-    hover = _PlotlyHover(backend)
+    hover_enabled = backend == "plotly"
     for index, name in enumerate(region_names):
         baseline_values = samples[name].get(baseline_key, [])
         if not baseline_values:
@@ -3250,26 +3152,26 @@ def plot_scaling_efficiency(
             data_rows.append([name, key, efficiencies[-1]])
         if plot_x:
             plotted += 1
+            line_hover = None
+            if hover_enabled:
+                line_hover = _scaling_hover_texts(
+                    region_at_key[name],
+                    name,
+                    x_field,
+                    plot_keys,
+                    efficiencies,
+                    "efficiency",
+                    means,
+                    ranks,
+                )
             canvas.add_line(
                 plot_x,
                 efficiencies,
                 linewidth=1.8,
                 color=_to_hex(colors[index]),
                 label=name,
+                hover=line_hover,
             )
-            if hover.enabled:
-                hover.add(
-                    _scaling_hover_texts(
-                        region_at_key[name],
-                        name,
-                        x_field,
-                        plot_keys,
-                        efficiencies,
-                        "efficiency",
-                        means,
-                        ranks,
-                    )
-                )
     if not plotted:
         raise ValueError("No valid scaling-efficiency data could be computed.")
 
@@ -3292,7 +3194,6 @@ def plot_scaling_efficiency(
         linewidth=1.5,
         label="Ideal efficiency",
     )
-    hover.add()
     x_label = {
         "num_ranks": "MPI ranks",
         "omp_num_threads": "OpenMP threads",
@@ -3304,9 +3205,7 @@ def plot_scaling_efficiency(
     canvas.set_ylim(0, 1.05)
     canvas.set_grid(True)
     canvas.set_legend()
-    rendered = _render(
-        canvas, filepath, show, backend, return_fig=return_fig, hover=hover
-    )
+    rendered = _render(canvas, filepath, show, backend, return_fig=return_fig)
     return rendered if return_fig else None
 
 
@@ -3438,7 +3337,7 @@ def plot_imbalance(
         gridspec_kw=_panel_gridspec(fig_width, fig_height, 10, not single_panel),
     )
 
-    hover = _PlotlyHover(backend)
+    hover_enabled = backend == "plotly"
     for idx, (run, series) in enumerate(prepared):
         row = None if single_panel else idx
         col = None if single_panel else 0
@@ -3457,7 +3356,7 @@ def plot_imbalance(
                     )
                     for rank in region_ranks
                 ]
-                if hover.enabled
+                if hover_enabled
                 else None
             )
             canvas.add_line(
@@ -3468,16 +3367,16 @@ def plot_imbalance(
                 linewidth=1.4,
                 color=color,
                 label=region_name,
+                hover=texts,
             )
-            hover.add(texts)
             canvas.scatter(
                 region_ranks,
                 values,
                 row=row,
                 col=col,
                 color=color,
+                hover=texts,
             )
-            hover.add(texts)
             canvas.axhline(
                 float(np.mean(values)),
                 row=row,
@@ -3503,7 +3402,7 @@ def plot_imbalance(
     if not single_panel:
         canvas.suptitle("Per-rank load imbalance")
 
-    _render(canvas, filepath, show, backend, hover=hover)
+    _render(canvas, filepath, show, backend)
 
 
 def plot_duration_histogram(
@@ -3585,7 +3484,7 @@ def plot_duration_histogram(
     )
 
     data_rows = []
-    hover = _PlotlyHover(backend)
+    hover_enabled = backend == "plotly"
     for idx, (run, series) in enumerate(prepared):
         row = None if single_panel else idx
         col = None if single_panel else 0
@@ -3597,6 +3496,22 @@ def plot_duration_histogram(
         for region_name, values in series:
             counts, _ = np.histogram(values, bins=edges)
             color = _to_hex(color_map[region_name])
+            line_hover = None
+            if hover_enabled:
+                region, title = _hover_region(
+                    run.get_region(region_name), normalized_ranks
+                )
+                line_hover = [
+                    _hover_summary(
+                        region,
+                        title=title,
+                        extra=[
+                            ("bin", f"{low:.6g} - {high:.6g} s"),
+                            ("calls in bin", int(count)),
+                        ],
+                    )
+                    for low, high, count in zip(edges[:-1], edges[1:], counts)
+                ]
             canvas.add_line(
                 centers,
                 counts,
@@ -3605,24 +3520,8 @@ def plot_duration_histogram(
                 linewidth=1.6,
                 color=color,
                 label=region_name,
+                hover=line_hover,
             )
-            if hover.enabled:
-                region, title = _hover_region(
-                    run.get_region(region_name), normalized_ranks
-                )
-                hover.add(
-                    [
-                        _hover_summary(
-                            region,
-                            title=title,
-                            extra=[
-                                ("bin", f"{low:.6g} - {high:.6g} s"),
-                                ("calls in bin", int(count)),
-                            ],
-                        )
-                        for low, high, count in zip(edges[:-1], edges[1:], counts)
-                    ]
-                )
             if data_filepath:
                 label = labels[idx]
                 for center, low, high, count in zip(
@@ -3672,7 +3571,7 @@ def plot_duration_histogram(
         else:
             _write_csv(data_filepath, header, data_rows)
 
-    _render(canvas, filepath, show, backend, hover=hover)
+    _render(canvas, filepath, show, backend)
 
 
 def available_likwid_metrics(
@@ -3848,10 +3747,16 @@ def plot_likwid(
     offset_start = -0.5 * width * (num_series - 1)
 
     data_rows = []
-    hover = _PlotlyHover(backend)
+    hover_enabled = backend == "plotly"
     for idx, (label, (_, values, run, rank)) in enumerate(zip(series_labels, series)):
         bar_values = [values.get(name, float("nan")) for name in region_names]
         offsets = x_positions + offset_start + idx * width
+        bar_hover = None
+        if hover_enabled:
+            bar_hover = [
+                _likwid_bar_hover(run, rank, region_name, label, metric, value)
+                for region_name, value in zip(region_names, bar_values)
+            ]
         canvas.bar(
             offsets,
             bar_values,
@@ -3860,14 +3765,8 @@ def plot_likwid(
             color=_to_hex(colors[idx]),
             edgecolor="black",
             alpha=0.8,
+            hover=bar_hover,
         )
-        if hover.enabled:
-            hover.add(
-                [
-                    _likwid_bar_hover(run, rank, region_name, label, metric, value)
-                    for region_name, value in zip(region_names, bar_values)
-                ]
-            )
         if data_filepath:
             for region_name, value in zip(region_names, bar_values):
                 data_rows.append([label, region_name, value])
@@ -3896,4 +3795,4 @@ def plot_likwid(
         else:
             _write_csv(data_filepath, ["series", "region", "value"], data_rows)
 
-    _render(canvas, filepath, show, backend, hover=hover)
+    _render(canvas, filepath, show, backend)
