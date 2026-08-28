@@ -77,6 +77,25 @@ def test_session_accepts_options(tmp_path):
     assert run.results.get_region("work").num_calls == 1
 
 
+def test_session_records_a_single_root_around_all_regions():
+    options = ProfilingOptions(deactivate_file_output=True)
+
+    with ProfileManager.session(
+        options=options, return_results=True, verbose=False
+    ) as run:
+        with ProfileManager.profile_region("first"):
+            pass
+        with ProfileManager.profile_region("second"):
+            pass
+
+    calls = run.results.call_stack()
+    root = calls[0]
+    assert root["name"] == "scope_profiler.session"
+    assert root["parent"] is None
+    assert [call["name"] for call in calls[1:]] == ["first", "second"]
+    assert all(call["parent"] == 0 for call in calls[1:])
+
+
 def test_to_kwargs_only_includes_set_fields():
     options = ProfilingOptions(use_likwid=True, buffer_limit=512)
 

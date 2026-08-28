@@ -123,6 +123,8 @@ class RankPayload(NamedTuple):
 class _ProfilingSession:
     """Context manager backing :meth:`ProfileManager.session`."""
 
+    ROOT_REGION_NAME = "scope_profiler.session"
+
     def __init__(self, manager, setup_kwargs, verbose, return_results, native_traces):
         self._manager = manager
         self._setup_kwargs = setup_kwargs
@@ -130,17 +132,27 @@ class _ProfilingSession:
         self._return_results = return_results
         self._native_traces = native_traces
         self.results = None
+        self._root_region = None
 
     def __enter__(self):
         self._manager.setup(**self._setup_kwargs)
+        # Keep every region created in the session under one interval.  Apart
+        # from making the total elapsed time explicit, this gives call-graph
+        # consumers a single root instead of a forest whose display order can
+        # be mistaken for execution order (notably by SnakeViz).
+        self._root_region = self._manager.profile_region(self.ROOT_REGION_NAME)
+        self._root_region.__enter__()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.results = self._manager.finalize(
-            verbose=self._verbose,
-            return_results=self._return_results,
-            native_traces=self._native_traces,
-        )
+        try:
+            self._root_region.__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.results = self._manager.finalize(
+                verbose=self._verbose,
+                return_results=self._return_results,
+                native_traces=self._native_traces,
+            )
         return False
 
 
