@@ -2,9 +2,10 @@
 
 import os
 import shutil
+from dataclasses import dataclass, fields
 from pathlib import Path
 from time import perf_counter_ns
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 try:  # Python 3.11+
     import tomllib
@@ -63,6 +64,128 @@ def load_profiling_config(path: str | os.PathLike[str]) -> dict:
         names = ", ".join(unknown)
         raise ValueError(f"Unknown profiling setting(s): {names}")
     return dict(settings)
+
+
+@dataclass
+class ProfilingOptions:
+    """A bag of :meth:`ProfileManager.setup` settings, to reuse or pass around.
+
+    Every field mirrors a ``setup()``/``session()`` keyword argument and
+    defaults to ``None``, meaning "unset -- let ``setup()``'s own default, or
+    its ``config_path`` file, decide". Pass one to ``setup()`` or
+    ``session()`` instead of repeating the same handful of keyword arguments
+    at every call site::
+
+        options = ProfilingOptions(use_likwid=True, file_path="run.h5")
+        ProfileManager.setup(options=options)
+        # ... or, equivalently:
+        with ProfileManager.session(options=options):
+            ...
+
+    An explicit keyword argument passed alongside ``options`` still wins over
+    the same field on ``options``, so a shared ``ProfilingOptions`` can be
+    reused across runs with one-off overrides::
+
+        ProfileManager.setup(options=options, file_path="run_b.h5")
+
+    Attributes
+    ----------
+    deactivate_profiling : bool or None
+        Turn profiling off entirely (``setup()`` default: False). Every
+        region becomes a no-op, so the instrumentation can stay in the code
+        at near-zero cost instead of being removed.
+    deactivate_file_output : bool or None
+        Write no HDF5 file at all (default: False), not even the run
+        metadata. Pair it with ``finalize(return_results=True)`` to analyse a
+        run entirely in memory.
+    use_likwid : bool or None
+        Enable LIKWID hardware counter collection (default: False).
+    use_line_profiler : bool or None
+        Enable line-by-line profiling via line_profiler (default: False).
+    use_nvtx : bool or None
+        Add NVTX ranges to profiled regions for NVIDIA Nsight tools
+        (default: False). Requires ``scope-profiler[nvtx]``.
+    use_gpu_timing : bool or None
+        Record CUDA-event elapsed device time for each profiled region
+        (default: False). CPU timestamps are still recorded, so the normal
+        timeline remains enqueue-side timing.
+    gpu_timing_backend : str, object, or None
+        CUDA-event backend for ``use_gpu_timing``: ``"auto"``, ``"torch"``,
+        ``"cupy"``, or a custom object implementing ``record_event()`` and
+        ``elapsed_time_ns(start_event, end_event)`` (default: ``"auto"``).
+    recursive_profile : bool or None
+        Enable recursive profiling for all decorated functions by default
+        (default: False). Overridable per decorator with
+        ``@ProfileManager.profile(..., recursive=...)``.
+    buffer_limit : int or None
+        Initial number of profiling events preallocated per region (default:
+        1024). Buffers grow on demand, so this is a starting size rather
+        than a limit; raise it for very hot regions to avoid repeated
+        reallocation.
+    file_path : str or None
+        Path to the output profiling data file (default:
+        ``"profiling_data.h5"``).
+    output_mode : str or None
+        MPI file writer: ``"auto"``, ``"direct"``, or ``"parallel"``
+        (default: ``"auto"``). ``auto`` prefers MPI-enabled h5py when
+        compatible with the active instrumentation and otherwise lets ranks
+        append directly to one serial-HDF5 file in token order.
+    hdf5_compression : str or None
+        Compression filter for timestamp and GPU-duration datasets:
+        ``None``, ``"gzip"``, ``"lzf"``, or ``"zstd"`` (default: None).
+    hdf5_compression_level : int or None
+        GZIP level 0--9 or Zstandard level 1--22 (default: None).
+    hdf5_chunk_size : int or None
+        Maximum events per dataset chunk (default: None). Enables chunked
+        partial reads even without compression.
+    label : str or None
+        Short name for this run (default: None, i.e. the output file's
+        stem). Post-processing uses it wherever a run has to be named --
+        chart legends, the summary heading, ``scope-profiler inspect``, the
+        JSON statistics -- and it is stored in the output file as the
+        ``label`` metadata field, so it survives into every later
+        post-processing step.
+    capture_region_source : bool or None
+        Record where each region is defined -- the ``with`` block or the
+        decorated function -- once per distinct source file, the first time
+        any of its regions is created (default: False). See
+        :attr:`~scope_profiler.region.Region.source_text`. Off by default:
+        the cost tracks that file's total size (one ``ast.parse`` + tree
+        walk), so it stays under a millisecond for a typical file but can
+        reach tenths of a second per rank for a single file with thousands
+        of lines, paid independently by every rank.
+    aggregation_mode : bool or None
+        Record only count, inclusive total, minimum, maximum, and exclusive
+        total per region (default: False). Timeline events are unavailable
+        in this mode; it cannot be combined with line, GPU, NVTX, or LIKWID
+        profiling.
+    """
+
+    deactivate_profiling: bool | None = None
+    deactivate_file_output: bool | None = None
+    use_likwid: bool | None = None
+    use_line_profiler: bool | None = None
+    use_nvtx: bool | None = None
+    use_gpu_timing: bool | None = None
+    gpu_timing_backend: Any = None
+    recursive_profile: bool | None = None
+    buffer_limit: int | None = None
+    file_path: str | None = None
+    output_mode: str | None = None
+    hdf5_compression: str | None = None
+    hdf5_compression_level: int | None = None
+    hdf5_chunk_size: int | None = None
+    label: str | None = None
+    capture_region_source: bool | None = None
+    aggregation_mode: bool | None = None
+
+    def to_kwargs(self) -> dict:
+        """This options' explicitly-set fields, as ``setup()`` keyword arguments."""
+        return {
+            field.name: value
+            for field in fields(self)
+            if (value := getattr(self, field.name)) is not None
+        }
 
 
 # try:

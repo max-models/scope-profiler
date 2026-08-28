@@ -19,7 +19,11 @@ from scope_profiler.call_stack import (
     build_call_arrays,
     regions_from_snapshot,
 )
-from scope_profiler.profile_config import ProfilingConfig, load_profiling_config
+from scope_profiler.profile_config import (
+    ProfilingConfig,
+    ProfilingOptions,
+    load_profiling_config,
+)
 from scope_profiler.region_profiler import (
     AggregateProfileRegion,
     BaseProfileRegion,
@@ -1412,6 +1416,8 @@ class ProfileManager:
     @classmethod
     def setup(
         cls,
+        options: ProfilingOptions | None = None,
+        *,
         deactivate_profiling: bool | None = None,
         deactivate_file_output: bool | None = None,
         use_likwid: bool | None = None,
@@ -1436,6 +1442,17 @@ class ProfileManager:
 
         Parameters
         ----------
+        options : ProfilingOptions, optional
+            A :class:`~scope_profiler.profile_config.ProfilingOptions` bag
+            holding any of the settings below, for reuse across calls or
+            construction away from the call site::
+
+                options = ProfilingOptions(use_likwid=True, file_path="run.h5")
+                ProfileManager.setup(options=options)
+
+            An explicit keyword argument passed alongside ``options`` wins
+            over the same field on ``options``, which in turn wins over
+            ``config_path`` and the defaults below.
         deactivate_profiling : bool, optional
             Turn profiling off entirely (default: False). Every region
             becomes a no-op, so the instrumentation can stay in the code at
@@ -1557,6 +1574,8 @@ class ProfileManager:
         }
         if config_path is not None:
             settings.update(load_profiling_config(config_path))
+        if options is not None:
+            settings.update(options.to_kwargs())
         explicit = {
             "deactivate_profiling": deactivate_profiling,
             "deactivate_file_output": deactivate_file_output,
@@ -1598,8 +1617,14 @@ class ProfileManager:
         """Return a context manager that sets up and finalizes profiling.
 
         All keyword arguments other than ``verbose``, ``return_results`` and
-        ``native_traces`` are passed to :meth:`setup`. Finalization runs even
-        when the profiled block raises; the original exception is preserved.
+        ``native_traces`` are passed to :meth:`setup`, including ``options``
+        (a :class:`~scope_profiler.profile_config.ProfilingOptions`)::
+
+            with ProfileManager.session(options=options) as run:
+                ...
+
+        Finalization runs even when the profiled block raises; the original
+        exception is preserved.
 
         When ``return_results=True``, the context object exposes the finalized
         :class:`~scope_profiler.results.ProfilingResults` as ``results``::
