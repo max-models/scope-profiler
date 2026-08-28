@@ -309,7 +309,9 @@ def _line_table(
         headers=headers,
         tablefmt="plain" if compact else "rounded_outline",
         disable_numparse=True,
-        maxcolwidths=maxcolwidths,
+        # tabulate 0.9 expands this value by concatenating a list. Passing a
+        # tuple therefore crashes while opening metadata sections.
+        maxcolwidths=list(maxcolwidths) if maxcolwidths is not None else None,
     )
 
 
@@ -526,7 +528,7 @@ def node_detail_text(node: BrowserNode) -> str:
             hits = int(hits)
             per_hit = seconds / hits if hits else 0.0
             percent = float(elapsed) / total_raw * 100 if total_raw else 0.0
-            source = linecache.getline(record["filename"], int(line)).strip()
+            source = linecache.getline(record["filename"], int(line)).rstrip("\r\n")
             rows.append(
                 (
                     int(line),
@@ -815,21 +817,39 @@ def render_plotext_text(
     if node.payload.get("plot_name") not in _PLOTEXT_TUI_PLOTS:
         raise ValueError("Plotext is available in the TUI for simple plots only.")
 
-    # maxplotlib creates a fresh Plotext figure for every render. Plotext's
-    # default terminal size is 140 columns, which is wider than a typical
-    # Textual detail pane, so constrain the defaults while that figure is built.
+    # maxplotlib creates a fresh Plotext figure for every render and may apply
+    # its own aspect-derived plot size. Size the finished figure immediately
+    # before display so both old and new Plotext backends honor the pane.
+    width = max(20, int(width))
+    height = max(5, int(height))
+    from maxplotlib import Canvas
+
+    canvas_class = Canvas
+    legend_method = canvas_class.set_legend
+    show_method = canvas_class.show
+
+    def show_sized(self, *args, **kwargs):
+        backend = kwargs.get("backend", args[0] if args else "matplotlib")
+        if backend != "plotext":
+            return show_method(self, *args, **kwargs)
+        figure = self.plot_plotext(
+            layers=kwargs.get("layers"), verbose=kwargs.get("verbose", False)
+        )
+        figure.plotsize(width, height)
+        figure.show()
+        return figure
+
+    canvas_class.show = show_sized
+    # Region legends are useful in image output, but their vertical list can
+    # consume nearly the whole Plotext canvas in a narrow TUI pane.
+    canvas_class.set_legend = lambda self, *args, **kwargs: None
+
     try:
         import plotext._figure as plotext_figure
     except ImportError:
         plotext_figure = None
         default_figure_class = None
-        canvas_class = None
-        legend_method = None
     else:
-        from maxplotlib import Canvas
-
-        canvas_class = Canvas
-        legend_method = canvas_class.set_legend
         figure_globals = plotext_figure._figure_class.__init__.__globals__
         default_figure_class = figure_globals["default_figure_class"]
         utility = figure_globals["ut"]
@@ -837,16 +857,13 @@ def render_plotext_text(
 
         def constrained_defaults():
             defaults = default_figure_class()
-            defaults.width_term = max(40, int(width))
-            defaults.height_term = max(12, int(height))
+            defaults.width_term = width
+            defaults.height_term = height
             defaults.size_term = [defaults.width_term, defaults.height_term]
             return defaults
 
         figure_globals["default_figure_class"] = constrained_defaults
-        utility.terminal_size = lambda: [max(40, int(width)), max(12, int(height))]
-        # Region legends are useful in image output, but their vertical list
-        # can consume nearly the whole Plotext canvas in a narrow TUI pane.
-        canvas_class.set_legend = lambda self, *args, **kwargs: None
+        utility.terminal_size = lambda: [width, height]
     output = io.StringIO()
     try:
         with contextlib.redirect_stdout(output):
@@ -862,7 +879,8 @@ def render_plotext_text(
         if plotext_figure is not None:
             figure_globals["default_figure_class"] = default_figure_class
             utility.terminal_size = terminal_size
-            canvas_class.set_legend = legend_method
+        canvas_class.set_legend = legend_method
+        canvas_class.show = show_method
     return output.getvalue().rstrip()
 
 
@@ -1303,10 +1321,10 @@ def _build_textual_app_class():
                 return
             self._read_plot_settings()
             detail = self.query_one("#detail", Static)
-            width = max(40, detail.content_size.width - 4)
-            # Leave room for the pane border, padding, and Textual's line
-            # accounting. Plotext uses nearly all of the requested height.
-            height = max(8, detail.content_size.height - 5)
+            # ``content_size`` already excludes the widget's border and
+            # padding, so the chart can use the complete scrollable viewport.
+            width = max(20, detail.content_size.width)
+            height = max(5, detail.content_size.height)
             try:
                 plot_text = render_plotext_text(
                     node,

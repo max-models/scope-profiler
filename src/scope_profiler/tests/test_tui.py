@@ -51,7 +51,7 @@ def line_profile_file(tmp_path):
         "unit": 1e-9,
     }
     (tmp_path / "app.py").write_text(
-        "\n" * 10 + "total = 0\nfor i in range(5):\n", encoding="utf-8"
+        "\n" * 10 + "if enabled:\n    total = 0\n", encoding="utf-8"
     )
     payload = RankPayload(
         regions={"solve": (np.asarray([0]), np.asarray([NS]))},
@@ -176,7 +176,8 @@ def test_line_profile_records_are_clickable(line_profile_file):
     assert "Line" in details and "Hits" in details and "Time [s]" in details
     assert "----" not in details
     assert "11" in details and "1e-08" in details
-    assert "total = 0" in details
+    assert "if enabled:" in details
+    assert "    total = 0" in details
 
 
 def test_plot_section_exposes_existing_plot_kinds(sample_file):
@@ -263,6 +264,18 @@ def test_render_plotext_text_captures_terminal_output(sample_file, monkeypatch):
     monkeypatch.setattr("scope_profiler.tui.render_plot", fake_plot)
 
     assert render_plotext_text(plot) == "plotext chart"
+
+
+def test_render_plotext_text_fits_requested_dimensions(sample_file):
+    model = build_browser_model(sample_file)
+    plot = _find(model.root, "Durations")
+
+    output = render_plotext_text(plot, width=48, height=12)
+    ansi_escape = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+    lines = [ansi_escape.sub("", line) for line in output.splitlines()]
+
+    assert len(lines) <= 12
+    assert max(map(len, lines)) <= 48
 
 
 def test_render_plotext_text_reports_invalid_region_filter(sample_file, monkeypatch):
