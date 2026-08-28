@@ -110,7 +110,7 @@ def test_inspect_prints_metadata_and_regions(sample_file, capsys):
     assert "total [s]" in header and "avg [s]" in header
     assert "min [s]" not in header and "std [s]" not in header
     assert "setup" in out and "solve" in out
-    assert "TOTAL" in out
+    assert "TOTAL" not in out
 
 
 def test_region_statistics_are_seconds(sample_file, capsys):
@@ -129,7 +129,7 @@ def test_region_statistics_are_seconds(sample_file, capsys):
     assert fields[1] == "2"  # ranks
     assert fields[2] == "4"  # calls
     assert float(fields[3]) == pytest.approx(13.0)  # total
-    assert float(fields[4]) == pytest.approx(13.0 / 4)  # avg
+    assert float(fields[4]) == pytest.approx(3.2)  # avg, displayed to 1 decimal
     assert float(fields[5]) == pytest.approx(2.0)  # min
     assert float(fields[6]) == pytest.approx(4.0)  # max
 
@@ -180,7 +180,7 @@ def test_include_exclude_and_ranks(sample_file, capsys):
         line for line in capsys.readouterr().out.splitlines() if "solve" in line
     )
     fields = [field.strip() for field in line.strip("│ ").split("│")]
-    assert fields[1:3] == ["1", "2"]
+    assert fields[1] == "2"  # calls; ranks is no longer in the default table
 
 
 def test_section_switches(sample_file, capsys):
@@ -289,7 +289,7 @@ def test_cli_accepts_region_table_columns(sample_file, capsys):
     assert "total [s]" in header and "avg [s]" in header
     assert "min [s]" not in header
     assert "imbalance [%]" not in header
-    assert "setup" in out and "solve" in out and "TOTAL" in out
+    assert "setup" in out and "solve" in out and "TOTAL" not in out
 
 
 def test_cli_accepts_multiple_files_and_globs(sample_file, capsys):

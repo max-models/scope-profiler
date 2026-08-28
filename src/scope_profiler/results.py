@@ -565,7 +565,7 @@ class ProfilingResults:
         include: list[str] | str | None = None,
         exclude: list[str] | str | None = None,
         ranks: list[int] | None = None,
-        sort: str = "total",
+        sort: str = "start",
         title: str | None = None,
         stream=None,
         suppress_notes: bool = False,
@@ -585,16 +585,17 @@ class ProfilingResults:
         ranks : list of int, optional
             Restrict the statistics to these ranks (default: all).
         sort : str, optional
-            Column to order by: ``total`` (default), ``calls``, ``avg``,
-            ``min``, ``max``, ``std`` or ``name``.
+            Column to order by: ``start`` (default), ``total``, ``calls``,
+            ``avg``, ``min``, ``max``, ``std`` or ``name``.
         title : str, optional
             Heading above the table (default: the file path and rank count).
         stream : file-like, optional
             Where to write (default: stdout).
         columns : list of str or str, optional
             Region summary columns to print. Defaults to ``region``,
-            ``ranks``, ``calls``, ``total`` and ``avg``. Use ``region`` for
-            the region-name column.
+            ``calls``, ``percent``, ``total`` and ``avg``. The
+            percentage is relative to ``scope_profiler.session``. Use
+            ``region`` for the region-name column.
 
         Notes
         -----
