@@ -51,7 +51,7 @@ def line_profile_file(tmp_path):
         "unit": 1e-9,
     }
     (tmp_path / "app.py").write_text(
-        "\n" * 10 + "if enabled:\n    total = 0\n", encoding="utf-8"
+        "\n" * 10 + "    if enabled:\n        total = 0\n", encoding="utf-8"
     )
     payload = RankPayload(
         regions={"solve": (np.asarray([0]), np.asarray([NS]))},
@@ -178,6 +178,7 @@ def test_line_profile_records_are_clickable(line_profile_file):
     assert "11" in details and "1e-08" in details
     assert "if enabled:" in details
     assert "    total = 0" in details
+    assert "    if enabled:" not in details
 
 
 def test_plot_section_exposes_existing_plot_kinds(sample_file):
