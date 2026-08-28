@@ -1418,23 +1418,23 @@ class ProfileManager:
         cls,
         options: ProfilingOptions | None = None,
         *,
-        deactivate_profiling: bool | None = None,
-        deactivate_file_output: bool | None = None,
+        file_path: str | None = None,
+        label: str | None = None,
         use_likwid: bool | None = None,
         use_line_profiler: bool | None = None,
+        deactivate_profiling: bool | None = None,
         use_nvtx: bool | None = None,
         use_gpu_timing: bool | None = None,
         gpu_timing_backend=None,
+        deactivate_file_output: bool | None = None,
         recursive_profile: bool | None = None,
+        aggregation_mode: bool | None = None,
+        capture_region_source: bool | None = None,
         buffer_limit: int | None = None,
-        file_path: str | None = None,
         output_mode: str | None = None,
         hdf5_compression: str | None = None,
         hdf5_compression_level: int | None = None,
         hdf5_chunk_size: int | None = None,
-        label: str | None = None,
-        capture_region_source: bool | None = None,
-        aggregation_mode: bool | None = None,
         config_path: str | os.PathLike[str] | None = None,
     ):
         """
@@ -1453,57 +1453,8 @@ class ProfileManager:
             An explicit keyword argument passed alongside ``options`` wins
             over the same field on ``options``, which in turn wins over
             ``config_path`` and the defaults below.
-        deactivate_profiling : bool, optional
-            Turn profiling off entirely (default: False). Every region
-            becomes a no-op, so the instrumentation can stay in the code at
-            near-zero cost instead of being removed.
-        deactivate_file_output : bool, optional
-            Write no HDF5 file at all (default: False), not even the run
-            metadata. Use it with
-            ``finalize(return_results=True)`` to analyse a run entirely in
-            memory::
-
-                ProfileManager.setup(deactivate_file_output=True)
-                ...
-                results = ProfileManager.finalize(return_results=True)
-
-        use_likwid : bool, optional
-            Enable LIKWID hardware counter collection (default: False).
-        use_line_profiler : bool, optional
-            Enable line-by-line profiling via line_profiler (default: False).
-        use_nvtx : bool, optional
-            Add NVTX ranges to profiled regions for NVIDIA Nsight tools
-            (default: False). Requires ``scope-profiler[nvtx]``.
-        use_gpu_timing : bool, optional
-            Record CUDA-event elapsed device time for each profiled region
-            (default: False). CPU timestamps are still recorded, so the normal
-            timeline remains enqueue-side timing.
-        gpu_timing_backend : str or object, optional
-            CUDA-event backend for ``use_gpu_timing``: ``"auto"``, ``"torch"``,
-            ``"cupy"``, or a custom object implementing ``record_event()`` and
-            ``elapsed_time_ns(start_event, end_event)``.
-        recursive_profile : bool, optional
-            Enable recursive profiling for all decorated functions by default
-            (default: False). This can be overridden per decorator with
-            ``@ProfileManager.profile(..., recursive=...)``.
-        buffer_limit : int, optional
-            Initial number of profiling events preallocated per region
-            (default: 1024). Buffers grow on demand, so this is a starting
-            size rather than a limit; raise it for very hot regions to avoid
-            repeated reallocation.
         file_path : str, optional
             Path to the output profiling data file (default: "profiling_data.h5").
-        output_mode : {"auto", "direct", "parallel"}, optional
-            MPI file writer. ``auto`` prefers MPI-enabled h5py when compatible
-            with the active instrumentation and otherwise lets ranks append
-            directly to one serial-HDF5 file in token order.
-        hdf5_compression : {"gzip", "lzf", "zstd"} or None, optional
-            Compression filter for timestamp and GPU-duration datasets.
-        hdf5_compression_level : int or None, optional
-            GZIP level 0--9 or Zstandard level 1--22.
-        hdf5_chunk_size : int or None, optional
-            Maximum events per dataset chunk. Enables chunked partial reads
-            even without compression.
         label : str or None, optional
             Short name for this run (default: None, i.e. the output file's
             stem). Post-processing uses it wherever a run has to be named --
@@ -1515,6 +1466,44 @@ class ProfileManager:
 
             It is stored in the output file as the ``label`` metadata field,
             so it survives into every later post-processing step.
+        use_likwid : bool, optional
+            Enable LIKWID hardware counter collection (default: False).
+        use_line_profiler : bool, optional
+            Enable line-by-line profiling via line_profiler (default: False).
+        deactivate_profiling : bool, optional
+            Turn profiling off entirely (default: False). Every region
+            becomes a no-op, so the instrumentation can stay in the code at
+            near-zero cost instead of being removed.
+        use_nvtx : bool, optional
+            Add NVTX ranges to profiled regions for NVIDIA Nsight tools
+            (default: False). Requires ``scope-profiler[nvtx]``.
+        use_gpu_timing : bool, optional
+            Record CUDA-event elapsed device time for each profiled region
+            (default: False). CPU timestamps are still recorded, so the normal
+            timeline remains enqueue-side timing.
+        gpu_timing_backend : str or object, optional
+            CUDA-event backend for ``use_gpu_timing``: ``"auto"``, ``"torch"``,
+            ``"cupy"``, or a custom object implementing ``record_event()`` and
+            ``elapsed_time_ns(start_event, end_event)``.
+        deactivate_file_output : bool, optional
+            Write no HDF5 file at all (default: False), not even the run
+            metadata. Use it with
+            ``finalize(return_results=True)`` to analyse a run entirely in
+            memory::
+
+                ProfileManager.setup(deactivate_file_output=True)
+                ...
+                results = ProfileManager.finalize(return_results=True)
+
+        recursive_profile : bool, optional
+            Enable recursive profiling for all decorated functions by default
+            (default: False). This can be overridden per decorator with
+            ``@ProfileManager.profile(..., recursive=...)``.
+        aggregation_mode : bool, optional
+            Record only count, inclusive total, minimum, maximum, and
+            exclusive total per region. Timeline events are unavailable in
+            this mode; it cannot be combined with line, GPU, NVTX, or LIKWID
+            profiling.
         capture_region_source : bool, optional
             Record where each region is defined -- the ``with`` block or the
             decorated function -- once per distinct source file, the first
@@ -1533,12 +1522,22 @@ class ProfileManager:
 
                 ProfileManager.setup(capture_region_source=True)
 
-        aggregation_mode : bool, optional
-            Record only count, inclusive total, minimum, maximum, and
-            exclusive total per region. Timeline events are unavailable in
-            this mode; it cannot be combined with line, GPU, NVTX, or LIKWID
-            profiling.
-
+        buffer_limit : int, optional
+            Initial number of profiling events preallocated per region
+            (default: 1024). Buffers grow on demand, so this is a starting
+            size rather than a limit; raise it for very hot regions to avoid
+            repeated reallocation.
+        output_mode : {"auto", "direct", "parallel"}, optional
+            MPI file writer. ``auto`` prefers MPI-enabled h5py when compatible
+            with the active instrumentation and otherwise lets ranks append
+            directly to one serial-HDF5 file in token order.
+        hdf5_compression : {"gzip", "lzf", "zstd"} or None, optional
+            Compression filter for timestamp and GPU-duration datasets.
+        hdf5_compression_level : int or None, optional
+            GZIP level 0--9 or Zstandard level 1--22.
+        hdf5_chunk_size : int or None, optional
+            Maximum events per dataset chunk. Enables chunked partial reads
+            even without compression.
         config_path : str or os.PathLike, optional
             TOML file containing a ``[profiling]`` table with these settings.
             Values passed directly to ``setup()`` take precedence.
@@ -1554,46 +1553,46 @@ class ProfileManager:
         ``SCOPE_PROFILER_MPI`` override.
         """
         settings = {
-            "deactivate_profiling": False,
-            "deactivate_file_output": False,
+            "file_path": "profiling_data.h5",
+            "label": None,
             "use_likwid": False,
             "use_line_profiler": False,
+            "deactivate_profiling": False,
             "use_nvtx": False,
             "use_gpu_timing": False,
             "gpu_timing_backend": "auto",
+            "deactivate_file_output": False,
             "recursive_profile": False,
+            "aggregation_mode": False,
+            "capture_region_source": False,
             "buffer_limit": 1024,
-            "file_path": "profiling_data.h5",
             "output_mode": "auto",
             "hdf5_compression": None,
             "hdf5_compression_level": None,
             "hdf5_chunk_size": None,
-            "label": None,
-            "capture_region_source": False,
-            "aggregation_mode": False,
         }
         if config_path is not None:
             settings.update(load_profiling_config(config_path))
         if options is not None:
             settings.update(options.to_kwargs())
         explicit = {
-            "deactivate_profiling": deactivate_profiling,
-            "deactivate_file_output": deactivate_file_output,
+            "file_path": file_path,
+            "label": label,
             "use_likwid": use_likwid,
             "use_line_profiler": use_line_profiler,
+            "deactivate_profiling": deactivate_profiling,
             "use_nvtx": use_nvtx,
             "use_gpu_timing": use_gpu_timing,
             "gpu_timing_backend": gpu_timing_backend,
+            "deactivate_file_output": deactivate_file_output,
             "recursive_profile": recursive_profile,
+            "aggregation_mode": aggregation_mode,
+            "capture_region_source": capture_region_source,
             "buffer_limit": buffer_limit,
-            "file_path": file_path,
             "output_mode": output_mode,
             "hdf5_compression": hdf5_compression,
             "hdf5_compression_level": hdf5_compression_level,
             "hdf5_chunk_size": hdf5_chunk_size,
-            "label": label,
-            "capture_region_source": capture_region_source,
-            "aggregation_mode": aggregation_mode,
         }
         settings.update(
             {key: value for key, value in explicit.items() if value is not None}
