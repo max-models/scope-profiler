@@ -168,10 +168,39 @@ def region_row(region, ranks=None) -> dict:
 
     durations = _region_durations(region, ranks)
     first, last = _first_last_durations(region, ranks)
+    calls = sum(data.num_calls for data in per_rank.values())
+    if not durations.size and calls:
+        # Aggregate-only regions intentionally have no per-call duration
+        # array. Their scalar statistics are still sufficient for the summary
+        # table (except distribution statistics such as percentiles).
+        totals = [data.total_duration for data in per_rank.values()]
+        minimums = [data.min_duration for data in per_rank.values() if data.num_calls]
+        maximums = [data.max_duration for data in per_rank.values() if data.num_calls]
+        total = float(sum(totals))
+        return {
+            "name": region.name,
+            "num_ranks": len(per_rank),
+            "calls": calls,
+            "total": total,
+            "avg": total / calls,
+            "min": min(minimums),
+            "max": max(maximums),
+            "first": None,
+            "last": None,
+            "std": None,
+            "p50": None,
+            "p95": None,
+            "p99": None,
+            "imbalance": (
+                region.rank_imbalance_pct
+                if ranks is None
+                else _rank_imbalance_pct(region, ranks)
+            ),
+        }
     return {
         "name": region.name,
         "num_ranks": len(per_rank),
-        "calls": sum(data.num_calls for data in per_rank.values()),
+        "calls": calls,
         "total": float(np.sum(durations)) if durations.size else None,
         "avg": float(np.mean(durations)) if durations.size else None,
         "min": float(np.min(durations)) if durations.size else None,

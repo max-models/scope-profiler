@@ -1,8 +1,8 @@
 # HDF5 output & post-processing from Python
 
 Unless `deactivate_file_output=True`, `finalize()` writes the run's timing
-data into a single HDF5 file --- under MPI, rank 0 writes it from the data the
-other ranks hand it, so nothing is staged on disk per rank.
+data into a single HDF5 file. Under MPI, ranks write their own event arrays
+directly through parallel HDF5 or token-ordered access.
 
 This page covers the file layout and the Python API for reading and plotting
 it. The same charts are available from the command line without writing any
@@ -16,23 +16,26 @@ layout:
 ```text
 profiling_data.h5
 ├── metadata/                  (attributes describing the run)
-├── rank0/
-│   └── regions/
-│       ├── region_a/
-│       │   ├── start_times   (int64, nanoseconds)
-│       │   ├── end_times     (int64, nanoseconds)
-│       │   └── (attrs) source_file, source_lineno, source_text
-│       └── region_b/
-│           ├── start_times
-│           └── end_times
-├── rank1/
-│   └── regions/
-│       └── ...
-└── ...
+├── region_table/
+│   └── names                 (region ID → UTF-8 name)
+├── rank_region_index/
+│   ├── region_ids, ranks
+│   ├── event_offsets, event_counts
+│   └── source_files, source_lines, source_texts, tags
+├── events/
+│   ├── start_times           (int64, nanoseconds)
+│   ├── end_times             (int64, nanoseconds)
+│   └── gpu_durations         (optional int64, -1 means unavailable)
+└── rank<N>/                  (only auxiliary line-profile/LIKWID records)
 ```
 
-- Each MPI rank gets its own top-level group (`rank0`, `rank1`, ...).
-  For serial runs there is only `rank0`.
+The root attribute `scope_profiler_schema` identifies the HDF5 layout version.
+New files currently use schema version `2`. Files created before this
+attribute was introduced are treated as version 1 for backward compatibility;
+files from a newer, unsupported schema are rejected with an upgrade hint.
+
+- Region names are stored once. Each rank/region pair indexes a contiguous
+  slice of the shared event columns, avoiding thousands of small HDF5 objects.
 - Timestamps are stored as **int64 nanoseconds** from
   `time.perf_counter_ns()`.
 - Runs with `use_likwid=True` additionally get a `rank<N>/likwid/` group
@@ -122,9 +125,9 @@ results.get_regions(exclude="io.*")
 
 ### Where a region is defined
 
-A region can record the source it was created from: the `with` block for
-the context-manager form, or the whole function body for the decorator form.
-It is off by default -- turn it on with `capture_region_source=True` (see
+A region records its defining filename and line by default: the `with` block
+for the context-manager form, or the function for the decorator form. Full
+source text is opt-in with `capture_region_source=True` (see
 {doc}`configuration` for what it costs and why it isn't on unconditionally):
 
 ```python
@@ -318,6 +321,22 @@ Calls are identified by position rather than by name, because a region that
 is called repeatedly — or recursively — contributes several entries under one
 name.
 
+Nesting is reconstructed by containment, so the intervals have to be properly
+nested: any two calls on a rank either nest completely or do not overlap.
+Anything else raises `NestingError`. Python regions always satisfy this; a
+mismatched `sp_begin`/`sp_end` pair in native code is the way to break it.
+
+On a long run, prefer `build_call_arrays()` to `call_stack()`. It is the same
+reconstruction returned as numpy columns rather than a dict per call, which is
+what makes it usable on millions of events:
+
+```python
+from scope_profiler import build_call_arrays
+
+calls = build_call_arrays(results.get_regions(), rank=0)
+print(calls.depth, calls.parent, calls.exclusive_ns)  # all indexed by call id
+```
+
 ```{note}
 Everything below has a command-line equivalent that needs no code:
 `scope-profiler plot default profiling_data.h5 -o figures/` writes the same charts
@@ -395,6 +414,11 @@ plot_flame(results, ranks=[0], filepath="flame.png", show=True)
 The call stack is reconstructed from timestamp containment: a region whose
 interval falls inside another's becomes its child. Unlike the Gantt chart,
 the flame graph draws one panel per rank, defaulting to rank 0 only.
+Frame labels use the full reconstructed call path (for example,
+`timestep > assembly > solve`), so same-named regions below different parents
+remain distinguishable. Colors still identify the underlying region. When
+source capture is enabled, the flame data export includes each frame's
+`source_file` and `source_lineno`; Plotly hover cards show the same location.
 
 ## Duration over time from Python
 

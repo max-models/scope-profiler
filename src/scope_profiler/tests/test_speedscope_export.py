@@ -26,11 +26,37 @@ def _nested_file_data():
 
 
 def _calls(*specs):
-    """Build the call list the document builder expects, in seconds."""
-    return [
-        {"name": name, "start": start, "end": end, "parent": parent}
-        for name, start, end, parent in specs
+    """Build the CallArrays the document builder expects, from seconds.
+
+    The ``parent`` column of each spec is not passed through -- nesting is
+    reconstructed from the intervals, which is the only way the exporter can
+    ever receive it. It is kept in the specs as documentation of the shape
+    each test is describing.
+    """
+    from collections import defaultdict
+
+    import numpy as np
+
+    from scope_profiler.call_stack import build_call_arrays
+    from scope_profiler.mpi_region import MPIRegion
+    from scope_profiler.region import Region
+
+    intervals = defaultdict(list)
+    for name, start, end, _parent in specs:
+        intervals[name].append((round(start * 1e9), round(end * 1e9)))
+    regions = [
+        MPIRegion(
+            name=name,
+            regions={
+                0: Region(
+                    np.array([s for s, _ in calls], dtype=np.int64),
+                    np.array([e for _, e in calls], dtype=np.int64),
+                )
+            },
+        )
+        for name, calls in intervals.items()
     ]
+    return build_call_arrays(regions, rank=0)
 
 
 def _load(path):
@@ -89,19 +115,18 @@ def test_document_events_replay_as_a_call_stack():
     ]
 
 
-def test_document_clips_partial_overlap():
-    # "long" is reconstructed as a child of "short" because it starts inside
-    # it, even though it runs past its end: an evented profile cannot express
-    # that, so the child is clipped to its parent.
-    calls = _calls(("short", 0.0, 0.5, None), ("long", 0.1, 2.0, 0))
+def test_document_rejects_partial_overlap():
+    """An evented profile cannot express a call outliving its parent.
 
-    document = build_speedscope_document([("rank 0", calls)], name="run")
-    replayed = _replay(document["profiles"][0], document["shared"]["frames"])
+    'long' starts inside 'short' but ends after it, which used to be clipped
+    to the enclosing interval so the events stayed a balanced stack machine.
+    build_call_arrays refuses the intervals outright instead, so nothing
+    downstream has to invent a nesting for them.
+    """
+    from scope_profiler.call_stack import NestingError
 
-    assert replayed == [
-        ("long", pytest.approx(0.1), pytest.approx(0.5)),
-        ("short", pytest.approx(0.0), pytest.approx(0.5)),
-    ]
+    with pytest.raises(NestingError):
+        _calls(("short", 0.0, 0.5, None), ("long", 0.1, 2.0, 0))
 
 
 def test_document_handles_recursion():

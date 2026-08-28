@@ -19,10 +19,13 @@ class Region:
         start_times: np.ndarray,
         end_times: np.ndarray,
         gpu_durations: np.ndarray | None = None,
+        call_ids: np.ndarray | None = None,
+        parent_ids: np.ndarray | None = None,
         source_file: str | None = None,
         source_lineno: int | None = None,
         source_text: str | None = None,
         tags=(),
+        aggregate: dict | None = None,
     ) -> None:
         """
         Initialize a Region with timing information for multiple calls.
@@ -45,10 +48,29 @@ class Region:
         self._gpu_durations = (
             None if gpu_durations is None else np.asarray(gpu_durations, dtype=np.int64)
         )
+        self._call_ids = (
+            None if call_ids is None else np.asarray(call_ids, dtype=np.int64)
+        )
+        self._parent_ids = (
+            None if parent_ids is None else np.asarray(parent_ids, dtype=np.int64)
+        )
         # A Region does not know about other regions, so until it is attached
-        # to ProfilingResults exclusive time defaults to inclusive time.
-        self._exclusive_durations = self._durations.copy()
-        self._num_calls = len(self._durations)
+        # to ProfilingResults exclusive time defaults to inclusive time. The
+        # array is built on first use: reconstructing the nesting is by far
+        # the most expensive part of loading a run, and most callers
+        # (durations, timelines, diffs) never ask for exclusive time at all.
+        self._exclusive_durations = None
+        self._exclusive_resolver = None
+        # Total exclusive nanoseconds computed by the writer, when the file
+        # recorded one. Saves reconstructing the nesting for the common case
+        # of reporting a region's exclusive time without its per-call values.
+        self._exclusive_total_ns = None
+        self._aggregate = aggregate
+        self._num_calls = (
+            int(aggregate.get("count", 0))
+            if aggregate is not None
+            else len(self._durations)
+        )
         self._source_file = source_file
         self._source_lineno = source_lineno
         self._source_text = source_text
@@ -86,7 +108,60 @@ class Region:
         """Set exclusive durations after nesting has been reconstructed."""
         if len(durations) != self.num_calls:
             raise ValueError("exclusive durations must match the call count")
+        self._exclusive_resolver = None
         self._exclusive_durations = np.asarray(durations, dtype=self._durations.dtype)
+
+    def _attach_exclusive_resolver(self, resolver) -> None:
+        """Register the callback that reconstructs this region's nesting.
+
+        Called by :class:`~scope_profiler.results.ProfilingResults`, which is
+        the only object that can see the other regions a call is nested in.
+        It runs at most once, the first time any region asks for exclusive
+        time, and fills in every region of the result set at once.
+
+        Any previously computed exclusive durations are dropped, including a
+        total the writer supplied: a region can be put into a second result
+        set (``merge_results`` reuses the region objects), and against a
+        different set of neighbours the same calls have different exclusive
+        time. The newest owner therefore wins, as it did when every result set
+        recomputed this eagerly on construction, and it is the owner that
+        re-supplies a stored total via :meth:`_set_exclusive_total`.
+        """
+        self._exclusive_durations = None
+        self._exclusive_total_ns = None
+        self._exclusive_resolver = resolver
+
+    def _set_exclusive_total(self, total_ns) -> None:
+        """Adopt an exclusive total the run itself computed, in nanoseconds.
+
+        Only the result set that owns this region may call this: the value is
+        only meaningful against the region set it was computed with. Left
+        alone, the per-call durations remain lazy -- asking for those still
+        reconstructs the nesting, and then wins over this.
+        """
+        self._exclusive_total_ns = None if total_ns is None else int(total_ns)
+
+    def _exclusive_buffer(self) -> np.ndarray:
+        """The writable exclusive-duration array, without resolving nesting.
+
+        For the resolver itself: it fills this in place, per call index.
+        Defaults to the inclusive durations, which is what a region with no
+        nested calls ends up with anyway.
+        """
+        if self._exclusive_durations is None:
+            self._exclusive_durations = self._durations.copy()
+        return self._exclusive_durations
+
+    def _resolved_exclusive_durations(self) -> np.ndarray:
+        """Exclusive durations in nanoseconds, reconstructing nesting if needed."""
+        if self._exclusive_durations is None:
+            resolver = self._exclusive_resolver
+            if resolver is not None:
+                self._exclusive_resolver = None
+                resolver()
+            if self._exclusive_durations is None:
+                self._exclusive_durations = self._durations.copy()
+        return self._exclusive_durations
 
     def events(self, origin: float = 0.0) -> List[Dict[str, Any]]:
         """
@@ -118,18 +193,31 @@ class Region:
             }
             if gpu_durations is not None:
                 event["gpu_duration"] = float(gpu_durations[index])
+            if self._call_ids is not None:
+                event["call_id"] = int(self._call_ids[index])
+                event["parent_id"] = int(self._parent_ids[index])
             events.append(event)
         return events
 
     @property
+    def call_ids(self):
+        """Explicit call ids, or None for legacy profiles."""
+        return self._call_ids
+
+    @property
+    def parent_ids(self):
+        """Explicit parent ids, or None for legacy profiles."""
+        return self._parent_ids
+
+    @property
     def has_timing(self) -> bool:
         """Whether this region recorded any calls at all."""
-        return len(self._durations) > 0
+        return self.num_calls > 0
 
     @property
     def has_source(self) -> bool:
         """Whether this region's call-site source was captured."""
-        return self._source_text is not None
+        return self._source_file is not None
 
     @property
     def has_gpu_timing(self) -> bool:
@@ -188,7 +276,7 @@ class Region:
     @property
     def exclusive_durations_ns(self) -> np.ndarray:
         """Exclusive duration of every call in nanoseconds."""
-        return self._exclusive_durations
+        return self._resolved_exclusive_durations()
 
     @property
     def start_times(self) -> np.ndarray:
@@ -198,6 +286,8 @@ class Region:
     @property
     def first_start_time(self) -> float:
         """First start time in seconds."""
+        if self._aggregate is not None:
+            return 0.0
         return (
             float(np.min(self._start_times)) / NS_PER_SECOND if self.has_timing else 0.0
         )
@@ -205,6 +295,8 @@ class Region:
     @property
     def last_end_time(self) -> float:
         """Last end time in seconds."""
+        if self._aggregate is not None:
+            return 0.0
         return (
             float(np.max(self._end_times)) / NS_PER_SECOND if self.has_timing else 0.0
         )
@@ -234,7 +326,7 @@ class Region:
     @property
     def exclusive_durations(self) -> np.ndarray:
         """Exclusive duration of every call in seconds."""
-        return self._exclusive_durations / NS_PER_SECOND
+        return self._resolved_exclusive_durations() / NS_PER_SECOND
 
     @property
     def num_calls(self) -> int:
@@ -244,6 +336,8 @@ class Region:
     @property
     def total_duration(self) -> float:
         """Total time spent in this region in seconds (sum of all durations)."""
+        if self._aggregate is not None:
+            return self._aggregate["total"] / NS_PER_SECOND
         return (
             float(np.sum(self._durations)) / NS_PER_SECOND if self.has_timing else 0.0
         )
@@ -263,11 +357,13 @@ class Region:
     @property
     def total_exclusive_duration(self) -> float:
         """Total time excluding nested regions, in seconds."""
-        return (
-            float(np.sum(self._exclusive_durations)) / NS_PER_SECOND
-            if self.has_timing
-            else 0.0
-        )
+        if self._aggregate is not None:
+            return self._aggregate["exclusive"] / NS_PER_SECOND
+        if not self.has_timing:
+            return 0.0
+        if self._exclusive_durations is None and self._exclusive_total_ns is not None:
+            return self._exclusive_total_ns / NS_PER_SECOND
+        return float(np.sum(self._resolved_exclusive_durations())) / NS_PER_SECOND
 
     @property
     def exclusive_duration(self) -> float:
@@ -277,6 +373,8 @@ class Region:
     @property
     def average_duration(self) -> float:
         """Average duration per call in seconds."""
+        if self._aggregate is not None:
+            return self.total_duration / self.num_calls if self.num_calls else 0.0
         return (
             float(np.mean(self._durations)) / NS_PER_SECOND if self.has_timing else 0.0
         )
@@ -291,6 +389,8 @@ class Region:
     @property
     def min_duration(self) -> float:
         """Minimum duration among all calls in seconds."""
+        if self._aggregate is not None:
+            return self._aggregate["minimum"] / NS_PER_SECOND
         return (
             float(np.min(self._durations)) / NS_PER_SECOND if self.has_timing else 0.0
         )
@@ -298,6 +398,8 @@ class Region:
     @property
     def max_duration(self) -> float:
         """Maximum duration among all calls in seconds."""
+        if self._aggregate is not None:
+            return self._aggregate["maximum"] / NS_PER_SECOND
         return (
             float(np.max(self._durations)) / NS_PER_SECOND if self.has_timing else 0.0
         )
@@ -305,16 +407,22 @@ class Region:
     @property
     def first_duration(self) -> float:
         """Duration of the first recorded call, in seconds."""
+        if self._aggregate is not None:
+            return 0.0
         return float(self._durations[0]) / NS_PER_SECOND if self.has_timing else 0.0
 
     @property
     def last_duration(self) -> float:
         """Duration of the last recorded call, in seconds."""
+        if self._aggregate is not None:
+            return 0.0
         return float(self._durations[-1]) / NS_PER_SECOND if self.has_timing else 0.0
 
     @property
     def std_duration(self) -> float:
         """Standard deviation of durations in seconds."""
+        if self._aggregate is not None:
+            return 0.0
         return (
             float(np.std(self._durations)) / NS_PER_SECOND if self.has_timing else 0.0
         )

@@ -163,7 +163,7 @@ def main():
 
     # Export through maxplotlib's matplotlib backend so this chart uses the
     # same rendering style as the other figures in the repository.
-    fig, axes = canvas.plot(backend="matplotlib")
+    fig, axes = canvas.render(backend="matplotlib")
     axis = np.asarray(axes).reshape(-1)[0]
 
     # Pin the axis: start a decade below the smallest bar, and leave ~0.4 of a

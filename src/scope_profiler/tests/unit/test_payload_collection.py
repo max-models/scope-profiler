@@ -8,6 +8,7 @@ single-rank run can show.
 """
 
 import os
+from pathlib import Path
 
 import h5py
 import numpy as np
@@ -33,6 +34,7 @@ class FakeComm:
         self._payloads = payloads or {}
         self.recv_order: list = []
         self.sent: list = []
+        self.barriers = 0
 
     def Get_rank(self) -> int:
         return self.rank
@@ -46,6 +48,9 @@ class FakeComm:
     def recv(self, source, tag=0):
         self.recv_order.append(source)
         return self._payloads[source]
+
+    def Barrier(self) -> None:
+        self.barriers += 1
 
 
 def payload(*durations_ns, name="solve") -> RankPayload:
@@ -100,7 +105,7 @@ def test_a_silent_rank_yields_no_group_but_still_sends(configured, tmp_path):
     # Rank 1 was still received -- skipping the receive would deadlock.
     assert comm.recv_order == [1, 2]
     with h5py.File(configured.file_path, "r") as handle:
-        assert sorted(handle) == ["metadata", "rank0", "rank2"]
+        assert handle["rank_region_index/ranks"][()].tolist() == [0, 2]
     assert list(results["solve"].regions) == [0, 2]
 
 
@@ -135,12 +140,15 @@ def test_results_without_a_file_still_stream(configured):
 
 
 def test_the_output_file_is_closed_even_on_error(configured, monkeypatch):
-    """A write failure must not leave the output file open."""
+    """A write failure preserves the previous file and removes its temporary."""
     comm = FakeComm(rank=0, size=2, payloads={1: payload(NS)})
     configured._comm = comm
     configured._rank, configured._size = 0, 2
 
     from scope_profiler import h5writer
+
+    with h5writer.ProfilingWriter(configured.file_path, {"previous": "profile"}):
+        pass
 
     def boom(*args, **kwargs):
         raise OSError("disk full")
@@ -151,9 +159,11 @@ def test_the_output_file_is_closed_even_on_error(configured, monkeypatch):
         ProfileManager._collect_payloads(
             payload(NS), write_file=True, need_results=False
         )
-    # Reopening proves the handle was released rather than left dangling.
+    # The destination still contains the complete previous run, not a partial
+    # metadata-only replacement from the failed write.
     with h5py.File(configured.file_path, "r") as handle:
-        assert "metadata" in handle
+        assert handle["metadata"].attrs["previous"] == "profile"
+    assert list(Path(configured.file_path).parent.glob(".*.tmp")) == []
 
 
 def test_no_collective_is_used_for_the_transport(configured):
@@ -183,3 +193,84 @@ def test_no_collective_is_used_for_the_transport(configured):
         payload(NS), write_file=True, need_results=True
     )
     assert results["solve"].num_calls == 2
+
+
+def test_direct_writer_appends_a_rank_after_receiving_the_token(configured, tmp_path):
+    """A non-root rank writes its own arrays; no payload is sent to rank 0."""
+    from scope_profiler.h5writer import ProfilingWriter
+
+    temp_path = configured.file_path + ".scope-profiler.tmp"
+    with ProfilingWriter(temp_path, configured.metadata) as writer:
+        writer.write_rank(0, payload(NS))
+        writer_index = writer.index_state
+
+    index_state = writer_index.state()
+    comm = FakeComm(rank=1, size=2, payloads={0: (True, "", index_state)})
+    configured._comm = comm
+    configured._rank, configured._size = 1, 2
+
+    ProfileManager._write_payload_direct(payload(2 * NS, name="remote"))
+
+    # The token this rank passes on carries the index it just extended, so the
+    # next rank appends without reading the growing columns back.
+    assert comm.sent == [
+        (0, (True, "", {"names": ["solve", "remote"], "ranks": [0, 1]}))
+    ]
+    with h5py.File(temp_path, "r") as handle:
+        assert handle["region_table/names"][()].tolist() == [b"solve", b"remote"]
+        assert handle["rank_region_index/ranks"][()].tolist() == [0, 1]
+
+
+def test_direct_writer_publishes_single_rank_file_atomically(configured):
+    configured._rank, configured._size = 0, 1
+
+    ProfileManager._write_payload_direct(payload(NS))
+
+    assert os.path.exists(configured.file_path)
+    assert not os.path.exists(configured.file_path + ".scope-profiler.tmp")
+    assert read_h5(configured.file_path)["solve"].num_calls == 1
+
+
+def test_direct_writer_forwards_an_existing_failure_without_opening_file(
+    configured,
+):
+    comm = FakeComm(rank=1, size=3, payloads={0: (False, "rank 0 failed", None)})
+    configured._comm = comm
+    configured._rank, configured._size = 1, 3
+
+    ProfileManager._write_payload_direct(payload(NS))
+
+    assert comm.sent == [(2, (False, "rank 0 failed", None))]
+    assert not os.path.exists(configured.file_path + ".scope-profiler.tmp")
+
+
+def test_auto_prefers_parallel_hdf5_when_available(configured, monkeypatch):
+    from scope_profiler import h5writer
+
+    comm = FakeComm(rank=0, size=2)
+    configured._comm = comm
+    configured._rank, configured._size = 0, 2
+    calls = []
+    monkeypatch.setattr(h5writer, "parallel_hdf5_available", lambda: True)
+    monkeypatch.setattr(
+        h5writer,
+        "write_parallel_payload",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    monkeypatch.setattr(h5writer, "atomic_publish", lambda *args: calls.append(args))
+
+    ProfileManager._write_payload_file(payload(NS))
+
+    assert len(calls) == 2
+    assert calls[0][0][1] is comm
+    assert comm.barriers == 2
+
+
+def test_explicit_parallel_mode_requires_mpi_enabled_h5py(configured, monkeypatch):
+    from scope_profiler import h5writer
+
+    configured._output_mode = "parallel"
+    monkeypatch.setattr(h5writer, "parallel_hdf5_available", lambda: False)
+
+    with pytest.raises(RuntimeError, match="h5py build with MPI support"):
+        ProfileManager._write_payload_file(payload(NS))

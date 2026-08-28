@@ -46,13 +46,9 @@ Choose a plot preset and give it an output directory:
 scope-profiler plot default run_2.h5 -o figures
 ```
 
-```text
-Plotting Gantt chart for ranks: [0, 1]
-Plotting duration comparison (total) for files: run_2
-Outputs saved to:
-  figures/gantt_plot.png
-  figures/durations_plot.png
-  figures/region_statistics.json
+```{eval-rst}
+.. literalinclude:: ../_generated/plot-cli-default.txt
+   :language: text
 ```
 
 Without `-o/--output` nothing is written; use `--show` to open the charts
@@ -67,18 +63,12 @@ LIKWID hardware counter table per rank and event group when the run recorded
 any:
 
 ```bash
-scope-profiler inspect run_2.h5
+scope-profiler inspect run_2.h5 --regions-only
 ```
 
-```text
-run_2.h5  (2 rank(s))
-  region        ranks  calls  total [s]   avg [s]
-  -----------------------------------------------
-  main              1      1    0.16637   0.16637
-  matmul            1      3   0.125949  0.041983
-  memory_bound      1      1   0.035121  0.035121
-  -----------------------------------------------
-  TOTAL                    5    0.32744
+```{eval-rst}
+.. literalinclude:: ../_generated/plot-cli-inspect.txt
+   :language: text
 ```
 
 `--sort` reorders it (`total`, `calls`, `avg`, `min`, `max`, `std` or
@@ -92,10 +82,7 @@ for the full flag list.
 recorded call. It is the chart to reach for when the question is *when* things
 happened — startup cost, gaps between steps, ranks drifting apart:
 
-```{image} /_static/figures/cli/gantt_plot.png
-:alt: Gantt chart of the mock solver at two MPI ranks
-:width: 100%
-```
+![Gantt chart of the mock solver at two MPI ranks](../_static/figures/cli/gantt_plot.png)
 
 Both ranks appear by default, one lane per rank. Calls of the same region
 share a color, and nested regions such as `assemble` and `solve` get their own
@@ -108,10 +95,7 @@ view that shows the nesting.
 reconstructed from timestamp containment — a region whose interval lies
 inside another's is drawn one level above it:
 
-```{image} /_static/figures/cli/flame_plot.png
-:alt: Flame graph of the mock solver, rank 0
-:width: 100%
-```
+![Flame graph of the mock solver, rank 0](../_static/figures/cli/flame_plot.png)
 
 Unlike the Gantt chart, the flame graph is drawn per rank and defaults to
 rank 0 only; pass `--ranks` to render more (one panel each).
@@ -119,26 +103,17 @@ rank 0 only; pass `--ranks` to render more (one panel each).
 ## Duration bar charts
 
 One bar chart is written per duration statistic. By default only `total` time
-is shown; `--metrics` selects which statistics to include:
+is shown; request other statistics with `--metrics`:
 
 ```bash
-scope-profiler plot durations run_2.h5 -o figures --metrics avg total
+scope-profiler plot durations run_2.h5 -o figures
 ```
 
-```{image} /_static/figures/cli/durations_plot_avg.png
-:alt: Average duration per call, by region
-:width: 100%
-```
+![Total duration, by region](../_static/figures/cli/durations_plot_total.png)
 
-```{image} /_static/figures/cli/durations_plot_total.png
-:alt: Total duration, by region
-:width: 100%
-```
-
-The two views tell different stories: `setup` and `solve` cost about the same
-per call, but `solve` runs once per timestep and so accounts for three times
-as much total time. With several input files, bars are grouped per region so
-runs can be compared side by side.
+For example, `--metrics avg total` also writes an average-per-call chart. With
+several input files, bars are grouped per region so runs can be compared side
+by side.
 
 ## Duration over time
 
@@ -147,10 +122,7 @@ wall-clock time, with a band spanning the minimum and maximum across the
 selected ranks. Rank imbalance shows up as a widening band, and slow drift
 (cache growth, memory pressure, throttling) as a trend:
 
-```{image} /_static/figures/cli/duration_timeseries_plot.png
-:alt: Region duration over wall-clock time
-:width: 100%
-```
+![Region duration over wall-clock time](../_static/figures/cli/duration_timeseries_plot.png)
 
 Here the middle `timestep` stands out, because that is the step that also
 writes `io`. Regions called only once — `setup` and `io` in this run — are a
@@ -166,10 +138,7 @@ speedup plot is added:
 scope-profiler plot default run_1.h5 run_2.h5 run_4.h5 -o figures_scaling
 ```
 
-```{image} /_static/figures/cli/speedup_plot.png
-:alt: Per-region speedup at 1, 2 and 4 MPI ranks
-:width: 100%
-```
+![Per-region speedup at 1, 2 and 4 MPI ranks](../_static/figures/cli/speedup_plot.png)
 
 Each line is one region's speedup relative to the smallest run, derived from
 average per-call durations, against the dashed ideal-scaling line. The mock
@@ -241,10 +210,7 @@ scope-profiler plot gantt run_2.h5 -o figures_filtered \
     --ranks 0
 ```
 
-```{image} /_static/figures/cli/gantt_plot_filtered.png
-:alt: Gantt chart restricted to the solve and assemble regions on rank 0
-:width: 100%
-```
+![Gantt chart restricted to the solve and assemble regions on rank 0](../_static/figures/cli/gantt_plot_filtered.png)
 
 Filtering applies to every output of the run, including
 `region_statistics.json`. On a large run it is also the quickest way to make
@@ -301,9 +267,34 @@ pages open in a browser:
 scope-profiler plot default run_2.h5 -o figures_html --backend plotly
 ```
 
+Hovering any bar, point, cell or flame frame shows the summary of the region
+it belongs to — the same statistics
+`Region.get_summary()` reports (calls, total, self, average,
+min, max, first, last, std, and the GPU totals when there are any), plus what
+identifies the thing under the cursor: the hovered call's own start and
+duration on the Gantt chart, the bin on the histogram, the run behind a
+scaling point. A bar showing one rank's data is described by that rank's
+region; a bar pooled over ranks by the pooled one. A `--combine-regions` bar
+has no single region behind it, so it lists its members and their pooled
+statistics instead.
+
 The matplotlib backend (the default) writes `.png` and needs no extra
 dependency; the Plotly backend writes `.html` and likewise needs nothing
 beyond Plotly itself.
+
+For terminal-friendly simple plots, use Plotext 6:
+
+```console
+scope-profiler plot durations run_2.h5 --backend plotext -o durations.txt
+```
+
+Plotext writes plain text and is intentionally limited to simple duration,
+scaling, histogram, and imbalance plots; use Matplotlib or Plotly for Gantt,
+flame, heatmap, and hardware-counter visualizations.
+
+PyVis renders the interactive `callgraph` only; it cannot render timeline or
+flame charts. For example, use `scope-profiler plot callgraph run.h5 --backend
+pyvis`, or choose Matplotlib/Plotly for `flame`.
 
 ## Exporting the data behind the charts
 
@@ -317,7 +308,9 @@ scope-profiler export plot-data run_2.h5 -o data
 
 ```text
 gantt_data.csv                    file, rank, region, start_seconds, end_seconds
-flame_data.csv                    file, rank, region, depth, start_seconds, end_seconds
+flame_data.csv                    file, rank, call_id, parent_call_id, region, call_path,
+                                  source_file, source_lineno, depth, start_seconds, end_seconds,
+                                  inclusive_duration_seconds, exclusive_duration_seconds
 durations_data.csv                file, region, metric, value_seconds
 duration_timeseries_data.csv      file, region, call_index, time_seconds,
                                   mean/min/max_duration_seconds, num_ranks
@@ -357,6 +350,11 @@ Both reconstruct the call graph from region nesting the same way the flame
 graph does, and both export only the ranks selected with `--ranks` (rank 0 by
 default). {doc}`/cli` documents what that reconstruction implies for
 partially overlapping regions and recursion.
+
+The `.prof` export preserves reconstructed call paths for SnakeViz: a `solve`
+region reached through `assembly` and one reached through `postprocess`
+appear as `assembly > solve` and `postprocess > solve` respectively. This
+makes the tree larger, but prevents different call sites from being conflated.
 
 ## Files without timing data
 

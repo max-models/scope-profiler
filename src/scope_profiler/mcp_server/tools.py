@@ -29,9 +29,7 @@ from scope_profiler.benchmark import (
     BenchmarkError,
 )
 from scope_profiler.benchmark import compare_benchmarks as _compare_benchmarks
-from scope_profiler.benchmark import (
-    load_config,
-)
+from scope_profiler.benchmark import load_config
 from scope_profiler.benchmark import run_benchmark as _run_benchmark
 from scope_profiler.diff import METRICS as DIFF_METRICS
 from scope_profiler.diff import diff_rows
@@ -440,7 +438,7 @@ def plot_profile(
         from scope_profiler import plotting_scripts
     except ImportError as exc:
         raise ToolError(
-            "Plotting requires the 'plot' extra: pip install 'scope-profiler[plot]'"
+            "Plotting requires the 'pproc' extra: pip install 'scope-profiler[pproc]'"
         ) from exc
 
     plot_func = getattr(plotting_scripts, _PLOT_FUNCS[plot_type])
@@ -470,12 +468,11 @@ def plot_profile(
         )
     except ImportError as exc:
         raise ToolError(
-            "Plotting requires the 'plot' extra: pip install 'scope-profiler[plot]'"
+            "Plotting requires the 'pproc' extra: pip install 'scope-profiler[pproc]'"
         ) from exc
 
-    # plot_durations() can write one file per requested duration metric and
-    # returns the list of paths it actually wrote; every other plot function
-    # returns None and always writes exactly the path it was given.
+    # plot_durations() returns the list containing the path it wrote; every
+    # other plot function returns None and writes exactly the path it was given.
     paths = result if isinstance(result, list) and result else [str(filepath)]
     paths = [path for path in paths if Path(path).exists()]
 

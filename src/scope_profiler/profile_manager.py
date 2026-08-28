@@ -7,14 +7,21 @@ import site
 import sys
 import sysconfig
 import threading
+import warnings
 from time import perf_counter_ns
 from types import FrameType
 from typing import TYPE_CHECKING, Callable, Dict, NamedTuple
 
 import numpy as np
 
+from scope_profiler.call_stack import (
+    NestingError,
+    build_call_arrays,
+    regions_from_snapshot,
+)
 from scope_profiler.profile_config import ProfilingConfig, load_profiling_config
 from scope_profiler.region_profiler import (
+    AggregateProfileRegion,
     BaseProfileRegion,
     CUDATimingNVTXProfileRegion,
     CUDATimingProfileRegion,
@@ -32,6 +39,24 @@ if TYPE_CHECKING:  # imported lazily in read_results() to keep imports cheap
 
 # Tag for the payload messages, on a communicator of our own (see finalize).
 _PAYLOAD_TAG = 0x5C09
+_WRITE_TOKEN_TAG = 0x5C0A
+
+
+class _WriteToken(NamedTuple):
+    """Ownership of the output file, as it is relayed from rank to rank.
+
+    A NamedTuple so it pickles as a plain tuple for mpi4py, and so a receiver
+    can index it positionally without importing this module.
+    """
+
+    ok: bool
+    """False once any rank has failed to write; later ranks then stand down."""
+
+    message: str
+    """Why the write failed, reported by rank 0 at the end of the relay."""
+
+    index: dict | None
+    """:meth:`~scope_profiler.h5writer.ColumnarIndex.state` of the file so far."""
 
 
 class RankPayload(NamedTuple):
@@ -77,6 +102,19 @@ class RankPayload(NamedTuple):
     line_profile: list | None = None
     """Line-profiler records for this rank, when line profiling is enabled."""
 
+    exclusive_totals: dict | None = None
+    """Region name -> total exclusive nanoseconds on this rank.
+
+    Computed here rather than by whoever reads the run back: a rank holds its
+    whole region set in memory at finalize(), which is exactly the set
+    exclusive time is defined against, and reconstructing the nesting from the
+    events afterwards is the most expensive part of loading a profile. Every
+    rank does its own, so the cost is spread over the job.
+    """
+
+    aggregate_stats: dict | None = None
+    """Region name -> aggregate counters for aggregation mode."""
+
 
 class _ProfilingSession:
     """Context manager backing :meth:`ProfileManager.session`."""
@@ -108,6 +146,9 @@ class ProfileManager:
     """
 
     _regions = {}
+    # Next call id to hand out, so ids stay unique across the repeated
+    # finalize() calls of one run. Reset by setup(), which starts a new run.
+    _next_call_id = 0
     # Resolved on first use, never at import. Building a ProfilingConfig reads
     # the communicator, which imports mpi4py (i.e. calls MPI_Init) whenever the
     # process looks like an MPI rank -- so constructing one here would mean
@@ -258,6 +299,8 @@ class ProfileManager:
             cls._region_cls = CUDATimingProfileRegion
         elif cfg.use_nvtx:
             cls._region_cls = NVTXProfileRegion
+        elif cfg.aggregation_mode:
+            cls._region_cls = AggregateProfileRegion
         else:
             cls._region_cls = TimeOnlyProfileRegion
 
@@ -344,17 +387,22 @@ class ProfileManager:
         direct-call form, same as e.g. the stdlib ``logging`` module's
         caller detection.
         """
-        if (
-            isinstance(region, DisabledProfileRegion)
-            or not cls._config.capture_region_source
-        ):
+        if isinstance(region, DisabledProfileRegion):
             return
         frame = sys._getframe(2)  # profile_region() -> here -> caller
         if cls._is_internal_frame(frame):
             return
         filename = frame.f_code.co_filename
         lineno = frame.f_lineno
-        region.set_source(filename, lineno, call_site_source(filename, lineno))
+        region.set_source(
+            filename,
+            lineno,
+            (
+                call_site_source(filename, lineno)
+                if cls._config.capture_region_source
+                else None
+            ),
+        )
 
     @classmethod
     def profile(
@@ -548,6 +596,12 @@ class ProfileManager:
         written *and* what gets returned, so the output file and the in-memory
         results cannot disagree.
 
+        A region that is still open has a slot reserved but no end timestamp
+        written yet, so that call is left out entirely rather than snapshotted
+        half-finished. It stays in the buffer -- ``mark_written()`` refuses to
+        rewind under an open scope -- and is picked up whole by the next
+        finalize().
+
         Returns
         -------
         dict
@@ -560,14 +614,87 @@ class ProfileManager:
             # each finalize().
             if region.ptr == 0:
                 continue
-            starts = np.array(region.start_times[: region.ptr])
-            ends = np.array(region.end_times[: region.ptr])
+            keep = region.closed_slots()
+            if keep is None:
+                starts = np.array(region.start_times[: region.ptr])
+                ends = np.array(region.end_times[: region.ptr])
+            else:
+                starts = region.start_times[: region.ptr][keep]
+                ends = region.end_times[: region.ptr][keep]
+                if not starts.size:
+                    continue
             get_gpu_durations = getattr(region, "get_gpu_durations_numpy", None)
             if get_gpu_durations is None:
                 snapshot[name] = (starts, ends)
             else:
-                snapshot[name] = (starts, ends, np.array(get_gpu_durations()))
+                gpu_durations = np.array(get_gpu_durations())
+                if keep is not None:
+                    gpu_durations = gpu_durations[keep]
+                snapshot[name] = (starts, ends, gpu_durations)
         return snapshot
+
+    @classmethod
+    def _snapshot_call_graph(
+        cls, snapshot: Dict[str, tuple]
+    ) -> tuple[Dict[str, tuple], dict]:
+        """Attach explicit call and parent ids to a timestamp snapshot.
+
+        The ids are assigned once at finalization, when all regions for this
+        rank are available. This keeps the per-entry instrumentation path
+        unchanged while allowing readers to traverse the saved graph without
+        looking at timestamps.
+
+        Column-at-a-time throughout: a long run finalizes tens of millions of
+        events per rank, and a dict per call costs ~700 bytes and ~16 us
+        against ~80 bytes and ~0.2 us here. Nothing in this path may go
+        through :func:`~scope_profiler.call_stack.build_call_stack`.
+
+        A rank whose regions are not properly nested keeps its timings and
+        loses only the call graph: raising here would throw away a run that
+        has already finished computing.
+        """
+        if not snapshot:
+            return snapshot, {}
+
+        try:
+            arrays = build_call_arrays(regions_from_snapshot(snapshot, 0), rank=0)
+        except NestingError as error:
+            warnings.warn(
+                f"call graph not recorded: {error}", RuntimeWarning, stacklevel=2
+            )
+            return snapshot, None
+
+        # Ids continue where the last finalize() left off. Restarting at zero
+        # would hand two different calls the same id in a run that finalizes
+        # more than once, which is exactly what a long simulation writing
+        # periodic checkpoints does.
+        base = cls._next_call_id
+        cls._next_call_id = base + len(arrays)
+        ids = np.arange(base, base + len(arrays), dtype=np.int64)
+        parents = np.where(arrays.parent < 0, -1, arrays.parent + base)
+        totals = np.zeros(len(arrays.names), dtype=np.int64)
+        np.add.at(totals, arrays.region_index, arrays.exclusive_ns)
+        exclusive_totals = dict(zip(arrays.names, totals.tolist()))
+
+        updated = {}
+        for row, name in enumerate(arrays.names):
+            region_arrays = snapshot[name]
+            mine = arrays.region_index == row
+            # Scatter back into recording order: call_index says which slot
+            # of this region's buffers each sorted call came from.
+            slots = arrays.call_index[mine]
+            call_ids = np.full(len(region_arrays[0]), -1, dtype=np.int64)
+            parent_ids = np.full(len(region_arrays[0]), -1, dtype=np.int64)
+            call_ids[slots] = ids[mine]
+            parent_ids[slots] = parents[mine]
+            updated[name] = (
+                region_arrays[0],
+                region_arrays[1],
+                region_arrays[2] if len(region_arrays) > 2 else None,
+                call_ids,
+                parent_ids,
+            )
+        return updated, exclusive_totals
 
     @classmethod
     def _snapshot_sources(cls, names) -> Dict[str, tuple]:
@@ -587,7 +714,7 @@ class ProfileManager:
         sources = {}
         for name in names:
             region = cls._regions.get(name)
-            if region is not None and region.source_text is not None:
+            if region is not None and region.source_file is not None:
                 sources[name] = (
                     region.source_file,
                     region.source_lineno,
@@ -618,6 +745,7 @@ class ProfileManager:
             self._per_region: Dict[str, dict] = {}
             self._likwid: Dict[int, dict] = {}
             self._line_profile: Dict[int, list] = {}
+            self._exclusive_totals: Dict[str, dict] = {}
 
         def add(self, rank: int, payload: "RankPayload") -> None:
             """Fold one rank's payload into the result set."""
@@ -629,9 +757,12 @@ class ProfileManager:
                 self._line_profile[rank] = payload.line_profile
             sources = payload.sources or {}
             tags = payload.tags or {}
+            exclusive_totals = payload.exclusive_totals or {}
             for name, arrays in payload.regions.items():
                 starts, ends = arrays[:2]
                 gpu_durations = arrays[2] if len(arrays) > 2 else None
+                call_ids = arrays[3] if len(arrays) > 3 else None
+                parent_ids = arrays[4] if len(arrays) > 4 else None
                 source_file, source_lineno, source_text = sources.get(
                     name, (None, None, None)
                 )
@@ -639,9 +770,25 @@ class ProfileManager:
                     starts,
                     ends,
                     gpu_durations=gpu_durations,
+                    call_ids=call_ids,
+                    parent_ids=parent_ids,
                     source_file=source_file,
                     source_lineno=source_lineno,
                     source_text=source_text,
+                    tags=tags.get(name, ()),
+                )
+                if name in exclusive_totals:
+                    self._exclusive_totals.setdefault(name, {})[rank] = (
+                        exclusive_totals[name]
+                    )
+            for name, aggregate in (payload.aggregate_stats or {}).items():
+                self._per_region.setdefault(name, {})[rank] = Region(
+                    np.empty(0, dtype=np.int64),
+                    np.empty(0, dtype=np.int64),
+                    aggregate=aggregate,
+                    source_file=sources.get(name, (None, None, None))[0],
+                    source_lineno=sources.get(name, (None, None, None))[1],
+                    source_text=sources.get(name, (None, None, None))[2],
                     tags=tags.get(name, ()),
                 )
 
@@ -667,6 +814,7 @@ class ProfileManager:
                 likwid=self._likwid,
                 line_profile=self._line_profile,
                 file_path=self._config.file_path,
+                exclusive_totals=self._exclusive_totals,
             )
 
     @classmethod
@@ -765,7 +913,15 @@ class ProfileManager:
 
         accumulator = cls._ResultAccumulator(config) if need_results else None
         writer = (
-            ProfilingWriter(config.file_path, config.metadata) if write_file else None
+            ProfilingWriter(
+                config.file_path,
+                config.metadata,
+                compression=config.hdf5_compression,
+                compression_level=config.hdf5_compression_level,
+                chunk_size=config.hdf5_chunk_size,
+            )
+            if write_file
+            else None
         )
         try:
             for source in range(config._size):
@@ -783,11 +939,162 @@ class ProfileManager:
                 # held at a time.
                 del incoming
             del payload
-        finally:
+        except Exception:
+            if writer is not None:
+                writer.close(commit=False)
+            raise
+        else:
             if writer is not None:
                 writer.close()
 
         return accumulator.build() if accumulator is not None else None
+
+    @classmethod
+    def _write_payload_direct(cls, payload) -> None:
+        """Let MPI ranks append to one serial-HDF5 file in token order.
+
+        Only the ownership token crosses MPI; every rank writes its own arrays
+        and closes the file before handing ownership to the next rank.  Rank 0
+        creates a temporary file and publishes it atomically after the last
+        rank reports completion.
+
+        The token carries the file's :class:`~scope_profiler.h5writer.ColumnarIndex`
+        state -- the region names already assigned an id, and the ranks already
+        written -- so each rank appends without first reading back index
+        columns that grow with every rank before it. That read made the whole
+        relay quadratic in the rank count; the state itself is a few ints and
+        the region names, which do not grow with the job.
+        """
+        from scope_profiler.h5writer import (
+            ColumnarIndex,
+            ProfilingWriter,
+            atomic_publish,
+        )
+
+        config = cls.get_config()
+        comm = config.comm
+        rank = config._rank
+        size = config._size
+        final_path = os.fspath(config.file_path)
+        temp_path = final_path + ".scope-profiler.tmp"
+
+        if rank == 0:
+            try:
+                with ProfilingWriter(
+                    temp_path,
+                    config.metadata,
+                    compression=config.hdf5_compression,
+                    compression_level=config.hdf5_compression_level,
+                    chunk_size=config.hdf5_chunk_size,
+                ) as writer:
+                    writer.write_rank(0, payload)
+                    token = _WriteToken(True, "", writer.index_state.state())
+            except Exception as exc:
+                token = _WriteToken(
+                    False, f"rank 0 could not write profiling data: {exc}", None
+                )
+
+            if size == 1:
+                if not token.ok:
+                    raise OSError(token.message)
+                atomic_publish(temp_path, final_path)
+                return
+
+            comm.send(token, dest=1, tag=_WRITE_TOKEN_TAG)
+            token = comm.recv(source=size - 1, tag=_WRITE_TOKEN_TAG)
+            if not token[0]:
+                raise OSError(token[1])
+            atomic_publish(temp_path, final_path)
+            return
+
+        token = comm.recv(source=rank - 1, tag=_WRITE_TOKEN_TAG)
+        if token[0]:
+            index_state = ColumnarIndex(**token[2]) if token[2] is not None else None
+            try:
+                with ProfilingWriter.open_existing(
+                    temp_path,
+                    index_state=index_state,
+                    compression=config.hdf5_compression,
+                    compression_level=config.hdf5_compression_level,
+                    chunk_size=config.hdf5_chunk_size,
+                ) as writer:
+                    writer.write_rank(rank, payload)
+                    token = _WriteToken(True, "", writer.index_state.state())
+            except Exception as exc:
+                token = _WriteToken(
+                    False, f"rank {rank} could not write profiling data: {exc}", None
+                )
+        destination = rank + 1 if rank + 1 < size else 0
+        comm.send(token, dest=destination, tag=_WRITE_TOKEN_TAG)
+
+    @classmethod
+    def _write_payload_file(cls, payload) -> None:
+        """Choose the MPI single-file backend and write this rank's payload."""
+        from scope_profiler.h5writer import (
+            atomic_publish,
+            compression_filter_available,
+            parallel_hdf5_available,
+            write_parallel_payload,
+        )
+
+        config = cls.get_config()
+        # Base this only on the shared configuration, never on rank-local
+        # payload contents: choosing different backends on different ranks
+        # would deadlock the collective parallel-HDF5 path.
+        parallel_compatible = not config.use_likwid
+        requested = config.output_mode
+        available = parallel_hdf5_available()
+        filter_available = compression_filter_available(config.hdf5_compression)
+
+        if requested == "parallel" and not available:
+            raise RuntimeError(
+                "output_mode='parallel' requires an h5py build with MPI support"
+            )
+        if requested == "parallel" and not parallel_compatible:
+            raise RuntimeError(
+                "output_mode='parallel' cannot currently be combined with LIKWID: "
+                "LIKWID counter collection launches a subprocess after MPI "
+                "initialization, while parallel HDF5 requires subsequent MPI "
+                "collectives. Use output_mode='direct'."
+            )
+        if requested == "parallel" and not filter_available:
+            raise RuntimeError(
+                f"The parallel HDF5 library does not provide the requested "
+                f"{config.hdf5_compression!r} compression filter. Use "
+                "output_mode='direct', choose another filter, or rebuild "
+                "parallel HDF5 with that filter enabled."
+            )
+
+        use_parallel = (
+            requested != "direct"
+            and not config.aggregation_mode
+            and available
+            and parallel_compatible
+            and filter_available
+        )
+        if not use_parallel:
+            cls._write_payload_direct(payload)
+            return
+
+        temp_path = os.fspath(config.file_path) + ".scope-profiler.tmp"
+        write_parallel_payload(
+            temp_path,
+            config.comm,
+            config._rank,
+            payload,
+            config.metadata,
+            compression=config.hdf5_compression,
+            compression_level=config.hdf5_compression_level,
+            chunk_size=config.hdf5_chunk_size,
+        )
+        # Closing an MPI-HDF5 file is collective, but implementations need not
+        # return from close on every rank simultaneously. Do not let rank 0
+        # rename while another rank is still releasing the temporary path.
+        config.comm.Barrier()
+        if config._rank == 0:
+            atomic_publish(temp_path, config.file_path)
+        # Callers may open the published path immediately after finalize().
+        config.comm.Barrier()
 
     @classmethod
     def _empty_results(cls):
@@ -941,9 +1248,23 @@ class ProfileManager:
         # 1. Copy this run's timestamps out of the live buffers. The copy is
         # both what gets written and what gets returned, so the file and the
         # in-memory results are assembled from the same bytes.
-        snapshot = cls._snapshot_regions() if need_payload else {}
-        sources = cls._snapshot_sources(snapshot) if need_payload else {}
-        tags = cls._snapshot_tags(snapshot) if need_payload else {}
+        aggregate_stats = (
+            {
+                name: region.aggregate_snapshot()
+                for name, region in cls._regions.items()
+                if region.num_calls
+            }
+            if need_payload and config.aggregation_mode
+            else None
+        )
+        snapshot = (
+            cls._snapshot_regions()
+            if need_payload and not config.aggregation_mode
+            else {}
+        )
+        source_names = snapshot if not config.aggregation_mode else aggregate_stats
+        sources = cls._snapshot_sources(source_names) if need_payload else {}
+        tags = cls._snapshot_tags(source_names) if need_payload else {}
         line_profile = cls._snapshot_line_profile() if need_payload else None
 
         # The data is safely copied, so the run boundary can be marked now: a
@@ -972,6 +1293,15 @@ class ProfileManager:
         if native_traces is not None and need_payload:
             snapshot = cls._merge_native_snapshot(snapshot, native_traces, config)
 
+        # 4. Reconstruct this rank's nesting, now that its region set is
+        # complete (native traces included). Done here, once, rather than by
+        # every later reader of the file, and as columns rather than a dict
+        # per call: see ProfileManager._snapshot_call_graph.
+        if need_payload and not config.aggregation_mode:
+            snapshot, exclusive_totals = cls._snapshot_call_graph(snapshot)
+        else:
+            exclusive_totals = None
+
         payload = RankPayload(
             regions=snapshot,
             likwid={result.tag: result for result in likwid_results},
@@ -979,17 +1309,29 @@ class ProfileManager:
             sources=sources,
             tags=tags,
             line_profile=line_profile,
+            exclusive_totals=exclusive_totals,
+            aggregate_stats=aggregate_stats,
         )
 
-        # 3. Move every rank's payload to rank 0, which writes it straight into
+        # 5. Move every rank's payload to rank 0, which writes it straight into
         # the single output file. Nothing is staged on the filesystem, so no
         # shared $TMPDIR is required, and a rank that never reports is a hang
         # rather than a silently missing group.
         results = None
         if need_payload:
-            results = cls._collect_payloads(payload, write_file, need_results)
+            if write_file and config.comm is not None:
+                cls._write_payload_file(payload)
+                if need_results:
+                    if rank == 0:
+                        from scope_profiler.h5reader import read_h5
 
-        # 4. Summarize. With a file, it is read back so that the table has one
+                        results = read_h5(config.file_path)
+                    else:
+                        results = cls._empty_results()
+            else:
+                results = cls._collect_payloads(payload, write_file, need_results)
+
+        # 6. Summarize. With a file, it is read back so that the table has one
         # implementation; without one, the same table comes from the results.
         # Non-root ranks hold an empty result set, for which this does nothing.
         if verbose and rank == 0 and write_file:
@@ -1080,8 +1422,13 @@ class ProfileManager:
         recursive_profile: bool | None = None,
         buffer_limit: int | None = None,
         file_path: str | None = None,
+        output_mode: str | None = None,
+        hdf5_compression: str | None = None,
+        hdf5_compression_level: int | None = None,
+        hdf5_chunk_size: int | None = None,
         label: str | None = None,
         capture_region_source: bool | None = None,
+        aggregation_mode: bool | None = None,
         config_path: str | os.PathLike[str] | None = None,
     ):
         """
@@ -1129,6 +1476,17 @@ class ProfileManager:
             repeated reallocation.
         file_path : str, optional
             Path to the output profiling data file (default: "profiling_data.h5").
+        output_mode : {"auto", "direct", "parallel"}, optional
+            MPI file writer. ``auto`` prefers MPI-enabled h5py when compatible
+            with the active instrumentation and otherwise lets ranks append
+            directly to one serial-HDF5 file in token order.
+        hdf5_compression : {"gzip", "lzf", "zstd"} or None, optional
+            Compression filter for timestamp and GPU-duration datasets.
+        hdf5_compression_level : int or None, optional
+            GZIP level 0--9 or Zstandard level 1--22.
+        hdf5_chunk_size : int or None, optional
+            Maximum events per dataset chunk. Enables chunked partial reads
+            even without compression.
         label : str or None, optional
             Short name for this run (default: None, i.e. the output file's
             stem). Post-processing uses it wherever a run has to be named --
@@ -1158,6 +1516,12 @@ class ProfileManager:
 
                 ProfileManager.setup(capture_region_source=True)
 
+        aggregation_mode : bool, optional
+            Record only count, inclusive total, minimum, maximum, and
+            exclusive total per region. Timeline events are unavailable in
+            this mode; it cannot be combined with line, GPU, NVTX, or LIKWID
+            profiling.
+
         config_path : str or os.PathLike, optional
             TOML file containing a ``[profiling]`` table with these settings.
             Values passed directly to ``setup()`` take precedence.
@@ -1183,8 +1547,13 @@ class ProfileManager:
             "recursive_profile": False,
             "buffer_limit": 1024,
             "file_path": "profiling_data.h5",
+            "output_mode": "auto",
+            "hdf5_compression": None,
+            "hdf5_compression_level": None,
+            "hdf5_chunk_size": None,
             "label": None,
             "capture_region_source": False,
+            "aggregation_mode": False,
         }
         if config_path is not None:
             settings.update(load_profiling_config(config_path))
@@ -1199,8 +1568,13 @@ class ProfileManager:
             "recursive_profile": recursive_profile,
             "buffer_limit": buffer_limit,
             "file_path": file_path,
+            "output_mode": output_mode,
+            "hdf5_compression": hdf5_compression,
+            "hdf5_compression_level": hdf5_compression_level,
+            "hdf5_chunk_size": hdf5_chunk_size,
             "label": label,
             "capture_region_source": capture_region_source,
+            "aggregation_mode": aggregation_mode,
         }
         settings.update(
             {key: value for key, value in explicit.items() if value is not None}
@@ -1250,6 +1624,8 @@ class ProfileManager:
             The new profiling configuration to apply.
         """
         cls._regions.clear()  # Clear old regions
+        # A new run gets a fresh id space; ids stay unique only within one.
+        cls._next_call_id = 0
         cls._config = config  # Update the config
         cls._update_region_cls()  # Set the proper region class
         # Rebind all registered decorator wrappers to the new region class.
@@ -1268,12 +1644,15 @@ class ProfileManager:
         its own -- skipping this on rebind would silently drop it.
         """
         region = cls.profile_region(name)
-        if cls._config.capture_region_source and not isinstance(
-            region, DisabledProfileRegion
-        ):
-            source = function_source(func)
-            if source is not None:
-                region.set_source(*source)
+        if not isinstance(region, DisabledProfileRegion):
+            if cls._config.capture_region_source:
+                source = function_source(func)
+                if source is not None:
+                    region.set_source(*source)
+            else:
+                code = getattr(func, "__code__", None)
+                if code is not None:
+                    region.set_source(code.co_filename, code.co_firstlineno, None)
         _bound[0] = region
         _bound[1] = region.wrap(func)
         return region

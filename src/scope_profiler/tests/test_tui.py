@@ -1,5 +1,7 @@
 """Tests for the Textual HDF5 browser's data model."""
 
+import re
+
 import numpy as np
 import pytest
 
@@ -12,6 +14,7 @@ from scope_profiler.tui import (
     build_browser_model,
     node_detail_text,
     render_plot,
+    render_plotext_text,
 )
 
 NS = 1_000_000_000
@@ -109,6 +112,48 @@ def test_region_details_include_ranks_calls_source_and_raw_hdf5(sample_file):
     assert "Dtype: int64" in node_detail_text(start_times)
 
 
+def test_overview_shows_dashboard_metrics_and_top_regions(sample_file):
+    model = build_browser_model(sample_file)
+
+    overview = node_detail_text(_find(model.root, "Overview"))
+
+    assert "Top regions by total time" in overview
+    assert "Calls" in overview
+    assert "solve" in overview
+    assert "█" in overview
+
+
+def test_metadata_landing_page_is_compact(sample_file):
+    model = build_browser_model(sample_file)
+
+    metadata = node_detail_text(_find(model.root, "Metadata"))
+
+    assert "metadata entries recorded" in metadata
+    assert "Select a section below" in metadata
+
+
+def test_metadata_values_wrap_inside_the_table(sample_file):
+    model = build_browser_model(sample_file)
+    section = _find(model.root, "Run")
+    section.payload["entries"] = [("uname", "Darwin " * 30)]
+
+    details = node_detail_text(section)
+
+    assert len(max(details.splitlines(), key=len)) < 110
+    assert details.count("Darwin") == 30
+
+
+def test_raw_hdf5_attributes_wrap_inside_the_table(sample_file):
+    model = build_browser_model(sample_file)
+    dataset = _find(model.root, "start_times")
+    dataset.payload["attrs"] = {"description": "attribute " * 30}
+
+    details = node_detail_text(dataset)
+
+    assert len(max(details.splitlines(), key=len)) < 110
+    assert details.count("attribute") == 30
+
+
 def test_line_profile_records_are_clickable(line_profile_file):
     model = build_browser_model(line_profile_file)
 
@@ -142,6 +187,7 @@ def test_plot_section_exposes_existing_plot_kinds(sample_file):
         "Gantt",
         "Durations",
         "Flame",
+        "Callgraph",
         "Timeseries",
         "Histogram",
         "Imbalance",
@@ -184,7 +230,7 @@ def test_render_plot_passes_plot_settings(sample_file, monkeypatch):
             "exclude": "debug",
             "ranks": "0,2-3",
             "cmap": "viridis",
-            "metrics": "avg,max",
+            "metric": "avg",
             "sort_by": "avg",
             "top_n": "5",
             "log_scale": True,
@@ -196,7 +242,7 @@ def test_render_plot_passes_plot_settings(sample_file, monkeypatch):
     assert captured["exclude"] == ["debug"]
     assert captured["ranks"] == [0, 2, 3]
     assert captured["cmap"] == "viridis"
-    assert captured["metrics"] == ["avg", "max"]
+    assert captured["metric"] == "avg"
     assert captured["sort_by"] == "avg"
     assert captured["top_n"] == 5
     assert captured["log_scale"] is True
@@ -205,6 +251,31 @@ def test_render_plot_passes_plot_settings(sample_file, monkeypatch):
 
 def test_matplotlib_child_script_is_valid_python():
     compile(_matplotlib_child_script(), "<matplotlib-child>", "exec")
+
+
+def test_render_plotext_text_captures_terminal_output(sample_file, monkeypatch):
+    model = build_browser_model(sample_file)
+    plot = _find(model.root, "Durations")
+
+    def fake_plot(results, **kwargs):
+        print("plotext chart")
+
+    monkeypatch.setattr("scope_profiler.tui.render_plot", fake_plot)
+
+    assert render_plotext_text(plot) == "plotext chart"
+
+
+def test_render_plotext_text_reports_invalid_region_filter(sample_file, monkeypatch):
+    model = build_browser_model(sample_file)
+    plot = _find(model.root, "Durations")
+
+    def fake_plot(results, **kwargs):
+        raise re.error("nothing to repeat")
+
+    monkeypatch.setattr("scope_profiler.tui.render_plot", fake_plot)
+
+    with pytest.raises(ValueError, match="Invalid region filter"):
+        render_plotext_text(plot, settings={"exclude": "*print_report"})
 
 
 def test_tui_help_does_not_require_textual(capsys):
@@ -220,3 +291,34 @@ def test_tui_is_listed_in_top_level_help(capsys):
         cli_main(["--help"])
 
     assert "tui" in capsys.readouterr().out
+
+
+def test_changing_a_plot_setting_reschedules_the_plotext_refresh(sample_file):
+    """Regression: ``set_timer()`` accepts no arguments for its callback.
+
+    Changing any of the plot settings while a plotext-capable plot is
+    selected crashed the whole app with a TypeError, because the selected
+    node was passed to ``set_timer`` as a third positional argument.
+    """
+    import asyncio
+
+    from scope_profiler.tui import _build_textual_app_class
+
+    model = build_browser_model(sample_file)
+    durations = _find(model.root, "Durations")
+    assert durations is not None
+    app = _build_textual_app_class()(model)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            app.selected_browser_node = durations
+            app._schedule_plotext_refresh()
+            await pilot.pause()
+            first = app._plotext_refresh_timer
+            assert first is not None
+            # A second change replaces the pending refresh rather than adding one.
+            app._schedule_plotext_refresh()
+            await pilot.pause()
+            assert app._plotext_refresh_timer is not first
+
+    asyncio.run(scenario())

@@ -5,6 +5,11 @@ import numpy as np
 import pytest
 
 from scope_profiler import read_h5
+from scope_profiler.h5schema import (
+    CURRENT_SCHEMA_VERSION,
+    SCHEMA_ATTRIBUTE,
+    HDF5SchemaError,
+)
 from scope_profiler.h5writer import ProfilingWriter, write_metadata, write_rank_payload
 from scope_profiler.profile_manager import RankPayload
 
@@ -12,7 +17,11 @@ NS = 1_000_000_000
 
 
 def payload(
-    regions=None, likwid=None, environment=None, line_profile=None
+    regions=None,
+    likwid=None,
+    environment=None,
+    line_profile=None,
+    exclusive_totals=None,
 ) -> RankPayload:
     """A RankPayload with plain int64 timestamp arrays."""
     return RankPayload(
@@ -23,6 +32,7 @@ def payload(
         likwid=likwid or {},
         likwid_environment=environment or {},
         line_profile=line_profile,
+        exclusive_totals=exclusive_totals,
     )
 
 
@@ -32,12 +42,35 @@ def test_rank_group_holds_the_recorded_timestamps(tmp_path):
         assert writer.write_rank(0, payload({"solve": ([0, 3 * NS], [2 * NS, 5 * NS])}))
 
     with h5py.File(path, "r") as handle:
-        starts = handle["rank0/regions/solve/start_times"]
+        assert handle.attrs[SCHEMA_ATTRIBUTE] == CURRENT_SCHEMA_VERSION
+        starts = handle["events/start_times"]
         assert starts[()].tolist() == [0, 3 * NS]
-        assert handle["rank0/regions/solve/end_times"][()].tolist() == [2 * NS, 5 * NS]
+        assert handle["events/end_times"][()].tolist() == [2 * NS, 5 * NS]
         # The reader recovers metadata from the top level, never from a rank.
-        assert "metadata" not in handle["rank0"]
+        assert handle.attrs["storage_layout"] == "columnar"
         assert handle["metadata"].attrs["hostname"] == "node0"
+
+
+def test_legacy_file_without_schema_version_still_reads(tmp_path):
+    """Files produced before schema versioning remain compatible."""
+    path = tmp_path / "legacy.h5"
+    with h5py.File(path, "w") as handle:
+        handle.create_group("metadata")
+        regions = handle.create_group("rank0/regions/solve")
+        regions.create_dataset("start_times", data=np.asarray([0], dtype=np.int64))
+        regions.create_dataset("end_times", data=np.asarray([NS], dtype=np.int64))
+
+    assert read_h5(path)["solve"].num_calls == 1
+
+
+@pytest.mark.parametrize("version", [0, 3, "one"])
+def test_reader_rejects_invalid_or_unsupported_schema_version(tmp_path, version):
+    path = tmp_path / "unsupported.h5"
+    with h5py.File(path, "w") as handle:
+        handle.attrs[SCHEMA_ATTRIBUTE] = version
+
+    with pytest.raises(HDF5SchemaError, match="schema version"):
+        read_h5(path)
 
 
 def test_gpu_durations_round_trip_when_present(tmp_path):
@@ -46,7 +79,7 @@ def test_gpu_durations_round_trip_when_present(tmp_path):
         writer.write_rank(0, payload({"solve": ([0, NS], [NS, 3 * NS], [7, 11])}))
 
     with h5py.File(path, "r") as handle:
-        gpu = handle["rank0/regions/solve/gpu_durations"]
+        gpu = handle["events/gpu_durations"]
         assert gpu[()].tolist() == [7, 11]
 
     region = read_h5(path)["solve"]
@@ -81,17 +114,49 @@ def test_line_profile_round_trips(tmp_path):
     assert loaded["unit"] == pytest.approx(1e-9)
 
 
-def test_datasets_are_contiguous_and_exactly_sized(tmp_path):
-    """A sparsely-called region must not cost a whole HDF5 chunk."""
+def test_columnar_event_datasets_are_shared_and_resizable(tmp_path):
     path = tmp_path / "sparse.h5"
     with ProfilingWriter(path) as writer:
         writer.write_rank(0, payload({"sparse": (range(5), range(1, 6))}))
 
     with h5py.File(path, "r") as handle:
-        dataset = handle["rank0/regions/sparse/start_times"]
+        dataset = handle["events/start_times"]
         assert dataset.shape == (5,)
-        assert dataset.chunks is None
-        assert dataset.id.get_storage_size() == 5 * 8
+        assert dataset.chunks is not None
+
+
+@pytest.mark.parametrize("compression", ["gzip", "lzf"])
+def test_timestamp_compression_and_chunk_size_round_trip(tmp_path, compression):
+    path = tmp_path / f"{compression}.h5"
+    starts = np.arange(25, dtype=np.int64)
+    ends = starts + 7
+    with ProfilingWriter(
+        path,
+        compression=compression,
+        compression_level=4 if compression == "gzip" else None,
+        chunk_size=8,
+    ) as writer:
+        writer.write_rank(0, payload({"solve": (starts, ends)}))
+
+    with h5py.File(path, "r") as handle:
+        dataset = handle["events/start_times"]
+        assert dataset.compression == compression
+        assert dataset.chunks == (8,)
+        assert dataset.shuffle is True
+        if compression == "gzip":
+            assert dataset.compression_opts == 4
+    assert read_h5(path)["solve"][0].start_times_ns.tolist() == starts.tolist()
+
+
+def test_chunking_can_be_enabled_without_compression(tmp_path):
+    path = tmp_path / "chunked.h5"
+    with ProfilingWriter(path, chunk_size=4) as writer:
+        writer.write_rank(0, payload({"solve": (range(10), range(1, 11))}))
+
+    with h5py.File(path, "r") as handle:
+        dataset = handle["events/start_times"]
+        assert dataset.compression is None
+        assert dataset.chunks == (4,)
 
 
 def test_a_rank_with_nothing_recorded_gets_no_group(tmp_path):
@@ -102,7 +167,45 @@ def test_a_rank_with_nothing_recorded_gets_no_group(tmp_path):
         assert writer.write_rank(1, payload()) is False
 
     with h5py.File(path, "r") as handle:
-        assert sorted(handle) == ["metadata", "rank0"]
+        assert sorted(handle) == [
+            "events",
+            "metadata",
+            "rank_region_index",
+            "region_table",
+        ]
+
+
+def test_successful_writer_atomically_replaces_previous_file(tmp_path):
+    path = tmp_path / "atomic.h5"
+    with ProfilingWriter(path, {"generation": "old"}):
+        pass
+
+    with ProfilingWriter(path, {"generation": "new"}) as writer:
+        # The old file remains readable until the context commits.
+        with h5py.File(path, "r") as handle:
+            assert handle["metadata"].attrs["generation"] == "old"
+        writer.write_rank(0, payload({"solve": ([0], [NS])}))
+
+    with h5py.File(path, "r") as handle:
+        assert handle["metadata"].attrs["generation"] == "new"
+        assert handle["region_table/names"][()].tolist() == [b"solve"]
+    assert list(tmp_path.glob(".atomic.h5.*.tmp")) == []
+
+
+def test_failed_writer_preserves_previous_file_and_discards_temporary(tmp_path):
+    path = tmp_path / "atomic_failure.h5"
+    with ProfilingWriter(path, {"generation": "old"}):
+        pass
+
+    with pytest.raises(RuntimeError, match="interrupted"):
+        with ProfilingWriter(path, {"generation": "incomplete"}) as writer:
+            writer.write_rank(0, payload({"solve": ([0], [NS])}))
+            raise RuntimeError("interrupted")
+
+    with h5py.File(path, "r") as handle:
+        assert handle["metadata"].attrs["generation"] == "old"
+        assert "rank0" not in handle
+    assert list(tmp_path.glob(".atomic_failure.h5.*.tmp")) == []
 
 
 def test_metadata_round_trips_through_the_reader(tmp_path):
@@ -205,8 +308,8 @@ def test_prof_export_no_split_timeline(tmp_path):
     "two timelines" due to duplicate region entries or incorrect call stack
     reconstruction.
     """
-    from scope_profiler.call_stack import build_call_stack
-    from scope_profiler.prof_export import build_pstats_dict, export_prof
+    from scope_profiler.call_stack import build_call_arrays
+    from scope_profiler.prof_export import build_pstats_dict
 
     path = tmp_path / "multi_rank.h5"
     with ProfilingWriter(path) as writer:
@@ -228,10 +331,10 @@ def test_prof_export_no_split_timeline(tmp_path):
     regions = results.get_regions()
 
     # Build call stack for rank 0
-    calls = build_call_stack(regions, rank=0)
+    calls = build_call_arrays(regions, rank=0)
 
     # Verify no duplicate calls - each region should appear only once per call
-    region_names_in_calls = [call["name"] for call in calls]
+    region_names_in_calls = [calls.names[row] for row in calls.region_index.tolist()]
     call_counts = {}
     for name in region_names_in_calls:
         call_counts[name] = call_counts.get(name, 0) + 1
@@ -254,3 +357,119 @@ def test_prof_export_no_split_timeline(tmp_path):
     assert region_entries.count("setup") <= 1
     assert region_entries.count("solve") <= 1
     assert region_entries.count("assemble") <= 1
+
+
+def test_writer_carries_the_index_across_ranks_without_rereading_the_file(tmp_path):
+    """The per-rank append must not scan columns that grow with every rank.
+
+    Reading the region names and written ranks back out of the file on every
+    write_rank() call makes writing a job quadratic in its rank count, so the
+    writer keeps that state itself. Deleting the columns it would have read
+    proves it is not reading them.
+    """
+    path = tmp_path / "carried.h5"
+    with ProfilingWriter(path) as writer:
+        writer.write_rank(0, payload({"solve": ([0], [NS])}))
+        del writer._file["region_table/names"]
+        del writer._file["rank_region_index/ranks"]
+        writer._file["region_table"].create_dataset(
+            "names", shape=(1,), maxshape=(None,), dtype=h5py.string_dtype("utf-8")
+        )
+        writer._file["region_table/names"][0] = "solve"
+        writer._file["rank_region_index"].create_dataset(
+            "ranks", shape=(1,), maxshape=(None,), dtype=np.uint32, data=[0]
+        )
+
+        writer.write_rank(1, payload({"assemble": ([0], [2 * NS])}))
+        assert writer.index_state.names == ["solve", "assemble"]
+        assert writer.index_state.ranks == {0, 1}
+
+    results = read_h5(path)
+    assert results["solve"].ranks == [0]
+    assert results["assemble"].ranks == [1]
+
+
+def test_index_state_can_be_handed_to_the_next_writer(tmp_path):
+    """What the MPI relay does: reopen a file with the previous rank's index."""
+    from scope_profiler.h5writer import ColumnarIndex
+
+    path = tmp_path / "relayed.h5"
+    with ProfilingWriter(path, atomic=False) as writer:
+        writer.write_rank(0, payload({"solve": ([0], [NS])}))
+        state = writer.index_state.state()
+
+    assert state == {"names": ["solve"], "ranks": [0]}
+    with ProfilingWriter.open_existing(
+        path, index_state=ColumnarIndex(**state)
+    ) as more:
+        more.write_rank(1, payload({"solve": ([0], [3 * NS]), "io": ([0], [NS])}))
+        with pytest.raises(ValueError):
+            more.write_rank(0, payload({"solve": ([0], [NS])}))
+
+    region = read_h5(path)["solve"]
+    assert [data.total_duration for data in region.regions.values()] == [1.0, 3.0]
+    assert read_h5(path)["io"].ranks == [1]
+
+
+NESTED = {"outer": ([0, 200], [100, 300]), "inner": ([10, 250], [30, 280])}
+
+
+def test_stored_exclusive_totals_match_reconstruction_exactly(tmp_path):
+    """The run's own totals must equal what a reader derives from the events.
+
+    They are two paths to the same number -- the writer's, from the region
+    set it holds in memory, and the reader's, from the call stack it rebuilds
+    -- so any difference would make a summary depend on which one ran.
+    """
+    from scope_profiler.call_stack import exclusive_totals_ns
+
+    path = tmp_path / "totals.h5"
+    regions = {
+        name: tuple(np.asarray(v) for v in arrays) for name, arrays in NESTED.items()
+    }
+    totals = exclusive_totals_ns(regions)
+    # outer spans 100+100ns with 20+30ns of inner inside it.
+    assert totals == {"outer": 150, "inner": 50}
+
+    with ProfilingWriter(path) as writer:
+        writer.write_rank(0, payload(NESTED, exclusive_totals=totals))
+
+    with h5py.File(path, "r") as handle:
+        assert handle["rank_region_index/exclusive_totals"][()].tolist() == [150, 50]
+
+    results = read_h5(path)
+    served_from_file = results["outer"].exclusive_duration
+    # Asking for the per-call values rebuilds the nesting; the total must not move.
+    assert results["outer"][0].exclusive_durations_ns.tolist() == [80, 70]
+    assert results["outer"].exclusive_duration == served_from_file == 150e-9
+
+
+def test_a_file_without_stored_totals_still_reports_exclusive_time(tmp_path):
+    """Files from before the column existed, and native-trace imports.
+
+    A row with no stored total falls back to reconstructing the nesting, and
+    appending to such a file backfills the column rather than failing.
+    """
+    path = tmp_path / "no_totals.h5"
+    with ProfilingWriter(path, atomic=False) as writer:
+        writer.write_rank(0, payload(NESTED))
+    with h5py.File(path, "r+") as handle:
+        # A file written before the column existed at all.
+        del handle["rank_region_index/exclusive_totals"]
+
+    assert read_h5(path)["outer"].exclusive_duration == 150e-9
+
+    with ProfilingWriter.open_existing(path) as writer:
+        writer.write_rank(
+            1, payload(NESTED, exclusive_totals={"outer": 150, "inner": 50})
+        )
+
+    with h5py.File(path, "r") as handle:
+        # Rank 0's rows are backfilled as "not computed", rank 1's are stored.
+        assert handle["rank_region_index/exclusive_totals"][()].tolist() == [
+            -1,
+            -1,
+            150,
+            50,
+        ]
+    assert read_h5(path)["outer"].exclusive_duration == 300e-9

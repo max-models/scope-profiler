@@ -10,6 +10,7 @@ from pathlib import Path
 from scope_profiler.h5reader import read_h5
 from scope_profiler.plotting_scripts import (
     DEFAULT_CMAP,
+    plot_callgraph,
     plot_duration_histogram,
     plot_duration_timeseries,
     plot_durations,
@@ -17,7 +18,10 @@ from scope_profiler.plotting_scripts import (
     plot_gantt,
     plot_imbalance,
     plot_likwid,
+    plot_rank_heatmap,
+    plot_scaling_efficiency,
     plot_speedup,
+    plot_weak_scaling,
     write_region_statistics_json,
 )
 from scope_profiler.prof_export import export_prof
@@ -30,9 +34,13 @@ from scope_profiler.speedscope_export import export_speedscope
 _PLOT_CATALOG: dict[str, tuple[str, bool]] = {
     "gantt": ("per-rank timeline of every call", True),
     "flame": ("reconstructed call-stack flame graph", False),
+    "callgraph": ("parent/child call graph from explicit call ids", False),
     "durations": ("bar chart of duration statistics per region", True),
     "timeseries": ("duration per call over wall-clock time", False),
     "speedup": ("scaling across multiple files (2+ files only)", False),
+    "weak_scaling": ("weak scaling across multiple files (2+ files only)", False),
+    "rank_heatmap": ("total duration by rank and region", False),
+    "scaling_efficiency": ("measured versus ideal parallel efficiency", False),
     "histogram": ("call-duration distribution per region", False),
     "imbalance": ("per-rank duration comparison, to spot stragglers", False),
     "likwid": ("one LIKWID hardware-counter metric (needs --likwid-metric)", False),
@@ -40,7 +48,21 @@ _PLOT_CATALOG: dict[str, tuple[str, bool]] = {
 _DEFAULT_PLOTS = frozenset(
     name for name, (_, is_default) in _PLOT_CATALOG.items() if is_default
 )
-_QUICK_PLOTS = frozenset({"durations", "speedup"})
+_QUICK_PLOTS = frozenset(
+    {"durations", "speedup", "weak_scaling", "rank_heatmap", "scaling_efficiency"}
+)
+_PLOTEXT_SIMPLE_PLOTS = frozenset(
+    {
+        "durations",
+        "timeseries",
+        "speedup",
+        "weak_scaling",
+        "scaling_efficiency",
+        "histogram",
+        "imbalance",
+    }
+)
+_PYVIS_PLOTS = frozenset({"callgraph"})
 
 
 @dataclass(frozen=True)
@@ -163,7 +185,7 @@ def _add_plot_output_args(parser: argparse.ArgumentParser) -> None:
         type=str,
         help=(
             "Output directory. For a single plot kind, this may also be a "
-            "target .png or .html file."
+            "target .png, .html, or .txt file."
         ),
     )
     parser.add_argument(
@@ -173,15 +195,28 @@ def _add_plot_output_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--backend",
-        choices=["matplotlib", "plotly"],
+        choices=["matplotlib", "plotly", "pyvis", "plotext"],
         default="matplotlib",
-        help="Renderer used for plots: static PNGs or interactive HTML.",
+        help=(
+            "Renderer used for plots: matplotlib/plotly support chart plots; "
+            "pyvis supports callgraph only; plotext supports simple plots only."
+        ),
     )
     parser.add_argument(
         "--cmap",
         type=str,
         default=DEFAULT_CMAP,
         help=f"Matplotlib colormap used for regions/files (default: {DEFAULT_CMAP!r}).",
+    )
+    parser.add_argument(
+        "--compact-callgraph",
+        action="store_true",
+        help="Collapse repeated callgraph invocations into one node per region.",
+    )
+    parser.add_argument(
+        "--fluid-callgraph",
+        action="store_true",
+        help="Use an interactive force-directed layout for the compact callgraph.",
     )
 
 
@@ -215,6 +250,14 @@ def _add_duration_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         metavar="NAME=PATTERN[,PATTERN...]",
         help="Merge regions into named bars using regex patterns.",
+    )
+    parser.add_argument(
+        "--stack-children",
+        action="store_true",
+        help=(
+            "Split each bar into the region's own time plus one stacked "
+            "segment per region called from it (total/avg only)."
+        ),
     )
 
 
@@ -306,13 +349,13 @@ def build_parser() -> argparse.ArgumentParser:
             _add_log_scale_arg(plot_parser)
         elif kind == "timeseries":
             _add_log_scale_arg(plot_parser)
-        elif kind == "speedup":
+        elif kind in {"speedup", "weak_scaling", "scaling_efficiency"}:
             plot_parser.add_argument(
                 "--x",
                 type=str,
                 default="num_ranks",
                 metavar="FIELD",
-                help="Speedup x-axis field.",
+                help="Scaling x-axis field.",
             )
         elif kind == "histogram":
             plot_parser.add_argument(
@@ -509,10 +552,10 @@ def _plot_output_targets(
         return OutputTargets(directory=None, single_file=None, statistics_path=None)
 
     output_path = Path(args.output)
-    ext = "html" if args.backend == "plotly" else "png"
     is_single_plot_file = len(selected_plots) == 1 and output_path.suffix.lower() in {
         ".png",
         ".html",
+        ".txt",
     }
     if is_single_plot_file:
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -564,6 +607,7 @@ def _plot_options(args: argparse.Namespace, name: str):
         "sort_by": getattr(args, "sort_by", None),
         "top_n": getattr(args, "top_n", None),
         "combine_regions": getattr(args, "combine_regions", None),
+        "stack_children": getattr(args, "stack_children", False),
         "log_scale": getattr(args, "log_scale", False),
         "histogram_bins": getattr(args, "bins", 30),
         "imbalance_metric": (
@@ -595,7 +639,11 @@ def _render_selected_plots(
             "likwid requires --metric for plots or --likwid-metric for plot-data."
         )
 
-    ext = "html" if getattr(args, "backend", "matplotlib") == "plotly" else "png"
+    ext = (
+        "html"
+        if getattr(args, "backend", "matplotlib") in {"plotly", "pyvis"}
+        else "txt" if getattr(args, "backend", "matplotlib") == "plotext" else "png"
+    )
     options = _plot_options(args, "")
     saved: list[str] = []
 
@@ -624,6 +672,9 @@ def _render_selected_plots(
     flame_data_path = _data_path(
         data_output_dir, selected_plots, "flame", "flame_data", data_format
     )
+    callgraph_data_path = _data_path(
+        data_output_dir, selected_plots, "callgraph", "callgraph_data", data_format
+    )
     durations_data_path = _data_path(
         data_output_dir, selected_plots, "durations", "durations_data", data_format
     )
@@ -641,11 +692,36 @@ def _render_selected_plots(
         if len(runs) > 1
         else None
     )
+    weak_scaling_data_path = (
+        _data_path(
+            data_output_dir,
+            selected_plots,
+            "weak_scaling",
+            "weak_scaling_data",
+            data_format,
+        )
+        if len(runs) > 1
+        else None
+    )
+    scaling_efficiency_data_path = _data_path(
+        data_output_dir,
+        selected_plots,
+        "scaling_efficiency",
+        "scaling_efficiency_data",
+        data_format,
+    )
     histogram_data_path = _data_path(
         data_output_dir, selected_plots, "histogram", "histogram_data", data_format
     )
     imbalance_data_path = _data_path(
         data_output_dir, selected_plots, "imbalance", "imbalance_data", data_format
+    )
+    rank_heatmap_data_path = _data_path(
+        data_output_dir,
+        selected_plots,
+        "rank_heatmap",
+        "rank_heatmap_data",
+        data_format,
     )
     likwid_data_path = _data_path(
         data_output_dir, selected_plots, "likwid", "likwid_data", data_format
@@ -683,25 +759,47 @@ def _render_selected_plots(
         )
         saved.extend(path for path in (path, flame_data_path) if path)
 
-    if "durations" in selected_plots:
-        path = image_path("durations", "durations_plot")
-        durations_paths = plot_durations(
-            runs,
-            filepath=path,
-            show=args.show,
+    if "callgraph" in selected_plots:
+        path = image_path("callgraph", "callgraph_plot")
+        plot_callgraph(
+            runs[0],
+            rank=(args.ranks[0] if args.ranks else 0),
             include=args.include,
             exclude=args.exclude,
-            ranks=args.ranks,
-            metrics=options["duration_metrics"],
-            sort_by=options["sort_by"],
-            top_n=options["top_n"],
-            combine_regions=options["combine_regions"],
-            cmap=args.cmap,
-            log_scale=options["log_scale"],
-            data_filepath=durations_data_path,
+            filepath=path,
+            show=args.show,
+            data_filepath=callgraph_data_path,
             data_format=data_format,
             backend=args.backend,
+            compact=args.compact_callgraph,
+            fluid=args.fluid_callgraph,
         )
+        saved.extend(path for path in (path, callgraph_data_path) if path)
+
+    if "durations" in selected_plots:
+        path = image_path("durations", "durations_plot")
+        durations_paths = []
+        for metric in options["duration_metrics"]:
+            durations_paths.extend(
+                plot_durations(
+                    runs,
+                    metric=metric,
+                    filepath=path,
+                    show=args.show,
+                    include=args.include,
+                    exclude=args.exclude,
+                    ranks=args.ranks,
+                    sort_by=options["sort_by"],
+                    top_n=options["top_n"],
+                    combine_regions=options["combine_regions"],
+                    stack_children=options["stack_children"],
+                    cmap=args.cmap,
+                    log_scale=options["log_scale"],
+                    data_filepath=durations_data_path,
+                    data_format=data_format,
+                    backend=args.backend,
+                )
+            )
         saved.extend(str(path) for path in durations_paths if path)
         if durations_data_path:
             saved.append(durations_data_path)
@@ -794,6 +892,56 @@ def _render_selected_plots(
         )
         saved.extend(path for path in (path, speedup_data_path) if path)
 
+    if len(runs) > 1 and "weak_scaling" in selected_plots:
+        path = image_path("weak_scaling", "weak_scaling_plot")
+        plot_weak_scaling(
+            runs,
+            x_field=options["speedup_x_field"],
+            ranks=args.ranks,
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            cmap=args.cmap,
+            data_filepath=weak_scaling_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
+        saved.extend(path for path in (path, weak_scaling_data_path) if path)
+
+    if "rank_heatmap" in selected_plots:
+        path = image_path("rank_heatmap", "rank_heatmap_plot")
+        plot_rank_heatmap(
+            runs,
+            ranks=args.ranks,
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            cmap=args.cmap,
+            data_filepath=rank_heatmap_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
+        saved.extend(path for path in (path, rank_heatmap_data_path) if path)
+
+    if len(runs) > 1 and "scaling_efficiency" in selected_plots:
+        path = image_path("scaling_efficiency", "scaling_efficiency_plot")
+        plot_scaling_efficiency(
+            runs,
+            x_field=options["speedup_x_field"],
+            ranks=args.ranks,
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            cmap=args.cmap,
+            data_filepath=scaling_efficiency_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
+        saved.extend(path for path in (path, scaling_efficiency_data_path) if path)
+
     return saved
 
 
@@ -820,6 +968,22 @@ def main(argv: list[str] | None = None):
     _normalize_args(args, parser)
     runs = _load_runs(args, parser)
     selected_plots = _selected_plots(args)
+    if args.backend == "plotext":
+        unsupported = sorted(selected_plots - _PLOTEXT_SIMPLE_PLOTS)
+        if unsupported:
+            parser.error(
+                "--backend plotext supports simple plots only; unsupported plot(s): "
+                + ", ".join(unsupported)
+            )
+    elif args.backend == "pyvis":
+        unsupported = sorted(selected_plots - _PYVIS_PLOTS)
+        if unsupported:
+            parser.error(
+                "--backend pyvis supports the interactive callgraph only; "
+                "unsupported plot(s): "
+                + ", ".join(unsupported)
+                + ". Use --backend matplotlib or plotly for these plots."
+            )
     output_targets = _plot_output_targets(args, selected_plots)
 
     saved = _render_selected_plots(

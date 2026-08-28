@@ -1,4 +1,7 @@
+import csv
 import json
+import sys
+import types
 
 import h5py
 import numpy as np
@@ -8,7 +11,13 @@ from scope_profiler import read_h5
 from scope_profiler.call_stack import build_call_stack
 from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.plotting_scripts import (
+    _display_matplotlib_figure_in_notebook,
     _duration_timeseries,
+    _group_regions,
+    _hover_summary,
+    _render,
+    _set_xticks,
+    _stacked_segments,
     available_likwid_metrics,
     collect_region_statistics,
     plot_duration_histogram,
@@ -18,7 +27,10 @@ from scope_profiler.plotting_scripts import (
     plot_gantt,
     plot_imbalance,
     plot_likwid,
+    plot_rank_heatmap,
+    plot_scaling_efficiency,
     plot_speedup,
+    plot_weak_scaling,
 )
 from scope_profiler.post_processing import export_main, main
 from scope_profiler.results import ProfilingResults
@@ -60,6 +72,74 @@ def _sample_file_data(rank_count, setup_duration, solve_duration):
     }
 
 
+def test_matplotlib_show_uses_ipython_display_in_jupyter(monkeypatch):
+    displayed = []
+    fig = object()
+
+    ipython = types.ModuleType("IPython")
+    ipython.get_ipython = lambda: types.SimpleNamespace(config={"IPKernelApp": {}})
+    ipython_display = types.ModuleType("IPython.display")
+    ipython_display.display = displayed.append
+
+    monkeypatch.setitem(sys.modules, "IPython", ipython)
+    monkeypatch.setitem(sys.modules, "IPython.display", ipython_display)
+
+    assert _display_matplotlib_figure_in_notebook(fig) is True
+    assert displayed == [fig]
+
+
+def test_matplotlib_show_falls_back_outside_jupyter(monkeypatch):
+    shown = []
+
+    class _Figure:
+        def savefig(self, *args, **kwargs):
+            raise AssertionError("show-only render should not save")
+
+    class _Canvas:
+        def plot(self, **kwargs):
+            return _Figure(), []
+
+    ipython = types.ModuleType("IPython")
+    ipython.get_ipython = lambda: types.SimpleNamespace(config={})
+    ipython_display = types.ModuleType("IPython.display")
+    ipython_display.display = lambda fig: shown.append(("display", fig))
+
+    import matplotlib.pyplot as plt
+
+    monkeypatch.setitem(sys.modules, "IPython", ipython)
+    monkeypatch.setitem(sys.modules, "IPython.display", ipython_display)
+    monkeypatch.setattr(plt, "show", lambda: shown.append(("show", None)))
+
+    _render(_Canvas(), filepath=None, show=True, backend="matplotlib")
+
+    assert shown == [("show", None)]
+
+
+def test_set_xticks_reports_whether_label_options_are_supported():
+    class _NewCanvas:
+        def __init__(self):
+            self.calls = []
+
+        def set_xticks(self, ticks, labels=None, **kwargs):
+            self.calls.append((list(ticks), labels, kwargs))
+
+    class _OldCanvas:
+        def __init__(self):
+            self.calls = []
+
+        def set_xticks(self, ticks, labels=None):
+            self.calls.append((list(ticks), labels))
+
+    new_canvas = _NewCanvas()
+    old_canvas = _OldCanvas()
+
+    assert _set_xticks(new_canvas, [0], labels=["a"], rotation=45, ha="right") is True
+    assert new_canvas.calls == [([0], ["a"], {"rotation": 45, "ha": "right"})]
+
+    assert _set_xticks(old_canvas, [0], labels=["a"], rotation=45, ha="right") is False
+    assert old_canvas.calls == [([0], ["a"])]
+
+
 def test_plot_durations_comparison(tmp_path):
     file_one = tmp_path / "run_one.h5"
     file_two = tmp_path / "run_two.h5"
@@ -72,17 +152,333 @@ def test_plot_durations_comparison(tmp_path):
 
     saved_paths = plot_durations(
         runs,
+        metric="avg",
         filepath=out_file,
         show=False,
         verbose=False,
-        metrics=["avg", "min", "max", "total"],
     )
 
-    assert len(saved_paths) == 4
-    for metric in ("avg", "min", "max", "total"):
-        metric_file = tmp_path / f"durations_plot_{metric}.png"
-        assert metric_file.exists()
-        assert metric_file.stat().st_size > 0
+    assert len(saved_paths) == 1
+    metric_file = out_file
+    assert metric_file.exists()
+    assert metric_file.stat().st_size > 0
+
+
+def _nested_file_data(rank_count=1):
+    """One outer region per rank, with two children and some self time."""
+    return {
+        rank: {
+            "step": ([0, 1000], [500, 1500]),
+            "assemble": ([10], [110]),
+            "solve": ([200], [400]),
+            "inner": ([250], [300]),
+        }
+        for rank in range(rank_count)
+    }
+
+
+def test_stacked_segments_split_self_time_from_children(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data())
+    run = read_h5(file_path)
+
+    _, members = _group_regions([region.name for region in run.get_regions()], None)
+    segments = _stacked_segments(run, members)
+
+    # "step" spans 0-500 and 1000-1500: 100 ns in assemble, 200 in solve,
+    # and everything else its own.
+    assert segments["step"] == {"self": 700.0, "assemble": 100.0, "solve": 200.0}
+    # "inner" is a child of "solve", not of "step" -- only direct children
+    # become segments, and solve's self time excludes it.
+    assert segments["solve"] == {"self": 150.0, "inner": 50.0}
+    assert segments["inner"] == {"self": 50.0}
+
+
+def test_stacked_segments_fold_same_bar_nesting_into_self(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data())
+    run = read_h5(file_path)
+
+    names = [region.name for region in run.get_regions()]
+    _, members = _group_regions(names, {"solver": ["solve", "inner"]})
+    segments = _stacked_segments(run, members)
+
+    # "inner" nests inside "solve", and both are the same bar, so its time
+    # stays in that bar's self time instead of becoming a segment of itself.
+    assert segments["solver"] == {"self": 200.0}
+    assert segments["step"]["solver"] == 200.0
+
+
+def test_plot_durations_stacked_bars_sum_to_the_plain_bar(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    data_path = tmp_path / "durations.csv"
+    _write_sample_h5(file_path, _nested_file_data())
+
+    saved_paths = plot_durations(
+        read_h5(file_path),
+        metric="total",
+        stack_children=True,
+        filepath=tmp_path / "durations.png",
+        data_filepath=data_path,
+        show=False,
+        verbose=False,
+    )
+
+    assert len(saved_paths) == 1
+    rows = list(csv.DictReader(data_path.open()))
+    assert {row["segment"] for row in rows} == {"self", "assemble", "solve", "inner"}
+    stacked = sum(
+        float(row["value_seconds"]) for row in rows if row["region"] == "step"
+    )
+    # 500 + 500 ns of "step", split across its own time and its children.
+    assert stacked == pytest.approx(1000 / 1e9)
+
+
+def test_plot_durations_rejects_stacking_a_min_or_max(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data())
+
+    with pytest.raises(ValueError, match="stack_children"):
+        plot_durations(
+            read_h5(file_path),
+            metric="max",
+            stack_children=True,
+            show=False,
+            verbose=False,
+        )
+
+
+def _plotly_figure(plot_func, *args, **kwargs):
+    """Render one plot to a Plotly figure, hover text included."""
+    pytest.importorskip("plotly")
+    return plot_func(
+        *args, backend="plotly", return_fig=True, show=False, verbose=False, **kwargs
+    )
+
+
+def _hover_texts(figure):
+    """Every hover string in a figure, flattened out of its traces."""
+    texts = []
+    for trace in figure.data:
+        hovertext = getattr(trace, "hovertext", None)
+        if hovertext is None:
+            continue
+        if isinstance(hovertext, str):
+            texts.append(hovertext)
+            continue
+        for entry in hovertext:
+            texts.extend(entry if isinstance(entry, (list, tuple)) else [entry])
+    return [text for text in texts if text]
+
+
+def test_hover_summary_reports_every_statistic_the_region_does(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data())
+    region = read_h5(file_path).get_region("step")
+
+    text = _hover_summary(region)
+    lines = text.split("<br>")
+
+    assert lines[0] == "<b>step</b>"
+    # The hover box is the region's own get_summary(), not a second list of
+    # statistics that could drift from it.
+    # The heading replaces "name"; "inclusive_duration" is an alias of
+    # "total_duration" and is not repeated.
+    assert len(lines) == 1 + len(region.get_summary()) - 2
+    assert "calls: 2" in lines
+    assert any(line.startswith("total: 1e-06 s") for line in lines)
+
+
+def test_hover_summary_survives_a_broken_call_graph(tmp_path):
+    file_path = tmp_path / "overlapping.h5"
+    # "solve" starts inside "setup" and ends after it: no nesting, so no
+    # exclusive time -- but the other statistics are still recorded.
+    _write_sample_h5(
+        file_path,
+        {0: {"setup": ([0], [100]), "solve": ([20], [220])}},
+    )
+    region = read_h5(file_path).get_region("setup")
+
+    text = _hover_summary(region)
+
+    assert "calls: 1" in text
+    assert "self:" not in text
+
+
+def test_plotly_duration_bars_hover_with_the_region_summary(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data())
+
+    figure = _plotly_figure(plot_durations, read_h5(file_path))
+
+    texts = _hover_texts(figure)
+    assert len(texts) == 4  # one per region bar
+    assert any(text.startswith("<b>step</b>") for text in texts)
+    assert all("calls: " in text and "total: " in text for text in texts)
+
+
+def test_plotly_combined_duration_bar_names_its_members(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data())
+
+    figure = _plotly_figure(
+        plot_durations,
+        read_h5(file_path),
+        combine_regions={"work": ["assemble", "solve"]},
+    )
+
+    # A combined bar has no region object behind it, so it says what it
+    # pools instead of borrowing one member's summary.
+    combined = [text for text in _hover_texts(figure) if text.startswith("<b>work")]
+    assert combined and "combines: assemble, solve" in combined[0]
+
+
+def test_plotly_gantt_hover_names_the_rank_and_the_call(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data(rank_count=2))
+
+    figure = _plotly_figure(plot_gantt, read_h5(file_path))
+
+    texts = _hover_texts(figure)
+    assert any(text.startswith("<b>step (rank 1)</b>") for text in texts)
+    assert all("this call: " in text for text in texts)
+
+
+def test_plotly_flame_hover_uses_markers_over_the_shapes(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data())
+
+    figure = _plotly_figure(plot_flame, read_h5(file_path))
+
+    # Plotly draws the frames as layout shapes, which cannot hover; the
+    # hover comes from the invisible marker trace laid over them.
+    assert len(figure.layout.shapes) == 5  # one per call
+    assert len(figure.data) == 1
+    assert figure.data[0].marker.opacity == 0.0
+    texts = _hover_texts(figure)
+    assert any(
+        "call: step &gt; solve" in text or "call: step > solve" in text
+        for text in texts
+    )
+
+
+def test_plotly_heatmap_hovers_each_rank_region_cell(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data(rank_count=2))
+
+    figure = _plotly_figure(plot_rank_heatmap, read_h5(file_path))
+
+    texts = _hover_texts(figure)
+    assert len(texts) == 2 * 4  # ranks x regions
+    assert any(text.startswith("<b>solve (rank 1)</b>") for text in texts)
+
+
+def test_plotly_scaling_hover_describes_the_run_behind_each_point(tmp_path):
+    slow, fast = tmp_path / "slow.h5", tmp_path / "fast.h5"
+    _write_sample_h5(slow, _sample_file_data(1, 10, 40), {"num_ranks": 1})
+    _write_sample_h5(fast, _sample_file_data(2, 10, 20), {"num_ranks": 2})
+
+    figure = _plotly_figure(plot_speedup, [read_h5(slow), read_h5(fast)])
+
+    texts = _hover_texts(figure)
+    assert any("@ num_ranks = 2" in text for text in texts)
+    assert all("speedup: " in text for text in texts)
+
+
+def test_plotly_timeseries_hover_sits_on_the_line_not_the_band(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data())
+
+    figure = _plotly_figure(plot_duration_timeseries, read_h5(file_path))
+
+    with_hover = [trace for trace in figure.data if trace.hovertext is not None]
+    # One band plus one line per region; only the lines carry hover.
+    assert len(figure.data) == 8
+    assert len(with_hover) == 4
+
+
+def test_plotly_hover_is_written_into_the_exported_html(tmp_path):
+    pytest.importorskip("plotly")
+    file_path = tmp_path / "nested.h5"
+    out_file = tmp_path / "imbalance.html"
+    _write_sample_h5(file_path, _nested_file_data(rank_count=2))
+
+    # plot_imbalance renders without handing back a figure, so the exported
+    # document is where its hover text can be checked.
+    plot_imbalance(
+        read_h5(file_path),
+        filepath=str(out_file),
+        backend="plotly",
+        show=False,
+        verbose=False,
+    )
+
+    assert "step (rank 1)" in out_file.read_text(encoding="utf-8")
+
+
+def test_matplotlib_plots_skip_building_hover_text(tmp_path, monkeypatch):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data())
+
+    def fail(*args, **kwargs):
+        raise AssertionError("hover text must not be built for matplotlib")
+
+    monkeypatch.setattr("scope_profiler.plotting_scripts._hover_summary", fail)
+    plot_durations(
+        read_h5(file_path),
+        filepath=tmp_path / "durations.png",
+        show=False,
+        verbose=False,
+    )
+
+
+def test_simple_plotext_backend_writes_terminal_plot(tmp_path):
+    file_path = tmp_path / "run.h5"
+    out_file = tmp_path / "durations.txt"
+    _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
+
+    saved_paths = plot_durations(
+        read_h5(file_path),
+        metric="avg",
+        filepath=out_file,
+        backend="plotext",
+        show=False,
+        verbose=False,
+    )
+
+    assert saved_paths == [out_file]
+    assert "Region duration comparison" in out_file.read_text()
+
+
+def test_pyvis_backend_rejects_flame_before_rendering(tmp_path, capsys):
+    """PyVis only renders the explicit callgraph, not time-based charts."""
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
+
+    with pytest.raises(SystemExit):
+        main(["flame", str(file_path), "--backend", "pyvis"])
+
+    assert "pyvis supports the interactive callgraph only" in capsys.readouterr().err
+
+
+def test_plot_helpers_can_return_rendered_figures(tmp_path):
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
+    results = read_h5(file_path)
+
+    fig, axes = plot_gantt(results, return_fig=True, show=False, verbose=False)
+    assert fig is not None
+    assert axes is not None
+
+    fig, axes = plot_durations(
+        results,
+        metric="avg",
+        return_fig=True,
+        show=False,
+        verbose=False,
+    )
+    assert fig is not None
+    assert axes is not None
 
 
 def test_duration_timeseries_bands_span_ranks(tmp_path):
@@ -278,10 +674,14 @@ def test_plot_flame_reconstructs_recursive_calls(tmp_path):
     _write_sample_h5(file_path, rank_regions)
     results = read_h5(file_path)
 
-    plot_flame(results, filepath=out_file, show=False, verbose=False)
+    fig, _ = plot_flame(
+        results, filepath=out_file, show=False, verbose=False, return_fig=True
+    )
 
     assert out_file.exists()
     assert out_file.stat().st_size > 0
+    assert fig.legends
+    assert fig.legends[0].get_title().get_text() == "Regions"
 
     calls = build_call_stack(results.get_regions(), rank=0)
     assert len(calls) == 3
@@ -309,6 +709,74 @@ def test_plot_speedup(tmp_path):
 
     assert out_file.exists()
     assert out_file.stat().st_size > 0
+
+
+def test_plot_weak_scaling(tmp_path):
+    file_one = tmp_path / "run_1.h5"
+    file_two = tmp_path / "run_2.h5"
+    file_four = tmp_path / "run_4.h5"
+    out_file = tmp_path / "weak_scaling_plot.png"
+    data_file = tmp_path / "weak_scaling_data.json"
+
+    # Constant per-region runtime is ideal weak scaling.
+    _write_sample_h5(file_one, _sample_file_data(1, 100, 200))
+    _write_sample_h5(file_two, _sample_file_data(2, 100, 200))
+    _write_sample_h5(file_four, _sample_file_data(4, 100, 200))
+    runs = [read_h5(path) for path in (file_one, file_two, file_four)]
+
+    plot_weak_scaling(
+        runs,
+        filepath=out_file,
+        data_filepath=data_file,
+        data_format="json",
+        show=False,
+        verbose=False,
+    )
+
+    assert out_file.exists()
+    points = json.loads(data_file.read_text())["points"]
+    assert {point["normalized_runtime"] for point in points} == {1.0}
+
+
+def test_plot_rank_heatmap(tmp_path):
+    file_path = tmp_path / "run.h5"
+    out_file = tmp_path / "rank_heatmap.png"
+    _write_sample_h5(
+        file_path,
+        {
+            0: {"setup": ([0], [10]), "solve": ([20], [120])},
+            1: {"setup": ([0], [20]), "solve": ([20], [220])},
+        },
+    )
+    results = read_h5(file_path)
+
+    fig, axes = plot_rank_heatmap(
+        results, filepath=out_file, return_fig=True, show=False, verbose=False
+    )
+
+    assert out_file.exists()
+    assert fig is not None
+    assert axes is not None
+
+
+def test_plot_scaling_efficiency(tmp_path):
+    paths = [tmp_path / f"run_{n}.h5" for n in (1, 2, 4)]
+    # Runtime grows by 1.0, 1.25, 1.5 while ideal speedup grows by 1, 2, 4.
+    for path, ranks, duration in zip(paths, (1, 2, 4), (100, 125, 150)):
+        _write_sample_h5(path, _sample_file_data(ranks, 10, duration))
+    runs = [read_h5(path) for path in paths]
+    data_file = tmp_path / "efficiency.json"
+
+    plot_scaling_efficiency(
+        runs, data_filepath=data_file, data_format="json", show=False, verbose=False
+    )
+
+    efficiencies = {
+        point["efficiency"]
+        for point in json.loads(data_file.read_text())["points"]
+        if point["region"] == "solve"
+    }
+    assert efficiencies == {1.0, 0.4, 1 / 6}
 
 
 def test_plot_speedup_x_field_omp_num_threads(tmp_path):
@@ -530,13 +998,41 @@ def test_plot_gantt_export_data_json(tmp_path):
     assert regions == {"setup", "solve"}
 
 
-def test_plot_flame_export_data_json(tmp_path):
+def test_plot_flame_export_data_json(tmp_path, monkeypatch):
     file_path = tmp_path / "run.h5"
     data_file = tmp_path / "flame_data.json"
 
-    rank_regions = {0: {"fib": ([0, 10, 60], [100, 90, 80])}}
+    rank_regions = {
+        0: {
+            "phase_a": ([0], [100]),
+            "phase_b": ([200], [300]),
+            "work": ([10, 210], [90, 290]),
+        }
+    }
     _write_sample_h5(file_path, rank_regions)
+    with h5py.File(file_path, "a") as h5file:
+        source_attrs = h5file["rank0/regions/work"].attrs
+        source_attrs["source_file"] = "solver.py"
+        source_attrs["source_lineno"] = 42
+        source_attrs["source_text"] = "with ProfileManager.profile_region('work'):"
     results = read_h5(file_path)
+
+    frame_labels = []
+
+    class _RecordingCanvas:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def flame_chart(self, labels, *args, **kwargs):
+            frame_labels.extend(labels)
+
+        def __getattr__(self, name):
+            return lambda *args, **kwargs: None
+
+    import scope_profiler.plotting_scripts as plotting_scripts
+
+    monkeypatch.setattr(plotting_scripts, "_get_canvas", lambda: _RecordingCanvas)
+    monkeypatch.setattr(plotting_scripts, "_render", lambda *args, **kwargs: None)
 
     plot_flame(
         results,
@@ -547,9 +1043,15 @@ def test_plot_flame_export_data_json(tmp_path):
     )
 
     payload = json.loads(data_file.read_text(encoding="utf-8"))
-    assert payload["colors"]["fib"].startswith("#")
-    depths = sorted(call["depth"] for call in payload["calls"])
-    assert depths == [0, 1, 2]
+    assert payload["colors"]["work"].startswith("#")
+    calls = {call["call_path"]: call for call in payload["calls"]}
+    assert set(calls) == {"phase_a", "phase_a > work", "phase_b", "phase_b > work"}
+    assert calls["phase_a > work"]["parent_call_id"] == calls["phase_a"]["call_id"]
+    assert calls["phase_b > work"]["parent_call_id"] == calls["phase_b"]["call_id"]
+    assert calls["phase_a > work"]["exclusive_duration_seconds"] == pytest.approx(80e-9)
+    assert calls["phase_a > work"]["source_file"] == "solver.py"
+    assert calls["phase_a > work"]["source_lineno"] == 42
+    assert frame_labels == ["phase_a", "phase_a > work", "phase_b", "phase_b > work"]
 
 
 def test_plot_durations_export_data_json(tmp_path):
@@ -568,14 +1070,14 @@ def test_plot_durations_export_data_json(tmp_path):
         verbose=False,
         data_filepath=data_file,
         data_format="json",
-        metrics=["avg", "min", "max", "total"],
+        metric="avg",
     )
 
     payload = json.loads(data_file.read_text(encoding="utf-8"))
-    assert set(payload["metrics"]) == {"avg", "min", "max", "total"}
+    assert set(payload["metrics"]) == {"avg"}
     assert set(payload["colors"]) == {"run_one", "run_two"}
     assert all(color.startswith("#") for color in payload["colors"].values())
-    assert {bar["metric"] for bar in payload["bars"]} == {"avg", "min", "max", "total"}
+    assert {bar["metric"] for bar in payload["bars"]} == {"avg"}
 
 
 def test_collect_region_statistics_includes_total_time(tmp_path):
@@ -622,7 +1124,7 @@ def test_plot_durations_sort_by_and_top_n(tmp_path):
         filepath=tmp_path / "durations_plot.png",
         show=False,
         verbose=False,
-        metrics=["total"],
+        metric="total",
         sort_by="total",
         top_n=1,
         data_filepath=data_file,
@@ -644,7 +1146,7 @@ def test_plot_durations_log_scale_renders(tmp_path):
         filepath=out_file,
         show=False,
         verbose=False,
-        metrics=["total"],
+        metric="total",
         log_scale=True,
     )
 
@@ -672,7 +1174,7 @@ def test_plot_durations_combine_regions_pools_stats(tmp_path):
         filepath=tmp_path / "durations_plot.png",
         show=False,
         verbose=False,
-        metrics=["total", "avg"],
+        metric="total",
         combine_regions={"setup": ["^setup:.*"]},
         data_filepath=data_file,
         data_format="json",
@@ -684,7 +1186,7 @@ def test_plot_durations_combine_regions_pools_stats(tmp_path):
     }
     assert {bar["region"] for bar in payload["bars"]} == {"setup", "solve"}
     assert bars[("setup", "total")] == pytest.approx(15.0)
-    assert bars[("setup", "avg")] == pytest.approx(7.5)
+    assert ("setup", "avg") not in bars
     assert bars[("solve", "total")] == pytest.approx(20.0)
 
 

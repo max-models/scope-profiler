@@ -3,6 +3,9 @@
 from importlib.metadata import PackageNotFoundError, version
 
 from scope_profiler.call_stack import (
+    CallArrays,
+    NestingError,
+    build_call_arrays,
     build_call_stack,
     call_stack_children,
     call_stack_roots,
@@ -30,19 +33,26 @@ _LAZY_ATTRS = {
     "plot_flame": "plotting_scripts",
     "plot_gantt": "plotting_scripts",
     "plot_speedup": "plotting_scripts",
+    "plot_weak_scaling": "plotting_scripts",
+    "plot_rank_heatmap": "plotting_scripts",
+    "plot_scaling_efficiency": "plotting_scripts",
     "write_region_statistics_json": "plotting_scripts",
     "export_prof": "prof_export",
     "export_speedscope": "speedscope_export",
     "collect_file_metadata": "inspection",
     "inspect_file": "inspection",
+    "create_html_report": "html_report",
 }
 
 __all__ = [
+    "CallArrays",
     "LikwidRegionResult",
     "MPIRegion",
+    "NestingError",
     "ProfileManager",
     "ProfilingResults",
     "Region",
+    "build_call_arrays",
     "build_call_stack",
     "call_stack_children",
     "call_stack_roots",

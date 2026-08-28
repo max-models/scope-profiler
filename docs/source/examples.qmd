@@ -9,6 +9,7 @@ repeatable AI optimization workflow.
 - [`ex_line_profiling.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_line_profiling.py) — collect line-by-line timings.
 - [`ex_recursive_profiling.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_recursive_profiling.py) — profile nested calls.
 - [`ex_region_source.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_region_source.py) — retain and inspect region source code.
+- [`ex_aggregation.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_aggregation.py) — record compact per-region aggregate statistics without storing an event timeline.
 - [`benchmark_overhead.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/benchmark_overhead.py) — measure instrumentation overhead.
 
 Run an example with:
@@ -16,6 +17,25 @@ Run an example with:
 ```bash
 python examples/<script>.py
 ```
+
+For large or high-frequency workloads, aggregation mode stores call counts,
+inclusive totals, minimums, maximums, and exclusive totals while keeping the
+profile small:
+
+```python
+with ProfileManager.session(
+    aggregation_mode=True,
+    return_results=True,
+) as run:
+    with ProfileManager.profile_region("solve"):
+        solve()
+
+run.results.print_summary(title="Aggregate profile")
+```
+
+See [`ex_aggregation.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_aggregation.py)
+for a complete runnable example. Individual events and timeline plots are not
+available in this mode.
 
 ## AI optimization workflow
 

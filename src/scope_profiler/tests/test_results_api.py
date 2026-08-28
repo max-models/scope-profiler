@@ -31,7 +31,12 @@ def _write_sample_h5(path, rank_regions, metadata=None):
 
 @pytest.fixture
 def sample_file(tmp_path):
-    """Two ranks; 'setup' runs once, 'solve' twice, with known durations."""
+    """Two ranks; 'setup' runs once, 'solve' twice, with known durations.
+
+    Every rank's intervals are properly nested (here: disjoint), which
+    call_stack.build_call_arrays requires - a 'setup' straddling the first
+    'solve' is not something a stack of ``with`` blocks can produce.
+    """
     path = tmp_path / "sample.h5"
     _write_sample_h5(
         path,
@@ -42,7 +47,7 @@ def sample_file(tmp_path):
             },
             1: {
                 "setup": ([0], [3 * NS]),
-                "solve": ([2 * NS, 5 * NS], [6 * NS, 9 * NS]),
+                "solve": ([3 * NS, 7 * NS], [7 * NS, 11 * NS]),
             },
         },
     )
@@ -121,7 +126,7 @@ def test_mpi_region_aggregates_over_ranks(sample_file):
     assert sorted(solve.durations.tolist()) == pytest.approx([2.0, 3.0, 4.0, 4.0])
     assert solve.total_durations() == pytest.approx({0: 5.0, 1: 8.0})
     assert solve.first_start_time == pytest.approx(2.0)
-    assert solve.last_end_time == pytest.approx(9.0)
+    assert solve.last_end_time == pytest.approx(11.0)
     # rank 0 starts first (tied at t=2, rank 0 wins), rank 1 ends last (t=9).
     assert solve.first_duration == pytest.approx(2.0)
     assert solve.last_duration == pytest.approx(4.0)
@@ -532,6 +537,8 @@ def test_reader_call_stack(tmp_path):
         ("leaf", 2),
         ("inner", 1),
     ]
+    assert [call["call_id"] for call in calls] == [0, 1, 2, 3]
+    assert [call["parent"] for call in calls] == [None, 0, 1, 0]
     # Relative timestamps by default: the outermost call starts at zero.
     assert calls[0]["start"] == 0.0
     assert calls[0]["duration"] == pytest.approx(100.0)
@@ -545,6 +552,54 @@ def test_reader_call_stack(tmp_path):
 
     # A filtered stack renests around what is left.
     assert [call["depth"] for call in results.call_stack(exclude="inner")] == [0, 1]
+
+
+def test_call_graph_renests_around_filtered_regions(tmp_path):
+    """A surviving call hangs off its nearest surviving ancestor.
+
+    Leaving the excluded parent's id in place would return a graph whose
+    edges point at nodes that are not in it, and report the child at the
+    depth it had before filtering.
+    """
+    path = tmp_path / "filtered_graph.h5"
+    _write_sample_h5(
+        path,
+        {
+            0: {
+                "outer": ([0], [100]),
+                "middle": ([10], [80]),
+                "leaf": ([20], [40]),
+            }
+        },
+    )
+    results = read_h5(path)
+
+    assert [
+        (node["name"], node["parent_id"], node["depth"])
+        for node in results.call_graph(rank=0)
+    ] == [
+        ("outer", None, 0),
+        ("middle", 0, 1),
+        ("leaf", 1, 2),
+    ]
+
+    # 'middle' gone: 'leaf' becomes a child of 'outer', one level shallower.
+    assert [
+        (node["name"], node["parent_id"], node["depth"])
+        for node in results.call_graph(rank=0, exclude="middle")
+    ] == [
+        ("outer", None, 0),
+        ("leaf", 0, 1),
+    ]
+
+    # Dropping a root promotes what was under it.
+    assert [
+        (node["name"], node["parent_id"], node["depth"])
+        for node in results.call_graph(rank=0, exclude="outer")
+    ] == [
+        ("middle", None, 0),
+        ("leaf", 0, 1),
+    ]
 
 
 def test_nested_regions_expose_inclusive_and_exclusive_time(tmp_path):
@@ -575,6 +630,43 @@ def test_nested_regions_expose_inclusive_and_exclusive_time(tmp_path):
     assert outer_call["exclusive_duration"] == pytest.approx(50e-9)
 
 
+def test_exclusive_time_is_reconstructed_lazily_and_once(tmp_path, monkeypatch):
+    """Nesting costs more than the rest of the load; only pay for it if asked.
+
+    Reading a file, listing regions and summarizing them (the CLI and MCP
+    path, via summary.region_rows) never needs exclusive time, and must not
+    reconstruct the call stack. The first caller that does need it pays for
+    every region at once, and nobody pays twice.
+    """
+    from scope_profiler import call_stack as call_stack_module
+
+    path = tmp_path / "lazy_exclusive.h5"
+    _write_sample_h5(path, {0: {"outer": ([0], [100]), "inner": ([10], [30])}})
+
+    builds = []
+    real_build = call_stack_module.build_call_arrays
+    monkeypatch.setattr(
+        call_stack_module,
+        "build_call_arrays",
+        lambda *args, **kwargs: builds.append(args) or real_build(*args, **kwargs),
+    )
+
+    results = read_h5(path)
+    assert sorted(results.region_names) == ["inner", "outer"]
+    assert results["outer"].total_duration == pytest.approx(100e-9)
+    assert results["outer"][0].durations_ns.tolist() == [100]
+    assert builds == []
+
+    assert results["inner"].exclusive_duration == pytest.approx(20e-9)
+    assert len(builds) == 1
+
+    # Both the region asked first and every other one are now filled in, and
+    # asking again does not rebuild.
+    assert results["outer"].exclusive_duration == pytest.approx(80e-9)
+    assert results["outer"][0].exclusive_durations_ns.tolist() == [80]
+    assert len(builds) == 1
+
+
 def test_top_level_exports_and_lazy_plotting():
     """Post-processing types are importable from the package root."""
     assert scope_profiler.read_h5 is read_h5
@@ -590,6 +682,9 @@ def test_top_level_exports_and_lazy_plotting():
     assert scope_profiler.plot_gantt is plot_gantt
     assert scope_profiler.plot_duration_timeseries is plot_duration_timeseries
     assert "plot_flame" in dir(scope_profiler)
+    assert "plot_weak_scaling" in dir(scope_profiler)
+    assert "plot_rank_heatmap" in dir(scope_profiler)
+    assert "plot_scaling_efficiency" in dir(scope_profiler)
 
     from scope_profiler.speedscope_export import export_speedscope
 
@@ -601,3 +696,67 @@ def test_top_level_exports_and_lazy_plotting():
 
     with pytest.raises(AttributeError):
         scope_profiler.not_a_real_attribute
+
+
+def test_merging_recomputes_exclusive_time_against_the_new_neighbours(tmp_path):
+    """A merged set owns its regions' nesting, even if it was already resolved.
+
+    merge_results() reuses the region objects, so a region whose exclusive
+    time was already asked for in one set must not carry that answer into a
+    set where it now has a call nested inside it.
+    """
+    from scope_profiler.results import merge_results
+
+    outer_path = tmp_path / "driver.h5"
+    inner_path = tmp_path / "kernels.h5"
+    _write_sample_h5(outer_path, {0: {"outer": ([0], [100])}})
+    _write_sample_h5(inner_path, {0: {"native:inner": ([10], [30])}})
+
+    driver = read_h5(outer_path)
+    # Resolved while "outer" is on its own: nothing is nested inside it yet.
+    assert driver["outer"].exclusive_duration == pytest.approx(100e-9)
+
+    merged = merge_results(driver, read_h5(inner_path))
+    assert merged["outer"].exclusive_duration == pytest.approx(80e-9)
+    assert merged["native:inner"].exclusive_duration == pytest.approx(20e-9)
+
+
+def test_merging_discards_the_exclusive_totals_stored_in_each_file(tmp_path):
+    """The stored total is only valid against the regions it was computed with.
+
+    Both files here record their own exclusive time, correctly, for their own
+    contents. Merged, "outer" has a call nested inside it that its own run
+    never saw, so the stored value must be dropped rather than reported.
+    """
+    from scope_profiler.call_stack import exclusive_totals_ns
+    from scope_profiler.h5writer import ProfilingWriter
+    from scope_profiler.profile_manager import RankPayload
+    from scope_profiler.results import merge_results
+
+    def write(path, regions):
+        arrays = {
+            name: tuple(np.asarray(values, dtype=np.int64) for values in pair)
+            for name, pair in regions.items()
+        }
+        with ProfilingWriter(path) as writer:
+            writer.write_rank(
+                0,
+                RankPayload(
+                    regions=arrays,
+                    likwid={},
+                    likwid_environment={},
+                    exclusive_totals=exclusive_totals_ns(arrays),
+                ),
+            )
+
+    driver_path = tmp_path / "driver.h5"
+    kernels_path = tmp_path / "kernels.h5"
+    write(driver_path, {"outer": ([0], [100])})
+    write(kernels_path, {"native:inner": ([10], [30])})
+
+    driver = read_h5(driver_path)
+    assert driver["outer"].exclusive_duration == pytest.approx(100e-9)
+
+    merged = merge_results(driver, read_h5(kernels_path))
+    assert merged["outer"].exclusive_duration == pytest.approx(80e-9)
+    assert merged["native:inner"].exclusive_duration == pytest.approx(20e-9)

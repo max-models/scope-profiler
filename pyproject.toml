@@ -5,7 +5,7 @@ requires = [ "setuptools", "wheel" ]
 
 [project]
 name = "scope-profiler"
-version = "0.3.3"
+version = "0.3.4"
 description = "Profile code regions in python, optionally with LIKWID markers."
 readme = "README.md"
 keywords = [ "python" ]
@@ -35,6 +35,10 @@ optional-dependencies.fortran = [
   "ninja",
 ]
 
+optional-dependencies.compression = [
+  "hdf5plugin",
+]
+
 optional-dependencies.likwid = [
   "pylikwid",
 ]
@@ -59,16 +63,21 @@ optional-dependencies.pproc = [
   "ipykernel",
   "jupyterlab",
   "matplotlib",
-  "maxplotlibx >= 0.1.6",
+  "maxplotlibx >= 0.1.8",
   "pandas",
+  "plotly",
   "snakeviz",
   "tabulate",
   "textual>=0.86",
 ]
 
+optional-dependencies.graph = [
+  "pyvis >= 0.3.2",
+]
+
 optional-dependencies.dev = [
   "black[jupyter]",
-  "isort",
+  "isort >= 9.0.0",
   "ruff",
   "scope-profiler[docs,fortran,line-profiler,mcp,mpi,nvtx,pproc,test,tui]",
 ]

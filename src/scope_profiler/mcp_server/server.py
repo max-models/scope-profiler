@@ -236,7 +236,7 @@ def create_server() -> FastMCP:
         reasoning. Use this only when a human will actually look at the
         resulting image (e.g. attaching it to a PR description or a chat
         message). Requires the `plot` extra
-        (``pip install "scope-profiler[plot]"``).
+        (``pip install "scope-profiler[pproc]"``).
 
         Args:
             file_paths: One path, or a list of paths, to profiling files.

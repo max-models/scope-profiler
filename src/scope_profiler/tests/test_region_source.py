@@ -11,8 +11,8 @@ def _reset():
     ProfileManager._reset()
 
 
-def test_capturing_source_is_off_by_default(tmp_path):
-    """``capture_region_source`` defaults to False (see issue #161)."""
+def test_location_is_captured_but_source_text_is_off_by_default(tmp_path):
+    """The cheap location default avoids reading/parsing the source file."""
     path = tmp_path / "profiling_data.h5"
     ProfileManager.setup(file_path=str(path))
 
@@ -22,8 +22,8 @@ def test_capturing_source_is_off_by_default(tmp_path):
     results = ProfileManager.finalize(verbose=False, return_results=True)
     region = results["solve"]
 
-    assert not region.has_source
-    assert region.source_file is None
+    assert region.has_source
+    assert region.source_file == __file__
     assert region.source_text is None
 
 
@@ -92,51 +92,6 @@ def test_reusing_a_region_name_keeps_the_first_call_site(tmp_path):
     first_lineno = inspect.getsourcelines(first)[1]
     second_lineno = inspect.getsourcelines(second)[1]
     assert first_lineno < region.source_lineno < second_lineno
-
-
-def test_capture_region_source_false_skips_context_manager_regions(tmp_path):
-    """``capture_region_source=False`` opts out for a ``with`` region."""
-    path = tmp_path / "profiling_data.h5"
-    ProfileManager.setup(file_path=str(path), capture_region_source=False)
-
-    with ProfileManager.profile_region("solve"):
-        pass
-
-    results = ProfileManager.finalize(verbose=False, return_results=True)
-    region = results["solve"]
-
-    assert not region.has_source
-    assert region.source_file is None
-    assert region.source_text is None
-
-
-def test_capture_region_source_false_skips_decorated_regions(tmp_path):
-    """``capture_region_source=False`` opts out for a decorated region too."""
-    path = tmp_path / "profiling_data.h5"
-    ProfileManager.setup(file_path=str(path), capture_region_source=False)
-
-    @ProfileManager.profile("kernel")
-    def kernel():
-        pass
-
-    kernel()
-
-    results = ProfileManager.finalize(verbose=False, return_results=True)
-    assert not results["kernel"].has_source
-
-
-def test_capture_region_source_false_round_trips_through_the_file(tmp_path):
-    """Regions written without source read back with none, not stale data."""
-    path = tmp_path / "profiling_data.h5"
-    ProfileManager.setup(file_path=str(path), capture_region_source=False)
-
-    with ProfileManager.profile_region("solve"):
-        pass
-
-    ProfileManager.finalize(verbose=False)
-    region = read_h5(str(path))["solve"]
-
-    assert not region.has_source
 
 
 def test_source_is_not_captured_for_disabled_profiling(tmp_path):

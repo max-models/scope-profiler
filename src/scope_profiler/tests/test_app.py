@@ -639,10 +639,11 @@ def test_finalize_writes_global_metadata(tmp_path):
 
     with h5py.File(file_path, "r") as f:
         assert "metadata" in f
-        assert "rank0" in f
+        assert "events" in f
+        assert "region_table" in f
         # Metadata is global (gathered from rank 0 only), not duplicated
         # per rank.
-        assert "metadata" not in f["rank0"]
+        assert all("metadata" not in f[name] for name in f if name.startswith("rank"))
 
         attrs = dict(f["metadata"].attrs)
         assert expected_keys <= attrs.keys()
@@ -689,7 +690,12 @@ def test_run_without_any_region_writes_metadata_only(tmp_path):
     ProfileManager.finalize(verbose=False)
 
     with h5py.File(file_path, "r") as f:
-        assert sorted(f) == ["metadata"]
+        assert sorted(f) == [
+            "events",
+            "metadata",
+            "rank_region_index",
+            "region_table",
+        ]
 
     results = read_h5(file_path)
     assert results.region_names == []

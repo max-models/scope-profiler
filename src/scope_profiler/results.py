@@ -51,6 +51,7 @@ class ProfilingResults:
         line_profile: Dict[int, list] | None = None,
         file_path: str | Path = "",
         is_root: bool = True,
+        exclusive_totals: Dict[str, Dict[int, int]] | None = None,
     ) -> None:
         """
         Assemble a result set from already-loaded regions.
@@ -73,6 +74,13 @@ class ProfilingResults:
         is_root : bool, optional
             Whether this rank holds the run's data (default: True). See
             :attr:`is_root`.
+        exclusive_totals : dict, optional
+            Region name -> {rank: total exclusive nanoseconds}, as computed by
+            the run itself and stored in its output file. Only pass values
+            computed against *these* regions: exclusive time is defined
+            against everything else recorded on the same rank, so a total
+            carried over from a different result set would be wrong. Omitting
+            them costs nothing but a call-stack reconstruction on first use.
         """
         self._is_root = is_root
         self._region_dict = dict(regions)
@@ -95,26 +103,51 @@ class ProfilingResults:
         # before it existed, or from a run that set deactivate_file_output
         # and never called finalize(return_results=True) either.
         self._finalize_time = self._metadata_time("finalize_time_ns")
-        self._populate_exclusive_durations()
+        # Deferred, not skipped: every region is told how to reconstruct its
+        # nesting, and the first one asked for exclusive time does it for all
+        # of them. Building the call stack up front costs more than the whole
+        # rest of the load (4.4s of a 6.4s read on a 2.6M-event file), and
+        # only some callers need it -- see _populate_exclusive_durations.
+        self._exclusive_populated = False
+        totals = exclusive_totals or {}
+        for name, region in self._region_dict.items():
+            for rank, rank_region in region.regions.items():
+                # Attach first: this drops whatever a previous owner of the
+                # region computed, including its stored total.
+                rank_region._attach_exclusive_resolver(
+                    self._populate_exclusive_durations
+                )
+                stored = totals.get(name, {}).get(rank)
+                if stored is not None:
+                    rank_region._set_exclusive_total(stored)
 
     def _populate_exclusive_durations(self) -> None:
-        """Derive per-call exclusive durations from all recorded intervals."""
-        from scope_profiler.call_stack import build_call_stack
+        """Derive per-call exclusive durations from all recorded intervals.
+
+        Runs at most once per result set, on first access of any exclusive
+        duration (see :meth:`Region._resolved_exclusive_durations`), and
+        fills in every rank and region: the nesting of one region's calls is
+        only visible against all the others recorded on the same rank, so
+        there is nothing cheaper to compute for a single region alone.
+        """
+        from scope_profiler.call_stack import build_call_arrays
+
+        if self._exclusive_populated:
+            return
+        # Set before the loop: build_call_arrays reads only start/end times,
+        # but a region reached through it must not re-enter this.
+        self._exclusive_populated = True
 
         for rank in sorted(
             {rank for region in self._region_dict.values() for rank in region.ranks}
         ):
-            calls = build_call_stack(self._region_dict.values(), rank)
-            by_region = {
-                region.name: region.regions[rank]
-                for region in self._region_dict.values()
-                if rank in region.regions
-            }
-            for call in calls:
-                durations = by_region[call["name"]]._exclusive_durations
-                durations[call["call_index"]] = round(
-                    call["exclusive_duration"] * NS_PER_SECOND
-                )
+            # Columns, not one dict per call: this runs over every event in
+            # the run, which for a long simulation is tens of millions.
+            arrays = build_call_arrays(self._region_dict.values(), rank)
+            for row, name in enumerate(arrays.names):
+                mine = arrays.region_index == row
+                durations = self._region_dict[name].regions[rank]._exclusive_buffer()
+                durations[arrays.call_index[mine]] = arrays.exclusive_ns[mine]
 
     def _metadata_time(self, key: str) -> float | None:
         """Read a ``*_time_ns`` metadata field as seconds, or None if unusable."""
@@ -275,7 +308,7 @@ class ProfilingResults:
             import pandas as pd
         except ImportError as exc:
             raise ImportError(
-                "to_dataframe() requires pandas. Install scope-profiler[plot] "
+                "to_dataframe() requires pandas. Install scope-profiler[pproc] "
                 "or pandas directly."
             ) from exc
 
@@ -388,7 +421,7 @@ class ProfilingResults:
         except ImportError as exc:
             raise ImportError(
                 "to_events_dataframe() requires pandas. Install "
-                "scope-profiler[plot] or pandas directly."
+                "scope-profiler[pproc] or pandas directly."
             ) from exc
 
         events = self.events(
@@ -433,9 +466,9 @@ class ProfilingResults:
         Returns
         -------
         List[dict]
-            One entry per call, parents before children, with keys ``name``,
-            ``start``, ``end``, ``duration``, ``depth`` and ``parent`` (the
-            index of the enclosing call in this list, or None). See
+            One entry per call, parents before children, with keys ``call_id``,
+            ``name``, ``start``, ``end``, ``duration``, ``depth`` and
+            ``parent`` (the enclosing call's id, or None). See
             :func:`~scope_profiler.call_stack.build_call_stack`.
         """
         from scope_profiler.call_stack import build_call_stack
@@ -447,6 +480,85 @@ class ProfilingResults:
             rank=rank,
             origin=origin,
         )
+
+    def call_graph(self, rank: int = 0, include=None, exclude=None) -> List[dict]:
+        """Return call relationships without timestamps or durations.
+
+        New profiles persist ``call_id`` and ``parent_id`` for every Python
+        event. Legacy profiles fall back to the timestamp-based call stack.
+        The returned nodes contain only ``call_id``, ``parent_id``, ``name``,
+        ``call_index`` and ``depth``.
+
+        Filtering renests: a call whose parent was excluded is reported under
+        its nearest surviving ancestor, with the depth that implies, exactly
+        as :meth:`call_stack` does. Leaving the excluded id in ``parent_id``
+        would hand back a graph with edges pointing at nodes that are not in
+        it.
+
+        ``call_id`` is unique within this rank, not across the file - each
+        rank numbers its own calls.
+        """
+        retained = {
+            region.name for region in self.get_regions(include=include, exclude=exclude)
+        }
+        on_rank = [region for region in self.get_regions() if rank in region.regions]
+        explicit = bool(on_rank) and all(
+            region.regions[rank].call_ids is not None for region in on_rank
+        )
+        if not explicit:
+            return [
+                {
+                    "call_id": call["call_id"],
+                    "parent_id": call["parent"],
+                    "name": call["name"],
+                    "call_index": call["call_index"],
+                    "depth": call["depth"],
+                }
+                for call in self.call_stack(rank=rank, include=include, exclude=exclude)
+            ]
+
+        # Every call on the rank, filtered or not: an excluded region in the
+        # middle of the chain still has to be walked through to find what a
+        # surviving call now hangs off.
+        parent_of: dict[int, int | None] = {}
+        kept: dict[int, tuple[str, int]] = {}
+        for region in on_rank:
+            data = region.regions[rank]
+            keep_region = region.name in retained
+            for index, (call_id, parent_id) in enumerate(
+                zip(data.call_ids.tolist(), data.parent_ids.tolist())
+            ):
+                parent_of[call_id] = None if parent_id < 0 else parent_id
+                if keep_region:
+                    kept[call_id] = (region.name, index)
+
+        # A parent always has a smaller id than its child, so one ascending
+        # pass resolves whole ancestor chains without recursing or revisiting:
+        # by the time a call is reached, its parent's answer is already known.
+        nearest: dict[int, int | None] = {}
+        depths: dict[int, int] = {}
+        for call_id in sorted(parent_of):
+            parent_id = parent_of[call_id]
+            if parent_id is None:
+                ancestor = None
+            elif parent_id in kept:
+                ancestor = parent_id
+            else:
+                ancestor = nearest.get(parent_id)
+            nearest[call_id] = ancestor
+            if call_id in kept:
+                depths[call_id] = 0 if ancestor is None else depths[ancestor] + 1
+
+        return [
+            {
+                "call_id": call_id,
+                "parent_id": nearest[call_id],
+                "name": kept[call_id][0],
+                "call_index": kept[call_id][1],
+                "depth": depths[call_id],
+            }
+            for call_id in sorted(kept)
+        ]
 
     def print_summary(
         self,
@@ -754,7 +866,7 @@ class ProfilingResults:
         except ImportError as exc:
             raise ImportError(
                 "likwid_to_dataframe() requires pandas. Install "
-                "scope-profiler[plot] or pandas directly."
+                "scope-profiler[pproc] or pandas directly."
             ) from exc
 
         rows = []

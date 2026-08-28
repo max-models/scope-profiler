@@ -18,6 +18,8 @@ Six subcommands:
   per-region statistics table (including LIKWID hardware counters, when the
   run recorded any) for merged HDF5 profiling output, without producing any
   plots. See ``scope_profiler.inspection``.
+- ``scope-profiler report file.h5 -o report.html`` -- writes a standalone HTML
+  summary with metadata and per-region timing statistics.
 - ``scope-profiler tui file.h5`` -- opens an interactive Textual browser for
   metadata, region statistics, per-rank calls, LIKWID counters and the raw
   HDF5 tree.
@@ -149,6 +151,62 @@ def _inspect(argv):
     from scope_profiler.inspection import main as inspect_main
 
     return inspect_main(argv)
+
+
+def _report(argv):
+    """Handle ``scope-profiler report``: write a standalone HTML summary."""
+    from scope_profiler.html_report import create_html_report
+    from scope_profiler.post_processing import expand_file_patterns, parse_ranks
+    from scope_profiler.summary import REGION_TABLE_COLUMNS, SORT_KEYS
+
+    parser = argparse.ArgumentParser(
+        prog="scope-profiler report",
+        description="Write a standalone HTML report from profiling HDF5 files.",
+    )
+    parser.add_argument(
+        "files", nargs="+", help="Profiling HDF5 files or glob patterns"
+    )
+    parser.add_argument(
+        "-o", "--output", required=True, metavar="PATH", help="HTML file to write"
+    )
+    parser.add_argument(
+        "--include", nargs="+", help="Only include matching region names"
+    )
+    parser.add_argument("--exclude", nargs="+", help="Exclude matching region names")
+    parser.add_argument("--ranks", nargs="+", help="Ranks to include, e.g. 0 2 or 0-3")
+    parser.add_argument(
+        "--sort",
+        choices=SORT_KEYS,
+        default="total",
+        help="Region ordering (default: total)",
+    )
+    parser.add_argument(
+        "--columns",
+        nargs="+",
+        choices=REGION_TABLE_COLUMNS,
+        help="Region table columns",
+    )
+    parser.add_argument(
+        "--no-charts",
+        action="store_true",
+        help="Omit embedded interactive charts",
+    )
+    args = parser.parse_args(argv)
+    ranks = None
+    if args.ranks:
+        ranks = sorted({rank for spec in args.ranks for rank in parse_ranks(spec)})
+    output = create_html_report(
+        expand_file_patterns(args.files, parser),
+        args.output,
+        include=args.include,
+        exclude=args.exclude,
+        ranks=ranks,
+        sort=args.sort,
+        columns=args.columns,
+        include_charts=not args.no_charts,
+    )
+    print(f"Report written to: {output}")
+    return 0
 
 
 def _tui(argv):
@@ -293,6 +351,7 @@ _COMMANDS = {
     "plot": _plot,
     "export": _export,
     "inspect": _inspect,
+    "report": _report,
     "tui": _tui,
     "line-profile": _line_profile,
     "diff": _diff,
@@ -338,6 +397,11 @@ def main(argv=None):
         add_help=False,
         help="Print metadata and region statistics of HDF5 profiling data "
         "(see `scope-profiler inspect --help`)",
+    )
+    subparsers.add_parser(
+        "report",
+        add_help=False,
+        help="Write a standalone HTML report (see `scope-profiler report --help`)",
     )
     subparsers.add_parser(
         "tui",
@@ -392,4 +456,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
