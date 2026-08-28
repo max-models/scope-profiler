@@ -11,6 +11,7 @@ import re
 import socket
 import subprocess
 import sys
+import threading
 import webbrowser
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -49,6 +50,7 @@ _PLOT_CATALOG = {
     "imbalance": "Per-rank duration comparison",
 }
 _PLOTEXT_TUI_PLOTS = frozenset({"durations"})
+_PLOTEXT_RENDER_LOCK = threading.RLock()
 
 
 @dataclass
@@ -301,7 +303,13 @@ def _duration(value) -> str:
 def _line_table(
     headers, rows, *, compact: bool = False, maxcolwidths: tuple[int, ...] | None = None
 ) -> str:
-    rows = list(rows)
+    def safe_value(value):
+        try:
+            return _format_scalar(value)
+        except Exception:  # noqa: BLE001 -- arbitrary user metadata must not kill TUI
+            return f"<unprintable {type(value).__name__}>"
+
+    rows = [tuple(safe_value(value) for value in row) for row in rows]
     from tabulate import tabulate
 
     return tabulate(
@@ -309,7 +317,9 @@ def _line_table(
         headers=headers,
         tablefmt="plain" if compact else "rounded_outline",
         disable_numparse=True,
-        maxcolwidths=maxcolwidths,
+        # tabulate 0.9 expands this value by concatenating a list. Passing a
+        # tuple therefore crashes while opening metadata sections.
+        maxcolwidths=list(maxcolwidths) if maxcolwidths is not None else None,
     )
 
 
@@ -516,17 +526,37 @@ def node_detail_text(node: BrowserNode) -> str:
 
     if kind == "line_profile_record":
         record = payload["record"]
+        linecache.checkcache(record["filename"])
         unit = float(record["unit"])
         total_raw = float(np.sum(record["times"]))
         rows = []
-        for line, hits, elapsed in zip(
-            record["line_numbers"], record["hits"], record["times"]
-        ):
+        timings = list(zip(record["line_numbers"], record["hits"], record["times"]))
+        sources = [
+            (
+                linecache.getline(record["filename"], int(line))
+                .rstrip("\r\n")
+                .expandtabs(4)
+                or "<source unavailable>"
+            )
+            for line, _, _ in timings
+        ]
+        base_indentation = (
+            len(sources[0]) - len(sources[0].lstrip(" ")) if sources else 0
+        )
+        for (line, hits, elapsed), source in zip(timings, sources):
             seconds = float(elapsed) * unit
             hits = int(hits)
             per_hit = seconds / hits if hits else 0.0
             percent = float(elapsed) / total_raw * 100 if total_raw else 0.0
-            source = linecache.getline(record["filename"], int(line)).strip()
+            indentation = len(source) - len(source.lstrip(" "))
+            dedent = min(base_indentation, indentation)
+            source = source[dedent:]
+            indentation -= dedent
+            if indentation:
+                # tabulate strips whitespace at the start of a cell. An
+                # invisible non-whitespace sentinel keeps the real spaces
+                # intact without adding a visible indentation marker.
+                source = "\N{ZERO WIDTH SPACE}" + source
             rows.append(
                 (
                     int(line),
@@ -809,27 +839,59 @@ def render_plotext_text(
     width: int = 100,
     height: int = 35,
 ) -> str:
+    """Render a Plotext chart while protecting its process-global state."""
+    with _PLOTEXT_RENDER_LOCK:
+        return _render_plotext_text_unlocked(
+            node, settings=settings, width=width, height=height
+        )
+
+
+def _render_plotext_text_unlocked(
+    node: BrowserNode,
+    *,
+    settings: dict[str, Any] | None = None,
+    width: int = 100,
+    height: int = 35,
+) -> str:
     """Render a simple Plotext chart as text for display inside Textual."""
     if node.kind not in {"plot", "plot_likwid"}:
         raise ValueError("Select an individual plot before rendering.")
     if node.payload.get("plot_name") not in _PLOTEXT_TUI_PLOTS:
         raise ValueError("Plotext is available in the TUI for simple plots only.")
 
-    # maxplotlib creates a fresh Plotext figure for every render. Plotext's
-    # default terminal size is 140 columns, which is wider than a typical
-    # Textual detail pane, so constrain the defaults while that figure is built.
+    # maxplotlib creates a fresh Plotext figure for every render and may apply
+    # its own aspect-derived plot size. Size the finished figure immediately
+    # before display so both old and new Plotext backends honor the pane.
+    width = max(20, int(width))
+    height = max(5, int(height))
+    from maxplotlib import Canvas
+
+    canvas_class = Canvas
+    legend_method = canvas_class.set_legend
+    show_method = canvas_class.show
+
+    def show_sized(self, *args, **kwargs):
+        backend = kwargs.get("backend", args[0] if args else "matplotlib")
+        if backend != "plotext":
+            return show_method(self, *args, **kwargs)
+        figure = self.plot_plotext(
+            layers=kwargs.get("layers"), verbose=kwargs.get("verbose", False)
+        )
+        figure.plotsize(width, height)
+        figure.show()
+        return figure
+
+    canvas_class.show = show_sized
+    # Region legends are useful in image output, but their vertical list can
+    # consume nearly the whole Plotext canvas in a narrow TUI pane.
+    canvas_class.set_legend = lambda self, *args, **kwargs: None
+
     try:
         import plotext._figure as plotext_figure
     except ImportError:
         plotext_figure = None
         default_figure_class = None
-        canvas_class = None
-        legend_method = None
     else:
-        from maxplotlib import Canvas
-
-        canvas_class = Canvas
-        legend_method = canvas_class.set_legend
         figure_globals = plotext_figure._figure_class.__init__.__globals__
         default_figure_class = figure_globals["default_figure_class"]
         utility = figure_globals["ut"]
@@ -837,16 +899,13 @@ def render_plotext_text(
 
         def constrained_defaults():
             defaults = default_figure_class()
-            defaults.width_term = max(40, int(width))
-            defaults.height_term = max(12, int(height))
+            defaults.width_term = width
+            defaults.height_term = height
             defaults.size_term = [defaults.width_term, defaults.height_term]
             return defaults
 
         figure_globals["default_figure_class"] = constrained_defaults
-        utility.terminal_size = lambda: [max(40, int(width)), max(12, int(height))]
-        # Region legends are useful in image output, but their vertical list
-        # can consume nearly the whole Plotext canvas in a narrow TUI pane.
-        canvas_class.set_legend = lambda self, *args, **kwargs: None
+        utility.terminal_size = lambda: [width, height]
     output = io.StringIO()
     try:
         with contextlib.redirect_stdout(output):
@@ -862,7 +921,8 @@ def render_plotext_text(
         if plotext_figure is not None:
             figure_globals["default_figure_class"] = default_figure_class
             utility.terminal_size = terminal_size
-            canvas_class.set_legend = legend_method
+        canvas_class.set_legend = legend_method
+        canvas_class.show = show_method
     return output.getvalue().rstrip()
 
 
@@ -1023,8 +1083,14 @@ def _build_textual_app_class():
             self._plotext_refresh_timer = None
 
         def _detail(self, node: BrowserNode):
+            try:
+                detail_text = node_detail_text(node)
+            except Exception as exc:  # noqa: BLE001 -- keep interactive browser alive
+                detail_text = (
+                    f"Unable to render {node.label}\n\n" f"{type(exc).__name__}: {exc}"
+                )
             return Text(
-                node_detail_text(node),
+                detail_text,
                 no_wrap=node.kind not in {"metadata", "metadata_section", "modules"},
             )
 
@@ -1288,7 +1354,9 @@ def _build_textual_app_class():
                     saved = render_plot(
                         node, filepath=filepath, show=False, settings=settings
                     )
-            except (ImportError, RuntimeError, ValueError) as exc:
+            except (
+                Exception
+            ) as exc:  # noqa: BLE001 -- external plotting must not kill TUI
                 self.notify(str(exc), severity="error", timeout=8)
                 return
             if saved:
@@ -1303,10 +1371,10 @@ def _build_textual_app_class():
                 return
             self._read_plot_settings()
             detail = self.query_one("#detail", Static)
-            width = max(40, detail.content_size.width - 4)
-            # Leave room for the pane border, padding, and Textual's line
-            # accounting. Plotext uses nearly all of the requested height.
-            height = max(8, detail.content_size.height - 5)
+            # ``content_size`` already excludes the widget's border and
+            # padding, so the chart can use the complete scrollable viewport.
+            width = max(20, detail.content_size.width)
+            height = max(5, detail.content_size.height)
             try:
                 plot_text = render_plotext_text(
                     node,
@@ -1314,7 +1382,9 @@ def _build_textual_app_class():
                     width=width,
                     height=height,
                 )
-            except (ImportError, RuntimeError, ValueError) as exc:
+            except (
+                Exception
+            ) as exc:  # noqa: BLE001 -- external plotting must not kill TUI
                 if isinstance(exc, ValueError) and str(exc).startswith(
                     "Invalid region filter:"
                 ):
@@ -1327,6 +1397,8 @@ def _build_textual_app_class():
                 return
             from rich.text import Text
 
+            if node is not self.selected_browser_node:
+                return
             detail.update(Text.from_ansi(plot_text))
 
         def action_show_snakeviz(self) -> None:

@@ -1,6 +1,8 @@
 """Tests for the Textual HDF5 browser's data model."""
 
 import re
+import threading
+import time
 
 import numpy as np
 import pytest
@@ -51,7 +53,7 @@ def line_profile_file(tmp_path):
         "unit": 1e-9,
     }
     (tmp_path / "app.py").write_text(
-        "\n" * 10 + "total = 0\nfor i in range(5):\n", encoding="utf-8"
+        "\n" * 10 + "    if enabled:\n        total = 0\n", encoding="utf-8"
     )
     payload = RankPayload(
         regions={"solve": (np.asarray([0]), np.asarray([NS]))},
@@ -69,6 +71,26 @@ def _find(node, label):
         return node
     for child in node.children:
         found = _find(child, label)
+        if found is not None:
+            return found
+    return None
+
+
+def _find_tree_node(node, label):
+    if str(node.label) == label:
+        return node
+    for child in node.children:
+        found = _find_tree_node(child, label)
+        if found is not None:
+            return found
+    return None
+
+
+def _find_tree_data(node, data):
+    if node.data is data:
+        return node
+    for child in node.children:
+        found = _find_tree_data(child, data)
         if found is not None:
             return found
     return None
@@ -143,6 +165,18 @@ def test_metadata_values_wrap_inside_the_table(sample_file):
     assert details.count("Darwin") == 30
 
 
+def test_metadata_with_unprintable_value_does_not_crash(sample_file):
+    class BrokenValue:
+        def __str__(self):
+            raise TypeError("broken metadata")
+
+    model = build_browser_model(sample_file)
+    section = _find(model.root, "Run")
+    section.payload["entries"] = [("broken", BrokenValue())]
+
+    assert "<unprintable BrokenValue>" in node_detail_text(section)
+
+
 def test_raw_hdf5_attributes_wrap_inside_the_table(sample_file):
     model = build_browser_model(sample_file)
     dataset = _find(model.root, "start_times")
@@ -176,7 +210,17 @@ def test_line_profile_records_are_clickable(line_profile_file):
     assert "Line" in details and "Hits" in details and "Time [s]" in details
     assert "----" not in details
     assert "11" in details and "1e-08" in details
-    assert "total = 0" in details
+    assert "if enabled:" in details
+    assert "    total = 0" in details
+    assert "    if enabled:" not in details
+
+
+def test_line_profile_handles_missing_source_file(line_profile_file):
+    model = build_browser_model(line_profile_file)
+    rank = _find(_find(model.root, "Line Profile"), "Rank 0")
+    line_profile_file.with_name("app.py").unlink()
+
+    assert "<source unavailable>" in node_detail_text(rank)
 
 
 def test_plot_section_exposes_existing_plot_kinds(sample_file):
@@ -265,6 +309,44 @@ def test_render_plotext_text_captures_terminal_output(sample_file, monkeypatch):
     assert render_plotext_text(plot) == "plotext chart"
 
 
+def test_render_plotext_text_fits_requested_dimensions(sample_file):
+    model = build_browser_model(sample_file)
+    plot = _find(model.root, "Durations")
+
+    output = render_plotext_text(plot, width=48, height=12)
+    ansi_escape = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+    lines = [ansi_escape.sub("", line) for line in output.splitlines()]
+
+    assert len(lines) <= 12
+    assert max(map(len, lines)) <= 48
+
+
+def test_plotext_rendering_is_serialized(sample_file, monkeypatch):
+    model = build_browser_model(sample_file)
+    plot = _find(model.root, "Durations")
+    state = {"active": 0, "maximum": 0}
+    state_lock = threading.Lock()
+
+    def fake_plot(*args, **kwargs):
+        with state_lock:
+            state["active"] += 1
+            state["maximum"] = max(state["maximum"], state["active"])
+        time.sleep(0.02)
+        with state_lock:
+            state["active"] -= 1
+
+    monkeypatch.setattr("scope_profiler.tui.render_plot", fake_plot)
+    threads = [
+        threading.Thread(target=render_plotext_text, args=(plot,)) for _ in range(2)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert state["maximum"] == 1
+
+
 def test_render_plotext_text_reports_invalid_region_filter(sample_file, monkeypatch):
     model = build_browser_model(sample_file)
     plot = _find(model.root, "Durations")
@@ -320,5 +402,90 @@ def test_changing_a_plot_setting_reschedules_the_plotext_refresh(sample_file):
             app._schedule_plotext_refresh()
             await pilot.pause()
             assert app._plotext_refresh_timer is not first
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("target", ["Run", "Durations"])
+def test_textual_navigation_renders_stable_detail_views(sample_file, target):
+    import asyncio
+
+    from scope_profiler.tui import _build_textual_app_class
+
+    app = _build_textual_app_class()(build_browser_model(sample_file))
+
+    async def scenario():
+        async with app.run_test(size=(120, 40)) as pilot:
+            tree = app.query_one("#nav")
+            tree.select_node(_find_tree_node(tree.root, target))
+            await pilot.pause()
+            detail = str(app.query_one("#detail").render())
+            assert "Traceback" not in detail
+            assert detail.strip()
+
+    asyncio.run(scenario())
+
+
+def test_textual_navigation_renders_line_profile(line_profile_file):
+    import asyncio
+
+    from scope_profiler.tui import _build_textual_app_class
+
+    model = build_browser_model(line_profile_file)
+    line_profile_rank = _find(_find(model.root, "Line Profile"), "Rank 0")
+    app = _build_textual_app_class()(model)
+
+    async def scenario():
+        async with app.run_test(size=(120, 40)) as pilot:
+            tree = app.query_one("#nav")
+            tree.select_node(_find_tree_data(tree.root, line_profile_rank))
+            await pilot.pause()
+            detail = str(app.query_one("#detail").render())
+            assert "Rank 0 | solve | solve" in detail
+            assert "    total = 0" in detail
+
+    asyncio.run(scenario())
+
+
+def test_detail_rendering_failure_is_contained(sample_file, monkeypatch):
+    from scope_profiler.tui import _build_textual_app_class
+
+    app = _build_textual_app_class()(build_browser_model(sample_file))
+    node = _find(app.model.root, "Run")
+    monkeypatch.setattr(
+        "scope_profiler.tui.node_detail_text",
+        lambda _node: (_ for _ in ()).throw(TypeError("bad detail")),
+    )
+
+    detail = app._detail(node)
+
+    assert "Unable to render Run" in detail.plain
+    assert "TypeError: bad detail" in detail.plain
+
+
+def test_stale_plot_refresh_does_not_replace_current_detail(sample_file, monkeypatch):
+    import asyncio
+
+    from scope_profiler.tui import _build_textual_app_class
+
+    model = build_browser_model(sample_file)
+    durations = _find(model.root, "Durations")
+    overview = _find(model.root, "Overview")
+    app = _build_textual_app_class()(model)
+
+    async def scenario():
+        async with app.run_test() as pilot:
+            detail = app.query_one("#detail")
+            detail.update("current view")
+
+            def stale_render(*args, **kwargs):
+                app.selected_browser_node = overview
+                return "stale chart"
+
+            monkeypatch.setattr("scope_profiler.tui.render_plotext_text", stale_render)
+            app.selected_browser_node = durations
+            app._show_plotext_in_detail(durations)
+            await pilot.pause()
+            assert str(detail.render()) == "current view"
 
     asyncio.run(scenario())
