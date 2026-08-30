@@ -91,6 +91,23 @@ def test_sample_every_profiles_selected_timesteps(tmp_path):
     assert results["step"][0].num_calls == 3
 
 
+def test_pause_resume_works_inside_session_envelope(tmp_path):
+    with ProfileManager.session(
+        file_path=str(tmp_path / "session-pause.h5"),
+        verbose=False,
+        return_results=True,
+    ) as run:
+        step = ProfileManager.profile_region("step")
+        ProfileManager.pause()
+        with step:
+            pass
+        ProfileManager.resume()
+        with step:
+            pass
+
+    assert run.results["step"][0].num_calls == 1
+
+
 @pytest.mark.parametrize("every", [0, -1, True, 1.5])
 def test_sample_every_validates_interval(every):
     ProfileManager._reset()

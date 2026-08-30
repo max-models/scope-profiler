@@ -1421,6 +1421,11 @@ class ProfileManager:
             return
         active = []
         for name, region in cls._regions.items():
+            # The session envelope deliberately spans the entire session and
+            # is allowed to include paused time. User scopes must still be
+            # closed at a pause boundary so their intervals stay meaningful.
+            if name == _ProfilingSession.ROOT_REGION_NAME:
+                continue
             open_slots = getattr(region, "open_slots", None)
             if open_slots is not None and len(open_slots()):
                 active.append(name)

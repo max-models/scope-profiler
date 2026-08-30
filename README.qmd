@@ -58,6 +58,24 @@ with ProfileManager.sample_every(10) as profile_step:
             simulation.step()
 ```
 
+The equivalent fully manual form is useful when the simulation has additional
+conditions around profiling:
+
+```python
+for timestep in range(num_steps):
+    if timestep % 10 == 0:
+        ProfileManager.resume()
+    else:
+        ProfileManager.pause()
+
+    with ProfileManager.profile_region("simulation.step"):
+        simulation.step()
+```
+
+Here only timesteps `0`, `10`, `20`, and so on are recorded. Call
+`ProfileManager.setup()` before the loop; the initial state is enabled, so the
+first `resume()` is optional but makes the intent explicit.
+
 Reports embed interactive timeline and duration charts when the optional
 post-processing dependencies are installed (`pip install "scope-profiler[pproc]"`).
 
