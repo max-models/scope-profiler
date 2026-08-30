@@ -1087,7 +1087,7 @@ def _build_textual_app_class():
                 detail_text = node_detail_text(node)
             except Exception as exc:  # noqa: BLE001 -- keep interactive browser alive
                 detail_text = (
-                    f"Unable to render {node.label}\n\n" f"{type(exc).__name__}: {exc}"
+                    f"Unable to render {node.label}\n\n{type(exc).__name__}: {exc}"
                 )
             return Text(
                 detail_text,
@@ -1354,9 +1354,7 @@ def _build_textual_app_class():
                     saved = render_plot(
                         node, filepath=filepath, show=False, settings=settings
                     )
-            except (
-                Exception
-            ) as exc:
+            except Exception as exc:
                 self.notify(str(exc), severity="error", timeout=8)
                 return
             if saved:
@@ -1382,9 +1380,7 @@ def _build_textual_app_class():
                     width=width,
                     height=height,
                 )
-            except (
-                Exception
-            ) as exc:
+            except Exception as exc:
                 if isinstance(exc, ValueError) and str(exc).startswith(
                     "Invalid region filter:"
                 ):

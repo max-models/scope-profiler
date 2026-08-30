@@ -68,9 +68,12 @@ def test_options_can_be_reused_across_setup_calls(tmp_path):
 def test_session_accepts_options(tmp_path):
     options = ProfilingOptions(deactivate_file_output=True)
 
-    with ProfileManager.session(
-        options=options, return_results=True, verbose=False
-    ) as run, ProfileManager.profile_region("work"):
+    with (
+        ProfileManager.session(
+            options=options, return_results=True, verbose=False
+        ) as run,
+        ProfileManager.profile_region("work"),
+    ):
         pass
 
     assert run.results.get_region("work").num_calls == 1

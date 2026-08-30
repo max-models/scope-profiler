@@ -77,10 +77,7 @@ def test_profile_manager(
 
     regions = ProfileManager.get_all_regions()
 
-    print(
-        f"{deactivate_profiling = } "
-        f"{ProfileManager._config.deactivate_profiling = }"
-    )
+    print(f"{deactivate_profiling = } {ProfileManager._config.deactivate_profiling = }")
 
     if deactivate_profiling:
         assert regions["loop1"].num_calls == 0

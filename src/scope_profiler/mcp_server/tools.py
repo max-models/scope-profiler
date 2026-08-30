@@ -27,9 +27,9 @@ import numpy as np
 
 from scope_profiler.benchmark import (
     BenchmarkError,
-    load_config,
 )
 from scope_profiler.benchmark import compare_benchmarks as _compare_benchmarks
+from scope_profiler.benchmark import load_config
 from scope_profiler.benchmark import run_benchmark as _run_benchmark
 from scope_profiler.diff import METRICS as DIFF_METRICS
 from scope_profiler.diff import diff_rows
@@ -86,9 +86,7 @@ def _read_profile(file_path: str) -> ProfilingResults:
         return read_h5(file_path)
     except FileNotFoundError as exc:
         raise ToolError(str(exc)) from exc
-    except (
-        Exception
-    ) as exc:
+    except Exception as exc:
         raise ToolError(
             f"Could not read {file_path!r} as a profiling file: {exc}"
         ) from exc

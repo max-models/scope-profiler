@@ -400,7 +400,7 @@ def print_region_table(
     formatted = [
         {
             "name": (
-                f'{"│ " * (row.get("depth", 0) - 1)}└─ {row["name"]}'
+                f"{'│ ' * (row.get('depth', 0) - 1)}└─ {row['name']}"
                 if row.get("depth", 0)
                 else row["name"]
             ),
