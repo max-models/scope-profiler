@@ -422,6 +422,31 @@ def print_region_table(
         for row in rows
     ]
 
+    # ``total_time`` is supplied by finalize()/print_summary(), but not by
+    # the inspect renderer. Keep the latter's historical region-only output.
+    if total_time is not None:
+        timed = [row["total"] for row in rows if row["total"] is not None]
+        total_row = {
+            "name": "TOTAL",
+            "ranks": "",
+            "calls": _format_count(sum(row["calls"] for row in rows)),
+            "total": _format_duration(sum(timed) if timed else None),
+            "percent": _format_percentage(
+                sum(timed) if timed else None, session_total
+            ),
+            "avg": "",
+            "min": "",
+            "max": "",
+            "first": "",
+            "last": "",
+            "std": "",
+            "p50": "",
+            "p95": "",
+            "p99": "",
+            "imbalance": "",
+        }
+        formatted.append(total_row)
+
     headers = [header for _, header in selected_columns]
     table_rows = [[row[key] for key, _ in selected_columns] for row in formatted]
     _print_table(table_rows, headers, stream, title=title)

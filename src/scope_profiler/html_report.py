@@ -294,9 +294,22 @@ def _region_table(results, rows, ranks, columns) -> str:
     headers += "<th>trend</th>"
     keys = [key for key, _ in selected_columns]
     max_total = max((row["total"] or 0.0 for row in rows), default=0.0)
+    session_total = next(
+        (row["total"] for row in rows if row["name"] == "scope_profiler.session"),
+        None,
+    )
 
     def cell(row, key) -> str:
-        value = row["num_ranks"] if key == "ranks" else row[key]
+        if key == "ranks":
+            value = row["num_ranks"]
+        elif key == "percent":
+            value = (
+                100.0 * row["total"] / session_total
+                if row["total"] is not None and session_total
+                else None
+            )
+        else:
+            value = row[key]
         if key == "name":
             return f'<span class="toggle-icon">▸</span><span>{_text(value)}</span>'
         text = _text(f"{value:.6g}") if isinstance(value, float) else _text(value)
@@ -306,7 +319,16 @@ def _region_table(results, rows, ranks, columns) -> str:
         return text
 
     def sort_value(row, key) -> str:
-        value = row["num_ranks"] if key == "ranks" else row[key]
+        if key == "ranks":
+            value = row["num_ranks"]
+        elif key == "percent":
+            value = (
+                100.0 * row["total"] / session_total
+                if row["total"] is not None and session_total
+                else None
+            )
+        else:
+            value = row[key]
         return "" if value is None else str(value)
 
     body_groups = []
