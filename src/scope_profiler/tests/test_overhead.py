@@ -315,10 +315,8 @@ def test_nested_regions_cost_scales_with_depth(configure):
 
     def nested(iterations, outer=outer, middle=middle, inner=inner):
         for _ in range(iterations):
-            with outer:
-                with middle:
-                    with inner:
-                        pass
+            with outer, middle, inner:
+                pass
 
     overhead = _overhead_ns(nested, _empty_loop)
     budget = 3 * BUDGET_NS["time"]

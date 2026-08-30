@@ -12,9 +12,9 @@ import os
 import platform
 import socket
 import subprocess
-from typing import Dict, List, Union
+from typing import Union
 
-MetadataValue = Union[str, int, List[str]]
+MetadataValue = Union[str, int, list[str]]
 
 # Common OpenMP runtime library names across platforms/compilers.
 _OMP_LIBRARY_NAMES = (
@@ -118,7 +118,7 @@ def _detect_chip_information() -> str:
     return platform.processor() or platform.machine() or "unknown"
 
 
-def _collect_environment_variables() -> Dict[str, str]:
+def _collect_environment_variables() -> dict[str, str]:
     """Return the recorded environment variables that are actually set."""
     collected = {
         name: os.environ[name]
@@ -135,7 +135,7 @@ def _collect_environment_variables() -> Dict[str, str]:
     return collected
 
 
-def _loaded_modules() -> List[str]:
+def _loaded_modules() -> list[str]:
     """Parse ``LOADEDMODULES`` into a list of module names.
 
     Environment Modules and Lmod both export a colon-separated list; the
@@ -152,7 +152,7 @@ def _truncate(value: MetadataValue) -> MetadataValue:
     return value
 
 
-def collect_metadata(mpi_size: int = 1) -> Dict[str, MetadataValue]:
+def collect_metadata(mpi_size: int = 1) -> dict[str, MetadataValue]:
     """Gather metadata describing the current run's environment.
 
     Parameters
@@ -180,7 +180,7 @@ def collect_metadata(mpi_size: int = 1) -> Dict[str, MetadataValue]:
 
     omp_num_threads = _detect_omp_num_threads()
 
-    metadata: Dict[str, MetadataValue] = {
+    metadata: dict[str, MetadataValue] = {
         "timestamp": datetime.datetime.now().isoformat(),
         "hostname": socket.gethostname(),
         "platform": platform.platform(),

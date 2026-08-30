@@ -39,8 +39,8 @@ import subprocess
 import sys
 import tempfile
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Iterable, List
 
 import numpy as np
 
@@ -104,18 +104,18 @@ class LikwidRegionResult:
     tag: str
     group_id: int = -1
     group_name: str = ""
-    cpus: List[int] = field(default_factory=list)
+    cpus: list[int] = field(default_factory=list)
     times: np.ndarray = field(default_factory=lambda: np.zeros(0))
     call_counts: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int64))
-    event_names: List[str] = field(default_factory=list)
-    counter_names: List[str] = field(default_factory=list)
+    event_names: list[str] = field(default_factory=list)
+    counter_names: list[str] = field(default_factory=list)
     events: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))
-    metric_names: List[str] = field(default_factory=list)
+    metric_names: list[str] = field(default_factory=list)
     metrics: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))
     source: str = "full_api"
 
     @property
-    def event_labels(self) -> List[str]:
+    def event_labels(self) -> list[str]:
         """Unique per-event labels, safe to use as dict or column keys.
 
         ``event_names`` alone is not unique. A group such as ``MEM_DP``
@@ -185,7 +185,7 @@ def markers_available() -> bool:
     return bool(os.environ.get(_ENV_FILEPATH) and os.environ.get(_ENV_EVENTS))
 
 
-def _parse_cpus(value: str) -> List[int]:
+def _parse_cpus(value: str) -> list[int]:
     """Parse LIKWID's comma-separated hardware-thread list."""
     cpus = []
     for item in value.split(","):
@@ -198,7 +198,7 @@ def _parse_cpus(value: str) -> List[int]:
     return cpus
 
 
-def collect_region_snapshots(pylikwid, region_names: Iterable[str]) -> List[dict]:
+def collect_region_snapshots(pylikwid, region_names: Iterable[str]) -> list[dict]:
     """Read the current counter values for each named region.
 
     Uses the marker API's ``markergetregion``, so it must be called *before*
@@ -241,7 +241,7 @@ def collect_region_snapshots(pylikwid, region_names: Iterable[str]) -> List[dict
     return snapshots
 
 
-def snapshots_to_results(snapshots: Iterable[dict]) -> List[LikwidRegionResult]:
+def snapshots_to_results(snapshots: Iterable[dict]) -> list[LikwidRegionResult]:
     """Convert marker-API snapshots into the common result structure.
 
     Used as the fallback when the full API cannot re-open the counters, so the
@@ -266,7 +266,7 @@ def snapshots_to_results(snapshots: Iterable[dict]) -> List[LikwidRegionResult]:
     return results
 
 
-def parse_marker_file(path=None) -> List[LikwidRegionResult]:
+def parse_marker_file(path=None) -> list[LikwidRegionResult]:
     """Read LIKWID's marker file directly, without calling into LIKWID.
 
     The file ``markerclose()`` writes is plain text::
@@ -356,7 +356,7 @@ def parse_marker_file(path=None) -> List[LikwidRegionResult]:
     return results
 
 
-def collect_marker_results(pylikwid) -> List[LikwidRegionResult]:
+def collect_marker_results(pylikwid) -> list[LikwidRegionResult]:
     """Read every region of the run back from LIKWID's marker file.
 
     Must be called *after* ``markerclose()``, which is what writes the file.

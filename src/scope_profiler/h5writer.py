@@ -52,7 +52,7 @@ class ColumnarIndex:
     token instead of re-deriving it per rank.
     """
 
-    __slots__ = ("names", "name_to_id", "ranks")
+    __slots__ = ("name_to_id", "names", "ranks")
 
     def __init__(self, names=(), ranks=()) -> None:
         """Start from a known set of region names (in id order) and ranks."""
@@ -84,6 +84,41 @@ class ColumnarIndex:
             self.name_to_id[name] = len(self.names)
             self.names.append(name)
         return new_names
+
+
+def dataset_storage_options(
+    length: int,
+    compression: str | None = None,
+    compression_level: int | None = None,
+    chunk_size: int | None = None,
+) -> dict:
+    """Build h5py keyword arguments for one one-dimensional event dataset."""
+    options = {}
+    if chunk_size is not None:
+        options["chunks"] = (
+            chunk_size if int(length) == 0 else min(int(length), chunk_size),
+        )
+
+    if compression == "gzip":
+        options["compression"] = "gzip"
+        if compression_level is not None:
+            options["compression_opts"] = compression_level
+    elif compression == "lzf":
+        options["compression"] = "lzf"
+    elif compression == "zstd":
+        try:
+            import hdf5plugin
+        except ImportError as exc:
+            raise ImportError(
+                "Zstandard HDF5 compression requires hdf5plugin; install "
+                "scope-profiler[compression]."
+            ) from exc
+        options.update(hdf5plugin.Zstd(clevel=compression_level or 3))
+    if compression is not None:
+        # Byte shuffling groups equal-significance bytes before compression;
+        # monotonic int64 timestamps generally compress much better this way.
+        options["shuffle"] = True
+    return options
 
 
 def initialize_columnar_layout(
@@ -127,6 +162,59 @@ def initialize_columnar_layout(
             dtype=np.int64,
             **dataset_storage_options(0, compression, compression_level, chunk_size),
         )
+
+
+def append_aggregate_rank(h5file, rank, payload, *, index_state=None) -> bool:
+    """Append one rank of aggregate-only statistics."""
+    stats = payload.aggregate_stats or {}
+    if not stats:
+        return False
+    index_state = (
+        ColumnarIndex.from_file(h5file) if index_state is None else index_state
+    )
+    if rank in index_state.ranks:
+        raise ValueError(f"rank {rank} was written more than once")
+    names = list(stats)
+    new_names = index_state.register(names)
+    if new_names:
+        _append(h5file["region_table/names"], new_names)
+    index = h5file["rank_region_index"]
+    for name, dtype in (
+        ("aggregate_counts", np.uint64),
+        ("aggregate_totals", np.int64),
+        ("aggregate_minimums", np.int64),
+        ("aggregate_maximums", np.int64),
+        ("aggregate_exclusives", np.int64),
+    ):
+        if name not in index:
+            index.create_dataset(name, shape=(0,), maxshape=(None,), dtype=dtype)
+    _append(index["region_ids"], [index_state.name_to_id[name] for name in names])
+    _append(index["ranks"], np.full(len(names), rank, dtype=np.uint32))
+    _append(index["aggregate_counts"], [stats[name]["count"] for name in names])
+    _append(index["aggregate_totals"], [stats[name]["total"] for name in names])
+    _append(index["aggregate_minimums"], [stats[name]["minimum"] for name in names])
+    _append(index["aggregate_maximums"], [stats[name]["maximum"] for name in names])
+    _append(index["aggregate_exclusives"], [stats[name]["exclusive"] for name in names])
+    index_state.ranks.add(int(rank))
+    return True
+
+
+def _concatenate(regions: dict, names: list, position: int) -> np.ndarray:
+    """One int64 array of every named region's ``position``-th timing array."""
+    return np.concatenate(
+        [
+            np.asarray(
+                (
+                    regions[name][position]
+                    if len(regions[name]) > position
+                    else np.full(len(regions[name][0]), -1, dtype=np.int64)
+                ),
+                dtype=np.int64,
+            )
+            for name in names
+        ]
+        or [np.empty(0, dtype=np.int64)]
+    )
 
 
 def append_columnar_rank(
@@ -246,59 +334,6 @@ def append_columnar_rank(
     return True
 
 
-def append_aggregate_rank(h5file, rank, payload, *, index_state=None) -> bool:
-    """Append one rank of aggregate-only statistics."""
-    stats = payload.aggregate_stats or {}
-    if not stats:
-        return False
-    index_state = (
-        ColumnarIndex.from_file(h5file) if index_state is None else index_state
-    )
-    if rank in index_state.ranks:
-        raise ValueError(f"rank {rank} was written more than once")
-    names = list(stats)
-    new_names = index_state.register(names)
-    if new_names:
-        _append(h5file["region_table/names"], new_names)
-    index = h5file["rank_region_index"]
-    for name, dtype in (
-        ("aggregate_counts", np.uint64),
-        ("aggregate_totals", np.int64),
-        ("aggregate_minimums", np.int64),
-        ("aggregate_maximums", np.int64),
-        ("aggregate_exclusives", np.int64),
-    ):
-        if name not in index:
-            index.create_dataset(name, shape=(0,), maxshape=(None,), dtype=dtype)
-    _append(index["region_ids"], [index_state.name_to_id[name] for name in names])
-    _append(index["ranks"], np.full(len(names), rank, dtype=np.uint32))
-    _append(index["aggregate_counts"], [stats[name]["count"] for name in names])
-    _append(index["aggregate_totals"], [stats[name]["total"] for name in names])
-    _append(index["aggregate_minimums"], [stats[name]["minimum"] for name in names])
-    _append(index["aggregate_maximums"], [stats[name]["maximum"] for name in names])
-    _append(index["aggregate_exclusives"], [stats[name]["exclusive"] for name in names])
-    index_state.ranks.add(int(rank))
-    return True
-
-
-def _concatenate(regions: dict, names: list, position: int) -> np.ndarray:
-    """One int64 array of every named region's ``position``-th timing array."""
-    return np.concatenate(
-        [
-            np.asarray(
-                (
-                    regions[name][position]
-                    if len(regions[name]) > position
-                    else np.full(len(regions[name][0]), -1, dtype=np.int64)
-                ),
-                dtype=np.int64,
-            )
-            for name in names
-        ]
-        or [np.empty(0, dtype=np.int64)]
-    )
-
-
 def _fsync_file(path) -> None:
     """Force a closed file's contents and metadata to stable storage."""
     descriptor = os.open(path, os.O_RDONLY)
@@ -361,41 +396,6 @@ def compression_filter_available(compression: str | None) -> bool:
     return bool(h5py.h5z.filter_avail(filter_ids[compression]))
 
 
-def dataset_storage_options(
-    length: int,
-    compression: str | None = None,
-    compression_level: int | None = None,
-    chunk_size: int | None = None,
-) -> dict:
-    """Build h5py keyword arguments for one one-dimensional event dataset."""
-    options = {}
-    if chunk_size is not None:
-        options["chunks"] = (
-            chunk_size if int(length) == 0 else min(int(length), chunk_size),
-        )
-
-    if compression == "gzip":
-        options["compression"] = "gzip"
-        if compression_level is not None:
-            options["compression_opts"] = compression_level
-    elif compression == "lzf":
-        options["compression"] = "lzf"
-    elif compression == "zstd":
-        try:
-            import hdf5plugin
-        except ImportError as exc:
-            raise ImportError(
-                "Zstandard HDF5 compression requires hdf5plugin; install "
-                "scope-profiler[compression]."
-            ) from exc
-        options.update(hdf5plugin.Zstd(clevel=compression_level or 3))
-    if compression is not None:
-        # Byte shuffling groups equal-significance bytes before compression;
-        # monotonic int64 timestamps generally compress much better this way.
-        options["shuffle"] = True
-    return options
-
-
 def payload_layout(payload) -> dict:
     """Return the small, array-free schema needed for collective creation."""
     sources = payload.sources or {}
@@ -427,6 +427,35 @@ def payload_layout(payload) -> dict:
             for record in (payload.line_profile or [])
         ],
     }
+
+
+def rank_group_name(rank: int) -> str:
+    """Name of one rank's group. ``h5reader`` parses the rank back out of it."""
+    return f"rank{rank}"
+
+
+def write_metadata(h5file, metadata: dict) -> None:
+    """Create the top-level ``metadata`` group from a run's metadata dict.
+
+    Only rank 0's metadata is stored: it describes the run as a whole. The
+    group holds attributes and no datasets.
+
+    Parameters
+    ----------
+    h5file : h5py.File
+        Destination file, opened for writing.
+    metadata : dict
+        Environment metadata (see :mod:`scope_profiler.metadata`).
+    """
+    meta_grp = h5file.create_group("metadata")
+    for key, value in metadata.items():
+        if isinstance(value, (list, tuple)):
+            # h5py cannot infer a dtype for an empty list, and would store a
+            # non-empty one as fixed-width bytes; be explicit so list-valued
+            # metadata (e.g. the loaded modules) always round-trips as strings.
+            meta_grp.attrs.create(key, list(value), dtype=h5py.string_dtype())
+        else:
+            meta_grp.attrs[key] = value
 
 
 def write_parallel_payload(
@@ -643,35 +672,6 @@ def write_parallel_payload(
             )
             function_group["hits"][:] = np.asarray(record["hits"], dtype=np.int64)
             function_group["times"][:] = np.asarray(record["times"], dtype=np.float64)
-
-
-def rank_group_name(rank: int) -> str:
-    """Name of one rank's group. ``h5reader`` parses the rank back out of it."""
-    return f"rank{rank}"
-
-
-def write_metadata(h5file, metadata: dict) -> None:
-    """Create the top-level ``metadata`` group from a run's metadata dict.
-
-    Only rank 0's metadata is stored: it describes the run as a whole. The
-    group holds attributes and no datasets.
-
-    Parameters
-    ----------
-    h5file : h5py.File
-        Destination file, opened for writing.
-    metadata : dict
-        Environment metadata (see :mod:`scope_profiler.metadata`).
-    """
-    meta_grp = h5file.create_group("metadata")
-    for key, value in metadata.items():
-        if isinstance(value, (list, tuple)):
-            # h5py cannot infer a dtype for an empty list, and would store a
-            # non-empty one as fixed-width bytes; be explicit so list-valued
-            # metadata (e.g. the loaded modules) always round-trips as strings.
-            meta_grp.attrs.create(key, list(value), dtype=h5py.string_dtype())
-        else:
-            meta_grp.attrs[key] = value
 
 
 def write_regions(

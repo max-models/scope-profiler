@@ -11,8 +11,8 @@ plotting functions, the exporters) cannot tell them apart.
 
 import functools
 import re
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Dict, Iterator, List
 
 import numpy as np
 
@@ -42,16 +42,54 @@ class ProfilingResults:
     All durations are reported in seconds.
     """
 
+    def _populate_exclusive_durations(self) -> None:
+        """Derive per-call exclusive durations from all recorded intervals.
+
+        Runs at most once per result set, on first access of any exclusive
+        duration (see :meth:`Region._resolved_exclusive_durations`), and
+        fills in every rank and region: the nesting of one region's calls is
+        only visible against all the others recorded on the same rank, so
+        there is nothing cheaper to compute for a single region alone.
+        """
+        from scope_profiler.call_stack import build_call_arrays
+
+        if self._exclusive_populated:
+            return
+        # Set before the loop: build_call_arrays reads only start/end times,
+        # but a region reached through it must not re-enter this.
+        self._exclusive_populated = True
+
+        for rank in sorted(
+            {rank for region in self._region_dict.values() for rank in region.ranks}
+        ):
+            # Columns, not one dict per call: this runs over every event in
+            # the run, which for a long simulation is tens of millions.
+            arrays = build_call_arrays(self._region_dict.values(), rank)
+            for row, name in enumerate(arrays.names):
+                mine = arrays.region_index == row
+                durations = self._region_dict[name].regions[rank]._exclusive_buffer()
+                durations[arrays.call_index[mine]] = arrays.exclusive_ns[mine]
+
+    def _metadata_time(self, key: str) -> float | None:
+        """Read a ``*_time_ns`` metadata field as seconds, or None if unusable."""
+        value = self._metadata.get(key)
+        if value is None:
+            return None
+        try:
+            return float(value) / NS_PER_SECOND
+        except (TypeError, ValueError):
+            return None
+
     def __init__(
         self,
-        regions: Dict[str, MPIRegion],
+        regions: dict[str, MPIRegion],
         metadata: dict | None = None,
         num_ranks: int | None = None,
-        likwid: Dict[int, Dict[str, LikwidRegionResult]] | None = None,
-        line_profile: Dict[int, list] | None = None,
+        likwid: dict[int, dict[str, LikwidRegionResult]] | None = None,
+        line_profile: dict[int, list] | None = None,
         file_path: str | Path = "",
         is_root: bool = True,
-        exclusive_totals: Dict[str, Dict[int, int]] | None = None,
+        exclusive_totals: dict[str, dict[int, int]] | None = None,
     ) -> None:
         """
         Assemble a result set from already-loaded regions.
@@ -121,44 +159,6 @@ class ProfilingResults:
                 if stored is not None:
                     rank_region._set_exclusive_total(stored)
 
-    def _populate_exclusive_durations(self) -> None:
-        """Derive per-call exclusive durations from all recorded intervals.
-
-        Runs at most once per result set, on first access of any exclusive
-        duration (see :meth:`Region._resolved_exclusive_durations`), and
-        fills in every rank and region: the nesting of one region's calls is
-        only visible against all the others recorded on the same rank, so
-        there is nothing cheaper to compute for a single region alone.
-        """
-        from scope_profiler.call_stack import build_call_arrays
-
-        if self._exclusive_populated:
-            return
-        # Set before the loop: build_call_arrays reads only start/end times,
-        # but a region reached through it must not re-enter this.
-        self._exclusive_populated = True
-
-        for rank in sorted(
-            {rank for region in self._region_dict.values() for rank in region.ranks}
-        ):
-            # Columns, not one dict per call: this runs over every event in
-            # the run, which for a long simulation is tens of millions.
-            arrays = build_call_arrays(self._region_dict.values(), rank)
-            for row, name in enumerate(arrays.names):
-                mine = arrays.region_index == row
-                durations = self._region_dict[name].regions[rank]._exclusive_buffer()
-                durations[arrays.call_index[mine]] = arrays.exclusive_ns[mine]
-
-    def _metadata_time(self, key: str) -> float | None:
-        """Read a ``*_time_ns`` metadata field as seconds, or None if unusable."""
-        value = self._metadata.get(key)
-        if value is None:
-            return None
-        try:
-            return float(value) / NS_PER_SECOND
-        except (TypeError, ValueError):
-            return None
-
     @classmethod
     def from_h5(
         cls, file_path: str | Path, verbose: bool = False
@@ -224,15 +224,35 @@ class ProfilingResults:
             ) from None
 
     @property
-    def region_names(self) -> List[str]:
+    def region_names(self) -> list[str]:
         """Names of all regions, in order of appearance."""
         return list(self._region_dict)
+
+    @staticmethod
+    def _summary_row(region: MPIRegion) -> dict:
+        """Return the public aggregate summary, including rich statistics."""
+        return {
+            **region.get_summary(),
+            "inclusive_duration": region.inclusive_duration,
+            "exclusive_duration": region.exclusive_duration,
+            "tags": region.tags,
+            "p50_duration": region.p50_duration,
+            "p95_duration": region.p95_duration,
+            "p99_duration": region.p99_duration,
+            "rank_imbalance": region.rank_imbalance,
+            "rank_imbalance_pct": region.rank_imbalance_pct,
+            # Short aliases match the summary-table column names.
+            "p50": region.p50_duration,
+            "p95": region.p95_duration,
+            "p99": region.p99_duration,
+            "imbalance": region.rank_imbalance_pct,
+        }
 
     def summary(
         self,
         include: list[str] | str | None = None,
         exclude: list[str] | str | None = None,
-    ) -> List[dict]:
+    ) -> list[dict]:
         """
         Summarize every region, aggregated over ranks.
 
@@ -255,26 +275,6 @@ class ProfilingResults:
             self._summary_row(region)
             for region in self.get_regions(include=include, exclude=exclude)
         ]
-
-    @staticmethod
-    def _summary_row(region: MPIRegion) -> dict:
-        """Return the public aggregate summary, including rich statistics."""
-        return {
-            **region.get_summary(),
-            "inclusive_duration": region.inclusive_duration,
-            "exclusive_duration": region.exclusive_duration,
-            "tags": region.tags,
-            "p50_duration": region.p50_duration,
-            "p95_duration": region.p95_duration,
-            "p99_duration": region.p99_duration,
-            "rank_imbalance": region.rank_imbalance,
-            "rank_imbalance_pct": region.rank_imbalance_pct,
-            # Short aliases match the summary-table column names.
-            "p50": region.p50_duration,
-            "p95": region.p95_duration,
-            "p99": region.p99_duration,
-            "imbalance": region.rank_imbalance_pct,
-        }
 
     def to_dataframe(
         self,
@@ -340,7 +340,7 @@ class ProfilingResults:
         ranks: list[int] | int | None = None,
         relative: bool = True,
         origin: float | None = None,
-    ) -> List[dict]:
+    ) -> list[dict]:
         """
         Return one dict per recorded call, across all regions and ranks.
 
@@ -443,7 +443,7 @@ class ProfilingResults:
         exclude: list[str] | str | None = None,
         relative: bool = True,
         origin: float | None = None,
-    ) -> List[dict]:
+    ) -> list[dict]:
         """
         Reconstruct the nested call stack for one rank.
 
@@ -481,7 +481,7 @@ class ProfilingResults:
             origin=origin,
         )
 
-    def call_graph(self, rank: int = 0, include=None, exclude=None) -> List[dict]:
+    def call_graph(self, rank: int = 0, include=None, exclude=None) -> list[dict]:
         """Return call relationships without timestamps or durations.
 
         New profiles persist ``call_id`` and ``parent_id`` for every Python
@@ -565,7 +565,7 @@ class ProfilingResults:
         include: list[str] | str | None = None,
         exclude: list[str] | str | None = None,
         ranks: list[int] | None = None,
-        sort: str = "total",
+        sort: str = "start",
         title: str | None = None,
         stream=None,
         suppress_notes: bool = False,
@@ -585,16 +585,17 @@ class ProfilingResults:
         ranks : list of int, optional
             Restrict the statistics to these ranks (default: all).
         sort : str, optional
-            Column to order by: ``total`` (default), ``calls``, ``avg``,
-            ``min``, ``max``, ``std`` or ``name``.
+            Column to order by: ``start`` (default), ``total``, ``calls``,
+            ``avg``, ``min``, ``max``, ``std`` or ``name``.
         title : str, optional
             Heading above the table (default: the file path and rank count).
         stream : file-like, optional
             Where to write (default: stdout).
         columns : list of str or str, optional
             Region summary columns to print. Defaults to ``region``,
-            ``ranks``, ``calls``, ``total`` and ``avg``. Use ``region`` for
-            the region-name column.
+            ``calls``, ``percent``, ``total`` and ``avg``. The
+            percentage is relative to ``scope_profiler.session``. Use
+            ``region`` for the region-name column.
 
         Notes
         -----
@@ -637,22 +638,6 @@ class ProfilingResults:
         if self.label is not None:
             title = f"{self.label} - {title}"
         return title
-
-    def __getitem__(self, region_name: str) -> MPIRegion:
-        """Get a region by name; see :meth:`get_region`."""
-        return self.get_region(region_name)
-
-    def __contains__(self, region_name: str) -> bool:
-        """Whether a region with this name exists."""
-        return region_name in self._region_dict
-
-    def __iter__(self) -> Iterator[MPIRegion]:
-        """Iterate over all regions, in order of appearance."""
-        return iter(self._region_dict.values())
-
-    def __len__(self) -> int:
-        """Number of regions."""
-        return len(self._region_dict)
 
     @property
     def file_path(self) -> Path:
@@ -749,7 +734,7 @@ class ProfilingResults:
         return self._metadata
 
     @property
-    def line_profile(self) -> Dict[int, list]:
+    def line_profile(self) -> dict[int, list]:
         """Persisted line-profiler records keyed by rank.
 
         Each record contains ``region``, ``filename``, ``function``,
@@ -776,7 +761,7 @@ class ProfilingResults:
         return any(self._likwid.values())
 
     @property
-    def likwid_ranks(self) -> List[int]:
+    def likwid_ranks(self) -> list[int]:
         """Ranks that recorded LIKWID results, in ascending order."""
         return sorted(rank for rank, regions in self._likwid.items() if regions)
 
@@ -1087,7 +1072,7 @@ class ProfilingResults:
         self,
         include: list[str] | str | None = None,
         exclude: list[str] | str | None = None,
-    ) -> List[MPIRegion]:
+    ) -> list[MPIRegion]:
         """Get a list of all regions in order of appearance.
 
         Returns
@@ -1121,6 +1106,22 @@ class ProfilingResults:
         )
 
         return regions
+
+    def __getitem__(self, region_name: str) -> MPIRegion:
+        """Get a region by name; see :meth:`get_region`."""
+        return self.get_region(region_name)
+
+    def __iter__(self) -> Iterator[MPIRegion]:
+        """Iterate over all regions, in order of appearance."""
+        return iter(self._region_dict.values())
+
+    def __contains__(self, region_name: str) -> bool:
+        """Whether a region with this name exists."""
+        return region_name in self._region_dict
+
+    def __len__(self) -> int:
+        """Number of regions."""
+        return len(self._region_dict)
 
     def __repr__(self) -> str:
         """
@@ -1181,7 +1182,7 @@ def merge_results(*result_sets, label: str | None = None, file_path=None):
         # the caller is a parallel script that should carry on quietly.
         return result_sets[0]
 
-    seen: Dict[str, int] = {}
+    seen: dict[str, int] = {}
     for index, results in enumerate(roots):
         for name in results.region_names:
             if name in seen and seen[name] != index:
@@ -1192,9 +1193,9 @@ def merge_results(*result_sets, label: str | None = None, file_path=None):
                 )
             seen[name] = index
 
-    merged: Dict[str, MPIRegion] = {}
+    merged: dict[str, MPIRegion] = {}
     metadata: dict = {}
-    likwid: Dict[int, dict] = {}
+    likwid: dict[int, dict] = {}
     num_ranks = 0
     for results in roots:
         # Earlier sets win, so the driver's metadata describes the run.

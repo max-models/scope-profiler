@@ -18,6 +18,7 @@ pip install scope-profiler
 from scope_profiler import ProfileManager
 
 with ProfileManager.session():
+
     @ProfileManager.profile("main")
     def main():
         with ProfileManager.profile_region("work"):

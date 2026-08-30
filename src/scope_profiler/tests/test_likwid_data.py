@@ -355,12 +355,14 @@ def test_isolated_collector_survives_a_segfaulting_child(tmp_path):
     crashed = subprocess.CompletedProcess(
         args=[], returncode=-11, stdout=b"", stderr=b""
     )
-    with mock.patch.dict(
-        os.environ,
-        {"LIKWID_FILEPATH": str(marker), "LIKWID_EVENTS": "CLOCK"},
+    with (
+        mock.patch.dict(
+            os.environ,
+            {"LIKWID_FILEPATH": str(marker), "LIKWID_EVENTS": "CLOCK"},
+        ),
+        mock.patch("subprocess.run", return_value=crashed),
     ):
-        with mock.patch("subprocess.run", return_value=crashed):
-            assert collect_marker_results_isolated() is None
+        assert collect_marker_results_isolated() is None
 
 
 def test_isolated_collector_salvages_results_written_before_a_crash(tmp_path):
@@ -395,12 +397,14 @@ def test_isolated_collector_salvages_results_written_before_a_crash(tmp_path):
             json.dump(payload, fh)
         return subprocess.CompletedProcess(args=cmd, returncode=-11)
 
-    with mock.patch.dict(
-        os.environ,
-        {"LIKWID_FILEPATH": str(marker), "LIKWID_EVENTS": "CLOCK"},
+    with (
+        mock.patch.dict(
+            os.environ,
+            {"LIKWID_FILEPATH": str(marker), "LIKWID_EVENTS": "CLOCK"},
+        ),
+        mock.patch("subprocess.run", side_effect=write_then_crash),
     ):
-        with mock.patch("subprocess.run", side_effect=write_then_crash):
-            results = collect_marker_results_isolated()
+        results = collect_marker_results_isolated()
 
     assert results is not None
     (result,) = results
@@ -418,12 +422,14 @@ def test_isolated_collector_discards_a_truncated_document(tmp_path):
             fh.write('[{"tag": "solve", "times": [1.0')
         return subprocess.CompletedProcess(args=cmd, returncode=-11)
 
-    with mock.patch.dict(
-        os.environ,
-        {"LIKWID_FILEPATH": str(marker), "LIKWID_EVENTS": "CLOCK"},
+    with (
+        mock.patch.dict(
+            os.environ,
+            {"LIKWID_FILEPATH": str(marker), "LIKWID_EVENTS": "CLOCK"},
+        ),
+        mock.patch("subprocess.run", side_effect=write_partial),
     ):
-        with mock.patch("subprocess.run", side_effect=write_partial):
-            assert collect_marker_results_isolated() is None
+        assert collect_marker_results_isolated() is None
 
 
 def test_isolated_collector_survives_a_hanging_child(tmp_path):
@@ -431,15 +437,17 @@ def test_isolated_collector_survives_a_hanging_child(tmp_path):
     marker = tmp_path / "likwid.txt"
     marker.write_text(MARKER_FILE)
 
-    with mock.patch.dict(
-        os.environ,
-        {"LIKWID_FILEPATH": str(marker), "LIKWID_EVENTS": "CLOCK"},
-    ):
-        with mock.patch(
+    with (
+        mock.patch.dict(
+            os.environ,
+            {"LIKWID_FILEPATH": str(marker), "LIKWID_EVENTS": "CLOCK"},
+        ),
+        mock.patch(
             "subprocess.run",
             side_effect=subprocess.TimeoutExpired(cmd="x", timeout=1),
-        ):
-            assert collect_marker_results_isolated() is None
+        ),
+    ):
+        assert collect_marker_results_isolated() is None
 
 
 def test_isolated_collector_skipped_outside_a_likwid_run():

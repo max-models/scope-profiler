@@ -308,6 +308,53 @@ def _add_gantt_bars(
         )
 
 
+def _save_matplotlib_figure(fig, canvas, filepath: str | Path) -> None:
+    """Save a materialized Matplotlib figure using canvas-level DPI if present."""
+    savefig_kwargs = {}
+    if getattr(canvas, "dpi", None) is not None:
+        savefig_kwargs["dpi"] = canvas.dpi
+    fig.savefig(filepath, **savefig_kwargs)
+
+
+def _display_matplotlib_figure_in_notebook(fig) -> bool:
+    """Use IPython rich display when running inside a Jupyter kernel."""
+    try:
+        from IPython import get_ipython
+        from IPython.display import display
+    except ImportError:
+        return False
+
+    shell = get_ipython()
+    if shell is None:
+        return False
+    if "IPKernelApp" not in getattr(shell, "config", {}):
+        return False
+
+    display(fig)
+    return True
+
+
+def _show_matplotlib_figure(fig) -> bool:
+    """Display a Matplotlib figure in notebooks and regular Python sessions."""
+    if _display_matplotlib_figure_in_notebook(fig):
+        return True
+
+    import matplotlib.pyplot as plt
+
+    plt.show()
+    return False
+
+
+def _close_matplotlib_figure(canvas, fig=None) -> None:
+    """Release the figure maxplotlib keeps open after rendering."""
+    fig = fig if fig is not None else getattr(canvas, "_matplotlib_fig", None)
+    if fig is None:
+        return
+    import matplotlib.pyplot as plt
+
+    plt.close(fig)
+
+
 def _render(
     canvas,
     filepath: str | None,
@@ -401,53 +448,6 @@ def _panel_gridspec(
     if multi_panel:
         gridspec["hspace"] = 0.5
     return gridspec
-
-
-def _save_matplotlib_figure(fig, canvas, filepath: str | Path) -> None:
-    """Save a materialized Matplotlib figure using canvas-level DPI if present."""
-    savefig_kwargs = {}
-    if getattr(canvas, "dpi", None) is not None:
-        savefig_kwargs["dpi"] = canvas.dpi
-    fig.savefig(filepath, **savefig_kwargs)
-
-
-def _show_matplotlib_figure(fig) -> bool:
-    """Display a Matplotlib figure in notebooks and regular Python sessions."""
-    if _display_matplotlib_figure_in_notebook(fig):
-        return True
-
-    import matplotlib.pyplot as plt
-
-    plt.show()
-    return False
-
-
-def _display_matplotlib_figure_in_notebook(fig) -> bool:
-    """Use IPython rich display when running inside a Jupyter kernel."""
-    try:
-        from IPython import get_ipython
-        from IPython.display import display
-    except ImportError:
-        return False
-
-    shell = get_ipython()
-    if shell is None:
-        return False
-    if "IPKernelApp" not in getattr(shell, "config", {}):
-        return False
-
-    display(fig)
-    return True
-
-
-def _close_matplotlib_figure(canvas, fig=None) -> None:
-    """Release the figure maxplotlib keeps open after rendering."""
-    fig = fig if fig is not None else getattr(canvas, "_matplotlib_fig", None)
-    if fig is None:
-        return
-    import matplotlib.pyplot as plt
-
-    plt.close(fig)
 
 
 def _set_xticks(canvas, ticks, labels=None, **kwargs) -> bool:
@@ -812,6 +812,50 @@ def _prepare_gantt_data(
     return regions, normalized_ranks, profiling_data.minimum_start_time
 
 
+def _aggregate_gantt_intervals(
+    intervals: Sequence[tuple[float, float]],
+    *,
+    min_duration: float = 0.0,
+    start_time: float | None = None,
+    end_time: float | None = None,
+    block_size: int = 1,
+) -> list[tuple[float, float, int]]:
+    """Filter and optionally coalesce timeline intervals.
+
+    ``start_time``/``end_time`` are relative to the plot origin. Intervals
+    crossing a window boundary are clipped. Coalescing preserves event order
+    and reports the number of calls represented by each returned bar.
+    """
+    if min_duration < 0:
+        raise ValueError("min_duration must be non-negative")
+    if block_size < 1:
+        raise ValueError("block_size must be at least 1")
+    if start_time is not None and end_time is not None and end_time <= start_time:
+        raise ValueError("end_time must be greater than start_time")
+    selected: list[tuple[float, float]] = []
+    for start, end in intervals:
+        if end - start < min_duration:
+            continue
+        if start_time is not None and end <= start_time:
+            continue
+        if end_time is not None and start >= end_time:
+            continue
+        start = max(start, start_time) if start_time is not None else start
+        end = min(end, end_time) if end_time is not None else end
+        if end > start:
+            selected.append((start, end))
+    if block_size == 1:
+        return [(start, end, 1) for start, end in selected]
+    return [
+        (
+            selected[index][0],
+            selected[min(index + block_size - 1, len(selected) - 1)][1],
+            min(block_size, len(selected) - index),
+        )
+        for index in range(0, len(selected), block_size)
+    ]
+
+
 def plot_gantt(
     profiling_data: ProfilingResults | Sequence[ProfilingResults],
     ranks: list[int] | int | None = None,
@@ -825,6 +869,11 @@ def plot_gantt(
     data_format: str = "csv",
     backend: str = "matplotlib",
     return_fig: bool = False,
+    min_duration: float = 0.0,
+    start_time: float | None = None,
+    end_time: float | None = None,
+    aggregate_calls: int = 1,
+    collapse_depth: int | None = None,
 ) -> object | None:
     """
     Plot a Gantt chart of all (or selected) regions with per-rank lanes using maxplotlib.
@@ -843,6 +892,8 @@ def plot_gantt(
         # Not this rank's job; rank 0 draws it.
         return
 
+    if collapse_depth is not None and collapse_depth < 0:
+        raise ValueError("collapse_depth must be non-negative")
     prepared = []
     for run in runs:
         regions, selected_ranks, first_start_time = _prepare_gantt_data(
@@ -949,15 +1000,39 @@ def plot_gantt(
                         )
                     )
                 color = _to_hex(region.color)
-                for start, end in zip(region_data.start_times, region_data.end_times):
+                visible_calls = None
+                if collapse_depth is not None:
+                    calls = build_call_stack(regions, rank, origin=first_start_time)
+                    visible_calls = {
+                        call["call_index"]
+                        for call in calls
+                        if call["name"] == region.name
+                        and call["depth"] <= collapse_depth
+                    }
+                raw_intervals = [
+                    (float(start - first_start_time), float(end - first_start_time))
+                    for call_index, (start, end) in enumerate(
+                        zip(region_data.start_times, region_data.end_times)
+                    )
+                    if visible_calls is None or call_index in visible_calls
+                ]
+                for start, end, count in _aggregate_gantt_intervals(
+                    raw_intervals,
+                    min_duration=min_duration,
+                    start_time=start_time,
+                    end_time=end_time,
+                    block_size=aggregate_calls,
+                ):
                     bars.append(
                         (
                             lane,
-                            float(start - first_start_time),
-                            float(end - start),
+                            start,
+                            end - start,
                             color,
                         )
                     )
+                if aggregate_calls > 1:
+                    lanes[-1] += f" (blocks of {aggregate_calls})"
         panel_lanes.append(lanes)
         panel_bars.append(bars)
         panel_lane_hover.append(lane_hover)
@@ -989,8 +1064,12 @@ def plot_gantt(
 
         canvas.set_yticks(list(range(len(lanes))), labels=lanes, row=row, col=col)
         canvas.set_xlim(
-            0,
-            max(start + duration for _, start, duration, _ in bars),
+            0 if start_time is None else start_time,
+            (
+                end_time
+                if end_time is not None
+                else max(start + duration for _, start, duration, _ in bars)
+            ),
             row=row,
             col=col,
         )
@@ -1014,6 +1093,140 @@ def plot_gantt(
         plotly_layout={"barmode": "overlay"},
         return_fig=return_fig,
     )
+    return rendered if return_fig else None
+
+
+def plot_timeline_density(
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
+    ranks: list[int] | int | None = None,
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+    filepath: str | None = None,
+    show: bool = False,
+    verbose: bool = True,
+    cmap: str = "magma",
+    bins: int = 200,
+    start_time: float | None = None,
+    end_time: float | None = None,
+    min_duration: float = 0.0,
+    data_filepath: str | Path | None = None,
+    data_format: str = "csv",
+    backend: str = "matplotlib",
+    return_fig: bool = False,
+) -> object | None:
+    """Plot binned region occupancy instead of individual timeline bars.
+
+    Each cell contains the seconds of a region overlapping that time bin.
+    This is intentionally an aggregate visualization: it remains readable
+    when a run contains millions of short calls.
+    """
+    Canvas = _get_canvas()
+    if bins < 1:
+        raise ValueError("bins must be at least 1")
+    if min_duration < 0:
+        raise ValueError("min_duration must be non-negative")
+    runs = _as_runs(profiling_data)
+    if not runs:
+        return
+    normalized_ranks = _normalize_ranks(ranks)
+    prepared = []
+    records = []
+    for run in runs:
+        regions = run.get_regions(include=include, exclude=exclude)
+        if not regions:
+            raise ValueError("No regions matched the selected filters.")
+        selected_ranks = normalized_ranks or list(range(run.num_ranks))
+        all_events = []
+        for region in regions:
+            for rank in selected_ranks:
+                if rank in region:
+                    data = region[rank]
+                    all_events.extend(
+                        (
+                            region.name,
+                            start - run.minimum_start_time,
+                            end - run.minimum_start_time,
+                        )
+                        for start, end in zip(data.start_times, data.end_times)
+                        if end - start >= min_duration
+                    )
+        if not all_events:
+            raise ValueError("No calls recorded for the requested filters.")
+        lower = min(
+            start_time if start_time is not None else 0.0,
+            min(event[1] for event in all_events),
+        )
+        upper = max(event[2] for event in all_events) if end_time is None else end_time
+        if start_time is not None:
+            lower = start_time
+        if upper <= lower:
+            raise ValueError("end_time must be greater than start_time")
+        names = [region.name for region in regions]
+        edges = np.linspace(lower, upper, bins + 1)
+        matrix = np.zeros((len(names), bins), dtype=float)
+        name_index = {name: index for index, name in enumerate(names)}
+        for name, start, end in all_events:
+            start, end = max(start, lower), min(end, upper)
+            if end <= start:
+                continue
+            left = max(0, int(np.searchsorted(edges, start, side="right") - 1))
+            right = min(bins - 1, int(np.searchsorted(edges, end, side="left")))
+            for index in range(left, right + 1):
+                matrix[name_index[name], index] += max(
+                    0.0, min(end, edges[index + 1]) - max(start, edges[index])
+                )
+        prepared.append((run, names, edges, matrix))
+        for row, name in enumerate(names):
+            for col in range(bins):
+                records.append(
+                    [
+                        run.display_label,
+                        name,
+                        float(edges[col]),
+                        float(edges[col + 1]),
+                        float(matrix[row, col]),
+                    ]
+                )
+
+    if verbose:
+        print("Plotting timeline density")
+    if data_filepath:
+        header = [
+            "file",
+            "region",
+            "bin_start_seconds",
+            "bin_end_seconds",
+            "occupied_seconds",
+        ]
+        if data_format == "json":
+            _write_json(
+                data_filepath, {"points": [dict(zip(header, row)) for row in records]}
+            )
+        else:
+            _write_csv(data_filepath, header, records)
+    canvas = Canvas(
+        nrows=len(prepared),
+        ncols=1,
+        figsize=(12.0, max(3.5, 1.0 + 0.35 * sum(len(x[1]) for x in prepared))),
+    )
+    single_panel = len(prepared) == 1
+    for index, (run, names, edges, matrix) in enumerate(prepared):
+        row = None if single_panel else index
+        col = None if single_panel else 0
+        canvas.imshow(matrix, cmap=cmap, aspect="auto", row=row, col=col)
+        tick_count = min(10, len(edges))
+        ticks = np.linspace(0, len(edges) - 1, tick_count, dtype=int)
+        _set_xticks(
+            canvas, ticks, labels=[f"{edges[t]:.3g}" for t in ticks], row=row, col=col
+        )
+        canvas.set_yticks(list(range(len(names))), labels=names, row=row, col=col)
+        canvas.set_xlabel("Time (seconds)", row=row, col=col)
+        canvas.set_ylabel("Region", row=row, col=col)
+        canvas.set_title(run.display_label, row=row, col=col)
+        canvas.colorbar("Occupied seconds per bin", row=row, col=col)
+    if not single_panel:
+        canvas.suptitle("Timeline density")
+    rendered = _render(canvas, filepath, show, backend, return_fig=return_fig)
     return rendered if return_fig else None
 
 

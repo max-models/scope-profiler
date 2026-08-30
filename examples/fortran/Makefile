@@ -47,7 +47,7 @@ $(BUILD_DIR)/standalone: standalone.f90 $(BUILD_DIR)/kernels.o $(BUILD_DIR)/scop
 
 run-standalone: standalone
 	cd $(BUILD_DIR) && ./standalone
-	scope-profiler import-native $(BUILD_DIR) -o $(BUILD_DIR)/profiling_data.h5
+	$(PYTHON) -m scope_profiler import-native $(BUILD_DIR) -o $(BUILD_DIR)/profiling_data.h5
 
 # --------------------------------------------------------------------- mixed
 # f2py compiles the profiler module and the kernels into one extension, which

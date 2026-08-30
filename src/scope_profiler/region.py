@@ -1,6 +1,6 @@
 """Data container for a single profiling region loaded from HDF5."""
 
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 
@@ -76,7 +76,7 @@ class Region:
         self._source_text = source_text
         self._tags = tuple(tags)
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """
         Return a summary of the region's statistics as a dictionary.
 
@@ -163,7 +163,7 @@ class Region:
                 self._exclusive_durations = self._durations.copy()
         return self._exclusive_durations
 
-    def events(self, origin: float = 0.0) -> List[Dict[str, Any]]:
+    def events(self, origin: float = 0.0) -> list[dict[str, Any]]:
         """
         Return one dict per recorded call.
 

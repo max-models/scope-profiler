@@ -60,7 +60,7 @@ class BrowserNode:
     label: str
     kind: str
     payload: dict[str, Any] = field(default_factory=dict)
-    children: list["BrowserNode"] = field(default_factory=list)
+    children: list[BrowserNode] = field(default_factory=list)
 
 
 @dataclass
@@ -832,20 +832,6 @@ def render_plot(
     return str(filepath) if filepath else None
 
 
-def render_plotext_text(
-    node: BrowserNode,
-    *,
-    settings: dict[str, Any] | None = None,
-    width: int = 100,
-    height: int = 35,
-) -> str:
-    """Render a Plotext chart while protecting its process-global state."""
-    with _PLOTEXT_RENDER_LOCK:
-        return _render_plotext_text_unlocked(
-            node, settings=settings, width=width, height=height
-        )
-
-
 def _render_plotext_text_unlocked(
     node: BrowserNode,
     *,
@@ -924,6 +910,20 @@ def _render_plotext_text_unlocked(
         canvas_class.set_legend = legend_method
         canvas_class.show = show_method
     return output.getvalue().rstrip()
+
+
+def render_plotext_text(
+    node: BrowserNode,
+    *,
+    settings: dict[str, Any] | None = None,
+    width: int = 100,
+    height: int = 35,
+) -> str:
+    """Render a Plotext chart while protecting its process-global state."""
+    with _PLOTEXT_RENDER_LOCK:
+        return _render_plotext_text_unlocked(
+            node, settings=settings, width=width, height=height
+        )
 
 
 def _matplotlib_child_script() -> str:
@@ -1087,7 +1087,7 @@ def _build_textual_app_class():
                 detail_text = node_detail_text(node)
             except Exception as exc:  # noqa: BLE001 -- keep interactive browser alive
                 detail_text = (
-                    f"Unable to render {node.label}\n\n" f"{type(exc).__name__}: {exc}"
+                    f"Unable to render {node.label}\n\n{type(exc).__name__}: {exc}"
                 )
             return Text(
                 detail_text,
@@ -1354,9 +1354,7 @@ def _build_textual_app_class():
                     saved = render_plot(
                         node, filepath=filepath, show=False, settings=settings
                     )
-            except (
-                Exception
-            ) as exc:  # noqa: BLE001 -- external plotting must not kill TUI
+            except Exception as exc:
                 self.notify(str(exc), severity="error", timeout=8)
                 return
             if saved:
@@ -1382,9 +1380,7 @@ def _build_textual_app_class():
                     width=width,
                     height=height,
                 )
-            except (
-                Exception
-            ) as exc:  # noqa: BLE001 -- external plotting must not kill TUI
+            except Exception as exc:
                 if isinstance(exc, ValueError) and str(exc).startswith(
                     "Invalid region filter:"
                 ):
