@@ -21,6 +21,7 @@ from scope_profiler.plotting_scripts import (
     plot_rank_heatmap,
     plot_scaling_efficiency,
     plot_speedup,
+    plot_timeline_density,
     plot_weak_scaling,
     write_region_statistics_json,
 )
@@ -33,6 +34,7 @@ from scope_profiler.speedscope_export import export_speedscope
 # so the three can never drift out of sync.
 _PLOT_CATALOG: dict[str, tuple[str, bool]] = {
     "gantt": ("per-rank timeline of every call", True),
+    "density": ("binned timeline occupancy heatmap", False),
     "flame": ("reconstructed call-stack flame graph", False),
     "callgraph": ("parent/child call graph from explicit call ids", False),
     "durations": ("bar chart of duration statistics per region", True),
@@ -220,6 +222,20 @@ def _add_plot_output_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_timeline_args(parser: argparse.ArgumentParser) -> None:
+    """Options shared by the raw Gantt and density timeline views."""
+    parser.add_argument("--start-time", type=float, default=None, metavar="SECONDS",
+                        help="Timeline start, relative to the first recorded event.")
+    parser.add_argument("--end-time", type=float, default=None, metavar="SECONDS",
+                        help="Timeline end, relative to the first recorded event.")
+    parser.add_argument("--min-duration", type=float, default=0.0, metavar="SECONDS",
+                        help="Hide calls shorter than this duration.")
+    parser.add_argument("--aggregate-calls", type=int, default=1, metavar="N",
+                        help="Represent each N calls of a region as one Gantt bar.")
+    parser.add_argument("--collapse-depth", type=int, default=None, metavar="N",
+                        help="Show only calls at nesting depth N or shallower (0=root).")
+
+
 def _add_duration_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--metrics",
@@ -282,6 +298,7 @@ def _add_common_plot_args(parser: argparse.ArgumentParser) -> None:
     _add_input_args(parser)
     _add_selection_args(parser)
     _add_plot_output_args(parser)
+    _add_timeline_args(parser)
 
 
 def _add_common_export_args(parser: argparse.ArgumentParser) -> None:
@@ -347,6 +364,9 @@ def build_parser() -> argparse.ArgumentParser:
         if kind == "durations":
             _add_duration_args(plot_parser)
             _add_log_scale_arg(plot_parser)
+        elif kind == "density":
+            plot_parser.add_argument("--bins", type=int, default=200, metavar="N",
+                                     help="Number of time bins.")
         elif kind == "timeseries":
             _add_log_scale_arg(plot_parser)
         elif kind in {"speedup", "weak_scaling", "scaling_efficiency"}:
@@ -415,6 +435,7 @@ def build_export_parser() -> argparse.ArgumentParser:
     )
     plot_data.set_defaults(export_kind="plot-data")
     _add_common_export_args(plot_data)
+    _add_timeline_args(plot_data)
     _add_data_export_args(plot_data)
     plot_data.add_argument(
         "--plots",
@@ -617,6 +638,12 @@ def _plot_options(args: argparse.Namespace, name: str):
             metric if name == "likwid" else getattr(args, "likwid_metric", None)
         ),
         "speedup_x_field": getattr(args, "x", "num_ranks"),
+        "start_time": getattr(args, "start_time", None),
+        "end_time": getattr(args, "end_time", None),
+        "min_duration": getattr(args, "min_duration", 0.0),
+        "aggregate_calls": getattr(args, "aggregate_calls", 1),
+        "collapse_depth": getattr(args, "collapse_depth", None),
+        "timeline_bins": getattr(args, "bins", 200),
     }
 
 
@@ -661,6 +688,7 @@ def _render_selected_plots(
             "timeseries",
             "histogram",
             "imbalance",
+            "density",
         )
     ) and not _has_timing_data(runs):
         _report_no_timing_data(runs)
@@ -668,6 +696,9 @@ def _render_selected_plots(
 
     gantt_data_path = _data_path(
         data_output_dir, selected_plots, "gantt", "gantt_data", data_format
+    )
+    density_data_path = _data_path(
+        data_output_dir, selected_plots, "density", "timeline_density_data", data_format
     )
     flame_data_path = _data_path(
         data_output_dir, selected_plots, "flame", "flame_data", data_format
@@ -740,8 +771,33 @@ def _render_selected_plots(
             data_filepath=gantt_data_path,
             data_format=data_format,
             backend=args.backend,
+            min_duration=options["min_duration"],
+            start_time=options["start_time"],
+            end_time=options["end_time"],
+            aggregate_calls=options["aggregate_calls"],
+            collapse_depth=options["collapse_depth"],
         )
         saved.extend(path for path in (path, gantt_data_path) if path)
+
+    if "density" in selected_plots:
+        path = image_path("density", "timeline_density_plot")
+        plot_timeline_density(
+            runs,
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            cmap=args.cmap,
+            bins=options["timeline_bins"],
+            min_duration=options["min_duration"],
+            start_time=options["start_time"],
+            end_time=options["end_time"],
+            data_filepath=density_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
+        saved.extend(path for path in (path, density_data_path) if path)
 
     if "flame" in selected_plots:
         path = image_path("flame", "flame_plot")

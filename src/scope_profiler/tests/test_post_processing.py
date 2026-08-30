@@ -11,6 +11,7 @@ from scope_profiler import read_h5
 from scope_profiler.call_stack import build_call_stack
 from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.plotting_scripts import (
+    _aggregate_gantt_intervals,
     _display_matplotlib_figure_in_notebook,
     _duration_timeseries,
     _group_regions,
@@ -30,6 +31,7 @@ from scope_profiler.plotting_scripts import (
     plot_rank_heatmap,
     plot_scaling_efficiency,
     plot_speedup,
+    plot_timeline_density,
     plot_weak_scaling,
 )
 from scope_profiler.post_processing import export_main, main
@@ -60,6 +62,20 @@ def _write_sample_h5(path, rank_regions, metadata=None):
 def _seconds(nanoseconds):
     """Timestamps are written in nanoseconds; the API reports seconds."""
     return [value / 1e9 for value in nanoseconds]
+
+
+def test_aggregate_gantt_intervals_filters_windows_and_coalesces():
+    intervals = [(0.0, 0.00001), (0.1, 0.2), (0.3, 0.4), (0.5, 0.6)]
+    assert _aggregate_gantt_intervals(
+        intervals, min_duration=0.05, start_time=0.15, end_time=0.55, block_size=2
+    ) == [(0.15, 0.4, 2), (0.5, 0.55, 1)]
+
+
+def test_aggregate_gantt_intervals_rejects_invalid_options():
+    with pytest.raises(ValueError, match="block_size"):
+        _aggregate_gantt_intervals([], block_size=0)
+    with pytest.raises(ValueError, match="end_time"):
+        _aggregate_gantt_intervals([], start_time=2, end_time=1)
 
 
 def _sample_file_data(rank_count, setup_duration, solve_duration):
@@ -162,6 +178,19 @@ def test_plot_durations_comparison(tmp_path):
     metric_file = out_file
     assert metric_file.exists()
     assert metric_file.stat().st_size > 0
+
+
+def test_plot_timeline_density_exports_binned_data(tmp_path):
+    file_path = tmp_path / "density.h5"
+    image_path = tmp_path / "density.png"
+    data_path = tmp_path / "density.csv"
+    _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
+    plot_timeline_density(
+        read_h5(file_path), bins=4, start_time=0.0, end_time=1e-7,
+        filepath=image_path, data_filepath=data_path, verbose=False,
+    )
+    assert image_path.exists() and image_path.stat().st_size > 0
+    assert data_path.read_text(encoding="utf-8").count("\n") == 9
 
 
 def _nested_file_data(rank_count=1):
