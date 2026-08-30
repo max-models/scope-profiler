@@ -7,9 +7,9 @@ import site
 import sys
 import sysconfig
 import threading
-from contextlib import contextmanager
 import warnings
 from collections.abc import Callable
+from contextlib import contextmanager
 from time import perf_counter_ns
 from types import FrameType
 from typing import TYPE_CHECKING, NamedTuple
