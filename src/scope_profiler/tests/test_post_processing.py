@@ -186,8 +186,13 @@ def test_plot_timeline_density_exports_binned_data(tmp_path):
     data_path = tmp_path / "density.csv"
     _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
     plot_timeline_density(
-        read_h5(file_path), bins=4, start_time=0.0, end_time=1e-7,
-        filepath=image_path, data_filepath=data_path, verbose=False,
+        read_h5(file_path),
+        bins=4,
+        start_time=0.0,
+        end_time=1e-7,
+        filepath=image_path,
+        data_filepath=data_path,
+        verbose=False,
     )
     assert image_path.exists() and image_path.stat().st_size > 0
     assert data_path.read_text(encoding="utf-8").count("\n") == 9

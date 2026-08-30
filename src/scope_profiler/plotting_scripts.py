@@ -847,8 +847,11 @@ def _aggregate_gantt_intervals(
     if block_size == 1:
         return [(start, end, 1) for start, end in selected]
     return [
-        (selected[index][0], selected[min(index + block_size - 1, len(selected) - 1)][1],
-         min(block_size, len(selected) - index))
+        (
+            selected[index][0],
+            selected[min(index + block_size - 1, len(selected) - 1)][1],
+            min(block_size, len(selected) - index),
+        )
         for index in range(0, len(selected), block_size)
     ]
 
@@ -1062,7 +1065,11 @@ def plot_gantt(
         canvas.set_yticks(list(range(len(lanes))), labels=lanes, row=row, col=col)
         canvas.set_xlim(
             0 if start_time is None else start_time,
-            end_time if end_time is not None else max(start + duration for _, start, duration, _ in bars),
+            (
+                end_time
+                if end_time is not None
+                else max(start + duration for _, start, duration, _ in bars)
+            ),
             row=row,
             col=col,
         )
@@ -1135,15 +1142,20 @@ def plot_timeline_density(
                 if rank in region:
                     data = region[rank]
                     all_events.extend(
-                        (region.name, start - run.minimum_start_time,
-                         end - run.minimum_start_time)
+                        (
+                            region.name,
+                            start - run.minimum_start_time,
+                            end - run.minimum_start_time,
+                        )
                         for start, end in zip(data.start_times, data.end_times)
                         if end - start >= min_duration
                     )
         if not all_events:
             raise ValueError("No calls recorded for the requested filters.")
-        lower = min(start_time if start_time is not None else 0.0,
-                    min(event[1] for event in all_events))
+        lower = min(
+            start_time if start_time is not None else 0.0,
+            min(event[1] for event in all_events),
+        )
         upper = max(event[2] for event in all_events) if end_time is None else end_time
         if start_time is not None:
             lower = start_time
@@ -1166,19 +1178,35 @@ def plot_timeline_density(
         prepared.append((run, names, edges, matrix))
         for row, name in enumerate(names):
             for col in range(bins):
-                records.append([run.display_label, name, float(edges[col]),
-                                float(edges[col + 1]), float(matrix[row, col])])
+                records.append(
+                    [
+                        run.display_label,
+                        name,
+                        float(edges[col]),
+                        float(edges[col + 1]),
+                        float(matrix[row, col]),
+                    ]
+                )
 
     if verbose:
         print("Plotting timeline density")
     if data_filepath:
-        header = ["file", "region", "bin_start_seconds", "bin_end_seconds", "occupied_seconds"]
+        header = [
+            "file",
+            "region",
+            "bin_start_seconds",
+            "bin_end_seconds",
+            "occupied_seconds",
+        ]
         if data_format == "json":
-            _write_json(data_filepath, {"points": [dict(zip(header, row)) for row in records]})
+            _write_json(
+                data_filepath, {"points": [dict(zip(header, row)) for row in records]}
+            )
         else:
             _write_csv(data_filepath, header, records)
     canvas = Canvas(
-        nrows=len(prepared), ncols=1,
+        nrows=len(prepared),
+        ncols=1,
         figsize=(12.0, max(3.5, 1.0 + 0.35 * sum(len(x[1]) for x in prepared))),
     )
     single_panel = len(prepared) == 1
@@ -1188,8 +1216,9 @@ def plot_timeline_density(
         canvas.imshow(matrix, cmap=cmap, aspect="auto", row=row, col=col)
         tick_count = min(10, len(edges))
         ticks = np.linspace(0, len(edges) - 1, tick_count, dtype=int)
-        _set_xticks(canvas, ticks, labels=[f"{edges[t]:.3g}" for t in ticks],
-                    row=row, col=col)
+        _set_xticks(
+            canvas, ticks, labels=[f"{edges[t]:.3g}" for t in ticks], row=row, col=col
+        )
         canvas.set_yticks(list(range(len(names))), labels=names, row=row, col=col)
         canvas.set_xlabel("Time (seconds)", row=row, col=col)
         canvas.set_ylabel("Region", row=row, col=col)

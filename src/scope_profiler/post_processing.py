@@ -224,16 +224,41 @@ def _add_plot_output_args(parser: argparse.ArgumentParser) -> None:
 
 def _add_timeline_args(parser: argparse.ArgumentParser) -> None:
     """Options shared by the raw Gantt and density timeline views."""
-    parser.add_argument("--start-time", type=float, default=None, metavar="SECONDS",
-                        help="Timeline start, relative to the first recorded event.")
-    parser.add_argument("--end-time", type=float, default=None, metavar="SECONDS",
-                        help="Timeline end, relative to the first recorded event.")
-    parser.add_argument("--min-duration", type=float, default=0.0, metavar="SECONDS",
-                        help="Hide calls shorter than this duration.")
-    parser.add_argument("--aggregate-calls", type=int, default=1, metavar="N",
-                        help="Represent each N calls of a region as one Gantt bar.")
-    parser.add_argument("--collapse-depth", type=int, default=None, metavar="N",
-                        help="Show only calls at nesting depth N or shallower (0=root).")
+    parser.add_argument(
+        "--start-time",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="Timeline start, relative to the first recorded event.",
+    )
+    parser.add_argument(
+        "--end-time",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="Timeline end, relative to the first recorded event.",
+    )
+    parser.add_argument(
+        "--min-duration",
+        type=float,
+        default=0.0,
+        metavar="SECONDS",
+        help="Hide calls shorter than this duration.",
+    )
+    parser.add_argument(
+        "--aggregate-calls",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Represent each N calls of a region as one Gantt bar.",
+    )
+    parser.add_argument(
+        "--collapse-depth",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Show only calls at nesting depth N or shallower (0=root).",
+    )
 
 
 def _add_duration_args(parser: argparse.ArgumentParser) -> None:
@@ -365,8 +390,13 @@ def build_parser() -> argparse.ArgumentParser:
             _add_duration_args(plot_parser)
             _add_log_scale_arg(plot_parser)
         elif kind == "density":
-            plot_parser.add_argument("--bins", type=int, default=200, metavar="N",
-                                     help="Number of time bins.")
+            plot_parser.add_argument(
+                "--bins",
+                type=int,
+                default=200,
+                metavar="N",
+                help="Number of time bins.",
+            )
         elif kind == "timeseries":
             _add_log_scale_arg(plot_parser)
         elif kind in {"speedup", "weak_scaling", "scaling_efficiency"}:
