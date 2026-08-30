@@ -34,6 +34,30 @@ scope-profiler plot default profiling_data.h5 -o figures
 scope-profiler report profiling_data.h5 -o report.html
 ```
 
+Profiling can be suspended around setup, I/O, or other phases that should not
+appear in the trace. Pause at scope boundaries and resume when measurement is
+needed again:
+
+```python
+ProfileManager.pause()
+simulation.prepare_output()
+ProfileManager.resume()
+```
+
+`pause()` and `resume()` are safe to call repeatedly. Pausing while a profiled
+scope is open raises an error, so a recorded interval can never silently span
+the paused period.
+
+For time-stepping simulations, `sample_every()` provides the same control with
+an explicit timestep number:
+
+```python
+with ProfileManager.sample_every(10) as profile_step:
+    for timestep in range(num_steps):
+        with profile_step(timestep):
+            simulation.step()
+```
+
 Reports embed interactive timeline and duration charts when the optional
 post-processing dependencies are installed (`pip install "scope-profiler[pproc]"`).
 

@@ -193,6 +193,7 @@ class AggregateProfileRegion:
         "_exclusive",
         "_maximum",
         "_minimum",
+        "_paused_contexts",
         "_stack",
         "_total",
         "config",
@@ -215,6 +216,7 @@ class AggregateProfileRegion:
         self._maximum = None
         self._exclusive = 0
         self._stack = []
+        self._paused_contexts = []
 
     @property
     def ptr(self):
@@ -249,10 +251,14 @@ class AggregateProfileRegion:
         }
 
     def _enter(self):
+        if self.config.paused:
+            return
         self._stack.append(perf_counter_ns())
         _AGGREGATE_STACK.append(self)
 
     def _leave(self):
+        if self.config.paused:
+            return
         duration = perf_counter_ns() - self._stack.pop()
         _AGGREGATE_STACK.pop()
         if _AGGREGATE_STACK:
@@ -274,6 +280,8 @@ class AggregateProfileRegion:
     def wrap(self, func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            if self.config.paused:
+                return func(*args, **kwargs)
             self._enter()
             try:
                 return func(*args, **kwargs)
@@ -291,10 +299,15 @@ class AggregateProfileRegion:
         return self.get_aggregate()
 
     def __enter__(self):
+        self._paused_contexts.append(self.config.paused)
+        if self._paused_contexts[-1]:
+            return self
         self._enter()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        if self._paused_contexts.pop():
+            return
         self._leave()
 
 
@@ -313,6 +326,7 @@ class BaseProfileRegion:
         "_pop_scope",
         "_push_scope",
         "_scope_ptr_stack",
+        "_paused_contexts",
         "buffer_limit",
         "capacity",
         "config",
@@ -383,6 +397,7 @@ class BaseProfileRegion:
         # The push/pop are bound once here: resolving `self._scope_ptr_stack`
         # and then its `.append`/`.pop` costs ~10 ns each, per call, forever.
         self._scope_ptr_stack = []
+        self._paused_contexts = []
         self._push_scope = self._scope_ptr_stack.append
         self._pop_scope = self._scope_ptr_stack.pop
 
@@ -598,6 +613,8 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            if self.config.paused:
+                return func(*args, **kwargs)
             # Reserve this call's slot before invoking `func`, so a
             # recursive call re-entering this region gets its own slot
             # instead of overwriting this one.
@@ -617,6 +634,9 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
 
     def __enter__(self):
         """Reserve this scope's slot and record the start time."""
+        self._paused_contexts.append(self.config.paused)
+        if self._paused_contexts[-1]:
+            return self
         slot = self.ptr
         if slot >= self.capacity:
             self._grow()
@@ -627,6 +647,8 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
 
     def __exit__(self, exc_type, exc_value, traceback):
         """Record the end time at this scope's reserved slot."""
+        if self._paused_contexts.pop():
+            return
         self.end_times[self._pop_scope()] = perf_counter_ns()
 
 
@@ -661,6 +683,8 @@ class CUDATimingProfileRegion(TimeOnlyProfileRegion):
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            if self.config.paused:
+                return func(*args, **kwargs)
             scope_ptr = self.ptr
             if scope_ptr >= self.capacity:
                 self._grow()
@@ -701,6 +725,9 @@ class CUDATimingProfileRegion(TimeOnlyProfileRegion):
 
     def __enter__(self):
         """Record CPU start time and a CUDA start event."""
+        self._paused_contexts.append(self.config.paused)
+        if self._paused_contexts[-1]:
+            return self
         slot = self.ptr
         if slot >= self.capacity:
             self._grow()
@@ -712,6 +739,8 @@ class CUDATimingProfileRegion(TimeOnlyProfileRegion):
 
     def __exit__(self, exc_type, exc_value, traceback):
         """Record a CUDA end event and CPU end time at this scope's slot."""
+        if self._paused_contexts.pop():
+            return
         slot = self._pop_scope()
         self._gpu_end_events[slot] = self._gpu_backend.record_event()
         self.end_times[slot] = perf_counter_ns()
@@ -738,6 +767,8 @@ class NVTXProfileRegion(TimeOnlyProfileRegion):
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            if self.config.paused:
+                return func(*args, **kwargs)
             self._nvtx.push_range(self.region_name)
             try:
                 return wrapped(*args, **kwargs)
@@ -748,6 +779,9 @@ class NVTXProfileRegion(TimeOnlyProfileRegion):
 
     def __enter__(self):
         """Record CPU start time and push an NVTX range."""
+        if self.config.paused:
+            self._paused_contexts.append(True)
+            return self
         self._nvtx.push_range(self.region_name)
         try:
             return super().__enter__()
@@ -778,6 +812,8 @@ class CUDATimingNVTXProfileRegion(CUDATimingProfileRegion):
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            if self.config.paused:
+                return func(*args, **kwargs)
             self._nvtx.push_range(self.region_name)
             try:
                 return wrapped(*args, **kwargs)
@@ -788,6 +824,9 @@ class CUDATimingNVTXProfileRegion(CUDATimingProfileRegion):
 
     def __enter__(self):
         """Record CPU/CUDA start markers and push an NVTX range."""
+        if self.config.paused:
+            self._paused_contexts.append(True)
+            return self
         self._nvtx.push_range(self.region_name)
         try:
             return super().__enter__()
@@ -825,6 +864,8 @@ class FullProfileRegion(BaseProfileRegion):
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            if self.config.paused:
+                return func(*args, **kwargs)
             # Reserve this call's slot before invoking `func`, so a
             # recursive call re-entering this region gets its own slot
             # instead of overwriting this one.
@@ -846,6 +887,9 @@ class FullProfileRegion(BaseProfileRegion):
 
     def __enter__(self):
         """Reserve this scope's slot, record start time, and start LIKWID region."""
+        self._paused_contexts.append(self.config.paused)
+        if self._paused_contexts[-1]:
+            return self
         slot = self.ptr
         if slot >= self.capacity:
             self._grow()
@@ -857,6 +901,8 @@ class FullProfileRegion(BaseProfileRegion):
 
     def __exit__(self, exc_type, exc_value, traceback):
         """Record the end time at this scope's slot and stop the LIKWID region."""
+        if self._paused_contexts.pop():
+            return
         self.likwid_marker_stop(self.region_name)
         self.end_times[self._pop_scope()] = perf_counter_ns()
 
@@ -891,6 +937,8 @@ class LineProfilerRegion(BaseProfileRegion):
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            if self.config.paused:
+                return func(*args, **kwargs)
             # Reserve this call's slot before invoking `func`, so a
             # recursive call re-entering this region gets its own slot
             # instead of overwriting this one.
@@ -912,6 +960,9 @@ class LineProfilerRegion(BaseProfileRegion):
 
     def enter_frame(self, frame):
         """Enter this region while registering ``frame`` with line_profiler."""
+        self._paused_contexts.append(self.config.paused)
+        if self._paused_contexts[-1]:
+            return self
         if frame.f_code not in self._registered_codes:
             func = _function_for_frame(frame)
             if func is not None:
@@ -928,6 +979,9 @@ class LineProfilerRegion(BaseProfileRegion):
 
     def enter_timing_only(self):
         """Enter this region without registering or enabling line_profiler."""
+        self._paused_contexts.append(self.config.paused)
+        if self._paused_contexts[-1]:
+            return self
         slot = self.ptr
         if slot >= self.capacity:
             self._grow()
@@ -990,5 +1044,7 @@ class LineProfilerRegion(BaseProfileRegion):
 
     def __exit__(self, exc_type, exc_value, traceback):
         """Disable the line profiler and record the end time at this scope's slot."""
+        if self._paused_contexts.pop():
+            return
         self._line_profiler.disable_by_count()
         self.end_times[self._pop_scope()] = perf_counter_ns()

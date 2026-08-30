@@ -38,6 +38,67 @@ def test_aggregation_mode_keeps_statistics_without_events(tmp_path):
     assert loaded["outer"][0].events() == []
 
 
+def test_pause_and_resume_exclude_intervening_scopes(tmp_path):
+    ProfileManager.setup(file_path=str(tmp_path / "pause.h5"))
+    region = ProfileManager.profile_region("work")
+
+    with region:
+        pass
+    ProfileManager.pause()
+    with region:
+        pass
+    ProfileManager.resume()
+    with region:
+        pass
+
+    results = ProfileManager.finalize(verbose=False, return_results=True)
+    assert results["work"][0].num_calls == 2
+
+
+def test_pause_is_idempotent_and_rejects_active_scopes(tmp_path):
+    ProfileManager.setup(file_path=str(tmp_path / "pause.h5"))
+    region = ProfileManager.profile_region("work")
+    with region:
+        with pytest.raises(RuntimeError, match="scopes are active"):
+            ProfileManager.pause()
+    ProfileManager.pause()
+    ProfileManager.pause()
+    ProfileManager.resume()
+    ProfileManager.resume()
+    ProfileManager.finalize(verbose=False)
+
+
+def test_pause_before_setup_is_an_error():
+    ProfileManager._reset()
+    with pytest.raises(RuntimeError, match="setup"):
+        ProfileManager.pause()
+    with pytest.raises(RuntimeError, match="setup"):
+        ProfileManager.resume()
+
+
+def test_sample_every_profiles_selected_timesteps(tmp_path):
+    ProfileManager.setup(file_path=str(tmp_path / "sample.h5"))
+    region = ProfileManager.profile_region("step")
+
+    with ProfileManager.sample_every(10) as profile_step:
+        for timestep in range(25):
+            with profile_step(timestep) as selected:
+                with region:
+                    pass
+                assert selected is (timestep % 10 == 0)
+
+    results = ProfileManager.finalize(verbose=False, return_results=True)
+    assert results["step"][0].num_calls == 3
+
+
+@pytest.mark.parametrize("every", [0, -1, True, 1.5])
+def test_sample_every_validates_interval(every):
+    ProfileManager._reset()
+    with pytest.raises(ValueError, match="every"):
+        with ProfileManager.sample_every(every):
+            pass
+
+
 @pytest.mark.parametrize(
     "option", ["use_line_profiler", "use_gpu_timing", "use_likwid", "use_nvtx"]
 )
