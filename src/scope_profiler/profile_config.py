@@ -448,6 +448,7 @@ class ProfilingConfig:
         # process really is part of an MPI job.
         self._comm = get_comm()
         self._deactivate_profiling = deactivate_profiling
+        self._paused = False
         self._deactivate_file_output = deactivate_file_output
         self._use_likwid = use_likwid
         self._use_line_profiler = use_line_profiler
@@ -710,6 +711,11 @@ class ProfilingConfig:
     def aggregation_mode(self) -> bool:
         """Whether regions retain aggregates instead of individual events."""
         return self._aggregation_mode
+
+    @property
+    def paused(self) -> bool:
+        """Whether runtime timing collection is temporarily suspended."""
+        return self._paused
 
     @property
     def start_time_ns(self) -> int:

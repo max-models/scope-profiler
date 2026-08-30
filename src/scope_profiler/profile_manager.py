@@ -9,6 +9,7 @@ import sysconfig
 import threading
 import warnings
 from collections.abc import Callable
+from contextlib import contextmanager
 from time import perf_counter_ns
 from types import FrameType
 from typing import TYPE_CHECKING, NamedTuple
@@ -1405,6 +1406,100 @@ class ProfileManager:
         if return_results:
             return results
         return None
+
+    @classmethod
+    def pause(cls) -> None:
+        """Temporarily stop recording new profiling scopes.
+
+        Pause/resume is intended for boundaries between simulation phases. An
+        open scope cannot be split safely without changing its call identity,
+        so pausing while a region is active raises a clear error.
+        """
+        if cls._config is None:
+            raise RuntimeError("ProfileManager.setup() must be called before pause()")
+        if cls._config.paused:
+            return
+        active = []
+        for name, region in cls._regions.items():
+            # The session envelope deliberately spans the entire session and
+            # is allowed to include paused time. User scopes must still be
+            # closed at a pause boundary so their intervals stay meaningful.
+            if name == _ProfilingSession.ROOT_REGION_NAME:
+                continue
+            open_slots = getattr(region, "open_slots", None)
+            if open_slots is not None and len(open_slots()):
+                active.append(name)
+            elif getattr(region, "_stack", None):
+                active.append(name)
+        if active:
+            names = ", ".join(repr(name) for name in active[:3])
+            suffix = "..." if len(active) > 3 else ""
+            raise RuntimeError(
+                "cannot pause while profiling scopes are active: " + names + suffix
+            )
+        cls._config._paused = True
+
+    @classmethod
+    def resume(cls) -> None:
+        """Resume recording after :meth:`pause`.
+
+        Calling ``resume`` before ``pause`` is harmless, which makes it safe
+        to place in conditional simulation control paths.
+        """
+        if cls._config is None:
+            raise RuntimeError("ProfileManager.setup() must be called before resume()")
+        cls._config._paused = False
+
+    @classmethod
+    @contextmanager
+    def sample_every(cls, every: int, start: int = 0):
+        """Profile selected timesteps in a loop.
+
+        The yielded callable is a context manager. Pass it the timestep
+        number at the boundary of each iteration::
+
+            with ProfileManager.sample_every(10) as profile_step:
+                for timestep in range(num_steps):
+                    with profile_step(timestep):
+                        advance_simulation()
+
+        Timestep ``start`` and then every ``every``-th timestep are profiled;
+        all other iterations run while profiling is paused. The timestep
+        context must surround the profiled work and must not be entered while
+        another profiled scope is active. On exit, the previous pause state is
+        restored.
+        """
+        if isinstance(every, bool) or not isinstance(every, int) or every < 1:
+            raise ValueError("every must be a positive integer")
+        if isinstance(start, bool) or not isinstance(start, int):
+            raise ValueError("start must be an integer")
+        config = cls.get_config()
+        was_paused = config.paused
+
+        @contextmanager
+        def profile_step(timestep: int):
+            if isinstance(timestep, bool) or not isinstance(timestep, int):
+                raise TypeError("timestep must be an integer")
+            selected = timestep >= start and (timestep - start) % every == 0
+            if selected:
+                cls.resume()
+            else:
+                cls.pause()
+            try:
+                yield selected
+            finally:
+                # The next step chooses its own state. This also makes a
+                # manually used final profile_step() leave the manager in a
+                # predictable state before the outer context restores it.
+                pass
+
+        try:
+            yield profile_step
+        finally:
+            if was_paused:
+                cls.pause()
+            else:
+                cls.resume()
 
     @classmethod
     def read_results(cls) -> "ProfilingResults":
