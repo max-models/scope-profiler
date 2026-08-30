@@ -510,13 +510,13 @@ class MPIRegion:
                 f"Available ranks: {self.ranks}"
             ) from None
 
-    def __contains__(self, rank: int) -> bool:
-        """Whether this region has data for ``rank``."""
-        return rank in self._regions
-
     def __iter__(self) -> Iterator[int]:
         """Iterate over the ranks that recorded this region."""
         return iter(self.ranks)
+
+    def __contains__(self, rank: int) -> bool:
+        """Whether this region has data for ``rank``."""
+        return rank in self._regions
 
     def __len__(self) -> int:
         """Number of ranks that recorded this region."""

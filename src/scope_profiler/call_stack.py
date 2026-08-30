@@ -60,6 +60,69 @@ class CallArrays(NamedTuple):
         return int(self.start_ns.size)
 
 
+def _raise_overlap(call, names, region_of, call_of, start_ns, end_ns, parent) -> None:
+    """Report one offending pair by name, so the user can find the region."""
+    enclosing = int(parent[call])
+
+    def label(index: int) -> str:
+        return (
+            f"{names[int(region_of[index])]!r} call {int(call_of[index])} "
+            f"[{int(start_ns[index])}, {int(end_ns[index])}] ns"
+        )
+
+    raise NestingError(
+        "recorded calls are not properly nested: "
+        f"{label(call)} starts inside {label(enclosing)} but ends after it. "
+        "Regions must nest completely or not overlap at all - check for a "
+        "missing or misordered sp_end / __exit__."
+    )
+
+
+def _depths(start_ns: np.ndarray, end_ns: np.ndarray) -> np.ndarray:
+    """Stack depth of every call, from sorted intervals.
+
+    A call's depth is the number of calls still open when it starts. Sorted
+    by start, every earlier call has started, and a properly nested one has
+    closed exactly when its end is at or before this start - so the depth is
+    the sort position minus the number of such ends, with no stack to walk.
+
+    Timestamps are doubled and zero-length intervals extended by one tick
+    first. A zero-length call would otherwise count as closed at its own
+    start, which underestimates its depth and that of any sibling sharing the
+    start; the scale factor keeps that adjustment exact in integers.
+    """
+    n = start_ns.size
+    scaled_start = start_ns * 2
+    scaled_end = end_ns * 2
+    scaled_end[scaled_end == scaled_start] += 1
+    closed = np.searchsorted(np.sort(scaled_end), scaled_start, side="right")
+    depth = np.arange(n, dtype=np.int64)
+    depth -= closed
+    if n and depth.min() < 0:
+        raise NestingError("recorded calls are not properly nested")
+    return depth
+
+
+def _parents(depth: np.ndarray) -> np.ndarray:
+    """Each call's parent id: the nearest preceding call one level shallower.
+
+    Loops over stack depths, not calls - a call stack is a few dozen levels
+    deep at worst, so this is a handful of vectorized passes.
+    """
+    n = depth.size
+    parent = np.full(n, -1, dtype=np.int64)
+    if n == 0:
+        return parent
+    index = np.arange(n, dtype=np.int64)
+    candidate = np.empty(n, dtype=np.int64)
+    for level in range(1, int(depth.max()) + 1):
+        np.copyto(candidate, index)
+        candidate[depth != level - 1] = -1
+        np.maximum.accumulate(candidate, out=candidate)
+        np.copyto(parent, candidate, where=depth == level)
+    return parent
+
+
 def build_call_arrays(regions: Iterable, rank: int) -> CallArrays:
     """Reconstruct one rank's nesting as numpy arrays.
 
@@ -168,69 +231,6 @@ def build_call_arrays(regions: Iterable, rank: int) -> CallArrays:
     )
 
 
-def _raise_overlap(call, names, region_of, call_of, start_ns, end_ns, parent) -> None:
-    """Report one offending pair by name, so the user can find the region."""
-    enclosing = int(parent[call])
-
-    def label(index: int) -> str:
-        return (
-            f"{names[int(region_of[index])]!r} call {int(call_of[index])} "
-            f"[{int(start_ns[index])}, {int(end_ns[index])}] ns"
-        )
-
-    raise NestingError(
-        "recorded calls are not properly nested: "
-        f"{label(call)} starts inside {label(enclosing)} but ends after it. "
-        "Regions must nest completely or not overlap at all - check for a "
-        "missing or misordered sp_end / __exit__."
-    )
-
-
-def _depths(start_ns: np.ndarray, end_ns: np.ndarray) -> np.ndarray:
-    """Stack depth of every call, from sorted intervals.
-
-    A call's depth is the number of calls still open when it starts. Sorted
-    by start, every earlier call has started, and a properly nested one has
-    closed exactly when its end is at or before this start - so the depth is
-    the sort position minus the number of such ends, with no stack to walk.
-
-    Timestamps are doubled and zero-length intervals extended by one tick
-    first. A zero-length call would otherwise count as closed at its own
-    start, which underestimates its depth and that of any sibling sharing the
-    start; the scale factor keeps that adjustment exact in integers.
-    """
-    n = start_ns.size
-    scaled_start = start_ns * 2
-    scaled_end = end_ns * 2
-    scaled_end[scaled_end == scaled_start] += 1
-    closed = np.searchsorted(np.sort(scaled_end), scaled_start, side="right")
-    depth = np.arange(n, dtype=np.int64)
-    depth -= closed
-    if n and depth.min() < 0:
-        raise NestingError("recorded calls are not properly nested")
-    return depth
-
-
-def _parents(depth: np.ndarray) -> np.ndarray:
-    """Each call's parent id: the nearest preceding call one level shallower.
-
-    Loops over stack depths, not calls - a call stack is a few dozen levels
-    deep at worst, so this is a handful of vectorized passes.
-    """
-    n = depth.size
-    parent = np.full(n, -1, dtype=np.int64)
-    if n == 0:
-        return parent
-    index = np.arange(n, dtype=np.int64)
-    candidate = np.empty(n, dtype=np.int64)
-    for level in range(1, int(depth.max()) + 1):
-        np.copyto(candidate, index)
-        candidate[depth != level - 1] = -1
-        np.maximum.accumulate(candidate, out=candidate)
-        np.copyto(parent, candidate, where=depth == level)
-    return parent
-
-
 def build_call_stack(regions: Iterable, rank: int, origin: float = 0.0) -> List[dict]:
     """Reconstruct per-call nesting for one rank, one dict per call.
 
@@ -333,6 +333,22 @@ def call_stack_children(calls: List[dict]) -> List[List[int]]:
     return children
 
 
+def regions_from_snapshot(regions: dict, rank: int) -> list:
+    """Present a ``ProfileManager._snapshot_regions()`` dict as MPIRegions.
+
+    The finalize path holds raw ``(starts, ends, ...)`` arrays rather than
+    result objects; this is the adapter both it and
+    :func:`exclusive_totals_ns` use to reach :func:`build_call_arrays`.
+    """
+    from scope_profiler.mpi_region import MPIRegion
+    from scope_profiler.region import Region
+
+    return [
+        MPIRegion(name=name, regions={rank: Region(arrays[0], arrays[1])})
+        for name, arrays in regions.items()
+    ]
+
+
 def exclusive_totals_ns(regions: dict, rank: int = 0) -> dict:
     """Total exclusive time per region, in nanoseconds, for one rank's regions.
 
@@ -366,19 +382,3 @@ def exclusive_totals_ns(regions: dict, rank: int = 0) -> dict:
     np.add.at(totals, arrays.region_index, arrays.exclusive_ns)
     by_name = dict(zip(arrays.names, totals.tolist()))
     return {name: by_name.get(name, 0) for name in regions}
-
-
-def regions_from_snapshot(regions: dict, rank: int) -> list:
-    """Present a ``ProfileManager._snapshot_regions()`` dict as MPIRegions.
-
-    The finalize path holds raw ``(starts, ends, ...)`` arrays rather than
-    result objects; this is the adapter both it and
-    :func:`exclusive_totals_ns` use to reach :func:`build_call_arrays`.
-    """
-    from scope_profiler.mpi_region import MPIRegion
-    from scope_profiler.region import Region
-
-    return [
-        MPIRegion(name=name, regions={rank: Region(arrays[0], arrays[1])})
-        for name, arrays in regions.items()
-    ]

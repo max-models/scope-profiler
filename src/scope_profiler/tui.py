@@ -832,20 +832,6 @@ def render_plot(
     return str(filepath) if filepath else None
 
 
-def render_plotext_text(
-    node: BrowserNode,
-    *,
-    settings: dict[str, Any] | None = None,
-    width: int = 100,
-    height: int = 35,
-) -> str:
-    """Render a Plotext chart while protecting its process-global state."""
-    with _PLOTEXT_RENDER_LOCK:
-        return _render_plotext_text_unlocked(
-            node, settings=settings, width=width, height=height
-        )
-
-
 def _render_plotext_text_unlocked(
     node: BrowserNode,
     *,
@@ -924,6 +910,20 @@ def _render_plotext_text_unlocked(
         canvas_class.set_legend = legend_method
         canvas_class.show = show_method
     return output.getvalue().rstrip()
+
+
+def render_plotext_text(
+    node: BrowserNode,
+    *,
+    settings: dict[str, Any] | None = None,
+    width: int = 100,
+    height: int = 35,
+) -> str:
+    """Render a Plotext chart while protecting its process-global state."""
+    with _PLOTEXT_RENDER_LOCK:
+        return _render_plotext_text_unlocked(
+            node, settings=settings, width=width, height=height
+        )
 
 
 def _matplotlib_child_script() -> str:

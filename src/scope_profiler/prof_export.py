@@ -74,6 +74,103 @@ def _is_recursive(calls: CallArrays) -> np.ndarray:
     return recursive
 
 
+def _call_path_ids(
+    calls: CallArrays,
+) -> tuple[np.ndarray, list[str], np.ndarray, np.ndarray]:
+    """Assign a compact identity to each distinct root-to-call path.
+
+    Calls are start-sorted with parents before children, so a child's path is
+    available when it is visited.  The mapping therefore needs one linear
+    pass and stores one entry per distinct path rather than one Python object
+    per recorded call.
+    """
+    path_ids = np.empty(len(calls), dtype=np.int64)
+    path_names: list[str] = []
+    path_parents: list[int] = []
+    path_region_rows: list[int] = []
+    identities: dict[tuple[int, int], int] = {}
+
+    for call_id, region_row in enumerate(calls.region_index):
+        parent_call = int(calls.parent[call_id])
+        parent_path = -1 if parent_call < 0 else int(path_ids[parent_call])
+        identity = (parent_path, int(region_row))
+        path_id = identities.get(identity)
+        if path_id is None:
+            path_id = len(path_names)
+            identities[identity] = path_id
+            name = calls.names[int(region_row)]
+            path_names.append(
+                name if parent_path < 0 else f"{path_names[parent_path]} > {name}"
+            )
+            path_parents.append(parent_path)
+            path_region_rows.append(int(region_row))
+        path_ids[call_id] = path_id
+
+    return (
+        path_ids,
+        path_names,
+        np.asarray(path_parents, dtype=np.int64),
+        np.asarray(path_region_rows, dtype=np.int64),
+    )
+
+
+def _build_call_path_pstats_dict(
+    calls: CallArrays, root_name: str | None
+) -> dict[tuple[str, int, str], tuple]:
+    """Build a pstats tree whose nodes are reconstructed call paths."""
+    path_ids, path_names, path_parents, path_region_rows = _call_path_ids(calls)
+    path_count = len(path_names)
+    duration = (calls.end_ns - calls.start_ns) / NS_PER_SECOND
+    self_time = calls.exclusive_ns / NS_PER_SECOND
+
+    def per_path(weights=None):
+        return np.bincount(path_ids, weights=weights, minlength=path_count)
+
+    counts = per_path()
+    total_self = per_path(self_time)
+    total_cumulative = per_path(duration)
+    keys = [
+        _key(
+            name,
+            calls.source_files[int(region_row)],
+            calls.source_lines[int(region_row)],
+        )
+        for name, region_row in zip(path_names, path_region_rows)
+    ]
+    stats: dict[tuple[str, int, str], list] = {
+        keys[path_id]: [
+            int(counts[path_id]),
+            int(counts[path_id]),
+            float(total_self[path_id]),
+            float(total_cumulative[path_id]),
+            {},
+        ]
+        for path_id in range(path_count)
+        if counts[path_id]
+    }
+
+    root_key = _key(root_name) if root_name is not None else None
+    for path_id, key in enumerate(keys):
+        parent_path = int(path_parents[path_id])
+        caller = root_key if parent_path < 0 else keys[parent_path]
+        if caller is not None:
+            stats[key][4][caller] = (
+                int(counts[path_id]),
+                int(counts[path_id]),
+                float(total_self[path_id]),
+                float(total_cumulative[path_id]),
+            )
+
+    if root_key is not None:
+        root_duration = duration[calls.parent < 0].sum()
+        stats[root_key] = [1, 1, 0.0, float(root_duration), {}]
+
+    return {
+        key: (value[0], value[1], value[2], value[3], value[4])
+        for key, value in stats.items()
+    }
+
+
 def build_pstats_dict(
     calls: CallArrays,
     root_name: str | None = None,
@@ -181,103 +278,6 @@ def build_pstats_dict(
             value[3],
             {caller: tuple(times) for caller, times in value[4].items()},
         )
-        for key, value in stats.items()
-    }
-
-
-def _call_path_ids(
-    calls: CallArrays,
-) -> tuple[np.ndarray, list[str], np.ndarray, np.ndarray]:
-    """Assign a compact identity to each distinct root-to-call path.
-
-    Calls are start-sorted with parents before children, so a child's path is
-    available when it is visited.  The mapping therefore needs one linear
-    pass and stores one entry per distinct path rather than one Python object
-    per recorded call.
-    """
-    path_ids = np.empty(len(calls), dtype=np.int64)
-    path_names: list[str] = []
-    path_parents: list[int] = []
-    path_region_rows: list[int] = []
-    identities: dict[tuple[int, int], int] = {}
-
-    for call_id, region_row in enumerate(calls.region_index):
-        parent_call = int(calls.parent[call_id])
-        parent_path = -1 if parent_call < 0 else int(path_ids[parent_call])
-        identity = (parent_path, int(region_row))
-        path_id = identities.get(identity)
-        if path_id is None:
-            path_id = len(path_names)
-            identities[identity] = path_id
-            name = calls.names[int(region_row)]
-            path_names.append(
-                name if parent_path < 0 else f"{path_names[parent_path]} > {name}"
-            )
-            path_parents.append(parent_path)
-            path_region_rows.append(int(region_row))
-        path_ids[call_id] = path_id
-
-    return (
-        path_ids,
-        path_names,
-        np.asarray(path_parents, dtype=np.int64),
-        np.asarray(path_region_rows, dtype=np.int64),
-    )
-
-
-def _build_call_path_pstats_dict(
-    calls: CallArrays, root_name: str | None
-) -> dict[tuple[str, int, str], tuple]:
-    """Build a pstats tree whose nodes are reconstructed call paths."""
-    path_ids, path_names, path_parents, path_region_rows = _call_path_ids(calls)
-    path_count = len(path_names)
-    duration = (calls.end_ns - calls.start_ns) / NS_PER_SECOND
-    self_time = calls.exclusive_ns / NS_PER_SECOND
-
-    def per_path(weights=None):
-        return np.bincount(path_ids, weights=weights, minlength=path_count)
-
-    counts = per_path()
-    total_self = per_path(self_time)
-    total_cumulative = per_path(duration)
-    keys = [
-        _key(
-            name,
-            calls.source_files[int(region_row)],
-            calls.source_lines[int(region_row)],
-        )
-        for name, region_row in zip(path_names, path_region_rows)
-    ]
-    stats: dict[tuple[str, int, str], list] = {
-        keys[path_id]: [
-            int(counts[path_id]),
-            int(counts[path_id]),
-            float(total_self[path_id]),
-            float(total_cumulative[path_id]),
-            {},
-        ]
-        for path_id in range(path_count)
-        if counts[path_id]
-    }
-
-    root_key = _key(root_name) if root_name is not None else None
-    for path_id, key in enumerate(keys):
-        parent_path = int(path_parents[path_id])
-        caller = root_key if parent_path < 0 else keys[parent_path]
-        if caller is not None:
-            stats[key][4][caller] = (
-                int(counts[path_id]),
-                int(counts[path_id]),
-                float(total_self[path_id]),
-                float(total_cumulative[path_id]),
-            )
-
-    if root_key is not None:
-        root_duration = duration[calls.parent < 0].sum()
-        stats[root_key] = [1, 1, 0.0, float(root_duration), {}]
-
-    return {
-        key: (value[0], value[1], value[2], value[3], value[4])
         for key, value in stats.items()
     }
 

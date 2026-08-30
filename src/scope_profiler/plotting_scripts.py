@@ -308,6 +308,53 @@ def _add_gantt_bars(
         )
 
 
+def _save_matplotlib_figure(fig, canvas, filepath: str | Path) -> None:
+    """Save a materialized Matplotlib figure using canvas-level DPI if present."""
+    savefig_kwargs = {}
+    if getattr(canvas, "dpi", None) is not None:
+        savefig_kwargs["dpi"] = canvas.dpi
+    fig.savefig(filepath, **savefig_kwargs)
+
+
+def _display_matplotlib_figure_in_notebook(fig) -> bool:
+    """Use IPython rich display when running inside a Jupyter kernel."""
+    try:
+        from IPython import get_ipython
+        from IPython.display import display
+    except ImportError:
+        return False
+
+    shell = get_ipython()
+    if shell is None:
+        return False
+    if "IPKernelApp" not in getattr(shell, "config", {}):
+        return False
+
+    display(fig)
+    return True
+
+
+def _show_matplotlib_figure(fig) -> bool:
+    """Display a Matplotlib figure in notebooks and regular Python sessions."""
+    if _display_matplotlib_figure_in_notebook(fig):
+        return True
+
+    import matplotlib.pyplot as plt
+
+    plt.show()
+    return False
+
+
+def _close_matplotlib_figure(canvas, fig=None) -> None:
+    """Release the figure maxplotlib keeps open after rendering."""
+    fig = fig if fig is not None else getattr(canvas, "_matplotlib_fig", None)
+    if fig is None:
+        return
+    import matplotlib.pyplot as plt
+
+    plt.close(fig)
+
+
 def _render(
     canvas,
     filepath: str | None,
@@ -401,53 +448,6 @@ def _panel_gridspec(
     if multi_panel:
         gridspec["hspace"] = 0.5
     return gridspec
-
-
-def _save_matplotlib_figure(fig, canvas, filepath: str | Path) -> None:
-    """Save a materialized Matplotlib figure using canvas-level DPI if present."""
-    savefig_kwargs = {}
-    if getattr(canvas, "dpi", None) is not None:
-        savefig_kwargs["dpi"] = canvas.dpi
-    fig.savefig(filepath, **savefig_kwargs)
-
-
-def _show_matplotlib_figure(fig) -> bool:
-    """Display a Matplotlib figure in notebooks and regular Python sessions."""
-    if _display_matplotlib_figure_in_notebook(fig):
-        return True
-
-    import matplotlib.pyplot as plt
-
-    plt.show()
-    return False
-
-
-def _display_matplotlib_figure_in_notebook(fig) -> bool:
-    """Use IPython rich display when running inside a Jupyter kernel."""
-    try:
-        from IPython import get_ipython
-        from IPython.display import display
-    except ImportError:
-        return False
-
-    shell = get_ipython()
-    if shell is None:
-        return False
-    if "IPKernelApp" not in getattr(shell, "config", {}):
-        return False
-
-    display(fig)
-    return True
-
-
-def _close_matplotlib_figure(canvas, fig=None) -> None:
-    """Release the figure maxplotlib keeps open after rendering."""
-    fig = fig if fig is not None else getattr(canvas, "_matplotlib_fig", None)
-    if fig is None:
-        return
-    import matplotlib.pyplot as plt
-
-    plt.close(fig)
 
 
 def _set_xticks(canvas, ticks, labels=None, **kwargs) -> bool:

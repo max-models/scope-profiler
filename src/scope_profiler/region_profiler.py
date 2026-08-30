@@ -276,13 +276,6 @@ class AggregateProfileRegion:
         )
         return duration
 
-    def __enter__(self):
-        self._enter()
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self._leave()
-
     def wrap(self, func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -301,6 +294,13 @@ class AggregateProfileRegion:
 
     def aggregate_snapshot(self):
         return self.get_aggregate()
+
+    def __enter__(self):
+        self._enter()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self._leave()
 
 
 # Base class with common functionality (buffer growth, HDF5 handling)
@@ -498,6 +498,23 @@ class BaseProfileRegion:
             mask[: self._emitted.size] &= ~self._emitted
         return None if mask.all() else mask
 
+    def _compact(self, keep: np.ndarray) -> None:
+        """Move the still-open slots to the front and rewind ``ptr`` onto them.
+
+        ``keep`` is ascending, so the destinations never run ahead of the
+        sources. The scope stack is rewritten in place, which keeps the
+        ``_push_scope``/``_pop_scope`` bindings made in ``__init__`` valid.
+        """
+        count = keep.size
+        self.start_times[:count] = self.start_times[keep]
+        # Every slot from here up is unwritten again, including the ones the
+        # kept calls vacated: a later finalize() must not read a stale end
+        # time as "this call has returned".
+        self.end_times[: self.ptr] = _UNCLOSED
+        remapped = {int(old): new for new, old in enumerate(keep.tolist())}
+        self._scope_ptr_stack[:] = [remapped[slot] for slot in self._scope_ptr_stack]
+        self.ptr = count
+
     def mark_written(self) -> None:
         """Record that everything buffered so far has been handed to finalize().
 
@@ -536,23 +553,6 @@ class BaseProfileRegion:
         self._completed += self.ptr - open_slots.size
         self._compact(open_slots)
         self._emitted = None
-
-    def _compact(self, keep: np.ndarray) -> None:
-        """Move the still-open slots to the front and rewind ``ptr`` onto them.
-
-        ``keep`` is ascending, so the destinations never run ahead of the
-        sources. The scope stack is rewritten in place, which keeps the
-        ``_push_scope``/``_pop_scope`` bindings made in ``__init__`` valid.
-        """
-        count = keep.size
-        self.start_times[:count] = self.start_times[keep]
-        # Every slot from here up is unwritten again, including the ones the
-        # kept calls vacated: a later finalize() must not read a stale end
-        # time as "this call has returned".
-        self.end_times[: self.ptr] = _UNCLOSED
-        remapped = {int(old): new for new, old in enumerate(keep.tolist())}
-        self._scope_ptr_stack[:] = [remapped[slot] for slot in self._scope_ptr_stack]
-        self.ptr = count
 
     def get_end_times_numpy(self) -> np.ndarray:
         """Return end times offset by the run's start time."""
@@ -685,23 +685,6 @@ class CUDATimingProfileRegion(TimeOnlyProfileRegion):
 
         return wrapper
 
-    def __enter__(self):
-        """Record CPU start time and a CUDA start event."""
-        slot = self.ptr
-        if slot >= self.capacity:
-            self._grow()
-        self.ptr = slot + 1
-        self._push_scope(slot)
-        self.start_times[slot] = perf_counter_ns()
-        self._gpu_start_events[slot] = self._gpu_backend.record_event()
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        """Record a CUDA end event and CPU end time at this scope's slot."""
-        slot = self._pop_scope()
-        self._gpu_end_events[slot] = self._gpu_backend.record_event()
-        self.end_times[slot] = perf_counter_ns()
-
     def _compact(self, keep: np.ndarray) -> None:
         """Move the CUDA events and device durations alongside the timestamps."""
         kept = keep.tolist()
@@ -723,6 +706,23 @@ class CUDATimingProfileRegion(TimeOnlyProfileRegion):
                 continue
             self.gpu_durations[index] = self._gpu_backend.elapsed_time_ns(start, end)
         return self.gpu_durations[: self.ptr]
+
+    def __enter__(self):
+        """Record CPU start time and a CUDA start event."""
+        slot = self.ptr
+        if slot >= self.capacity:
+            self._grow()
+        self.ptr = slot + 1
+        self._push_scope(slot)
+        self.start_times[slot] = perf_counter_ns()
+        self._gpu_start_events[slot] = self._gpu_backend.record_event()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Record a CUDA end event and CPU end time at this scope's slot."""
+        slot = self._pop_scope()
+        self._gpu_end_events[slot] = self._gpu_backend.record_event()
+        self.end_times[slot] = perf_counter_ns()
 
 
 # NVTX region: time + NVIDIA Nsight annotation
@@ -918,10 +918,6 @@ class LineProfilerRegion(BaseProfileRegion):
 
         return wrapper
 
-    def __enter__(self):
-        """Reserve this scope's slot, record start time, and enable line profiler."""
-        return self.enter_frame(inspect.currentframe().f_back)
-
     def enter_frame(self, frame):
         """Enter this region while registering ``frame`` with line_profiler."""
         if frame.f_code not in self._registered_codes:
@@ -984,11 +980,6 @@ class LineProfilerRegion(BaseProfileRegion):
             )
         return records
 
-    def __exit__(self, exc_type, exc_value, traceback):
-        """Disable the line profiler and record the end time at this scope's slot."""
-        self._line_profiler.disable_by_count()
-        self.end_times[self._pop_scope()] = perf_counter_ns()
-
     def add_function(self, func) -> None:
         """Register a function for line-by-line profiling."""
         self._line_profiler.add_function(func)
@@ -1000,3 +991,12 @@ class LineProfilerRegion(BaseProfileRegion):
     def get_stats(self):
         """Return the line_profiler stats object."""
         return self._line_profiler.get_stats()
+
+    def __enter__(self):
+        """Reserve this scope's slot, record start time, and enable line profiler."""
+        return self.enter_frame(inspect.currentframe().f_back)
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Disable the line profiler and record the end time at this scope's slot."""
+        self._line_profiler.disable_by_count()
+        self.end_times[self._pop_scope()] = perf_counter_ns()

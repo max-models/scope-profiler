@@ -29,15 +29,15 @@ class Analyzer:
     def __init__(self, sensors):
         self.sensors = sensors
 
+    def _score(self, sensor):
+        mean = sensor.mean()
+        return math.sqrt(mean)
+
     def compute_scores(self):
         scores = {}
         for sensor in self.sensors:
             scores[sensor.name] = self._score(sensor)
         return scores
-
-    def _score(self, sensor):
-        mean = sensor.mean()
-        return math.sqrt(mean)
 
 
 def print_report(scores):

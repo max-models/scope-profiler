@@ -155,6 +155,21 @@ def _first_last_durations(region, ranks=None):
     return first, last
 
 
+def _rank_imbalance_pct(region, ranks=None) -> float:
+    """Compute slowest-rank total excess over the selected-rank mean."""
+    selected = (
+        region.regions
+        if ranks is None
+        else {rank: region.regions[rank] for rank in ranks if rank in region.regions}
+    )
+    totals = [
+        data.total_duration for data in selected.values() if data.total_duration > 0
+    ]
+    if len(totals) < 2:
+        return 0.0
+    return (max(totals) / float(np.mean(totals)) - 1.0) * 100.0
+
+
 def region_row(region, ranks=None) -> dict:
     """Collect the summary statistics shown for one region.
 
@@ -219,21 +234,6 @@ def region_row(region, ranks=None) -> dict:
             else _rank_imbalance_pct(region, ranks)
         ),
     }
-
-
-def _rank_imbalance_pct(region, ranks=None) -> float:
-    """Compute slowest-rank total excess over the selected-rank mean."""
-    selected = (
-        region.regions
-        if ranks is None
-        else {rank: region.regions[rank] for rank in ranks if rank in region.regions}
-    )
-    totals = [
-        data.total_duration for data in selected.values() if data.total_duration > 0
-    ]
-    if len(totals) < 2:
-        return 0.0
-    return (max(totals) / float(np.mean(totals)) - 1.0) * 100.0
 
 
 def region_rows(

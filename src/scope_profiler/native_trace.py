@@ -289,33 +289,6 @@ def load_traces(inputs, label: str | None = None):
     )
 
 
-def convert_traces(inputs, output_path, label: str | None = None):
-    """Convert Fortran traces into a standard scope-profiler HDF5 file.
-
-    The result is indistinguishable from one a Python run wrote, so
-    ``scope-profiler plot`` / ``inspect`` and :func:`~scope_profiler.read_h5`
-    work on it directly.
-
-    Parameters
-    ----------
-    inputs : path or sequence of paths
-        Trace files and/or directories containing them.
-    output_path : str or Path
-        HDF5 file to write.
-    label : str, optional
-        Name for the run; defaults to the output file's stem.
-
-    Returns
-    -------
-    Path
-        The file that was written.
-    """
-    output_path = Path(output_path)
-    return write_results(
-        load_traces(inputs, label=label or output_path.stem), output_path
-    )
-
-
 def write_results(results, output_path):
     """Write any :class:`ProfilingResults` out as a standard HDF5 file.
 
@@ -362,3 +335,30 @@ def write_results(results, output_path):
                 ),
             )
     return output_path
+
+
+def convert_traces(inputs, output_path, label: str | None = None):
+    """Convert Fortran traces into a standard scope-profiler HDF5 file.
+
+    The result is indistinguishable from one a Python run wrote, so
+    ``scope-profiler plot`` / ``inspect`` and :func:`~scope_profiler.read_h5`
+    work on it directly.
+
+    Parameters
+    ----------
+    inputs : path or sequence of paths
+        Trace files and/or directories containing them.
+    output_path : str or Path
+        HDF5 file to write.
+    label : str, optional
+        Name for the run; defaults to the output file's stem.
+
+    Returns
+    -------
+    Path
+        The file that was written.
+    """
+    output_path = Path(output_path)
+    return write_results(
+        load_traces(inputs, label=label or output_path.stem), output_path
+    )
