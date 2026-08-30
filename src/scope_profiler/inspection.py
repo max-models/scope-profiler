@@ -167,7 +167,7 @@ def inspect_file(
     include=None,
     exclude=None,
     ranks=None,
-    sort: str = "total",
+    sort: str = "start",
     show_metadata: bool = True,
     show_regions: bool = True,
     full: bool = False,
@@ -198,8 +198,8 @@ def inspect_file(
         ``ProfileManager.profile_region`` and issue #161). Printed after the
         region table, regardless of ``include``/``exclude``.
     columns : list of str or str, optional
-        Region summary columns to print. Defaults to ``region``, ``ranks``,
-        ``calls``, ``total`` and ``avg``.
+        Region summary columns to print. Defaults to ``region``, ``calls``,
+        ``percent``, ``total`` and ``avg``.
     stream : file-like, optional
         Where to write (default: stdout).
     """
@@ -360,14 +360,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--sort",
         choices=SORT_KEYS,
-        default="total",
-        help="Order regions by this column (default: total)",
+        default="start",
+        help="Order regions by this column (default: start)",
     )
     parser.add_argument(
         "--columns",
         nargs="+",
         choices=REGION_TABLE_COLUMNS,
-        help="Region table columns to print (default: region ranks calls total avg)",
+        help="Region table columns to print (default: region calls percent total avg)",
     )
     parser.add_argument(
         "--full",

@@ -177,8 +177,8 @@ def _report(argv):
     parser.add_argument(
         "--sort",
         choices=SORT_KEYS,
-        default="total",
-        help="Region ordering (default: total)",
+        default="start",
+        help="Region ordering (default: start)",
     )
     parser.add_argument(
         "--columns",

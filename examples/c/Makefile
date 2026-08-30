@@ -53,7 +53,7 @@ $(BUILD_DIR)/standalone: standalone.c $(BUILD_DIR)/kernels.o $(BUILD_DIR)/scope_
 
 run-standalone: standalone
 	cd $(BUILD_DIR) && ./standalone
-	scope-profiler import-native $(BUILD_DIR) -o $(BUILD_DIR)/profiling_data.h5
+	$(PYTHON) -m scope_profiler import-native $(BUILD_DIR) -o $(BUILD_DIR)/profiling_data.h5
 
 # --------------------------------------------------------------------- mixed
 # One shared library holding the kernels and the profiler, which Python loads

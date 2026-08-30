@@ -123,24 +123,46 @@ class RankPayload(NamedTuple):
 class _ProfilingSession:
     """Context manager backing :meth:`ProfileManager.session`."""
 
-    def __init__(self, manager, setup_kwargs, verbose, return_results, native_traces):
+    ROOT_REGION_NAME = "scope_profiler.session"
+
+    def __init__(
+        self,
+        manager,
+        setup_kwargs,
+        verbose,
+        verbose_line_profiler,
+        return_results,
+        native_traces,
+    ):
         self._manager = manager
         self._setup_kwargs = setup_kwargs
         self._verbose = verbose
+        self._verbose_line_profiler = verbose_line_profiler
         self._return_results = return_results
         self._native_traces = native_traces
         self.results = None
+        self._root_region = None
 
     def __enter__(self):
         self._manager.setup(**self._setup_kwargs)
+        # Keep every region created in the session under one interval.  Apart
+        # from making the total elapsed time explicit, this gives call-graph
+        # consumers a single root instead of a forest whose display order can
+        # be mistaken for execution order (notably by SnakeViz).
+        self._root_region = self._manager.profile_region(self.ROOT_REGION_NAME)
+        self._root_region.__enter__()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.results = self._manager.finalize(
-            verbose=self._verbose,
-            return_results=self._return_results,
-            native_traces=self._native_traces,
-        )
+        try:
+            self._root_region.__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.results = self._manager.finalize(
+                verbose=self._verbose,
+                verbose_line_profiler=self._verbose_line_profiler,
+                return_results=self._return_results,
+                native_traces=self._native_traces,
+            )
         return False
 
 
@@ -1160,6 +1182,7 @@ class ProfileManager:
         verbose: bool = True,
         return_results: bool = False,
         native_traces=None,
+        verbose_line_profiler: bool = False,
     ):
         """
         Finalize profiling and write the run's data to a single output file.
@@ -1183,7 +1206,10 @@ class ProfileManager:
         Parameters
         ----------
         verbose : bool, optional
-            If True, prints profiling statistics for each region (default: True).
+            If True, prints the concise profiling summary (default: True).
+        verbose_line_profiler : bool, optional
+            If True, prints detailed line-profiler tables when line profiling
+            is enabled (default: False).
         return_results : bool, optional
             If True, return the run's data as a
             :class:`~scope_profiler.results.ProfilingResults` - the same
@@ -1349,7 +1375,7 @@ class ProfileManager:
                 title=f"{results.display_label}  (in memory, {size} rank(s))"
             )
 
-        if config.use_line_profiler and verbose:
+        if config.use_line_profiler and verbose_line_profiler:
             for region in cls.get_all_regions().values():
                 if isinstance(region, LineProfilerRegion):
                     region.print_stats()
@@ -1609,14 +1635,16 @@ class ProfileManager:
         cls,
         *,
         verbose: bool = True,
+        verbose_line_profiler: bool = False,
         return_results: bool = False,
         native_traces=None,
         **setup_kwargs,
     ):
         """Return a context manager that sets up and finalizes profiling.
 
-        All keyword arguments other than ``verbose``, ``return_results`` and
-        ``native_traces`` are passed to :meth:`setup`, including ``options``
+        All keyword arguments other than ``verbose``, ``verbose_line_profiler``,
+        ``return_results`` and ``native_traces`` are passed to :meth:`setup`,
+        including ``options``
         (a :class:`~scope_profiler.profile_config.ProfilingOptions`)::
 
             with ProfileManager.session(options=options) as run:
@@ -1634,7 +1662,12 @@ class ProfileManager:
             results = run.results
         """
         return _ProfilingSession(
-            cls, setup_kwargs, verbose, return_results, native_traces
+            cls,
+            setup_kwargs,
+            verbose,
+            verbose_line_profiler,
+            return_results,
+            native_traces,
         )
 
     @classmethod

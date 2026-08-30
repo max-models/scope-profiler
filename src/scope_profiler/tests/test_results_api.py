@@ -202,12 +202,12 @@ def test_reader_print_summary_accepts_columns(sample_file, capsys):
 
     assert "region" in header
     assert "ranks" in header
-    assert "calls" in header
+    assert "n" in header
     assert "total [s]" in header
     assert "avg [s]" in header
     assert "min [s]" not in header
     assert "imbalance [%]" not in header
-    assert "setup" in out and "solve" in out and "TOTAL" in out
+    assert "setup" in out and "solve" in out and "TOTAL" not in out
 
 
 def test_reader_print_summary_shows_total_time_when_available(tmp_path, capsys):

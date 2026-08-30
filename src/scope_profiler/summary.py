@@ -23,21 +23,15 @@ def _print_table(rows, headers, stream, title=None) -> None:
         tablefmt="rounded_outline",
         disable_numparse=True,
     ).splitlines()
-    colors_enabled = bool(getattr(stream, "isatty", lambda: False)())
     if title:
         width = max(len(line) for line in lines)
         centered_title = title.center(width - 4).lstrip()
-        if colors_enabled:
+        if getattr(stream, "isatty", lambda: False)():
             centered_title = f"\033[1;36m{centered_title}\033[0m"
         # Keep the heading flush-left so labels are immediately visible and
         # can be consumed reliably by callers parsing summary output.
         print(centered_title, file=stream)
-    content_index = -1
     for line in lines:
-        if line.startswith("│"):
-            content_index += 1
-            if colors_enabled and content_index == len(rows):
-                line = f"\033[1m{line}\033[0m"
         print(f"  {line}", file=stream)
 
 
@@ -48,6 +42,7 @@ def _print_heading(text, stream) -> None:
 
 
 SORT_KEYS = (
+    "start",
     "total",
     "calls",
     "avg",
@@ -66,8 +61,9 @@ SORT_KEYS = (
 _COLUMNS = (
     ("name", "region"),
     ("ranks", "ranks"),
-    ("calls", "calls"),
+    ("calls", "n"),
     ("total", "total [s]"),
+    ("percent", "% session"),
     ("avg", "avg [s]"),
     ("min", "min [s]"),
     ("max", "max [s]"),
@@ -82,7 +78,13 @@ _COLUMNS = (
 
 REGION_TABLE_COLUMN_NAMES = tuple(key for key, _ in _COLUMNS)
 REGION_TABLE_COLUMNS = ("region", *REGION_TABLE_COLUMN_NAMES[1:])
-DEFAULT_REGION_TABLE_COLUMNS = ("region", "ranks", "calls", "total", "avg")
+DEFAULT_REGION_TABLE_COLUMNS = (
+    "region",
+    "calls",
+    "percent",
+    "total",
+    "avg",
+)
 _COLUMN_ALIASES = {"region": "name", "name": "name"}
 _COLUMN_ALIASES.update({key: key for key, _ in _COLUMNS if key != "name"})
 
@@ -239,7 +241,7 @@ def region_rows(
     include=None,
     exclude=None,
     ranks=None,
-    sort: str = "total",
+    sort: str = "start",
 ) -> list:
     """Build the summary rows for every region a result set exposes.
 
@@ -252,26 +254,99 @@ def region_rows(
     ranks : list of int, optional
         Restrict the statistics to these ranks (default: all).
     sort : str, optional
-        One of :data:`SORT_KEYS`: ``total`` (default), ``calls``, ``avg``,
+        One of :data:`SORT_KEYS`: ``start`` (default), ``total``, ``calls``, ``avg``,
         ``min``, ``max`` and ``std`` sort descending, ``name`` alphabetically.
     """
     rows = [
         region_row(region, ranks)
         for region in results.get_regions(include=include, exclude=exclude)
     ]
+    rows_by_name = {row["name"]: row for row in rows}
 
-    # Sort by name first so that the stable sort below breaks ties
-    # alphabetically rather than by whatever order the file happened to use.
-    rows.sort(key=lambda row: row["name"])
-    if sort != "name":
+    # Build display rows from the call tree rather than from the flat region
+    # registry. A region can occur below multiple parents, in which case each
+    # distinct path gets its own row. The timing values remain the aggregate
+    # values for that region, as they were in the flat summary.
+    display_rows = []
+    seen_paths = set()
+    selected_ranks = range(results.num_ranks) if ranks is None else ranks
+    from scope_profiler.call_stack import NestingError
+
+    for rank in selected_ranks:
+        try:
+            calls = results.call_stack(rank=rank, include=include, exclude=exclude)
+        except NestingError:
+            # Keep summary output available for legacy profiles containing
+            # overlapping intervals that cannot form a call tree.
+            continue
+        by_id = {call["call_id"]: call for call in calls}
+        for call in calls:
+            name = call["name"]
+            if name not in rows_by_name:
+                continue
+            path = []
+            parent = call
+            while parent is not None:
+                path.append(parent["name"])
+                parent_id = parent.get("parent")
+                parent = by_id.get(parent_id) if parent_id is not None else None
+            path = tuple(reversed(path))
+            if path in seen_paths:
+                continue
+            seen_paths.add(path)
+            row = dict(rows_by_name[name])
+            row["depth"] = len(path) - 1
+            row["start"] = float(call["start"])
+            display_rows.append(row)
+
+    # Keep regions with no reconstructable call tree in the summary.
+    for row in rows:
+        if row["name"] not in seen_paths and not any(
+            display["name"] == row["name"] for display in display_rows
+        ):
+            fallback = dict(row)
+            fallback["depth"] = 0
+            fallback["start"] = float("inf")
+            display_rows.append(fallback)
+
+    rows = display_rows
+
+    if sort == "start":
+        rows.sort(key=lambda row: row["start"])
+    else:
+        # Sort by name first so that the stable sort below breaks ties
+        # alphabetically rather than by whatever order the file happened to use.
+        rows.sort(key=lambda row: row["name"])
         # None (nothing recorded for these ranks) sorts last.
-        rows.sort(key=lambda row: (row[sort] is not None, row[sort] or 0), reverse=True)
+        if sort != "name":
+            rows.sort(
+                key=lambda row: (row[sort] is not None, row[sort] or 0),
+                reverse=True,
+            )
     return rows
 
 
 def _format_duration(value) -> str:
     """Format a duration in seconds, or a dash when no timing was recorded."""
-    return "-" if value is None else f"{value:.6g}"
+    return "-" if value is None else f"{value:.1e}"
+
+
+def _format_count(value) -> str:
+    """Format a call count compactly while keeping small counts exact."""
+    if value is None:
+        return "-"
+    value = int(value)
+    for threshold, suffix in ((1_000_000_000, "B"), (1_000_000, "M"), (1_000, "k")):
+        if value >= threshold:
+            return f"{value / threshold:.3g}{suffix}"
+    return str(value)
+
+
+def _format_percentage(value, denominator) -> str:
+    """Format a duration as a percentage of the session root duration."""
+    if value is None or denominator is None or denominator <= 0:
+        return "-"
+    return f"{100.0 * value / denominator:.1e}%"
 
 
 def print_region_table(
@@ -301,9 +376,12 @@ def print_region_table(
         durations and so can exceed the run's real duration when regions
         nest -- this is the run's own actual wall-clock time.
     columns : list of str or str, optional
-        Region summary columns to print. Defaults to ``region``, ``ranks``,
-        ``calls``, ``total`` and ``avg``. The public name for the first column
-        is ``region``; ``name`` is accepted as an alias for Python callers.
+        Region summary columns to print. Defaults to ``region``, ``calls``,
+        ``percent`` and ``avg``. The optional ``total`` column remains
+        available for callers that need aggregate duration. The percentage is
+        relative to ``scope_profiler.session``. The public name for the first
+        column is ``region``; ``name`` is accepted as an alias for Python
+        callers.
     """
     stream = sys.stdout if stream is None else stream
     selected_columns = normalize_region_table_columns(columns)
@@ -314,12 +392,22 @@ def print_region_table(
         print("  (no regions recorded)", file=stream)
         return
 
+    session_total = next(
+        (root["total"] for root in rows if root["name"] == "scope_profiler.session"),
+        None,
+    )
+
     formatted = [
         {
-            "name": row["name"],
+            "name": (
+                f'{"│ " * (row.get("depth", 0) - 1)}└─ {row["name"]}'
+                if row.get("depth", 0)
+                else row["name"]
+            ),
             "ranks": str(row["num_ranks"]),
-            "calls": str(row["calls"]),
+            "calls": _format_count(row["calls"]),
             "total": _format_duration(row["total"]),
+            "percent": _format_percentage(row["total"], session_total),
             "avg": _format_duration(row["avg"]),
             "min": _format_duration(row["min"]),
             "max": _format_duration(row["max"]),
@@ -334,31 +422,34 @@ def print_region_table(
         for row in rows
     ]
 
-    timed = [row["total"] for row in rows if row["total"] is not None]
-    total_row = {
-        "name": "TOTAL",
-        "ranks": "",
-        "calls": str(sum(row["calls"] for row in rows)),
-        "total": _format_duration(sum(timed) if timed else None),
-        "avg": "",
-        "min": "",
-        "max": "",
-        "first": "",
-        "last": "",
-        "std": "",
-        "p50": "",
-        "p95": "",
-        "p99": "",
-        "imbalance": "",
-    }
+    # ``total_time`` is supplied by finalize()/print_summary(), but not by
+    # the inspect renderer. Keep the latter's historical region-only output.
+    if total_time is not None:
+        timed = [row["total"] for row in rows if row["total"] is not None]
+        total_row = {
+            "name": "TOTAL",
+            "ranks": "",
+            "calls": _format_count(sum(row["calls"] for row in rows)),
+            "total": _format_duration(sum(timed) if timed else None),
+            "percent": _format_percentage(sum(timed) if timed else None, session_total),
+            "avg": "",
+            "min": "",
+            "max": "",
+            "first": "",
+            "last": "",
+            "std": "",
+            "p50": "",
+            "p95": "",
+            "p99": "",
+            "imbalance": "",
+        }
+        formatted.append(total_row)
 
     headers = [header for _, header in selected_columns]
     table_rows = [[row[key] for key, _ in selected_columns] for row in formatted]
-    table_rows.append([total_row[key] for key, _ in selected_columns])
     _print_table(table_rows, headers, stream, title=title)
     if not suppress_notes:
         print("\n  Durations are in seconds.", file=stream)
-        print("  TOTAL row sums over all ranks.", file=stream)
     notes = []
     if len(rows) > 1:
         # Nested regions are counted in both the inner and the outer row, so
