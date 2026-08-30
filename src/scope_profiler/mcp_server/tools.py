@@ -86,9 +86,7 @@ def _read_profile(file_path: str) -> ProfilingResults:
         return read_h5(file_path)
     except FileNotFoundError as exc:
         raise ToolError(str(exc)) from exc
-    except (
-        Exception
-    ) as exc:  # noqa: BLE001 - h5py/attribute errors vary by failure mode
+    except Exception as exc:
         raise ToolError(
             f"Could not read {file_path!r} as a profiling file: {exc}"
         ) from exc

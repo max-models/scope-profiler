@@ -19,7 +19,7 @@ import pytest
 
 mcp = pytest.importorskip("mcp", reason="the optional 'mcp' extra is not installed")
 
-from scope_profiler.mcp_server.server import create_server  # noqa: E402
+from scope_profiler.mcp_server.server import create_server
 
 NS = 1_000_000_000
 
@@ -146,7 +146,7 @@ class TestInspectProfileTool:
     def test_missing_file_becomes_a_tool_error(self, tmp_path):
         server = create_server()
 
-        with pytest.raises(Exception, match="not found"):  # noqa: B017
+        with pytest.raises(Exception, match="not found"):
             _run(
                 server.call_tool(
                     "inspect_profile", {"file_path": str(tmp_path / "missing.h5")}

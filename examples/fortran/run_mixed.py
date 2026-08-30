@@ -60,6 +60,47 @@ def rank_and_size():
     return config._rank, config._size
 
 
+def show_call_stack(results):
+    """The point of the shared clock: one tree across both languages."""
+    if not results.is_root:
+        return
+
+    print("\nreconstructed call stack (rank 0, first few entries):")
+    for call in results.call_stack(rank=0)[:8]:
+        language = call["name"].split(":", 1)[0]
+        marker = "  " * call["depth"]
+        print(
+            f"  {marker}{call['name']:<28} {call['duration'] * 1e3:8.3f} ms"
+            f"   [{language}]"
+        )
+
+
+def write_figures(results):
+    """Charts and exports, if the optional plotting stack is installed."""
+    if not results.is_root:
+        return
+
+    try:
+        from scope_profiler import export_speedscope, plot_gantt
+    except ImportError:  # pragma: no cover - optional dependency
+        print("\n(install scope-profiler[plot] for charts)")
+        return
+
+    figures = HERE / "figures"
+    figures.mkdir(exist_ok=True)
+    try:
+        plot_gantt(results, filepath=str(figures / "gantt.png"), verbose=False)
+        export_speedscope(
+            results, str(figures / "mixed.speedscope.json"), verbose=False
+        )
+    except Exception as exc:  # pragma: no cover - plotting stack is optional
+        print(f"\n(charts skipped: {exc})")
+        return
+
+    print(f"\nwrote {figures}/gantt.png and {figures}/mixed.speedscope.json")
+    print("the Gantt chart shows the fortran: bars nested inside the python: ones")
+
+
 def main():
     kernels = load_kernels()
 
@@ -101,47 +142,6 @@ def main():
 
     show_call_stack(results)
     write_figures(results)
-
-
-def show_call_stack(results):
-    """The point of the shared clock: one tree across both languages."""
-    if not results.is_root:
-        return
-
-    print("\nreconstructed call stack (rank 0, first few entries):")
-    for call in results.call_stack(rank=0)[:8]:
-        language = call["name"].split(":", 1)[0]
-        marker = "  " * call["depth"]
-        print(
-            f"  {marker}{call['name']:<28} {call['duration'] * 1e3:8.3f} ms"
-            f"   [{language}]"
-        )
-
-
-def write_figures(results):
-    """Charts and exports, if the optional plotting stack is installed."""
-    if not results.is_root:
-        return
-
-    try:
-        from scope_profiler import export_speedscope, plot_gantt
-    except ImportError:  # pragma: no cover - optional dependency
-        print("\n(install scope-profiler[plot] for charts)")
-        return
-
-    figures = HERE / "figures"
-    figures.mkdir(exist_ok=True)
-    try:
-        plot_gantt(results, filepath=str(figures / "gantt.png"), verbose=False)
-        export_speedscope(
-            results, str(figures / "mixed.speedscope.json"), verbose=False
-        )
-    except Exception as exc:  # pragma: no cover - plotting stack is optional
-        print(f"\n(charts skipped: {exc})")
-        return
-
-    print(f"\nwrote {figures}/gantt.png and {figures}/mixed.speedscope.json")
-    print("the Gantt chart shows the fortran: bars nested inside the python: ones")
 
 
 if __name__ == "__main__":

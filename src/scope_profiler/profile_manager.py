@@ -8,9 +8,10 @@ import sys
 import sysconfig
 import threading
 import warnings
+from collections.abc import Callable
 from time import perf_counter_ns
 from types import FrameType
-from typing import TYPE_CHECKING, Callable, Dict, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
@@ -54,12 +55,12 @@ class _WriteToken(NamedTuple):
     """
 
     ok: bool
-    """False once any rank has failed to write; later ranks then stand down."""
 
     message: str
-    """Why the write failed, reported by rank 0 at the end of the relay."""
 
     index: dict | None
+    """False once any rank has failed to write; later ranks then stand down."""
+    """Why the write failed, reported by rank 0 at the end of the relay."""
     """:meth:`~scope_profiler.h5writer.ColumnarIndex.state` of the file so far."""
 
 
@@ -73,20 +74,28 @@ class RankPayload(NamedTuple):
     """
 
     regions: dict
+
+    likwid: dict
+
+    likwid_environment: dict
+
+    sources: dict | None = None
+
+    tags: dict | None = None
+
+    line_profile: list | None = None
+
+    exclusive_totals: dict | None = None
+
+    aggregate_stats: dict | None = None
     """Region name -> timing arrays, in nanoseconds.
 
     Values are ``(start_times, end_times)`` for CPU timing only, or
     ``(start_times, end_times, gpu_durations)`` when CUDA-event timing is
     enabled. CPU timestamps still measure enqueue-side region duration.
     """
-
-    likwid: dict
     """Region tag -> :class:`~scope_profiler.likwid_data.LikwidRegionResult`."""
-
-    likwid_environment: dict
     """This rank's ``LIKWID_*`` environment, stored with its counters."""
-
-    sources: dict | None = None
     """Region name -> ``(source_file, source_lineno, source_text)``.
 
     Only present for regions whose call site could be captured (see
@@ -99,14 +108,8 @@ class RankPayload(NamedTuple):
     Nothing mutates it in place today, but callers should read it via
     ``payload.sources or {}`` rather than relying on that.
     """
-
-    tags: dict | None = None
     """Region name -> tuple of user-defined string tags."""
-
-    line_profile: list | None = None
     """Line-profiler records for this rank, when line profiling is enabled."""
-
-    exclusive_totals: dict | None = None
     """Region name -> total exclusive nanoseconds on this rank.
 
     Computed here rather than by whoever reads the run back: a rank holds its
@@ -115,8 +118,6 @@ class RankPayload(NamedTuple):
     events afterwards is the most expensive part of loading a profile. Every
     rank does its own, so the cost is spread over the job.
     """
-
-    aggregate_stats: dict | None = None
     """Region name -> aggregate counters for aggregation mode."""
 
 
@@ -171,6 +172,92 @@ class ProfileManager:
     Singleton class to manage and track all ProfileRegion instances.
     """
 
+    class _ResultAccumulator:
+        """Builds a ProfilingResults from per-rank payloads, one at a time.
+
+        Rank 0 feeds every payload it writes to the output file through here as
+        well, so the returned results and the file are assembled from the same
+        bytes and cannot disagree.
+        """
+
+        def __init__(self, config) -> None:
+            """Start an empty accumulation for the run described by ``config``."""
+            self._config = config
+            self._per_region: dict[str, dict] = {}
+            self._likwid: dict[int, dict] = {}
+            self._line_profile: dict[int, list] = {}
+            self._exclusive_totals: dict[str, dict] = {}
+
+        def add(self, rank: int, payload: "RankPayload") -> None:
+            """Fold one rank's payload into the result set."""
+            from scope_profiler.region import Region
+
+            if payload.likwid:
+                self._likwid[rank] = payload.likwid
+            if payload.line_profile:
+                self._line_profile[rank] = payload.line_profile
+            sources = payload.sources or {}
+            tags = payload.tags or {}
+            exclusive_totals = payload.exclusive_totals or {}
+            for name, arrays in payload.regions.items():
+                starts, ends = arrays[:2]
+                gpu_durations = arrays[2] if len(arrays) > 2 else None
+                call_ids = arrays[3] if len(arrays) > 3 else None
+                parent_ids = arrays[4] if len(arrays) > 4 else None
+                source_file, source_lineno, source_text = sources.get(
+                    name, (None, None, None)
+                )
+                self._per_region.setdefault(name, {})[rank] = Region(
+                    starts,
+                    ends,
+                    gpu_durations=gpu_durations,
+                    call_ids=call_ids,
+                    parent_ids=parent_ids,
+                    source_file=source_file,
+                    source_lineno=source_lineno,
+                    source_text=source_text,
+                    tags=tags.get(name, ()),
+                )
+                if name in exclusive_totals:
+                    self._exclusive_totals.setdefault(name, {})[rank] = (
+                        exclusive_totals[name]
+                    )
+            for name, aggregate in (payload.aggregate_stats or {}).items():
+                self._per_region.setdefault(name, {})[rank] = Region(
+                    np.empty(0, dtype=np.int64),
+                    np.empty(0, dtype=np.int64),
+                    aggregate=aggregate,
+                    source_file=sources.get(name, (None, None, None))[0],
+                    source_lineno=sources.get(name, (None, None, None))[1],
+                    source_text=sources.get(name, (None, None, None))[2],
+                    tags=tags.get(name, ()),
+                )
+
+        def build(self):
+            """Return the assembled :class:`ProfilingResults`.
+
+            The per-rank entries are sorted by rank: payloads arrive in
+            whatever order the ranks send them, and pooled statistics sum the
+            per-rank arrays in dict order, so leaving arrival order in place
+            would make averages differ in their last bits from run to run --
+            and from the file, which is read back in rank order.
+            """
+            from scope_profiler.mpi_region import MPIRegion
+            from scope_profiler.results import ProfilingResults
+
+            return ProfilingResults(
+                {
+                    name: MPIRegion(name=name, regions=dict(sorted(regions.items())))
+                    for name, regions in self._per_region.items()
+                },
+                metadata=self._config.metadata,
+                num_ranks=self._config._size,
+                likwid=self._likwid,
+                line_profile=self._line_profile,
+                file_path=self._config.file_path,
+                exclusive_totals=self._exclusive_totals,
+            )
+
     _regions = {}
     # Next call id to hand out, so ids stay unique across the repeated
     # finalize() calls of one run. Reset by setup(), which starts a new run.
@@ -183,10 +270,10 @@ class ProfileManager:
     # the one LIKWID's counter read-back forks. See get_config().
     _config: ProfilingConfig | None = None
     _region_cls = DisabledProfileRegion
-    _decorators: Dict[str, list] = {}  # name -> [(func, _bound), ...]
+    _decorators: dict[str, list] = {}  # name -> [(func, _bound), ...]
     _decorated_codes = set()
     _recursive_state = threading.local()
-    _user_code_cache: Dict[object, bool] = {}
+    _user_code_cache: dict[object, bool] = {}
     _system_prefixes = None
     _internal_modules = {
         "scope_profiler.profile_manager",
@@ -274,9 +361,7 @@ class ProfileManager:
 
         def tracer(frame: FrameType, event: str, arg):
             if event == "call":
-                if frame is root_frame:
-                    pass
-                elif cls._is_internal_frame(frame):
+                if frame is root_frame or cls._is_internal_frame(frame):
                     pass
                 elif frame.f_code in cls._decorated_codes:
                     # Skip functions that already have explicit decorators to
@@ -329,6 +414,51 @@ class ProfileManager:
             cls._region_cls = AggregateProfileRegion
         else:
             cls._region_cls = TimeOnlyProfileRegion
+
+    @classmethod
+    def _capture_region_source(cls, region: BaseProfileRegion) -> None:
+        """Record a freshly created region's call site, if it has one.
+
+        Runs exactly once per region name, at creation, so it never touches
+        the per-call hot path. Only meaningful for a direct
+        ``with ProfileManager.profile_region(...):`` call: internal callers
+        (the decorator, the recursive tracer, ``run_script``) are skipped by
+        the module check, since their own frame is inside scope_profiler
+        itself rather than user code. The decorator path instead records the
+        decorated function's source directly (see ``profile``), which is
+        richer than its one-line decoration site.
+
+        Also skipped for a disabled region: ``deactivate_profiling=True``
+        promises near-zero setup cost, and the source of a region that will
+        never report any data is not worth even a one-time AST parse. Same
+        for ``capture_region_source=False`` (see ``setup()``): both skip this
+        before it ever reads a file from disk.
+
+        This assumes the call site is exactly two frames up. A user helper
+        that itself wraps ``profile_region(...)`` (rather than calling it
+        directly in a ``with``) shifts that: the captured location becomes
+        the helper's own call to ``profile_region``, not the ``with`` at the
+        helper's call site. There is no reliable way to see through an
+        arbitrary wrapper from here, so this is a known limitation of the
+        direct-call form, same as e.g. the stdlib ``logging`` module's
+        caller detection.
+        """
+        if isinstance(region, DisabledProfileRegion):
+            return
+        frame = sys._getframe(2)  # profile_region() -> here -> caller
+        if cls._is_internal_frame(frame):
+            return
+        filename = frame.f_code.co_filename
+        lineno = frame.f_lineno
+        region.set_source(
+            filename,
+            lineno,
+            (
+                call_site_source(filename, lineno)
+                if cls._config.capture_region_source
+                else None
+            ),
+        )
 
     @classmethod
     def profile_region(
@@ -386,49 +516,27 @@ class ProfileManager:
         return region
 
     @classmethod
-    def _capture_region_source(cls, region: BaseProfileRegion) -> None:
-        """Record a freshly created region's call site, if it has one.
+    def _bind_decorated_region(cls, name: str, func, _bound: list) -> BaseProfileRegion:
+        """Resolve ``name``'s region, capture ``func``'s source, and bind it into ``_bound``.
 
-        Runs exactly once per region name, at creation, so it never touches
-        the per-call hot path. Only meaningful for a direct
-        ``with ProfileManager.profile_region(...):`` call: internal callers
-        (the decorator, the recursive tracer, ``run_script``) are skipped by
-        the module check, since their own frame is inside scope_profiler
-        itself rather than user code. The decorator path instead records the
-        decorated function's source directly (see ``profile``), which is
-        richer than its one-line decoration site.
-
-        Also skipped for a disabled region: ``deactivate_profiling=True``
-        promises near-zero setup cost, and the source of a region that will
-        never report any data is not worth even a one-time AST parse. Same
-        for ``capture_region_source=False`` (see ``setup()``): both skip this
-        before it ever reads a file from disk.
-
-        This assumes the call site is exactly two frames up. A user helper
-        that itself wraps ``profile_region(...)`` (rather than calling it
-        directly in a ``with``) shifts that: the captured location becomes
-        the helper's own call to ``profile_region``, not the ``with`` at the
-        helper's call site. There is no reliable way to see through an
-        arbitrary wrapper from here, so this is a known limitation of the
-        direct-call form, same as e.g. the stdlib ``logging`` module's
-        caller detection.
+        Shared between the initial ``@ProfileManager.profile`` decoration and
+        ``set_config()``'s rebind, since a config change replaces every region
+        object (see ``set_config``) and the new one starts with no source of
+        its own -- skipping this on rebind would silently drop it.
         """
-        if isinstance(region, DisabledProfileRegion):
-            return
-        frame = sys._getframe(2)  # profile_region() -> here -> caller
-        if cls._is_internal_frame(frame):
-            return
-        filename = frame.f_code.co_filename
-        lineno = frame.f_lineno
-        region.set_source(
-            filename,
-            lineno,
-            (
-                call_site_source(filename, lineno)
-                if cls._config.capture_region_source
-                else None
-            ),
-        )
+        region = cls.profile_region(name)
+        if not isinstance(region, DisabledProfileRegion):
+            if cls._config.capture_region_source:
+                source = function_source(func)
+                if source is not None:
+                    region.set_source(*source)
+            else:
+                code = getattr(func, "__code__", None)
+                if code is not None:
+                    region.set_source(code.co_filename, code.co_firstlineno, None)
+        _bound[0] = region
+        _bound[1] = region.wrap(func)
+        return region
 
     @classmethod
     def profile(
@@ -613,7 +721,7 @@ class ProfileManager:
                 sys.settrace(prev_tracer)
 
     @classmethod
-    def _snapshot_regions(cls) -> Dict[str, tuple]:
+    def _snapshot_regions(cls) -> dict[str, tuple]:
         """Copy every region's buffered timestamps out of the live buffers.
 
         Taken before ``finalize()`` marks the run boundary, because that
@@ -661,8 +769,8 @@ class ProfileManager:
 
     @classmethod
     def _snapshot_call_graph(
-        cls, snapshot: Dict[str, tuple]
-    ) -> tuple[Dict[str, tuple], dict]:
+        cls, snapshot: dict[str, tuple]
+    ) -> tuple[dict[str, tuple], dict]:
         """Attach explicit call and parent ids to a timestamp snapshot.
 
         The ids are assigned once at finalization, when all regions for this
@@ -723,7 +831,7 @@ class ProfileManager:
         return updated, exclusive_totals
 
     @classmethod
-    def _snapshot_sources(cls, names) -> Dict[str, tuple]:
+    def _snapshot_sources(cls, names) -> dict[str, tuple]:
         """Call-site source of every named region that captured one.
 
         Parameters
@@ -749,99 +857,13 @@ class ProfileManager:
         return sources
 
     @classmethod
-    def _snapshot_tags(cls, names) -> Dict[str, tuple]:
+    def _snapshot_tags(cls, names) -> dict[str, tuple]:
         """Tags of every named region, including explicitly empty tag sets."""
         return {
             name: tuple(cls._regions[name].tags)
             for name in names
             if name in cls._regions
         }
-
-    class _ResultAccumulator:
-        """Builds a ProfilingResults from per-rank payloads, one at a time.
-
-        Rank 0 feeds every payload it writes to the output file through here as
-        well, so the returned results and the file are assembled from the same
-        bytes and cannot disagree.
-        """
-
-        def __init__(self, config) -> None:
-            """Start an empty accumulation for the run described by ``config``."""
-            self._config = config
-            self._per_region: Dict[str, dict] = {}
-            self._likwid: Dict[int, dict] = {}
-            self._line_profile: Dict[int, list] = {}
-            self._exclusive_totals: Dict[str, dict] = {}
-
-        def add(self, rank: int, payload: "RankPayload") -> None:
-            """Fold one rank's payload into the result set."""
-            from scope_profiler.region import Region
-
-            if payload.likwid:
-                self._likwid[rank] = payload.likwid
-            if payload.line_profile:
-                self._line_profile[rank] = payload.line_profile
-            sources = payload.sources or {}
-            tags = payload.tags or {}
-            exclusive_totals = payload.exclusive_totals or {}
-            for name, arrays in payload.regions.items():
-                starts, ends = arrays[:2]
-                gpu_durations = arrays[2] if len(arrays) > 2 else None
-                call_ids = arrays[3] if len(arrays) > 3 else None
-                parent_ids = arrays[4] if len(arrays) > 4 else None
-                source_file, source_lineno, source_text = sources.get(
-                    name, (None, None, None)
-                )
-                self._per_region.setdefault(name, {})[rank] = Region(
-                    starts,
-                    ends,
-                    gpu_durations=gpu_durations,
-                    call_ids=call_ids,
-                    parent_ids=parent_ids,
-                    source_file=source_file,
-                    source_lineno=source_lineno,
-                    source_text=source_text,
-                    tags=tags.get(name, ()),
-                )
-                if name in exclusive_totals:
-                    self._exclusive_totals.setdefault(name, {})[rank] = (
-                        exclusive_totals[name]
-                    )
-            for name, aggregate in (payload.aggregate_stats or {}).items():
-                self._per_region.setdefault(name, {})[rank] = Region(
-                    np.empty(0, dtype=np.int64),
-                    np.empty(0, dtype=np.int64),
-                    aggregate=aggregate,
-                    source_file=sources.get(name, (None, None, None))[0],
-                    source_lineno=sources.get(name, (None, None, None))[1],
-                    source_text=sources.get(name, (None, None, None))[2],
-                    tags=tags.get(name, ()),
-                )
-
-        def build(self):
-            """Return the assembled :class:`ProfilingResults`.
-
-            The per-rank entries are sorted by rank: payloads arrive in
-            whatever order the ranks send them, and pooled statistics sum the
-            per-rank arrays in dict order, so leaving arrival order in place
-            would make averages differ in their last bits from run to run --
-            and from the file, which is read back in rank order.
-            """
-            from scope_profiler.mpi_region import MPIRegion
-            from scope_profiler.results import ProfilingResults
-
-            return ProfilingResults(
-                {
-                    name: MPIRegion(name=name, regions=dict(sorted(regions.items())))
-                    for name, regions in self._per_region.items()
-                },
-                metadata=self._config.metadata,
-                num_ranks=self._config._size,
-                likwid=self._likwid,
-                line_profile=self._line_profile,
-                file_path=self._config.file_path,
-                exclusive_totals=self._exclusive_totals,
-            )
 
     @classmethod
     def _merge_native_snapshot(cls, snapshot: dict, traces, config) -> dict:
@@ -874,6 +896,26 @@ class ProfileManager:
                     )
                 merged[name] = arrays
         return merged
+
+    @classmethod
+    def _empty_results(cls):
+        """The result set a non-root rank gets back from ``finalize()``.
+
+        Empty and flagged ``is_root=False`` rather than None, so that a
+        parallel script can go on calling print_summary(), the plot functions
+        and the exporters without a rank guard: those do nothing for a
+        non-root result set.
+        """
+        from scope_profiler.results import ProfilingResults
+
+        config = cls.get_config()
+        return ProfilingResults(
+            {},
+            metadata=config.metadata,
+            num_ranks=config._size,
+            file_path=config.file_path,
+            is_root=False,
+        )
 
     @classmethod
     def _collect_payloads(cls, payload, write_file: bool, need_results: bool):
@@ -1121,26 +1163,6 @@ class ProfileManager:
             atomic_publish(temp_path, config.file_path)
         # Callers may open the published path immediately after finalize().
         config.comm.Barrier()
-
-    @classmethod
-    def _empty_results(cls):
-        """The result set a non-root rank gets back from ``finalize()``.
-
-        Empty and flagged ``is_root=False`` rather than None, so that a
-        parallel script can go on calling print_summary(), the plot functions
-        and the exporters without a rank guard: those do nothing for a
-        non-root result set.
-        """
-        from scope_profiler.results import ProfilingResults
-
-        config = cls.get_config()
-        return ProfilingResults(
-            {},
-            metadata=config.metadata,
-            num_ranks=config._size,
-            file_path=config.file_path,
-            is_root=False,
-        )
 
     @classmethod
     def _snapshot_line_profile(cls) -> list:
@@ -1429,7 +1451,7 @@ class ProfileManager:
         return cls._regions.get(region_name)
 
     @classmethod
-    def get_all_regions(cls) -> Dict[str, "BaseProfileRegion"]:
+    def get_all_regions(cls) -> dict[str, "BaseProfileRegion"]:
         """
         Get all registered ProfileRegion instances.
 
@@ -1690,29 +1712,6 @@ class ProfileManager:
         for name, entries in cls._decorators.items():
             for func, _bound in entries:
                 cls._bind_decorated_region(name, func, _bound)
-
-    @classmethod
-    def _bind_decorated_region(cls, name: str, func, _bound: list) -> BaseProfileRegion:
-        """Resolve ``name``'s region, capture ``func``'s source, and bind it into ``_bound``.
-
-        Shared between the initial ``@ProfileManager.profile`` decoration and
-        ``set_config()``'s rebind, since a config change replaces every region
-        object (see ``set_config``) and the new one starts with no source of
-        its own -- skipping this on rebind would silently drop it.
-        """
-        region = cls.profile_region(name)
-        if not isinstance(region, DisabledProfileRegion):
-            if cls._config.capture_region_source:
-                source = function_source(func)
-                if source is not None:
-                    region.set_source(*source)
-            else:
-                code = getattr(func, "__code__", None)
-                if code is not None:
-                    region.set_source(code.co_filename, code.co_firstlineno, None)
-        _bound[0] = region
-        _bound[1] = region.wrap(func)
-        return region
 
     @classmethod
     def get_config(cls) -> ProfilingConfig:

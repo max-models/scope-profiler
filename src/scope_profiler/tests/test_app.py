@@ -6,7 +6,6 @@ from types import SimpleNamespace
 import h5py
 import pytest
 
-import scope_profiler.tests.examples as examples
 from scope_profiler import ProfileManager, ProfilingResults, read_h5
 from scope_profiler.region_profiler import (
     CUDATimingNVTXProfileRegion,
@@ -17,6 +16,7 @@ from scope_profiler.region_profiler import (
     NVTXProfileRegion,
     TimeOnlyProfileRegion,
 )
+from scope_profiler.tests import examples
 
 
 class FakeGPUTimingBackend:
@@ -77,10 +77,7 @@ def test_profile_manager(
 
     regions = ProfileManager.get_all_regions()
 
-    print(
-        f"{deactivate_profiling = } "
-        f"{ProfileManager._config.deactivate_profiling = }"
-    )
+    print(f"{deactivate_profiling = } {ProfileManager._config.deactivate_profiling = }")
 
     if deactivate_profiling:
         assert regions["loop1"].num_calls == 0

@@ -124,7 +124,7 @@ def parse_region_groups(
         name, sep, patterns = spec.partition("=")
         if not sep or not name or not patterns:
             parser.error(
-                "--combine-regions expects 'NAME=PATTERN1,PATTERN2' " f"(got {spec!r})"
+                f"--combine-regions expects 'NAME=PATTERN1,PATTERN2' (got {spec!r})"
             )
         if name in groups:
             parser.error(f"--combine-regions group {name!r} given more than once.")

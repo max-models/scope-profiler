@@ -89,7 +89,7 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
             assert full_html is False
             return f"<div data-plotlyjs={include_plotlyjs!r}>chart</div>"
 
-    import scope_profiler.plotting_scripts as plotting_scripts
+    from scope_profiler import plotting_scripts
 
     monkeypatch.setattr(
         plotting_scripts, "plot_gantt", lambda *args, **kwargs: Figure()
@@ -120,13 +120,12 @@ def test_region_durations_chart_is_stacked_and_sorted_by_total(tmp_path, monkeyp
     report = tmp_path / "report.html"
     _write_sample_h5(profile, _sample_file_data(1, 10, 20))
 
-    import scope_profiler.plotting_scripts as plotting_scripts
+    from scope_profiler import plotting_scripts
 
     captured = {}
 
     def fake_plot_durations(*args, **kwargs):
         captured.update(kwargs)
-        return None
 
     monkeypatch.setattr(plotting_scripts, "plot_gantt", lambda *args, **kwargs: None)
     monkeypatch.setattr(plotting_scripts, "plot_durations", fake_plot_durations)

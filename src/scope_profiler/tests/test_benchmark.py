@@ -16,7 +16,7 @@ def test_load_config_resolves_script_and_defaults(tmp_path):
     script.write_text("print('ok')\n", encoding="utf-8")
     config = tmp_path / "bench.toml"
     config.write_text(
-        '[benchmark]\nscript = "bench.py"\nruns = 2\n' "[correctness]\ncommand = []\n",
+        '[benchmark]\nscript = "bench.py"\nruns = 2\n[correctness]\ncommand = []\n',
         encoding="utf-8",
     )
 
