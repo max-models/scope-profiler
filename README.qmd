@@ -42,6 +42,20 @@ post-processing dependencies are installed (`pip install "scope-profiler[pproc]"
 The plotting tools include duration summaries and timelines for finding
 expensive regions:
 
+For dense traces, the Gantt view supports time windows, duration filtering,
+call coalescing, and call-depth collapsing. A binned occupancy heatmap avoids
+drawing every short event:
+
+```bash
+scope-profiler plot gantt profiling_data.h5 -o figures \
+  --min-duration 0.001 --aggregate-calls 25 --collapse-depth 2
+scope-profiler plot density profiling_data.h5 -o figures \
+  --bins 200 --min-duration 0.0001 --start-time 0 --end-time 10
+```
+
+Use `--aggregation-mode` with `scope-profiler run` when only aggregate timing
+statistics are needed and the per-call timeline should not be recorded.
+
 ![Duration summary](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/durations_plot.png)
 
 ![Gantt chart](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/gantt_plot.png)

@@ -91,6 +91,12 @@ def _parse_run_args(argv):
         default=None,
         help="Initial buffer capacity per region; grows as needed (default: 1024)",
     )
+    parser.add_argument(
+        "--aggregation-mode",
+        action="store_true",
+        default=None,
+        help="Record aggregate timing statistics only; omit per-call timeline events.",
+    )
     parser.add_argument("script", help="Script to run and profile")
     parser.add_argument(
         "script_args",
@@ -118,6 +124,7 @@ def _run(argv):
         use_likwid=None,
         use_line_profiler=args.line_profile,
         buffer_limit=args.buffer_limit,
+        aggregation_mode=args.aggregation_mode,
         file_path=args.outfile,
         config_path=args.config,
     )
