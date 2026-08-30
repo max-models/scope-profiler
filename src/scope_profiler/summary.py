@@ -274,9 +274,7 @@ def region_rows(
 
     for rank in selected_ranks:
         try:
-            calls = results.call_stack(
-                rank=rank, include=include, exclude=exclude
-            )
+            calls = results.call_stack(rank=rank, include=include, exclude=exclude)
         except NestingError:
             # Keep summary output available for legacy profiles containing
             # overlapping intervals that cannot form a call tree.
@@ -395,11 +393,7 @@ def print_region_table(
         return
 
     session_total = next(
-        (
-            root["total"]
-            for root in rows
-            if root["name"] == "scope_profiler.session"
-        ),
+        (root["total"] for root in rows if root["name"] == "scope_profiler.session"),
         None,
     )
 
