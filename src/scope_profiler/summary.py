@@ -431,9 +431,7 @@ def print_region_table(
             "ranks": "",
             "calls": _format_count(sum(row["calls"] for row in rows)),
             "total": _format_duration(sum(timed) if timed else None),
-            "percent": _format_percentage(
-                sum(timed) if timed else None, session_total
-            ),
+            "percent": _format_percentage(sum(timed) if timed else None, session_total),
             "avg": "",
             "min": "",
             "max": "",
