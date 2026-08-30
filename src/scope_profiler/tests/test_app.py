@@ -6,7 +6,6 @@ from types import SimpleNamespace
 import h5py
 import pytest
 
-import scope_profiler.tests.examples as examples
 from scope_profiler import ProfileManager, ProfilingResults, read_h5
 from scope_profiler.region_profiler import (
     CUDATimingNVTXProfileRegion,
@@ -17,6 +16,7 @@ from scope_profiler.region_profiler import (
     NVTXProfileRegion,
     TimeOnlyProfileRegion,
 )
+from scope_profiler.tests import examples
 
 
 class FakeGPUTimingBackend:

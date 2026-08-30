@@ -8,9 +8,10 @@ import sys
 import sysconfig
 import threading
 import warnings
+from collections.abc import Callable
 from time import perf_counter_ns
 from types import FrameType
-from typing import TYPE_CHECKING, Callable, Dict, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
@@ -182,10 +183,10 @@ class ProfileManager:
         def __init__(self, config) -> None:
             """Start an empty accumulation for the run described by ``config``."""
             self._config = config
-            self._per_region: Dict[str, dict] = {}
-            self._likwid: Dict[int, dict] = {}
-            self._line_profile: Dict[int, list] = {}
-            self._exclusive_totals: Dict[str, dict] = {}
+            self._per_region: dict[str, dict] = {}
+            self._likwid: dict[int, dict] = {}
+            self._line_profile: dict[int, list] = {}
+            self._exclusive_totals: dict[str, dict] = {}
 
         def add(self, rank: int, payload: "RankPayload") -> None:
             """Fold one rank's payload into the result set."""
@@ -269,10 +270,10 @@ class ProfileManager:
     # the one LIKWID's counter read-back forks. See get_config().
     _config: ProfilingConfig | None = None
     _region_cls = DisabledProfileRegion
-    _decorators: Dict[str, list] = {}  # name -> [(func, _bound), ...]
+    _decorators: dict[str, list] = {}  # name -> [(func, _bound), ...]
     _decorated_codes = set()
     _recursive_state = threading.local()
-    _user_code_cache: Dict[object, bool] = {}
+    _user_code_cache: dict[object, bool] = {}
     _system_prefixes = None
     _internal_modules = {
         "scope_profiler.profile_manager",
@@ -360,9 +361,7 @@ class ProfileManager:
 
         def tracer(frame: FrameType, event: str, arg):
             if event == "call":
-                if frame is root_frame:
-                    pass
-                elif cls._is_internal_frame(frame):
+                if frame is root_frame or cls._is_internal_frame(frame):
                     pass
                 elif frame.f_code in cls._decorated_codes:
                     # Skip functions that already have explicit decorators to
@@ -722,7 +721,7 @@ class ProfileManager:
                 sys.settrace(prev_tracer)
 
     @classmethod
-    def _snapshot_regions(cls) -> Dict[str, tuple]:
+    def _snapshot_regions(cls) -> dict[str, tuple]:
         """Copy every region's buffered timestamps out of the live buffers.
 
         Taken before ``finalize()`` marks the run boundary, because that
@@ -770,8 +769,8 @@ class ProfileManager:
 
     @classmethod
     def _snapshot_call_graph(
-        cls, snapshot: Dict[str, tuple]
-    ) -> tuple[Dict[str, tuple], dict]:
+        cls, snapshot: dict[str, tuple]
+    ) -> tuple[dict[str, tuple], dict]:
         """Attach explicit call and parent ids to a timestamp snapshot.
 
         The ids are assigned once at finalization, when all regions for this
@@ -832,7 +831,7 @@ class ProfileManager:
         return updated, exclusive_totals
 
     @classmethod
-    def _snapshot_sources(cls, names) -> Dict[str, tuple]:
+    def _snapshot_sources(cls, names) -> dict[str, tuple]:
         """Call-site source of every named region that captured one.
 
         Parameters
@@ -858,7 +857,7 @@ class ProfileManager:
         return sources
 
     @classmethod
-    def _snapshot_tags(cls, names) -> Dict[str, tuple]:
+    def _snapshot_tags(cls, names) -> dict[str, tuple]:
         """Tags of every named region, including explicitly empty tag sets."""
         return {
             name: tuple(cls._regions[name].tags)
@@ -1452,7 +1451,7 @@ class ProfileManager:
         return cls._regions.get(region_name)
 
     @classmethod
-    def get_all_regions(cls) -> Dict[str, "BaseProfileRegion"]:
+    def get_all_regions(cls) -> dict[str, "BaseProfileRegion"]:
         """
         Get all registered ProfileRegion instances.
 

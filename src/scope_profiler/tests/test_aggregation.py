@@ -11,9 +11,8 @@ def test_aggregation_mode_keeps_statistics_without_events(tmp_path):
     inner = ProfileManager.profile_region("inner")
 
     for _ in range(3):
-        with outer:
-            with inner:
-                pass
+        with outer, inner:
+            pass
 
     results = ProfileManager.finalize(verbose=False, return_results=True)
     assert results["outer"][0].num_calls == 3

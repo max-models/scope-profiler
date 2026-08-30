@@ -17,7 +17,8 @@ with ten million events. Manual ``sp_begin``/``sp_end`` pairs in native code
 are the only realistic way to violate it; see :class:`NestingError`.
 """
 
-from typing import Any, Iterable, List, NamedTuple
+from collections.abc import Iterable
+from typing import Any, NamedTuple
 
 import numpy as np
 
@@ -45,9 +46,9 @@ class CallArrays(NamedTuple):
     ``call_index[i]`` within that region's buffers.
     """
 
-    names: List[str]
-    source_files: List[str | None]
-    source_lines: List[int | None]
+    names: list[str]
+    source_files: list[str | None]
+    source_lines: list[int | None]
     region_index: np.ndarray
     call_index: np.ndarray
     start_ns: np.ndarray
@@ -149,13 +150,13 @@ def build_call_arrays(regions: Iterable, rank: int) -> CallArrays:
         If any interval ends before it starts, or two intervals overlap
         without one containing the other.
     """
-    names: List[str] = []
-    source_files: List[str | None] = []
-    source_lines: List[int | None] = []
-    starts: List[np.ndarray] = []
-    ends: List[np.ndarray] = []
-    region_index: List[np.ndarray] = []
-    call_index: List[np.ndarray] = []
+    names: list[str] = []
+    source_files: list[str | None] = []
+    source_lines: list[int | None] = []
+    starts: list[np.ndarray] = []
+    ends: list[np.ndarray] = []
+    region_index: list[np.ndarray] = []
+    call_index: list[np.ndarray] = []
     for region in regions:
         if rank not in region.regions:
             continue
@@ -231,7 +232,7 @@ def build_call_arrays(regions: Iterable, rank: int) -> CallArrays:
     )
 
 
-def build_call_stack(regions: Iterable, rank: int, origin: float = 0.0) -> List[dict]:
+def build_call_stack(regions: Iterable, rank: int, origin: float = 0.0) -> list[dict]:
     """Reconstruct per-call nesting for one rank, one dict per call.
 
     A convenience wrapper over :func:`build_call_arrays` for callers that
@@ -287,7 +288,7 @@ def build_call_stack(regions: Iterable, rank: int, origin: float = 0.0) -> List[
     durations = (arrays.end_ns - arrays.start_ns) / NS_PER_SECOND
     exclusive = arrays.exclusive_ns / NS_PER_SECOND
 
-    calls: List[dict] = []
+    calls: list[dict] = []
     for call_id, region_row in enumerate(arrays.region_index.tolist()):
         name = arrays.names[region_row]
         parent = int(arrays.parent[call_id])
@@ -314,18 +315,18 @@ def build_call_stack(regions: Iterable, rank: int, origin: float = 0.0) -> List[
     return calls
 
 
-def call_stack_roots(calls: List[dict]) -> List[int]:
+def call_stack_roots(calls: list[dict]) -> list[int]:
     """Indices of the top-level calls in a :func:`build_call_stack` result."""
     return [index for index, call in enumerate(calls) if call["parent"] is None]
 
 
-def call_stack_children(calls: List[dict]) -> List[List[int]]:
+def call_stack_children(calls: list[dict]) -> list[list[int]]:
     """Child indices per call, for walking a :func:`build_call_stack` result.
 
     Returns a list parallel to ``calls``: entry *i* holds the indices of the
     calls directly nested inside call *i*, in start-time order.
     """
-    children: List[List[Any]] = [[] for _ in calls]
+    children: list[list[Any]] = [[] for _ in calls]
     for index, call in enumerate(calls):
         parent = call["parent"]
         if parent is not None:

@@ -52,7 +52,7 @@ class ColumnarIndex:
     token instead of re-deriving it per rank.
     """
 
-    __slots__ = ("names", "name_to_id", "ranks")
+    __slots__ = ("name_to_id", "names", "ranks")
 
     def __init__(self, names=(), ranks=()) -> None:
         """Start from a known set of region names (in id order) and ranks."""

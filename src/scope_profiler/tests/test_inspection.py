@@ -8,9 +8,12 @@ import pytest
 
 from scope_profiler import read_h5
 from scope_profiler.__main__ import main as cli_main
-from scope_profiler.inspection import collect_file_metadata, inspect_file
+from scope_profiler.inspection import (
+    collect_file_metadata,
+    inspect_file,
+    write_metadata_json,
+)
 from scope_profiler.inspection import main as inspect_main
-from scope_profiler.inspection import write_metadata_json
 from scope_profiler.likwid_data import LikwidRegionResult, write_likwid_results
 
 NS = 1_000_000_000

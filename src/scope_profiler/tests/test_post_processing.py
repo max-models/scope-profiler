@@ -613,7 +613,7 @@ def test_plot_gantt_puts_every_call_of_a_region_on_one_lane(tmp_path, monkeypatc
             # set_yticks, set_xlim, set_title, ... are all no-ops here.
             return lambda *args, **kwargs: None
 
-    import scope_profiler.plotting_scripts as plotting_scripts
+    from scope_profiler import plotting_scripts
 
     canvas = _RecordingCanvas()
     monkeypatch.setattr(
@@ -1028,7 +1028,7 @@ def test_plot_flame_export_data_json(tmp_path, monkeypatch):
         def __getattr__(self, name):
             return lambda *args, **kwargs: None
 
-    import scope_profiler.plotting_scripts as plotting_scripts
+    from scope_profiler import plotting_scripts
 
     monkeypatch.setattr(plotting_scripts, "_get_canvas", lambda: _RecordingCanvas)
     monkeypatch.setattr(plotting_scripts, "_render", lambda *args, **kwargs: None)

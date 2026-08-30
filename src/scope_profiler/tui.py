@@ -60,7 +60,7 @@ class BrowserNode:
     label: str
     kind: str
     payload: dict[str, Any] = field(default_factory=dict)
-    children: list["BrowserNode"] = field(default_factory=list)
+    children: list[BrowserNode] = field(default_factory=list)
 
 
 @dataclass
@@ -1356,7 +1356,7 @@ def _build_textual_app_class():
                     )
             except (
                 Exception
-            ) as exc:  # noqa: BLE001 -- external plotting must not kill TUI
+            ) as exc:
                 self.notify(str(exc), severity="error", timeout=8)
                 return
             if saved:
@@ -1384,7 +1384,7 @@ def _build_textual_app_class():
                 )
             except (
                 Exception
-            ) as exc:  # noqa: BLE001 -- external plotting must not kill TUI
+            ) as exc:
                 if isinstance(exc, ValueError) and str(exc).startswith(
                     "Invalid region filter:"
                 ):

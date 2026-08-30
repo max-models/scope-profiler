@@ -70,9 +70,8 @@ def test_session_accepts_options(tmp_path):
 
     with ProfileManager.session(
         options=options, return_results=True, verbose=False
-    ) as run:
-        with ProfileManager.profile_region("work"):
-            pass
+    ) as run, ProfileManager.profile_region("work"):
+        pass
 
     assert run.results.get_region("work").num_calls == 1
 

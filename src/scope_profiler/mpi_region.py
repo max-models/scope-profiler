@@ -1,6 +1,7 @@
 """Container for per-rank Region data within an MPI-parallel profiling run."""
 
-from typing import Any, Dict, Iterator, List
+from collections.abc import Iterator
+from typing import Any
 
 import numpy as np
 
@@ -15,7 +16,7 @@ class MPIRegion:
     rank. All durations are in seconds.
     """
 
-    def __init__(self, name: str, regions: Dict[int, Region]) -> None:
+    def __init__(self, name: str, regions: dict[int, Region]) -> None:
         """
         Initialize an MPIRegion containing Region data for multiple ranks.
 
@@ -36,12 +37,12 @@ class MPIRegion:
         return self._name
 
     @property
-    def regions(self) -> Dict[int, Region]:
+    def regions(self) -> dict[int, Region]:
         """Dictionary of rank IDs to their corresponding Region objects."""
         return self._regions
 
     @property
-    def ranks(self) -> List[int]:
+    def ranks(self) -> list[int]:
         """Sorted list of ranks that recorded this region."""
         return sorted(self._regions)
 
@@ -93,7 +94,7 @@ class MPIRegion:
         """User-defined tags attached to this region."""
         return self._first_captured("tags") or ()
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """
         Return statistics aggregated over every rank.
 
@@ -123,8 +124,8 @@ class MPIRegion:
         return summary
 
     def events(
-        self, ranks: List[int] | int | None = None, origin: float = 0.0
-    ) -> List[Dict[str, Any]]:
+        self, ranks: list[int] | int | None = None, origin: float = 0.0
+    ) -> list[dict[str, Any]]:
         """
         Return one dict per recorded call, on every rank.
 
@@ -222,7 +223,7 @@ class MPIRegion:
         """
         return sum(region.num_calls for region in self._regions.values())
 
-    def num_calls_per_rank(self) -> Dict[int, int]:
+    def num_calls_per_rank(self) -> dict[int, int]:
         """
         Get the call count for each rank.
 
@@ -233,7 +234,7 @@ class MPIRegion:
         """
         return {rank: region.num_calls for rank, region in self._regions.items()}
 
-    def average_durations(self) -> Dict[int, float]:
+    def average_durations(self) -> dict[int, float]:
         """
         Get the average duration for each rank.
 
@@ -244,7 +245,7 @@ class MPIRegion:
         """
         return {rank: region.average_duration for rank, region in self._regions.items()}
 
-    def min_durations(self) -> Dict[int, float]:
+    def min_durations(self) -> dict[int, float]:
         """
         Get the minimum duration for each rank.
 
@@ -255,7 +256,7 @@ class MPIRegion:
         """
         return {rank: region.min_duration for rank, region in self._regions.items()}
 
-    def max_durations(self) -> Dict[int, float]:
+    def max_durations(self) -> dict[int, float]:
         """
         Get the maximum duration for each rank.
 
@@ -266,7 +267,7 @@ class MPIRegion:
         """
         return {rank: region.max_duration for rank, region in self._regions.items()}
 
-    def total_durations(self) -> Dict[int, float]:
+    def total_durations(self) -> dict[int, float]:
         """
         Get the total duration for each rank.
 

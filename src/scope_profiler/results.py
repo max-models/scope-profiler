@@ -11,8 +11,8 @@ plotting functions, the exporters) cannot tell them apart.
 
 import functools
 import re
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Dict, Iterator, List
 
 import numpy as np
 
@@ -82,14 +82,14 @@ class ProfilingResults:
 
     def __init__(
         self,
-        regions: Dict[str, MPIRegion],
+        regions: dict[str, MPIRegion],
         metadata: dict | None = None,
         num_ranks: int | None = None,
-        likwid: Dict[int, Dict[str, LikwidRegionResult]] | None = None,
-        line_profile: Dict[int, list] | None = None,
+        likwid: dict[int, dict[str, LikwidRegionResult]] | None = None,
+        line_profile: dict[int, list] | None = None,
         file_path: str | Path = "",
         is_root: bool = True,
-        exclusive_totals: Dict[str, Dict[int, int]] | None = None,
+        exclusive_totals: dict[str, dict[int, int]] | None = None,
     ) -> None:
         """
         Assemble a result set from already-loaded regions.
@@ -224,7 +224,7 @@ class ProfilingResults:
             ) from None
 
     @property
-    def region_names(self) -> List[str]:
+    def region_names(self) -> list[str]:
         """Names of all regions, in order of appearance."""
         return list(self._region_dict)
 
@@ -252,7 +252,7 @@ class ProfilingResults:
         self,
         include: list[str] | str | None = None,
         exclude: list[str] | str | None = None,
-    ) -> List[dict]:
+    ) -> list[dict]:
         """
         Summarize every region, aggregated over ranks.
 
@@ -340,7 +340,7 @@ class ProfilingResults:
         ranks: list[int] | int | None = None,
         relative: bool = True,
         origin: float | None = None,
-    ) -> List[dict]:
+    ) -> list[dict]:
         """
         Return one dict per recorded call, across all regions and ranks.
 
@@ -443,7 +443,7 @@ class ProfilingResults:
         exclude: list[str] | str | None = None,
         relative: bool = True,
         origin: float | None = None,
-    ) -> List[dict]:
+    ) -> list[dict]:
         """
         Reconstruct the nested call stack for one rank.
 
@@ -481,7 +481,7 @@ class ProfilingResults:
             origin=origin,
         )
 
-    def call_graph(self, rank: int = 0, include=None, exclude=None) -> List[dict]:
+    def call_graph(self, rank: int = 0, include=None, exclude=None) -> list[dict]:
         """Return call relationships without timestamps or durations.
 
         New profiles persist ``call_id`` and ``parent_id`` for every Python
@@ -734,7 +734,7 @@ class ProfilingResults:
         return self._metadata
 
     @property
-    def line_profile(self) -> Dict[int, list]:
+    def line_profile(self) -> dict[int, list]:
         """Persisted line-profiler records keyed by rank.
 
         Each record contains ``region``, ``filename``, ``function``,
@@ -761,7 +761,7 @@ class ProfilingResults:
         return any(self._likwid.values())
 
     @property
-    def likwid_ranks(self) -> List[int]:
+    def likwid_ranks(self) -> list[int]:
         """Ranks that recorded LIKWID results, in ascending order."""
         return sorted(rank for rank, regions in self._likwid.items() if regions)
 
@@ -1072,7 +1072,7 @@ class ProfilingResults:
         self,
         include: list[str] | str | None = None,
         exclude: list[str] | str | None = None,
-    ) -> List[MPIRegion]:
+    ) -> list[MPIRegion]:
         """Get a list of all regions in order of appearance.
 
         Returns
@@ -1182,7 +1182,7 @@ def merge_results(*result_sets, label: str | None = None, file_path=None):
         # the caller is a parallel script that should carry on quietly.
         return result_sets[0]
 
-    seen: Dict[str, int] = {}
+    seen: dict[str, int] = {}
     for index, results in enumerate(roots):
         for name in results.region_names:
             if name in seen and seen[name] != index:
@@ -1193,9 +1193,9 @@ def merge_results(*result_sets, label: str | None = None, file_path=None):
                 )
             seen[name] = index
 
-    merged: Dict[str, MPIRegion] = {}
+    merged: dict[str, MPIRegion] = {}
     metadata: dict = {}
-    likwid: Dict[int, dict] = {}
+    likwid: dict[int, dict] = {}
     num_ranks = 0
     for results in roots:
         # Earlier sets win, so the driver's metadata describes the run.

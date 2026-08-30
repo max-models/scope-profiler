@@ -6,7 +6,7 @@ pylikwid.markerinit()
 pylikwid.markerthreadinit()
 liste = []
 pylikwid.markerstartregion("listappend")
-for i in range(0, 1000000):
+for i in range(1000000):
     liste.append(i)
 pylikwid.markerstopregion("listappend")
 nr_events, eventlist, time, count = pylikwid.markergetregion("listappend")

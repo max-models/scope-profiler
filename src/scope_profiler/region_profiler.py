@@ -6,24 +6,19 @@ import inspect
 import linecache
 import types
 from time import perf_counter_ns
-from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 import numpy as np
 
 from scope_profiler.gpu_timing import resolve_gpu_timing_backend
 from scope_profiler.profile_config import ProfilingConfig
 
-if TYPE_CHECKING:
-    pass
-
-
 # Parsed module ASTs, memoized by filename. Capturing a region's source only
 # runs once per region name (see BaseProfileRegion.set_source), but a file can
 # define many regions, so the parse itself is cached rather than repeated.
-_AST_CACHE: Dict[str, Optional[ast.Module]] = {}
+_AST_CACHE: dict[str, ast.Module | None] = {}
 
 
-def _parsed_module(filename: str) -> Optional[ast.Module]:
+def _parsed_module(filename: str) -> ast.Module | None:
     """Parse ``filename`` into an AST, memoized by filename.
 
     Returns None for anything that cannot be parsed (a REPL frame, a frozen
@@ -46,14 +41,14 @@ def _parsed_module(filename: str) -> Optional[ast.Module]:
 # turned out to cost hundreds of microseconds per region on a file of a few
 # hundred lines (measured in test_source_capture_is_a_one_time_per_name_cost),
 # which is fine once but not once per distinct name in a busy file.
-_WITH_NODE_CACHE: Dict[str, Dict[int, ast.With]] = {}
+_WITH_NODE_CACHE: dict[str, dict[int, ast.With]] = {}
 
 
-def _with_nodes(filename: str) -> Dict[int, ast.With]:
+def _with_nodes(filename: str) -> dict[int, ast.With]:
     """Every ``with`` statement in ``filename``, indexed by its start line."""
     if filename not in _WITH_NODE_CACHE:
         tree = _parsed_module(filename)
-        nodes: Dict[int, ast.With] = {}
+        nodes: dict[int, ast.With] = {}
         if tree is not None:
             for node in ast.walk(tree):
                 if isinstance(node, ast.With):
@@ -62,7 +57,7 @@ def _with_nodes(filename: str) -> Dict[int, ast.With]:
     return _WITH_NODE_CACHE[filename]
 
 
-def call_site_source(filename: str, lineno: int) -> Optional[str]:
+def call_site_source(filename: str, lineno: int) -> str | None:
     """Source text of the ``with`` block starting at ``lineno`` in ``filename``.
 
     Falls back to just the call-site line when the enclosing ``with``
@@ -78,7 +73,7 @@ def call_site_source(filename: str, lineno: int) -> Optional[str]:
     return linecache.getline(filename, lineno) or None
 
 
-def function_source(func) -> Optional[Tuple[str, int, str]]:
+def function_source(func) -> tuple[str, int, str] | None:
     """Source file, starting line and text of a decorated function.
 
     Returns None when the source cannot be recovered (e.g. a function defined
@@ -193,19 +188,19 @@ class AggregateProfileRegion:
     """Low-memory region that records aggregate timing statistics only."""
 
     __slots__ = (
-        "region_name",
+        "_completed",
+        "_count",
+        "_exclusive",
+        "_maximum",
+        "_minimum",
+        "_stack",
+        "_total",
         "config",
-        "tags",
+        "region_name",
         "source_file",
         "source_lineno",
         "source_text",
-        "_completed",
-        "_count",
-        "_total",
-        "_minimum",
-        "_maximum",
-        "_exclusive",
-        "_stack",
+        "tags",
     )
 
     def __init__(self, region_name, config, tags=()):
@@ -313,21 +308,21 @@ class BaseProfileRegion:
     """
 
     __slots__ = (
-        "region_name",
-        "config",
-        "start_times",
-        "end_times",
-        "ptr",
-        "buffer_limit",
-        "capacity",
         "_completed",
         "_emitted",
-        "_scope_ptr_stack",
-        "_push_scope",
         "_pop_scope",
+        "_push_scope",
+        "_scope_ptr_stack",
+        "buffer_limit",
+        "capacity",
+        "config",
+        "end_times",
+        "ptr",
+        "region_name",
         "source_file",
         "source_lineno",
         "source_text",
+        "start_times",
         "tags",
     )
 
@@ -564,7 +559,6 @@ class BaseProfileRegion:
 
     def add_function(self, func) -> None:
         """Register a function for profiling. No-op except in LineProfilerRegion."""
-        pass
 
 
 # Disabled region: does nothing
@@ -582,7 +576,6 @@ class DisabledProfileRegion(BaseProfileRegion):
 
     def append(self, start, end):
         """Ignored: no data recorded."""
-        pass
 
     def get_durations_numpy(self):
         """Return an empty array since nothing is recorded."""
@@ -594,7 +587,6 @@ class DisabledProfileRegion(BaseProfileRegion):
 
     def __exit__(self, exc_type, exc_value, traceback):
         """Exit a non-operational context manager."""
-        pass
 
 
 # Time-only region
@@ -643,8 +635,8 @@ class CUDATimingProfileRegion(TimeOnlyProfileRegion):
 
     __slots__ = (
         "_gpu_backend",
-        "_gpu_start_events",
         "_gpu_end_events",
+        "_gpu_start_events",
         "gpu_durations",
     )
 
@@ -883,7 +875,7 @@ class LineProfilerRegion(BaseProfileRegion):
     profiled while the context is active.
     """
 
-    __slots__ = ("_line_profiler", "_registered_codes", "_manual_line_timings")
+    __slots__ = ("_line_profiler", "_manual_line_timings", "_registered_codes")
 
     def __init__(self, region_name: str, config: ProfilingConfig, tags=()):
         """Initialize timing buffers and line_profiler instance."""
