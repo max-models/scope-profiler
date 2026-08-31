@@ -109,6 +109,14 @@ def test_summary_collapses_self_recursive_paths():
     assert rows[1]["calls"] == 3
 
 
+def test_summary_percentages_use_fixed_point_until_tiny():
+    from scope_profiler.summary import _format_percentage
+
+    assert _format_percentage(1, 1) == "100.00%"
+    assert _format_percentage(0.001, 1) == "0.10%"
+    assert _format_percentage(0.00001, 1) == "1.0e-03%"
+
+
 def test_region_without_any_calls_is_safe():
     """A region that recorded nothing still answers every query."""
     empty = np.empty(0, dtype=np.int64)

@@ -400,10 +400,18 @@ def _format_count(value) -> str:
 
 
 def _format_percentage(value, denominator) -> str:
-    """Format a duration as a percentage of the session root duration."""
+    """Format a duration as a readable percentage of the session duration.
+
+    Fixed-point notation is easier to scan in terminal tables. Scientific
+    notation is retained only below 0.01%, where two decimal places would
+    otherwise turn a non-zero value into ``0.00%``.
+    """
     if value is None or denominator is None or denominator <= 0:
         return "-"
-    return f"{100.0 * value / denominator:.1e}%"
+    percentage = 100.0 * value / denominator
+    if percentage and abs(percentage) < 0.01:
+        return f"{percentage:.1e}%"
+    return f"{percentage:.2f}%"
 
 
 def _display_region_name(row) -> str:
