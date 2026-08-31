@@ -117,7 +117,7 @@ def test_summary_percentages_use_fixed_point_until_tiny():
     assert _format_percentage(0.00001, 1) == "1.0e-03%"
 
 
-def test_summary_percentage_uses_exclusive_time_for_nested_regions(capsys):
+def test_summary_percentage_uses_coverage_for_nested_regions(capsys):
     results = ProfilingResults(
         {
             "scope_profiler.session": MPIRegion(
@@ -139,9 +139,9 @@ def test_summary_percentage_uses_exclusive_time_for_nested_regions(capsys):
     output = capsys.readouterr().out
 
     assert "100.00%" in output
+    assert "80.00%" in output
     assert "60.00%" in output
-    assert "20.00%" in output
-    assert "80.00%" not in output
+    assert "100.00%" in output
 
 
 def test_region_without_any_calls_is_safe():
