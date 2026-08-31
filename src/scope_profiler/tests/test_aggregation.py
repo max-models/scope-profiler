@@ -58,9 +58,8 @@ def test_pause_and_resume_exclude_intervening_scopes(tmp_path):
 def test_pause_is_idempotent_and_rejects_active_scopes(tmp_path):
     ProfileManager.setup(file_path=str(tmp_path / "pause.h5"))
     region = ProfileManager.profile_region("work")
-    with region:
-        with pytest.raises(RuntimeError, match="scopes are active"):
-            ProfileManager.pause()
+    with region, pytest.raises(RuntimeError, match="scopes are active"):
+        ProfileManager.pause()
     ProfileManager.pause()
     ProfileManager.pause()
     ProfileManager.resume()

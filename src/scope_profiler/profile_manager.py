@@ -1427,9 +1427,7 @@ class ProfileManager:
             if name == _ProfilingSession.ROOT_REGION_NAME:
                 continue
             open_slots = getattr(region, "open_slots", None)
-            if open_slots is not None and len(open_slots()):
-                active.append(name)
-            elif getattr(region, "_stack", None):
+            if open_slots is not None and len(open_slots()) or getattr(region, "_stack", None):
                 active.append(name)
         if active:
             names = ", ".join(repr(name) for name in active[:3])

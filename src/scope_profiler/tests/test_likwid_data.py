@@ -16,10 +16,9 @@ import h5py
 import numpy as np
 import pytest
 
-from scope_profiler import ProfileManager
+from scope_profiler import ProfileManager, read_h5
 from scope_profiler import likwid_data as likwid_data_module
 from scope_profiler import profile_config as profile_config_module
-from scope_profiler import read_h5
 from scope_profiler import region_profiler as region_profiler_module
 from scope_profiler.likwid_data import (
     LIKWID_GROUP,
