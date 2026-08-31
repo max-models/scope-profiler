@@ -1,6 +1,7 @@
 """scope-profiler: lightweight region-based profiling for Python and HPC applications."""
 
 from importlib.metadata import PackageNotFoundError, version
+from typing import TYPE_CHECKING, Any
 
 from scope_profiler.call_stack import (
     CallArrays,
@@ -23,29 +24,28 @@ try:
 except PackageNotFoundError:
     __version__ = "unknown"
 
-# Plotting pulls in the optional maxplotlib stack, and the exporters pull in
-# the plotting module, so these are resolved on first access (PEP 562) rather
-# than at import time, keeping `import scope_profiler` cheap inside the
-# applications being profiled.
-_LAZY_ATTRS = {
-    "collect_region_statistics": "plotting_scripts",
-    "plot_duration_timeseries": "plotting_scripts",
-    "plot_durations": "plotting_scripts",
-    "plot_flame": "plotting_scripts",
-    "plot_flame_chart": "plotting_scripts",
-    "plot_flame_graph": "plotting_scripts",
-    "plot_gantt": "plotting_scripts",
-    "plot_speedup": "plotting_scripts",
-    "plot_weak_scaling": "plotting_scripts",
-    "plot_rank_heatmap": "plotting_scripts",
-    "plot_scaling_efficiency": "plotting_scripts",
-    "write_region_statistics_json": "plotting_scripts",
-    "export_prof": "prof_export",
-    "export_speedscope": "speedscope_export",
-    "collect_file_metadata": "inspection",
-    "inspect_file": "inspection",
-    "create_html_report": "html_report",
-}
+# Keep these imports visible to language servers without importing the optional
+# plotting/reporting dependencies at runtime.  Dynamic module attributes are
+# otherwise invisible to hover, completion, and static type checkers.
+if TYPE_CHECKING:
+    from scope_profiler.html_report import create_html_report
+    from scope_profiler.inspection import collect_file_metadata, inspect_file
+    from scope_profiler.plotting_scripts import (
+        collect_region_statistics,
+        plot_duration_timeseries,
+        plot_durations,
+        plot_flame,
+        plot_flame_chart,
+        plot_flame_graph,
+        plot_gantt,
+        plot_rank_heatmap,
+        plot_scaling_efficiency,
+        plot_speedup,
+        plot_weak_scaling,
+        write_region_statistics_json,
+    )
+    from scope_profiler.prof_export import export_prof
+    from scope_profiler.speedscope_export import export_speedscope
 
 __all__ = [
     "CallArrays",
@@ -61,24 +61,67 @@ __all__ = [
     "build_call_stack",
     "call_stack_children",
     "call_stack_roots",
+    "collect_file_metadata",
+    "collect_region_statistics",
+    "create_html_report",
+    "export_prof",
+    "export_speedscope",
+    "inspect_file",
     "merge_results",
+    "plot_duration_timeseries",
+    "plot_durations",
+    "plot_flame",
+    "plot_flame_chart",
+    "plot_flame_graph",
+    "plot_gantt",
+    "plot_rank_heatmap",
+    "plot_scaling_efficiency",
+    "plot_speedup",
+    "plot_weak_scaling",
     "read_h5",
     "read_h5_summary",
-    *sorted(_LAZY_ATTRS),
+    "write_region_statistics_json",
 ]
 
 
-def __getattr__(name: str):
-    """Resolve the plotting and export helpers lazily; see ``_LAZY_ATTRS``."""
-    module_name = _LAZY_ATTRS.get(name)
-    if module_name is not None:
-        import importlib
+def __getattr__(name: str) -> Any:
+    """Load optional top-level helpers only when they are first used."""
+    if name in {
+        "collect_region_statistics",
+        "plot_duration_timeseries",
+        "plot_durations",
+        "plot_flame",
+        "plot_flame_chart",
+        "plot_flame_graph",
+        "plot_gantt",
+        "plot_rank_heatmap",
+        "plot_scaling_efficiency",
+        "plot_speedup",
+        "plot_weak_scaling",
+        "write_region_statistics_json",
+    }:
+        from scope_profiler import plotting_scripts
 
-        module = importlib.import_module(f"scope_profiler.{module_name}")
-        return getattr(module, name)
+        return getattr(plotting_scripts, name)
+    if name == "export_prof":
+        from scope_profiler.prof_export import export_prof
+
+        return export_prof
+    if name == "export_speedscope":
+        from scope_profiler.speedscope_export import export_speedscope
+
+        return export_speedscope
+    if name in {"collect_file_metadata", "inspect_file"}:
+        from scope_profiler import inspection
+
+        return getattr(inspection, name)
+    if name == "create_html_report":
+        from scope_profiler.html_report import create_html_report
+
+        return create_html_report
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def __dir__() -> list:
     """Include the lazily-resolved helpers in ``dir()``."""
-    return sorted(set(globals()) | set(_LAZY_ATTRS))
+    return sorted(set(globals()) | set(__all__))
