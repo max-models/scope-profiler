@@ -10,6 +10,8 @@ from io import StringIO
 from tabulate import tabulate
 
 from scope_profiler.h5reader import read_h5
+from scope_profiler.post_processing import parse_ranks
+from scope_profiler.summary import _name_selected
 
 
 def _source_lines(record):
@@ -48,6 +50,8 @@ def print_line_profile(
     ranks=None,
     function=None,
     region=None,
+    include=None,
+    exclude=None,
     stream=None,
     display_html=False,
 ):
@@ -71,6 +75,8 @@ def print_line_profile(
             if function_re and not function_re.search(record["function"]):
                 continue
             if region_re and not region_re.search(record["region"]):
+                continue
+            if not _name_selected(record["region"], include, exclude):
                 continue
             record_count += 1
             unit = record["unit"]
@@ -124,18 +130,41 @@ def main(argv=None):
     )
     parser.add_argument("file", help="HDF5 profiling file")
     parser.add_argument(
+        "--ranks",
         "--rank",
-        type=int,
-        action="append",
+        "-r",
+        nargs="*",
         dest="ranks",
-        help="rank to show (repeatable)",
+        default=["0"],
+        metavar="RANK",
+        help="Ranks to include. Supports comma-separated values and ranges (default: 0).",
+    )
+    parser.add_argument(
+        "--include",
+        "-i",
+        nargs="*",
+        help="Region names to include (regex patterns).",
+    )
+    parser.add_argument(
+        "--exclude",
+        "-e",
+        nargs="*",
+        help="Region names to exclude (regex patterns).",
     )
     parser.add_argument(
         "--function", help="regular expression selecting function names"
     )
     parser.add_argument("--region", help="regular expression selecting region names")
     args = parser.parse_args(argv)
+    ranks = None
+    if args.ranks:
+        ranks = sorted({rank for spec in args.ranks for rank in parse_ranks(spec)})
     print_line_profile(
-        args.file, ranks=args.ranks, function=args.function, region=args.region
+        args.file,
+        ranks=ranks,
+        function=args.function,
+        region=args.region,
+        include=args.include,
+        exclude=args.exclude,
     )
     return 0

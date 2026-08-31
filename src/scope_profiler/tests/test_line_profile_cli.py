@@ -21,15 +21,18 @@ def test_line_profile_cli_prints_persisted_records(tmp_path, capsys):
         "unit": 1e-9,
     }
     payload = RankPayload(
-        regions={"solve": (np.asarray([0]), np.asarray([1]))},
+        regions={
+            "solve": (np.asarray([0]), np.asarray([1])),
+            "setup": (np.asarray([0]), np.asarray([1])),
+        },
         likwid={},
         likwid_environment={},
-        line_profile=[record],
+        line_profile=[record, {**record, "region": "setup", "function": "setup"}],
     )
     with ProfilingWriter(path) as writer:
         writer.write_rank(0, payload)
 
-    assert main(["line-profile", str(path), "--function", "solve"]) == 0
+    assert main(["line-profile", str(path), "--include", "solve"]) == 0
     output = capsys.readouterr().out
     assert f"Rank 0 | solve | solve ({source_path}:10)" in output
     assert "│ 11" in output
@@ -38,9 +41,25 @@ def test_line_profile_cli_prints_persisted_records(tmp_path, capsys):
     assert "28.57" in output
     assert "if enabled:" in output
     assert "    total = 0" in output
+    assert "| setup |" not in output
+
+    assert main(["line-profile", str(path), "--exclude", "solve"]) == 0
+    output = capsys.readouterr().out
+    assert "| setup | setup" in output
+    assert "| solve | solve" not in output
 
 
 def test_line_profile_is_listed_in_top_level_help(capsys):
     with pytest.raises(SystemExit):
         main(["--help"])
     assert "line-profile" in capsys.readouterr().out
+
+
+def test_line_profile_help_matches_plot_selection_options(capsys):
+    with pytest.raises(SystemExit):
+        main(["line-profile", "--help"])
+    output = capsys.readouterr().out
+    assert "--ranks" in output
+    assert "--include" in output
+    assert "--exclude" in output
+    assert "default: 0" in output
