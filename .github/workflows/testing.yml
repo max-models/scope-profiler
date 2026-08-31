@@ -40,7 +40,7 @@ jobs:
             dist/*.whl
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/scope-profiler-wheel/bin/python" -c \
-            "import scope_profiler; assert scope_profiler.__version__ == '0.4.0'"
+            "from importlib.metadata import version; import scope_profiler; assert scope_profiler.__version__ == version('scope-profiler')"
           "$RUNNER_TEMP/scope-profiler-wheel/bin/python" -m scope_profiler --version
 
   typing:
