@@ -136,7 +136,8 @@ through as a plain argument list (no shell involved), matching how
 
 ### `plot_profile` (optional)
 
-Renders one figure (`gantt`, `flame`, `durations`, `timeseries`, `speedup`)
+Renders one figure (`gantt`, `flame_chart`, `flame_graph`, `durations`,
+`timeseries`, `speedup`)
 via the same functions `scope-profiler plot` uses, and returns the path it
 wrote. Most agent workflows should prefer the numbers from
 `inspect_profile`/`compare_profiles`; reach for this only when a human is

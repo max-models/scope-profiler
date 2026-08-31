@@ -143,7 +143,7 @@ single point and stay invisible between the lines.
 ## Comparing several runs
 
 Passing several files compares them. Each chart then either stacks one panel
-per file (Gantt, flame) or groups the files together (durations), and a
+per file (Gantt, flame chart, flame graph) or groups the files together (durations), and a
 speedup plot is added:
 
 ```bash
@@ -306,7 +306,7 @@ flame, heatmap, and hardware-counter visualizations.
 
 PyVis renders the interactive `callgraph` only; it cannot render timeline or
 flame charts. For example, use `scope-profiler plot callgraph run.h5 --backend
-pyvis`, or choose Matplotlib/Plotly for `flame`.
+pyvis`, or choose Matplotlib/Plotly for `flame_chart` or `flame_graph`.
 
 ## Exporting the data behind the charts
 

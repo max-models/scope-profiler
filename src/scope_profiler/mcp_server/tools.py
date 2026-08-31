@@ -51,6 +51,9 @@ _DEFAULT_TOP_N = 20
 #: needs those can still be pointed at the CLI.
 _PLOT_FUNCS = {
     "gantt": "plot_gantt",
+    "flame_chart": "plot_flame_chart",
+    "flame_graph": "plot_flame_graph",
+    # Keep the pre-0.4.0 MCP spelling working for existing clients.
     "flame": "plot_flame",
     "durations": "plot_durations",
     "timeseries": "plot_duration_timeseries",

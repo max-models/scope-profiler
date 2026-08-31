@@ -30,7 +30,7 @@ bin count, and imbalance metric. The include and exclude fields autocomplete
 region names from the loaded profile and accept comma-separated values. Press
 **Apply settings** before displaying or saving the plot.
 
-Available TUI plot types include Gantt, flame, durations, timeseries,
+Available TUI plot types include Gantt, flame chart, flame graph, durations, timeseries,
 histogram, imbalance, and any LIKWID metrics recorded in the file. Only the
 durations plot is rendered with Plotext inside the TUI; the other plots can be
 shown with Matplotlib, opened with Plotly, or saved as files. Install the
@@ -269,8 +269,8 @@ rendering charts, see `scope-profiler export` below.
 
 ```text
 usage: scope-profiler plot [-h]
-                           {list,default,all,quick,gantt,flame,durations,
-                            timeseries,speedup,histogram,imbalance,likwid}
+                           {list,default,all,quick,gantt,flame_chart,flame_graph,
+                            durations,timeseries,speedup,histogram,imbalance,likwid}
                            ...
 ```
 
@@ -331,7 +331,7 @@ passed. With `--backend plotly` the plots are written as `.html` instead of
 The `plotext` backend is available for simple plots (`durations`, `timeseries`,
 `speedup`, `weak_scaling`, `scaling_efficiency`, `histogram`, and `imbalance`).
 It writes plain terminal renderings as `.txt` files. Complex plots such as
-Gantt charts, flame graphs, heatmaps, and LIKWID charts remain on the
+Gantt charts, flame charts, flame graphs, heatmaps, and LIKWID charts remain on the
 Matplotlib or Plotly backends.
 
 For multiple files, the JSON includes per-file region statistics and the set of

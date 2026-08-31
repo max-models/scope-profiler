@@ -443,17 +443,19 @@ is inserted before the file extension, e.g. `durations_avg.png`,
 `durations_total.png`. `plot_durations` returns the list of filepaths it
 wrote (empty if `filepath` is `None`).
 
-## Flame graph from Python
+## Flame chart from Python
 
 ```python
-from scope_profiler.plotting_scripts import plot_flame
+from scope_profiler.plotting_scripts import plot_flame_chart
 
-plot_flame(results, ranks=[0], filepath="flame.png", show=True)
+plot_flame_chart(results, ranks=[0], filepath="flame_chart.png", show=True)
 ```
 
 The call stack is reconstructed from timestamp containment: a region whose
 interval falls inside another's becomes its child. Unlike the Gantt chart,
-the flame graph draws one panel per rank, defaulting to rank 0 only.
+the flame chart draws one panel per rank, defaulting to rank 0 only, with time
+on the horizontal axis. The aggregated flame graph is available as
+`plot_flame_graph` when the time axis is not needed.
 Frame labels use the full reconstructed call path (for example,
 `timestep > assembly > solve`), so same-named regions below different parents
 remain distinguishable. Colors still identify the underlying region. When
