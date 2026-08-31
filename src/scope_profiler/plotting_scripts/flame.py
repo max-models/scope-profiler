@@ -24,10 +24,7 @@ FLAME_CMAP = "inferno"
 
 def _print_interactive_backend_hint(backend: str, verbose: bool) -> None:
     if verbose and backend == "matplotlib":
-        print(
-            "For interactive flame-chart hover details, use "
-            "--backend plotly."
-        )
+        print("For interactive flame-chart hover details, use " "--backend plotly.")
 
 
 def plot_flame_chart(
@@ -462,11 +459,15 @@ def plot_flame_graph(
                 "inclusive_duration_seconds",
                 "exclusive_duration_seconds",
             ]
-            _write_csv(data_filepath, headers, [[row[key] for key in headers] for row in rows])
+            _write_csv(
+                data_filepath, headers, [[row[key] for key in headers] for row in rows]
+            )
     if verbose:
         print(
             "Plotting flame graph for: "
-            + ", ".join(f"{run.display_label} (rank {rank})" for run, rank, _ in prepared)
+            + ", ".join(
+                f"{run.display_label} (rank {rank})" for run, rank, _ in prepared
+            )
         )
     _print_interactive_backend_hint(backend, verbose)
 
