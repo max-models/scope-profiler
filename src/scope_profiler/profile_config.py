@@ -8,9 +8,11 @@ from time import perf_counter_ns
 from typing import TYPE_CHECKING, Any
 
 try:  # Python 3.11+
-    import tomllib
+    import tomllib as _tomllib
 except ModuleNotFoundError:  # Python 3.10
-    import tomli as tomllib
+    import tomli as _tomllib  # type: ignore[no-redef]
+
+tomllib = _tomllib
 
 from scope_profiler.metadata import collect_metadata
 from scope_profiler.mpi_launch import get_comm
@@ -218,7 +220,12 @@ def _liblikwid_search_dirs() -> list:
         dirs.extend([os.path.join(prefix, "lib"), os.path.join(prefix, "lib64")])
 
     seen = set()
-    return [d for d in dirs if os.path.isdir(d) and not (d in seen or seen.add(d))]
+    unique_dirs = []
+    for directory in dirs:
+        if os.path.isdir(directory) and directory not in seen:
+            seen.add(directory)
+            unique_dirs.append(directory)
+    return unique_dirs
 
 
 def _preload_liblikwid() -> bool:
@@ -524,7 +531,7 @@ class ProfilingConfig:
         if self._label is not None:
             self._metadata["label"] = self._label
 
-        self._pylikwid = None
+        self._pylikwid: Any = None
         # markerclose() must run exactly once: it writes the marker file and
         # tears the perfmon module down, so a second call (e.g. a second
         # finalize()) would have nothing left to close.
@@ -546,7 +553,8 @@ class ProfilingConfig:
 
     def pylikwid_markerinit(self):
         """Initialize LIKWID markers if LIKWID is enabled."""
-        self._pylikwid.markerinit()
+        if self._pylikwid is not None:
+            self._pylikwid.markerinit()
 
     def pylikwid_markerclose(self):
         """Close LIKWID markers to finalize measurement regions.

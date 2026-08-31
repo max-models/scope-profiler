@@ -323,10 +323,10 @@ class BaseProfileRegion:
     __slots__ = (
         "_completed",
         "_emitted",
+        "_paused_contexts",
         "_pop_scope",
         "_push_scope",
         "_scope_ptr_stack",
-        "_paused_contexts",
         "buffer_limit",
         "capacity",
         "config",

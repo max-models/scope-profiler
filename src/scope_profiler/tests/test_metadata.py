@@ -3,6 +3,7 @@
 import getpass
 import platform
 import socket
+from datetime import datetime
 
 import h5py
 
@@ -52,6 +53,8 @@ def test_basic_fields(monkeypatch):
     assert metadata["platform"] == platform.platform()
     assert metadata["python_version"] == platform.python_version()
     assert metadata["scope_profiler_version"]
+    timestamp = datetime.fromisoformat(metadata["timestamp"])
+    assert timestamp.utcoffset().total_seconds() == 0
     assert metadata["mpi_size"] == 2
     assert metadata["total_cores"] == 2 * metadata["omp_num_threads"]
 

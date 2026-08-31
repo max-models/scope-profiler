@@ -64,12 +64,12 @@ class Region:
         # array is built on first use: reconstructing the nesting is by far
         # the most expensive part of loading a run, and most callers
         # (durations, timelines, diffs) never ask for exclusive time at all.
-        self._exclusive_durations = None
-        self._exclusive_resolver = None
+        self._exclusive_durations: np.ndarray | None = None
+        self._exclusive_resolver: Any = None
         # Total exclusive nanoseconds computed by the writer, when the file
         # recorded one. Saves reconstructing the nesting for the common case
         # of reporting a region's exclusive time without its per-call values.
-        self._exclusive_total_ns = None
+        self._exclusive_total_ns: int | None = None
         self._aggregate = aggregate
         self._event_data_available = bool(event_data_available)
         self._num_calls = (
@@ -93,7 +93,7 @@ class Region:
             average_duration, min_duration, max_duration, first_duration,
             last_duration, and std_duration. Durations are in seconds.
         """
-        summary = {
+        summary: dict[str, Any] = {
             "num_calls": self.num_calls,
             "total_duration": self.total_duration,
             "inclusive_duration": self.inclusive_duration,
@@ -156,6 +156,7 @@ class Region:
         """
         if self._exclusive_durations is None:
             self._exclusive_durations = self._durations.copy()
+        assert self._exclusive_durations is not None
         return self._exclusive_durations
 
     def _resolved_exclusive_durations(self) -> np.ndarray:
@@ -167,6 +168,7 @@ class Region:
                 resolver()
             if self._exclusive_durations is None:
                 self._exclusive_durations = self._durations.copy()
+        assert self._exclusive_durations is not None
         return self._exclusive_durations
 
     def events(self, origin: float = 0.0) -> list[dict[str, Any]]:
@@ -204,7 +206,7 @@ class Region:
             }
             if gpu_durations is not None:
                 event["gpu_duration"] = float(gpu_durations[index])
-            if self._call_ids is not None:
+            if self._call_ids is not None and self._parent_ids is not None:
                 event["call_id"] = int(self._call_ids[index])
                 event["parent_id"] = int(self._parent_ids[index])
             events.append(event)
@@ -485,17 +487,17 @@ class Region:
         )
 
     @property
-    def p50_duration(self) -> float:
+    def p50_duration(self) -> float | None:
         """Median duration in seconds."""
         return self.percentile_duration(50)
 
     @property
-    def p95_duration(self) -> float:
+    def p95_duration(self) -> float | None:
         """95th-percentile duration in seconds."""
         return self.percentile_duration(95)
 
     @property
-    def p99_duration(self) -> float:
+    def p99_duration(self) -> float | None:
         """99th-percentile duration in seconds."""
         return self.percentile_duration(99)
 

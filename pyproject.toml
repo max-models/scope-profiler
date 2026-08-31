@@ -9,7 +9,8 @@ version = "0.4.0"
 description = "Profile code regions in python, optionally with LIKWID markers."
 readme = "README.md"
 keywords = [ "python" ]
-license = { file = "LICENSE.txt" }
+license = "MIT"
+license-files = [ "LICENSE.txt" ]
 authors = [ { name = "Max" } ]
 requires-python = ">=3.10"
 classifiers = [
@@ -78,6 +79,7 @@ optional-dependencies.graph = [
 optional-dependencies.dev = [
   "black[jupyter]",
   "isort >= 9.0.0",
+  "mypy >= 1.11.0",
   "ruff",
   "scope-profiler[docs,fortran,line-profiler,mcp,mpi,nvtx,pproc,test,tui]",
 ]
@@ -123,3 +125,22 @@ scope_profiler = [
 
 [tool.isort]
 profile = "black"
+
+[tool.mypy]
+# Incremental typing starts with the core public result/configuration objects.
+# Optional integrations and older dynamically typed code can be migrated
+# independently without weakening this check.
+files = [
+  "src/scope_profiler/profile_config.py",
+  "src/scope_profiler/region.py",
+  "src/scope_profiler/mpi_region.py",
+]
+# Run the checker on the lowest CI-supported modern typing environment. The
+# source remains constrained by requires-python >= 3.10.
+python_version = "3.12"
+check_untyped_defs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+follow_imports = "skip"
+no_implicit_optional = true
+warn_unused_ignores = true
