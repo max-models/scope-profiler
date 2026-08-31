@@ -515,8 +515,6 @@ def print_region_table(
     stream = sys.stdout if stream is None else stream
     if percentage_mode not in {"coverage", "exclusive"}:
         raise ValueError("percentage_mode must be 'coverage' or 'exclusive'")
-    selected_columns = normalize_region_table_columns(columns)
-
     if not rows:
         if title:
             print(title, file=stream)
@@ -527,6 +525,12 @@ def print_region_table(
         (root["total"] for root in rows if root["name"] == "scope_profiler.session"),
         None,
     )
+    if columns is None and session_total is None:
+        # Percentages are defined relative to the session root. When a
+        # filtered table does not contain that root, omit the unusable column
+        # from the default layout rather than filling it with dashes.
+        columns = ("region", "calls", "total", "avg")
+    selected_columns = normalize_region_table_columns(columns)
 
     formatted = [
         {
