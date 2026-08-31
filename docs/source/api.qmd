@@ -76,7 +76,7 @@ from scope_profiler import (
     build_call_stack,
     read_h5,
     read_h5_summary,
-    plot_flame,
+    plot_flame_chart,
     plot_gantt,
     write_region_statistics_json,
 )

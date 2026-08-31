@@ -94,7 +94,11 @@ jobs:
       - name: Test postprocessing
         run: |
           python3 src/scope_profiler/tests/examples.py
+          scope-profiler inspect profiling_data.h5 --regions-only --quiet
           scope-profiler plot default profiling_data.h5 --show -o figures
+          scope-profiler plot flame_chart profiling_data.h5 --backend plotly --show -o smoke-plots
+          scope-profiler plot flame_graph profiling_data.h5 --backend plotly --show -o smoke-plots
+          scope-profiler report profiling_data.h5 --show -o smoke-report.html
 
       - name: Run Python examples
         shell: bash

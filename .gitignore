@@ -178,6 +178,21 @@ junit/
 *.h5
 *.lprof
 
+# Local profiling examples and post-processing outputs
+report.html
+*_plot.png
+*_plot.html
+*_plot.txt
+*_data.json
+flame_matplotlib.png
+flame_plotly.html
+gantt_matplotlib.png
+speedup_matplotlib.png
+speedup_plotly.html
+durations_matplotlib.png
+durations_plotly.html
+sim_*/
+
 node_modules/
 package-lock.json
 package.json
