@@ -482,6 +482,7 @@ def print_region_table(
     total_time: float | None = None,
     columns=None,
     percentage_mode: str = "coverage",
+    file_path=None,
 ) -> None:
     """Print the aligned per-region statistics table.
 
@@ -511,6 +512,8 @@ def print_region_table(
     percentage_mode : {"coverage", "exclusive"}, optional
         Quantity used for the ``% session`` column. Wall-clock coverage is the
         default; exclusive time can be selected for attribution-focused tables.
+    file_path : str or Path, optional
+        File represented by the table, used for the help hints in the info box.
     """
     stream = sys.stdout if stream is None else stream
     if percentage_mode not in {"coverage", "exclusive"}:
@@ -590,8 +593,18 @@ def print_region_table(
 
     headers = [header for _, header in selected_columns]
     table_rows = [[row[key] for key, _ in selected_columns] for row in formatted]
-    _print_table(table_rows, headers, stream, title=title)
-    notes = ["Durations are in seconds."]
+    _print_table(table_rows, headers, stream)
+    notes = []
+    if title:
+        notes.append(f"Summary: {title}")
+    if file_path is not None:
+        notes.extend(
+            (
+                "Inspect: scope-profiler inspect <file.h5>",
+                "Plot: scope-profiler plot default <file.h5> -o plots",
+            )
+        )
+    notes.append("Durations are in seconds.")
     if len(rows) > 1:
         # Nested regions are counted in both the inner and the outer row, so
         # the summed total legitimately exceeds the run's wall-clock time.

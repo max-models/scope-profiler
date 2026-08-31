@@ -73,9 +73,8 @@ def test_label_leads_the_summary_heading(tmp_path, capsys):
 
     results.print_summary()
 
-    heading = capsys.readouterr().out.splitlines()[0]
-    assert heading.startswith("128 ranks - ")
-    assert "run.h5" in heading, "the path still identifies the file on disk"
+    info = next(line for line in capsys.readouterr().out.splitlines() if "Summary:" in line)
+    assert "Summary: 128 ranks - run.h5 (1 rank)" in info
 
 
 def test_plot_label_overrides_the_stored_one(tmp_path):

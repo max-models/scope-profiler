@@ -256,6 +256,7 @@ def inspect_file(
             total_time=results.total_time,
             columns=columns,
             percentage_mode=percentage_mode,
+            file_path=path,
         )
         print_likwid_tables(
             results, include=include, exclude=exclude, ranks=ranks, stream=stream
