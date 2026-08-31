@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.4.2 - 2026-08-31
+
+### Fixed
+
+- Included the refactored `scope_profiler.plotting_scripts` package in the
+  release artifact so top-level plotting imports work after installation.
+
 ## 0.4.0 - 2026-08-31
 
 ### Fixed
