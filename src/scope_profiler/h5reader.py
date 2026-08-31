@@ -621,6 +621,43 @@ def load_h5_summary(
     }
 
 
+def read_h5(file_path: str | Path, verbose: bool = False) -> ProfilingResults:
+    """
+    Load a merged profiling file for post-processing.
+
+    The discoverable spelling of
+    :meth:`ProfilingResults.from_h5
+    <scope_profiler.results.ProfilingResults.from_h5>`; the two are
+    interchangeable::
+
+        from scope_profiler import read_h5
+
+        results = read_h5("profiling_data.h5")
+        results.print_summary()
+
+        solve = results["solve"]        # same as results.get_region("solve")
+        solve[0].average_duration       # rank 0, in seconds
+
+    Parameters
+    ----------
+    file_path : str | Path
+        Path to the merged HDF5 file containing profiling data.
+    verbose : bool, optional
+        Print each rank group as it is read (default: False).
+
+    Returns
+    -------
+    ProfilingResults
+        The run's profiling data. All durations are reported in seconds.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the specified HDF5 file does not exist.
+    """
+    return ProfilingResults.from_h5(file_path, verbose=verbose)
+
+
 def read_h5_summary(
     file_path: str | Path,
     verbose: bool = False,
@@ -694,40 +731,3 @@ def read_h5_summary(
                 else {}
             )
         return results
-
-
-def read_h5(file_path: str | Path, verbose: bool = False) -> ProfilingResults:
-    """
-    Load a merged profiling file for post-processing.
-
-    The discoverable spelling of
-    :meth:`ProfilingResults.from_h5
-    <scope_profiler.results.ProfilingResults.from_h5>`; the two are
-    interchangeable::
-
-        from scope_profiler import read_h5
-
-        results = read_h5("profiling_data.h5")
-        results.print_summary()
-
-        solve = results["solve"]        # same as results.get_region("solve")
-        solve[0].average_duration       # rank 0, in seconds
-
-    Parameters
-    ----------
-    file_path : str | Path
-        Path to the merged HDF5 file containing profiling data.
-    verbose : bool, optional
-        Print each rank group as it is read (default: False).
-
-    Returns
-    -------
-    ProfilingResults
-        The run's profiling data. All durations are reported in seconds.
-
-    Raises
-    ------
-    FileNotFoundError
-        If the specified HDF5 file does not exist.
-    """
-    return ProfilingResults.from_h5(file_path, verbose=verbose)

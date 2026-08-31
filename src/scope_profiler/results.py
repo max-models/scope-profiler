@@ -336,6 +336,14 @@ class ProfilingResults:
                 )
         return pd.DataFrame(rows)
 
+    def _require_event_data(self, operation: str) -> None:
+        """Reject event-dependent operations on fixed-size summary results."""
+        if not self._event_data_available:
+            raise EventDataUnavailableError(
+                f"{operation}() requires per-call events, but this profile was "
+                "loaded with read_h5_summary(); load it with read_h5()"
+            )
+
     def events(
         self,
         include: list[str] | str | None = None,
@@ -743,14 +751,6 @@ class ProfilingResults:
     def has_event_data(self) -> bool:
         """Whether per-call timestamps are available to event-based APIs."""
         return self._event_data_available
-
-    def _require_event_data(self, operation: str) -> None:
-        """Reject event-dependent operations on fixed-size summary results."""
-        if not self._event_data_available:
-            raise EventDataUnavailableError(
-                f"{operation}() requires per-call events, but this profile was "
-                "loaded with read_h5_summary(); load it with read_h5()"
-            )
 
     @property
     def metadata(self) -> dict:
