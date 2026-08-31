@@ -541,10 +541,12 @@ def print_region_table(
             # The session root represents the complete run, so keep it at
             # 100% even when exclusive attribution is selected.
             "percent": _format_percentage(
-                row["total"]
-                if percentage_mode == "exclusive"
-                and row["name"] == "scope_profiler.session"
-                else row.get(percentage_mode),
+                (
+                    row["total"]
+                    if percentage_mode == "exclusive"
+                    and row["name"] == "scope_profiler.session"
+                    else row.get(percentage_mode)
+                ),
                 session_total,
             ),
             "avg": _format_duration(row["avg"]),
