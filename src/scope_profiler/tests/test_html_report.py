@@ -46,6 +46,18 @@ def test_report_can_omit_embedded_charts(tmp_path):
     assert "<h2>Charts</h2>" not in report.read_text(encoding="utf-8")
 
 
+def test_report_show_opens_generated_file(tmp_path, monkeypatch):
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    _write_sample_h5(profile, _sample_file_data(1, 10, 20))
+    opened = []
+    monkeypatch.setattr("webbrowser.open", lambda url: opened.append(url))
+
+    cli_main(["report", str(profile), "-o", str(report), "--no-charts", "--show"])
+
+    assert opened == [report.resolve().as_uri()]
+
+
 def test_report_overview_flags_hot_spot_and_imbalance(tmp_path):
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
@@ -110,9 +122,44 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
     assert "Timeline: profile" in document
     assert "Region durations" in document
     assert "Rank heatmap" in document
-    assert "Flame: profile" in document
+    assert "Flame chart: profile" in document
+    assert "Flame graph: profile" in document
     assert "data-plotlyjs=True" in document
     assert "data-plotlyjs=False" in document
+
+
+def test_report_limits_gantt_and_uses_exclusive_rank_heatmap(tmp_path, monkeypatch):
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    _write_sample_h5(profile, _sample_file_data(1, 10, 20))
+
+    from scope_profiler import plotting_scripts
+
+    captured = {}
+
+    class Figure:
+        def to_html(self, *, full_html, include_plotlyjs):
+            return "chart"
+
+    def fake_gantt(*args, **kwargs):
+        captured["gantt"] = kwargs
+
+    def fake_heatmap(*args, **kwargs):
+        captured["heatmap"] = kwargs
+        return Figure()
+
+    monkeypatch.setattr(plotting_scripts, "plot_gantt", fake_gantt)
+    monkeypatch.setattr(
+        plotting_scripts, "plot_durations", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(plotting_scripts, "plot_rank_heatmap", fake_heatmap)
+    monkeypatch.setattr(plotting_scripts, "plot_flame", lambda *args, **kwargs: None)
+
+    cli_main(["report", str(profile), "-o", str(report)])
+
+    assert captured["gantt"]["ranks"] == [0]
+    assert captured["heatmap"]["exclusive"] is True
+    assert "exclusive timings" in report.read_text(encoding="utf-8")
 
 
 def test_region_durations_chart_is_stacked_and_sorted_by_total(tmp_path, monkeypatch):

@@ -241,8 +241,9 @@ def create_server() -> FastMCP:
         Args:
             file_paths: One path, or a list of paths, to profiling files.
                 `plot_type="speedup"` requires at least two.
-            plot_type: One of "gantt", "flame", "durations", "timeseries",
-                "speedup".
+            plot_type: One of "gantt", "flame_chart", "flame_graph", "durations",
+                "timeseries", or "speedup". The legacy name "flame" is also
+                accepted as an alias for "flame_chart".
             output_dir: Directory to write the figure into. Defaults to a
                 new temporary directory.
             include: Only plot regions whose name matches one of these regex

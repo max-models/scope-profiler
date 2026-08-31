@@ -11,6 +11,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  package:
+    name: Build and smoke-test wheel (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Build distributions
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+          twine check dist/*
+
+      - name: Install wheel in a clean environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/scope-profiler-wheel"
+          "$RUNNER_TEMP/scope-profiler-wheel/bin/python" -m pip install \
+            dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/scope-profiler-wheel/bin/python" -c \
+            "from importlib.metadata import version; import scope_profiler; assert scope_profiler.__version__ == version('scope-profiler')"
+          "$RUNNER_TEMP/scope-profiler-wheel/bin/python" -m scope_profiler --version
+
+  typing:
+    name: Type check core public API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install development dependencies
+        run: python -m pip install --upgrade pip && pip install ".[dev]"
+
+      - name: Run incremental type check
+        run: mypy
   pytest:
     runs-on: ubuntu-latest
     permissions:
@@ -46,7 +94,11 @@ jobs:
       - name: Test postprocessing
         run: |
           python3 src/scope_profiler/tests/examples.py
+          scope-profiler inspect profiling_data.h5 --regions-only --quiet
           scope-profiler plot default profiling_data.h5 --show -o figures
+          scope-profiler plot flame_chart profiling_data.h5 --backend plotly --show -o smoke-plots
+          scope-profiler plot flame_graph profiling_data.h5 --backend plotly --show -o smoke-plots
+          scope-profiler report profiling_data.h5 --show -o smoke-report.html
 
       - name: Run Python examples
         shell: bash

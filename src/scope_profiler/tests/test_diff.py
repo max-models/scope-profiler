@@ -180,6 +180,38 @@ def test_diff_files_prints_table(file_a, file_b, capsys):
     assert "Only in b: teardown" in out
 
 
+def test_diff_files_uses_summary_reader_for_scalar_metrics(
+    tmp_path, monkeypatch, capsys
+):
+    from scope_profiler.h5writer import ProfilingWriter
+    from scope_profiler.profile_manager import RankPayload
+
+    paths = []
+    for name, duration in (("a", NS), ("b", 2 * NS)):
+        path = tmp_path / f"{name}.h5"
+        rank_payload = RankPayload(
+            regions={
+                "solve": (
+                    np.asarray([0], dtype=np.int64),
+                    np.asarray([duration], dtype=np.int64),
+                )
+            },
+            likwid={},
+            likwid_environment={},
+            exclusive_totals={"solve": duration},
+        )
+        with ProfilingWriter(path) as writer:
+            writer.write_rank(0, rank_payload)
+        paths.append(path)
+
+    def reject_eager_read(*args, **kwargs):
+        raise AssertionError("scalar diff used the eager reader")
+
+    monkeypatch.setattr("scope_profiler.diff.read_h5", reject_eager_read)
+    diff_files(*paths, metric="total")
+    assert "+100%" in capsys.readouterr().out
+
+
 def test_diff_files_only_in_a_note(file_a, file_b, capsys):
     diff_files(file_b, file_a)
     out = capsys.readouterr().out

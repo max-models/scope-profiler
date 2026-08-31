@@ -15,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
-from scope_profiler.h5reader import read_h5
+from scope_profiler.h5reader import read_h5, read_h5_summary
 from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import (
     REGION_TABLE_COLUMNS,
@@ -153,7 +153,7 @@ def _print_region_sources(results, names, stream) -> None:
             )
             continue
         region = results.get_region(name)
-        if not region.has_source:
+        if not region.has_source or region.source_text is None:
             print(f"  {name}: source not captured", file=stream)
             continue
         print(f"  {name}  ({region.source_file}:{region.source_lineno})", file=stream)
@@ -173,6 +173,7 @@ def inspect_file(
     full: bool = False,
     source: list | None = None,
     columns=None,
+    percentage_mode: str = "coverage",
     stream=None,
 ) -> None:
     """Print a summary of one profiling HDF5 file.
@@ -200,11 +201,21 @@ def inspect_file(
     columns : list of str or str, optional
         Region summary columns to print. Defaults to ``region``, ``calls``,
         ``percent``, ``total`` and ``avg``.
+    percentage_mode : {"coverage", "exclusive"}, optional
+        Quantity used for ``% session``. Defaults to wall-clock coverage.
     stream : file-like, optional
         Where to write (default: stdout).
     """
     stream = sys.stdout if stream is None else stream
-    results = read_h5(file_path)
+    # Region tables preserve the event-derived call-tree hierarchy. Metadata
+    # and source-only inspection needs no event data and uses the compact path.
+    results = (
+        read_h5(file_path)
+        if show_regions
+        else read_h5_summary(
+            file_path, include_likwid=False, include_line_profile=False
+        )
+    )
 
     path = Path(results.file_path)
     size_mb = path.stat().st_size / 1024**2
@@ -231,7 +242,12 @@ def inspect_file(
 
     if show_regions:
         rows = region_rows(
-            results, include=include, exclude=exclude, ranks=ranks, sort=sort
+            results,
+            include=include,
+            exclude=exclude,
+            ranks=ranks,
+            sort=sort,
+            percentage_mode=percentage_mode,
         )
         print_region_table(
             rows,
@@ -239,6 +255,8 @@ def inspect_file(
             stream=stream,
             total_time=results.total_time,
             columns=columns,
+            percentage_mode=percentage_mode,
+            file_path=path,
         )
         print_likwid_tables(
             results, include=include, exclude=exclude, ranks=ranks, stream=stream
@@ -288,7 +306,11 @@ def collect_file_metadata(
 
     files = []
     for item in profiling_data:
-        results = item if isinstance(item, ProfilingResults) else read_h5(item)
+        results = (
+            item
+            if isinstance(item, ProfilingResults)
+            else read_h5_summary(item, include_likwid=False, include_line_profile=False)
+        )
         files.append(
             {
                 "file_path": str(Path(results.file_path).resolve()),
@@ -370,6 +392,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Region table columns to print (default: region calls percent total avg)",
     )
     parser.add_argument(
+        "--percentage-mode",
+        choices=("coverage", "exclusive"),
+        default="coverage",
+        help="How to calculate %% session (default: coverage)",
+    )
+    parser.add_argument(
         "--full",
         action="store_true",
         help="Print long metadata values (PATH, LD_LIBRARY_PATH, ...) in full",
@@ -437,6 +465,7 @@ def main(argv: list | None = None):
             full=args.full,
             source=args.source,
             columns=args.columns,
+            percentage_mode=args.percentage_mode,
         )
         printed += 1
 

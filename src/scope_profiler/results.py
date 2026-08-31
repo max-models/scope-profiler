@@ -10,6 +10,7 @@ plotting functions, the exporters) cannot tell them apart.
 """
 
 import functools
+import os
 import re
 from collections.abc import Iterator
 from pathlib import Path
@@ -18,7 +19,7 @@ import numpy as np
 
 from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.mpi_region import MPIRegion
-from scope_profiler.region import NS_PER_SECOND
+from scope_profiler.region import NS_PER_SECOND, EventDataUnavailableError
 
 
 class ProfilingResults:
@@ -90,6 +91,7 @@ class ProfilingResults:
         file_path: str | Path = "",
         is_root: bool = True,
         exclusive_totals: dict[str, dict[int, int]] | None = None,
+        event_data_available: bool = True,
     ) -> None:
         """
         Assemble a result set from already-loaded regions.
@@ -126,6 +128,7 @@ class ProfilingResults:
         self._likwid = dict(likwid or {})
         self._line_profile = dict(line_profile or {})
         self._file_path = Path(file_path)
+        self._event_data_available = bool(event_data_available)
         if num_ranks is None:
             ranks = {rank for region in self._region_dict.values() for rank in region}
             num_ranks = len(ranks)
@@ -333,6 +336,14 @@ class ProfilingResults:
                 )
         return pd.DataFrame(rows)
 
+    def _require_event_data(self, operation: str) -> None:
+        """Reject event-dependent operations on fixed-size summary results."""
+        if not self._event_data_available:
+            raise EventDataUnavailableError(
+                f"{operation}() requires per-call events, but this profile was "
+                "loaded with read_h5_summary(); load it with read_h5()"
+            )
+
     def events(
         self,
         include: list[str] | str | None = None,
@@ -381,6 +392,7 @@ class ProfilingResults:
         >>> for event in results.events(include="solve"):  # doctest: +SKIP
         ...     print(event["rank"], event["start"], event["duration"])
         """
+        self._require_event_data("events")
         if origin is None:
             origin = self.time_origin if relative else 0.0
         events = []
@@ -416,6 +428,7 @@ class ProfilingResults:
         ImportError
             If pandas is not installed.
         """
+        self._require_event_data("to_events_dataframe")
         try:
             import pandas as pd
         except ImportError as exc:
@@ -471,6 +484,7 @@ class ProfilingResults:
             ``parent`` (the enclosing call's id, or None). See
             :func:`~scope_profiler.call_stack.build_call_stack`.
         """
+        self._require_event_data("call_stack")
         from scope_profiler.call_stack import build_call_stack
 
         if origin is None:
@@ -570,6 +584,7 @@ class ProfilingResults:
         stream=None,
         suppress_notes: bool = False,
         columns: list[str] | str | None = None,
+        percentage_mode: str = "coverage",
     ) -> None:
         """
         Print a region summary table, aggregated over ranks.
@@ -596,6 +611,9 @@ class ProfilingResults:
             ``calls``, ``percent``, ``total`` and ``avg``. The
             percentage is relative to ``scope_profiler.session``. Use
             ``region`` for the region-name column.
+        percentage_mode : {"coverage", "exclusive"}, optional
+            Quantity used for ``% session``. Defaults to wall-clock coverage;
+            use ``exclusive`` to attribute time after nested regions.
 
         Notes
         -----
@@ -608,7 +626,12 @@ class ProfilingResults:
             return
 
         rows = region_rows(
-            self, include=include, exclude=exclude, ranks=ranks, sort=sort
+            self,
+            include=include,
+            exclude=exclude,
+            ranks=ranks,
+            sort=sort,
+            percentage_mode=percentage_mode,
         )
         if title is None:
             title = self.default_title()
@@ -619,6 +642,8 @@ class ProfilingResults:
             suppress_notes=suppress_notes,
             total_time=self.total_time,
             columns=columns,
+            percentage_mode=percentage_mode,
+            file_path=self.file_path,
         )
 
     def default_title(self) -> str:
@@ -632,9 +657,11 @@ class ProfilingResults:
         Returns
         -------
         str
-            e.g. ``"128 ranks - results/run_a.h5  (128 rank(s))"``.
+            e.g. ``"results/run_a.h5 (128 ranks)"``.
         """
-        title = f"{self.file_path}  ({self.num_ranks} rank(s))"
+        rank_label = "rank" if self.num_ranks == 1 else "ranks"
+        relative_path = os.path.relpath(self.file_path)
+        title = f"{relative_path} ({self.num_ranks} {rank_label})"
         if self.label is not None:
             title = f"{self.label} - {title}"
         return title
@@ -719,6 +746,11 @@ class ProfilingResults:
             True unless this is a non-root rank's share of an MPI run.
         """
         return self._is_root
+
+    @property
+    def has_event_data(self) -> bool:
+        """Whether per-call timestamps are available to event-based APIs."""
+        return self._event_data_available
 
     @property
     def metadata(self) -> dict:

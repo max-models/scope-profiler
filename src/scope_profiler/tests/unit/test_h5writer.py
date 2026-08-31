@@ -1,10 +1,16 @@
 """The write side of the HDF5 layout, and its contract with the reader."""
 
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import h5py
 import numpy as np
 import pytest
 
-from scope_profiler import read_h5
+from scope_profiler import EventDataUnavailableError, read_h5, read_h5_summary
+from scope_profiler.h5reader import SummaryDataUnavailable
 from scope_profiler.h5schema import (
     CURRENT_SCHEMA_VERSION,
     SCHEMA_ATTRIBUTE,
@@ -12,6 +18,7 @@ from scope_profiler.h5schema import (
 )
 from scope_profiler.h5writer import ProfilingWriter, write_metadata, write_rank_payload
 from scope_profiler.profile_manager import RankPayload
+from scope_profiler.summary import region_rows
 
 NS = 1_000_000_000
 
@@ -49,6 +56,178 @@ def test_rank_group_holds_the_recorded_timestamps(tmp_path):
         # The reader recovers metadata from the top level, never from a rank.
         assert handle.attrs["storage_layout"] == "columnar"
         assert handle["metadata"].attrs["hostname"] == "node0"
+
+
+def test_summary_reader_matches_eager_scalar_statistics_without_reading_events(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "summary.h5"
+    with ProfilingWriter(path, {"mpi_size": 2}) as writer:
+        writer.write_rank(
+            0,
+            payload(
+                {
+                    "solve": (
+                        [0, 10 * NS, 20 * NS],
+                        [2 * NS, 14 * NS, 26 * NS],
+                        [7, 11, 13],
+                    )
+                },
+                exclusive_totals={"solve": 9 * NS},
+            ),
+        )
+        writer.write_rank(
+            1,
+            payload(
+                {"solve": ([3 * NS, 30 * NS], [8 * NS, 38 * NS])},
+                exclusive_totals={"solve": 13 * NS},
+            ),
+        )
+
+    eager_row = region_rows(read_h5(path), sort="total")[0]
+    original_getitem = h5py.Dataset.__getitem__
+
+    def reject_event_reads(dataset, key):
+        if dataset.name.startswith("/events/"):
+            raise AssertionError(f"summary reader touched {dataset.name}")
+        return original_getitem(dataset, key)
+
+    monkeypatch.setattr(h5py.Dataset, "__getitem__", reject_event_reads)
+    summary_results = read_h5_summary(path, fallback=False)
+    summary_row = region_rows(summary_results, sort="total")[0]
+
+    for key in (
+        "calls",
+        "total",
+        "avg",
+        "min",
+        "max",
+        "first",
+        "last",
+        "std",
+        "imbalance",
+        "start",
+    ):
+        assert summary_row[key] == pytest.approx(eager_row[key])
+    assert summary_row["p95"] is None
+    summary_region = summary_results["solve"]
+    assert summary_region.average_duration == pytest.approx(eager_row["avg"])
+    assert summary_region.min_duration == pytest.approx(eager_row["min"])
+    assert summary_region.max_duration == pytest.approx(eager_row["max"])
+    assert summary_region.std_duration == pytest.approx(eager_row["std"])
+    assert summary_region.p95_duration is None
+    assert summary_region.exclusive_duration == pytest.approx(22.0)
+    assert summary_region.gpu_total_duration == pytest.approx(31e-9)
+    assert summary_region.gpu_average_duration == pytest.approx(31 / 3 * 1e-9)
+    assert summary_results.has_event_data is False
+    assert summary_region.has_event_data is False
+    with pytest.raises(EventDataUnavailableError, match="read_h5"):
+        summary_results.events()
+    with pytest.raises(EventDataUnavailableError, match="read_h5"):
+        summary_results.call_stack()
+    with pytest.raises(EventDataUnavailableError, match="read_h5"):
+        summary_region[0].events()
+
+
+def test_summary_reader_filters_regions_and_ranks(tmp_path):
+    path = tmp_path / "filtered.h5"
+    with ProfilingWriter(path, {"mpi_size": 2}) as writer:
+        writer.write_rank(0, payload({"solve": ([0], [NS]), "other": ([0], [2 * NS])}))
+        writer.write_rank(
+            1, payload({"solve": ([0], [2 * NS]), "other": ([0], [3 * NS])})
+        )
+
+    loaded = read_h5_summary(
+        path,
+        fallback=False,
+        regions="solve",
+        ranks=1,
+        include_likwid=False,
+        include_line_profile=False,
+    )
+    assert loaded.region_names == ["solve"]
+    assert loaded["solve"].ranks == [1]
+    assert loaded["solve"].total_duration == pytest.approx(2.0)
+    assert loaded.num_ranks == 2
+
+
+def test_summary_reader_validates_fixed_index_structure(tmp_path):
+    path = tmp_path / "invalid_summary.h5"
+    with ProfilingWriter(path) as writer:
+        writer.write_rank(0, payload({"solve": ([0], [NS])}))
+    with h5py.File(path, "r+") as handle:
+        summary = handle["rank_region_index/summary_statistics"]
+        data = summary[()]
+        del handle["rank_region_index/summary_statistics"]
+        handle["rank_region_index"].create_dataset(
+            "summary_statistics", data=np.zeros(len(data), dtype=[("total", "i8")])
+        )
+    with pytest.raises(HDF5SchemaError, match="missing field"):
+        read_h5_summary(path, fallback=False)
+
+
+def test_summary_reader_can_skip_auxiliary_data(tmp_path, monkeypatch):
+    path = tmp_path / "auxiliary.h5"
+    record = {
+        "region": "solve",
+        "filename": "app.py",
+        "function": "solve",
+        "first_lineno": 10,
+        "line_numbers": np.asarray([11]),
+        "hits": np.asarray([1]),
+        "times": np.asarray([10.0]),
+        "unit": 1e-9,
+    }
+    with ProfilingWriter(path) as writer:
+        writer.write_rank(0, payload({"solve": ([0], [NS])}, line_profile=[record]))
+    loaded = read_h5_summary(path, fallback=False, include_line_profile=False)
+    assert loaded.line_profile == {}
+
+
+@pytest.mark.skipif(
+    not Path("/proc/self/statm").exists(), reason="Linux RSS unavailable"
+)
+def test_summary_reader_rss_does_not_scale_with_event_count(tmp_path):
+    path = tmp_path / "rss.h5"
+    count = 250_000
+    starts = np.arange(count, dtype=np.int64)
+    with ProfilingWriter(path) as writer:
+        writer.write_rank(0, payload({"solve": (starts, starts + 1)}))
+
+    script = """
+import resource, sys
+from scope_profiler import read_h5_summary
+before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+result = read_h5_summary(sys.argv[1], fallback=False, include_likwid=False, include_line_profile=False)
+assert result['solve'].num_calls == 250000
+after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+print(after - before)
+"""
+    env = os.environ.copy()
+    source_root = str(Path(__file__).resolve().parents[3])
+    env["PYTHONPATH"] = source_root + os.pathsep + env.get("PYTHONPATH", "")
+    completed = subprocess.run(
+        [sys.executable, "-c", script, str(path)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    # Linux reports KiB; the summary path should stay comfortably below the
+    # event payload size rather than materializing hundreds of thousands of rows.
+    assert int(completed.stdout.strip()) < 16 * 1024
+
+
+def test_summary_reader_falls_back_for_older_schema_two_files(tmp_path):
+    path = tmp_path / "old_schema_two.h5"
+    with ProfilingWriter(path) as writer:
+        writer.write_rank(0, payload({"solve": ([0], [NS])}))
+    with h5py.File(path, "r+") as handle:
+        del handle["rank_region_index/summary_statistics"]
+
+    assert read_h5_summary(path)["solve"].total_duration == pytest.approx(1.0)
+    with pytest.raises(SummaryDataUnavailable, match="summary statistics"):
+        read_h5_summary(path, fallback=False)
 
 
 def test_legacy_file_without_schema_version_still_reads(tmp_path):

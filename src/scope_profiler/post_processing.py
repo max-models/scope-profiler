@@ -10,11 +10,13 @@ from pathlib import Path
 from scope_profiler.h5reader import read_h5
 from scope_profiler.plotting_scripts import (
     DEFAULT_CMAP,
+    FLAME_CMAP,
     plot_callgraph,
     plot_duration_histogram,
     plot_duration_timeseries,
     plot_durations,
-    plot_flame,
+    plot_flame_chart,
+    plot_flame_graph,
     plot_gantt,
     plot_imbalance,
     plot_likwid,
@@ -35,7 +37,8 @@ from scope_profiler.speedscope_export import export_speedscope
 _PLOT_CATALOG: dict[str, tuple[str, bool]] = {
     "gantt": ("per-rank timeline of every call", True),
     "density": ("binned timeline occupancy heatmap", False),
-    "flame": ("reconstructed call-stack flame graph", False),
+    "flame_chart": ("time-based nested call-stack flame chart", False),
+    "flame_graph": ("aggregated call-stack flame graph", False),
     "callgraph": ("parent/child call graph from explicit call ids", False),
     "durations": ("bar chart of duration statistics per region", True),
     "timeseries": ("duration per call over wall-clock time", False),
@@ -65,6 +68,7 @@ _PLOTEXT_SIMPLE_PLOTS = frozenset(
     }
 )
 _PYVIS_PLOTS = frozenset({"callgraph"})
+_PLOT_ALIASES = {"flame": "flame_chart"}
 
 
 @dataclass(frozen=True)
@@ -713,7 +717,8 @@ def _render_selected_plots(
         plot_name in selected_plots
         for plot_name in (
             "gantt",
-            "flame",
+            "flame_chart",
+            "flame_graph",
             "durations",
             "timeseries",
             "histogram",
@@ -730,8 +735,19 @@ def _render_selected_plots(
     density_data_path = _data_path(
         data_output_dir, selected_plots, "density", "timeline_density_data", data_format
     )
-    flame_data_path = _data_path(
-        data_output_dir, selected_plots, "flame", "flame_data", data_format
+    flame_chart_data_path = _data_path(
+        data_output_dir,
+        selected_plots,
+        "flame_chart",
+        "flame_chart_data",
+        data_format,
+    )
+    flame_graph_data_path = _data_path(
+        data_output_dir,
+        selected_plots,
+        "flame_graph",
+        "flame_graph_data",
+        data_format,
     )
     callgraph_data_path = _data_path(
         data_output_dir, selected_plots, "callgraph", "callgraph_data", data_format
@@ -829,21 +845,37 @@ def _render_selected_plots(
         )
         saved.extend(path for path in (path, density_data_path) if path)
 
-    if "flame" in selected_plots:
-        path = image_path("flame", "flame_plot")
-        plot_flame(
+    if "flame_chart" in selected_plots:
+        path = image_path("flame_chart", "flame_chart_plot")
+        plot_flame_chart(
             runs,
             filepath=path,
             show=args.show,
             include=args.include,
             exclude=args.exclude,
             ranks=args.ranks,
-            cmap=args.cmap,
-            data_filepath=flame_data_path,
+            cmap=FLAME_CMAP if args.cmap == DEFAULT_CMAP else args.cmap,
+            data_filepath=flame_chart_data_path,
             data_format=data_format,
             backend=args.backend,
         )
-        saved.extend(path for path in (path, flame_data_path) if path)
+        saved.extend(path for path in (path, flame_chart_data_path) if path)
+
+    if "flame_graph" in selected_plots:
+        path = image_path("flame_graph", "flame_graph_plot")
+        plot_flame_graph(
+            runs,
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            cmap=FLAME_CMAP if args.cmap == DEFAULT_CMAP else args.cmap,
+            data_filepath=flame_graph_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
+        saved.extend(path for path in (path, flame_graph_data_path) if path)
 
     if "callgraph" in selected_plots:
         path = image_path("callgraph", "callgraph_plot")
@@ -1038,13 +1070,15 @@ def main(argv: list[str] | None = None):
     # Keep the concise form ``scope-profiler plot FILE [OPTIONS]`` as an
     # alias for the default preset. Explicit plot kinds continue to work as
     # subcommands, e.g. ``scope-profiler plot gantt FILE``.
-    plot_kinds = {"list", "default", "all", "quick", *_PLOT_CATALOG}
+    plot_kinds = {"list", "default", "all", "quick", *_PLOT_CATALOG, *_PLOT_ALIASES}
     if (
         plot_argv
         and not plot_argv[0].startswith("-")
         and plot_argv[0] not in plot_kinds
     ):
         plot_argv.insert(0, "default")
+    if plot_argv and plot_argv[0] in _PLOT_ALIASES:
+        plot_argv[0] = _PLOT_ALIASES[plot_argv[0]]
     args = parser.parse_args(plot_argv)
 
     if args.plot_kind == "list":

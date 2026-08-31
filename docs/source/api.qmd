@@ -75,7 +75,8 @@ from scope_profiler import (
     build_call_arrays,
     build_call_stack,
     read_h5,
-    plot_flame,
+    read_h5_summary,
+    plot_flame_chart,
     plot_gantt,
     write_region_statistics_json,
 )
@@ -104,6 +105,14 @@ interchangeable.
 
 ```{eval-rst}
 .. autofunction:: scope_profiler.h5reader.read_h5
+```
+
+### read_h5_summary
+
+Load fixed-size scalar statistics without reading per-call event columns.
+
+```{eval-rst}
+.. autofunction:: scope_profiler.h5reader.read_h5_summary
 ```
 
 ### Native (C and Fortran) traces
@@ -195,7 +204,8 @@ couple of seconds instead of a couple of minutes.
 
 ```{eval-rst}
 .. autofunction:: scope_profiler.plotting_scripts.plot_gantt
-.. autofunction:: scope_profiler.plotting_scripts.plot_flame
+.. autofunction:: scope_profiler.plotting_scripts.plot_flame_chart
+.. autofunction:: scope_profiler.plotting_scripts.plot_flame_graph
 .. autofunction:: scope_profiler.plotting_scripts.plot_durations
 .. autofunction:: scope_profiler.plotting_scripts.plot_duration_timeseries
 .. autofunction:: scope_profiler.plotting_scripts.plot_speedup

@@ -6,15 +6,14 @@ values such as ``SLURM_PROCID`` therefore reflect rank 0.
 """
 
 import ctypes
-import datetime
 import getpass
 import os
 import platform
 import socket
 import subprocess
-from typing import Union
+from datetime import datetime, timezone
 
-MetadataValue = Union[str, int, list[str]]
+MetadataValue = str | int | list[str]
 
 # Common OpenMP runtime library names across platforms/compilers.
 _OMP_LIBRARY_NAMES = (
@@ -181,7 +180,9 @@ def collect_metadata(mpi_size: int = 1) -> dict[str, MetadataValue]:
     omp_num_threads = _detect_omp_num_threads()
 
     metadata: dict[str, MetadataValue] = {
-        "timestamp": datetime.datetime.now().isoformat(),
+        # Wall-clock metadata is explicitly UTC. Timing data itself remains
+        # on perf_counter_ns(), whose monotonic origin is process-local.
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "hostname": socket.gethostname(),
         "platform": platform.platform(),
         "uname": " ".join(platform.uname()),

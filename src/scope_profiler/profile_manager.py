@@ -1390,12 +1390,11 @@ class ProfileManager:
         if verbose and rank == 0 and write_file:
             from scope_profiler.h5reader import read_h5
 
-            read_h5(config.file_path).print_summary(
-                title=f"{config.file_path}  ({size} rank(s))"
-            )
+            read_h5(config.file_path).print_summary()
         elif verbose and not write_file:
+            rank_label = "rank" if size == 1 else "ranks"
             results.print_summary(
-                title=f"{results.display_label}  (in memory, {size} rank(s))"
+                title=f"{results.display_label} (in memory, {size} {rank_label})"
             )
 
         if config.use_line_profiler and verbose_line_profiler:
@@ -1427,9 +1426,11 @@ class ProfileManager:
             if name == _ProfilingSession.ROOT_REGION_NAME:
                 continue
             open_slots = getattr(region, "open_slots", None)
-            if open_slots is not None and len(open_slots()):
-                active.append(name)
-            elif getattr(region, "_stack", None):
+            if (
+                open_slots is not None
+                and len(open_slots())
+                or getattr(region, "_stack", None)
+            ):
                 active.append(name)
         if active:
             names = ", ".join(repr(name) for name in active[:3])

@@ -230,7 +230,8 @@ def test_plot_section_exposes_existing_plot_kinds(sample_file):
     assert [child.label for child in plots.children] == [
         "Gantt",
         "Durations",
-        "Flame",
+        "Flame chart",
+        "Flame graph",
         "Callgraph",
         "Timeseries",
         "Histogram",
@@ -443,6 +444,28 @@ def test_textual_navigation_renders_line_profile(line_profile_file):
             detail = str(app.query_one("#detail").render())
             assert "Rank 0 | solve | solve" in detail
             assert "    total = 0" in detail
+
+    asyncio.run(scenario())
+
+
+def test_detail_view_scrolls_long_line_profile_content(line_profile_file):
+    import asyncio
+
+    from scope_profiler.tui import _build_textual_app_class
+
+    app = _build_textual_app_class()(build_browser_model(line_profile_file))
+
+    async def scenario():
+        async with app.run_test(size=(80, 20)) as pilot:
+            detail = app.query_one("#detail")
+            detail.update("\n".join(f"line {index}" for index in range(100)))
+            await pilot.pause()
+
+            viewport = app.query_one("#detail-scroll")
+            assert viewport.max_scroll_y > 0
+            viewport.scroll_to(y=viewport.max_scroll_y, animate=False)
+            await pilot.pause()
+            assert viewport.scroll_y > 0
 
     asyncio.run(scenario())
 

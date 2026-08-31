@@ -25,15 +25,13 @@ from pathlib import Path
 
 import numpy as np
 
-from scope_profiler.benchmark import (
-    BenchmarkError,
-)
+from scope_profiler.benchmark import BenchmarkError
 from scope_profiler.benchmark import compare_benchmarks as _compare_benchmarks
 from scope_profiler.benchmark import load_config
 from scope_profiler.benchmark import run_benchmark as _run_benchmark
 from scope_profiler.diff import METRICS as DIFF_METRICS
 from scope_profiler.diff import diff_rows
-from scope_profiler.h5reader import read_h5
+from scope_profiler.h5reader import read_h5, read_h5_summary
 from scope_profiler.inspection import (
     _metadata_sections,
     _time_span,
@@ -53,6 +51,9 @@ _DEFAULT_TOP_N = 20
 #: needs those can still be pointed at the CLI.
 _PLOT_FUNCS = {
     "gantt": "plot_gantt",
+    "flame_chart": "plot_flame_chart",
+    "flame_graph": "plot_flame_graph",
+    # Keep the pre-0.4.0 MCP spelling working for existing clients.
     "flame": "plot_flame",
     "durations": "plot_durations",
     "timeseries": "plot_duration_timeseries",
@@ -84,6 +85,20 @@ def _read_profile(file_path: str) -> ProfilingResults:
     """Load a profiling file, translating failures into a :class:`ToolError`."""
     try:
         return read_h5(file_path)
+    except FileNotFoundError as exc:
+        raise ToolError(str(exc)) from exc
+    except Exception as exc:
+        raise ToolError(
+            f"Could not read {file_path!r} as a profiling file: {exc}"
+        ) from exc
+
+
+def _read_summary_profile(file_path: str) -> ProfilingResults:
+    """Load scalar statistics without touching event columns when available."""
+    try:
+        return read_h5_summary(
+            file_path, include_likwid=False, include_line_profile=False
+        )
     except FileNotFoundError as exc:
         raise ToolError(str(exc)) from exc
     except Exception as exc:
@@ -243,8 +258,9 @@ def compare_profiles(
     if top_n is not None and top_n < 1:
         raise ToolError("top_n must be a positive integer, or None/0 for no limit")
 
-    baseline = _read_profile(baseline_path)
-    candidate = _read_profile(candidate_path)
+    reader = _read_profile if metric in {"p50", "p95", "p99"} else _read_summary_profile
+    baseline = reader(baseline_path)
+    candidate = reader(candidate_path)
 
     rows = diff_rows(
         baseline,

@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 import scope_profiler
-from scope_profiler import MPIRegion, Region, read_h5
+from scope_profiler import MPIRegion, ProfilingResults, Region, read_h5
 
 NS = 1_000_000_000
 
@@ -83,6 +83,71 @@ def test_region_percentile_rejects_invalid_values():
         region.percentile_duration(-1)
     with pytest.raises(ValueError):
         region.percentile_duration(101)
+
+
+def test_summary_collapses_self_recursive_paths():
+    """Recursive invocations share one aggregate row in the summary."""
+    results = ProfilingResults(
+        {
+            "outer": MPIRegion(
+                "outer",
+                {0: Region(np.array([0]), np.array([100]))},
+            ),
+            "fib": MPIRegion(
+                "fib",
+                {0: Region(np.array([10, 20, 30]), np.array([90, 80, 70]))},
+            ),
+        }
+    )
+
+    from scope_profiler.summary import region_rows
+
+    rows = region_rows(results)
+
+    assert [row["name"] for row in rows] == ["outer", "fib"]
+    assert rows[1]["recursive"] is True
+    assert rows[1]["calls"] == 3
+
+
+def test_summary_percentages_use_fixed_point_until_tiny():
+    from scope_profiler.summary import _format_percentage
+
+    assert _format_percentage(1, 1) == "100.00%"
+    assert _format_percentage(0.001, 1) == "0.10%"
+    assert _format_percentage(0.00001, 1) == "1.0e-03%"
+
+
+def test_summary_percentage_uses_coverage_for_nested_regions(capsys):
+    results = ProfilingResults(
+        {
+            "scope_profiler.session": MPIRegion(
+                "scope_profiler.session",
+                {0: Region(np.array([0]), np.array([100]))},
+            ),
+            "outer": MPIRegion(
+                "outer",
+                {0: Region(np.array([10]), np.array([90]))},
+            ),
+            "inner": MPIRegion(
+                "inner",
+                {0: Region(np.array([20]), np.array([80]))},
+            ),
+        }
+    )
+
+    results.print_summary()
+    output = capsys.readouterr().out
+
+    assert "100.00%" in output
+    assert "80.00%" in output
+    assert "60.00%" in output
+    assert "100.00%" in output
+
+    results.print_summary(percentage_mode="exclusive")
+    exclusive_output = capsys.readouterr().out
+    assert "100.00%" in exclusive_output
+    assert "20.00%" in exclusive_output
+    assert "60.00%" in exclusive_output
 
 
 def test_region_without_any_calls_is_safe():
@@ -185,6 +250,7 @@ def test_reader_print_summary(sample_file, capsys):
     out = capsys.readouterr().out
     header = next(line for line in out.splitlines() if "region" in line)
     assert "region" in header and "total [s]" in header and "avg [s]" in header
+    assert "% session" not in header
     assert "min [s]" not in header and "std [s]" not in header
     assert "setup" in out and "solve" in out
     # sample_file carries no start_time_ns/finalize_time_ns, so total_time is

@@ -21,7 +21,7 @@ try:  # Python 3.11+
 except ModuleNotFoundError:  # Python 3.10
     import tomli as tomllib
 
-from scope_profiler.h5reader import read_h5
+from scope_profiler.h5reader import read_h5_summary
 
 
 class BenchmarkError(Exception):
@@ -119,7 +119,7 @@ def _profile_once(config: BenchmarkConfig, path: Path) -> dict:
         )
     if not path.exists():
         raise BenchmarkError(f"Benchmark run produced no profile: {path}")
-    results = read_h5(path)
+    results = read_h5_summary(path, include_likwid=False, include_line_profile=False)
     total = results.total_time
     if total is None or not math.isfinite(total):
         raise BenchmarkError(f"Profile has no finite total time: {path}")

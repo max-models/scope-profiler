@@ -21,6 +21,7 @@ profiling_data.h5
 ├── rank_region_index/
 │   ├── region_ids, ranks
 │   ├── event_offsets, event_counts
+│   ├── summary_statistics   (fixed-size per-rank/region statistics)
 │   └── source_files, source_lines, source_texts, tags
 ├── events/
 │   ├── start_times           (int64, nanoseconds)
@@ -110,6 +111,45 @@ for region in results.get_regions():
 
 Durations and timestamps on `Region` and `MPIRegion` are reported in
 **seconds**, converted from the nanoseconds stored in the file.
+
+### Reading summaries without loading events
+
+Large profiles can contain millions of events. Use `read_h5_summary()` when
+you only need metadata or scalar region statistics:
+
+```python
+from scope_profiler import read_h5_summary
+
+results = read_h5_summary("profiling_data.h5")
+for region in results.get_regions():
+    print(region.name, region.num_calls, region.total_duration)
+```
+
+For large runs, restrict the compact read to selected region names or ranks,
+and skip optional profiler payloads when they are not needed:
+
+```python
+results = read_h5_summary(
+    "profiling_data.h5",
+    regions=["solve", "exchange"],
+    ranks=[0, 1],
+    include_likwid=False,
+    include_line_profile=False,
+)
+```
+
+This reads one fixed-size record per rank/region instead of the event-sized
+timestamp, call-ID, and GPU columns. Counts, totals, averages, min/max,
+first/last, standard deviation, rank imbalance, wall-clock span, GPU totals,
+sources, metadata, and exclusive totals remain exact. Per-call events, call
+trees, timelines, and percentiles require `read_h5()`; percentile properties
+are `None` on summary-only results.
+
+Files created before summary records were added are accepted by default and
+fall back to `read_h5()`. Pass `fallback=False` to require the bounded-memory
+path instead. The `diff`, `check`, benchmark, metadata-only inspection, and
+MCP comparison paths select this reader automatically when their requested
+metric can be computed exactly from the stored statistics.
 
 ### Filtering regions
 
@@ -403,17 +443,19 @@ is inserted before the file extension, e.g. `durations_avg.png`,
 `durations_total.png`. `plot_durations` returns the list of filepaths it
 wrote (empty if `filepath` is `None`).
 
-## Flame graph from Python
+## Flame chart from Python
 
 ```python
-from scope_profiler.plotting_scripts import plot_flame
+from scope_profiler.plotting_scripts import plot_flame_chart
 
-plot_flame(results, ranks=[0], filepath="flame.png", show=True)
+plot_flame_chart(results, ranks=[0], filepath="flame_chart.png", show=True)
 ```
 
 The call stack is reconstructed from timestamp containment: a region whose
 interval falls inside another's becomes its child. Unlike the Gantt chart,
-the flame graph draws one panel per rank, defaulting to rank 0 only.
+the flame chart draws one panel per rank, defaulting to rank 0 only, with time
+on the horizontal axis. The aggregated flame graph is available as
+`plot_flame_graph` when the time axis is not needed.
 Frame labels use the full reconstructed call path (for example,
 `timestep > assembly > solve`), so same-named regions below different parents
 remain distinguishable. Colors still identify the underlying region. When
