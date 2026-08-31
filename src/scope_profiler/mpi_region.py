@@ -398,17 +398,17 @@ class MPIRegion:
         return None if self.num_calls else 0.0
 
     @property
-    def p50_duration(self) -> float:
+    def p50_duration(self) -> float | None:
         """Median duration across all ranks, in seconds."""
         return self.percentile_duration(50)
 
     @property
-    def p95_duration(self) -> float:
+    def p95_duration(self) -> float | None:
         """95th-percentile duration across all ranks, in seconds."""
         return self.percentile_duration(95)
 
     @property
-    def p99_duration(self) -> float:
+    def p99_duration(self) -> float | None:
         """99th-percentile duration across all ranks, in seconds."""
         return self.percentile_duration(99)
 
