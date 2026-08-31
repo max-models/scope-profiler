@@ -143,6 +143,12 @@ def test_summary_percentage_uses_coverage_for_nested_regions(capsys):
     assert "60.00%" in output
     assert "100.00%" in output
 
+    results.print_summary(percentage_mode="exclusive")
+    exclusive_output = capsys.readouterr().out
+    assert "100.00%" in exclusive_output
+    assert "20.00%" in exclusive_output
+    assert "60.00%" in exclusive_output
+
 
 def test_region_without_any_calls_is_safe():
     """A region that recorded nothing still answers every query."""

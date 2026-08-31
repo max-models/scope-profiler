@@ -173,6 +173,7 @@ def inspect_file(
     full: bool = False,
     source: list | None = None,
     columns=None,
+    percentage_mode: str = "coverage",
     stream=None,
 ) -> None:
     """Print a summary of one profiling HDF5 file.
@@ -200,6 +201,8 @@ def inspect_file(
     columns : list of str or str, optional
         Region summary columns to print. Defaults to ``region``, ``calls``,
         ``percent``, ``total`` and ``avg``.
+    percentage_mode : {"coverage", "exclusive"}, optional
+        Quantity used for ``% session``. Defaults to wall-clock coverage.
     stream : file-like, optional
         Where to write (default: stdout).
     """
@@ -239,7 +242,12 @@ def inspect_file(
 
     if show_regions:
         rows = region_rows(
-            results, include=include, exclude=exclude, ranks=ranks, sort=sort
+            results,
+            include=include,
+            exclude=exclude,
+            ranks=ranks,
+            sort=sort,
+            percentage_mode=percentage_mode,
         )
         print_region_table(
             rows,
@@ -247,6 +255,7 @@ def inspect_file(
             stream=stream,
             total_time=results.total_time,
             columns=columns,
+            percentage_mode=percentage_mode,
         )
         print_likwid_tables(
             results, include=include, exclude=exclude, ranks=ranks, stream=stream
@@ -382,6 +391,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Region table columns to print (default: region calls percent total avg)",
     )
     parser.add_argument(
+        "--percentage-mode",
+        choices=("coverage", "exclusive"),
+        default="coverage",
+        help="How to calculate %% session (default: coverage)",
+    )
+    parser.add_argument(
         "--full",
         action="store_true",
         help="Print long metadata values (PATH, LD_LIBRARY_PATH, ...) in full",
@@ -449,6 +464,7 @@ def main(argv: list | None = None):
             full=args.full,
             source=args.source,
             columns=args.columns,
+            percentage_mode=args.percentage_mode,
         )
         printed += 1
 

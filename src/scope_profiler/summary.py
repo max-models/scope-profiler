@@ -238,7 +238,7 @@ def _covered_duration(per_rank) -> float | None:
     return total if found else None
 
 
-def region_row(region, ranks=None) -> dict:
+def region_row(region, ranks=None, *, include_exclusive: bool = False) -> dict:
     """Collect the summary statistics shown for one region.
 
     Duration entries are ``None`` when the region has no recorded calls for
@@ -255,6 +255,19 @@ def region_row(region, ranks=None) -> dict:
     first, last = _first_last_durations(region, ranks)
     calls = sum(data.num_calls for data in per_rank.values())
     coverage = _covered_duration(per_rank)
+    exclusive = None
+    if include_exclusive:
+        from scope_profiler.call_stack import NestingError
+        from scope_profiler.region import EventDataUnavailableError
+
+        try:
+            exclusive = float(
+                sum(data.exclusive_duration for data in per_rank.values())
+            )
+        except (NestingError, EventDataUnavailableError):
+            # Legacy profiles may contain overlapping events, for which an
+            # exclusive call tree cannot be reconstructed.
+            exclusive = float(sum(data.total_duration for data in per_rank.values()))
     if not durations.size and calls:
         # Aggregate-only regions intentionally have no per-call duration
         # array. Their scalar statistics are still sufficient for the summary
@@ -270,6 +283,7 @@ def region_row(region, ranks=None) -> dict:
             "calls": calls,
             "total": total,
             "coverage": coverage,
+            "exclusive": exclusive,
             "avg": total / calls,
             "min": min(minimums),
             "max": max(maximums),
@@ -291,6 +305,7 @@ def region_row(region, ranks=None) -> dict:
         "calls": calls,
         "total": float(np.sum(durations)) if durations.size else None,
         "coverage": coverage,
+        "exclusive": exclusive,
         "avg": float(np.mean(durations)) if durations.size else None,
         "min": float(np.min(durations)) if durations.size else None,
         "max": float(np.max(durations)) if durations.size else None,
@@ -314,6 +329,7 @@ def region_rows(
     exclude=None,
     ranks=None,
     sort: str = "start",
+    percentage_mode: str = "coverage",
 ) -> list:
     """Build the summary rows for every region a result set exposes.
 
@@ -328,9 +344,14 @@ def region_rows(
     sort : str, optional
         One of :data:`SORT_KEYS`: ``start`` (default), ``total``, ``calls``, ``avg``,
         ``min``, ``max`` and ``std`` sort descending, ``name`` alphabetically.
+    percentage_mode : {"coverage", "exclusive"}, optional
+        Quantity used for the ``% session`` column. Wall-clock coverage is the
+        default; exclusive time can be selected for attribution-focused tables.
     """
+    if percentage_mode not in {"coverage", "exclusive"}:
+        raise ValueError("percentage_mode must be 'coverage' or 'exclusive'")
     rows = [
-        region_row(region, ranks)
+        region_row(region, ranks, include_exclusive=percentage_mode == "exclusive")
         for region in results.get_regions(include=include, exclude=exclude)
     ]
     rows_by_name = {row["name"]: row for row in rows}
@@ -460,6 +481,7 @@ def print_region_table(
     suppress_notes: bool = False,
     total_time: float | None = None,
     columns=None,
+    percentage_mode: str = "coverage",
 ) -> None:
     """Print the aligned per-region statistics table.
 
@@ -486,8 +508,13 @@ def print_region_table(
         relative to ``scope_profiler.session``. The public name for the first
         column is ``region``; ``name`` is accepted as an alias for Python
         callers.
+    percentage_mode : {"coverage", "exclusive"}, optional
+        Quantity used for the ``% session`` column. Wall-clock coverage is the
+        default; exclusive time can be selected for attribution-focused tables.
     """
     stream = sys.stdout if stream is None else stream
+    if percentage_mode not in {"coverage", "exclusive"}:
+        raise ValueError("percentage_mode must be 'coverage' or 'exclusive'")
     selected_columns = normalize_region_table_columns(columns)
 
     if not rows:
@@ -507,9 +534,15 @@ def print_region_table(
             "ranks": str(row["num_ranks"]),
             "calls": _format_count(row["calls"]),
             "total": _format_duration(row["total"]),
-            # Coverage counts overlapping recursive calls once, keeping a
-            # child percentage bounded by the scope that contains it.
-            "percent": _format_percentage(row["coverage"], session_total),
+            # The session root represents the complete run, so keep it at
+            # 100% even when exclusive attribution is selected.
+            "percent": _format_percentage(
+                row["total"]
+                if percentage_mode == "exclusive"
+                and row["name"] == "scope_profiler.session"
+                else row.get(percentage_mode),
+                session_total,
+            ),
             "avg": _format_duration(row["avg"]),
             "min": _format_duration(row["min"]),
             "max": _format_duration(row["max"]),
@@ -552,9 +585,7 @@ def print_region_table(
     headers = [header for _, header in selected_columns]
     table_rows = [[row[key] for key, _ in selected_columns] for row in formatted]
     _print_table(table_rows, headers, stream, title=title)
-    if not suppress_notes:
-        print("\n  Durations are in seconds.", file=stream)
-    notes = []
+    notes = ["Durations are in seconds."]
     if len(rows) > 1:
         # Nested regions are counted in both the inner and the outer row, so
         # the summed total legitimately exceeds the run's wall-clock time.
@@ -567,14 +598,20 @@ def print_region_table(
         notes.append(
             "% session uses wall-clock coverage; overlapping recursive calls "
             "count once."
+            if percentage_mode == "coverage"
+            else "% session uses exclusive time for each region."
         )
     if any(row["total"] is None for row in rows):
         notes.append(
             "Regions shown without timing recorded no calls on the selected ranks."
         )
     if not suppress_notes and notes:
+        width = max(len(note) for note in notes)
+        print(file=stream)
+        print(f"  ╭─ Info {'─' * max(1, width - 5)}╮", file=stream)
         for note in notes:
-            print(f"\n  {note}", file=stream)
+            print(f"  │ {note:<{width}} │", file=stream)
+        print(f"  ╰{'─' * (width + 2)}╯", file=stream)
 
     # Trailing blank line so whatever follows (line-profiler stats, a second
     # file's table) is not pressed against the last row.

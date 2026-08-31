@@ -575,6 +575,7 @@ class ProfilingResults:
         stream=None,
         suppress_notes: bool = False,
         columns: list[str] | str | None = None,
+        percentage_mode: str = "coverage",
     ) -> None:
         """
         Print a region summary table, aggregated over ranks.
@@ -601,6 +602,9 @@ class ProfilingResults:
             ``calls``, ``percent``, ``total`` and ``avg``. The
             percentage is relative to ``scope_profiler.session``. Use
             ``region`` for the region-name column.
+        percentage_mode : {"coverage", "exclusive"}, optional
+            Quantity used for ``% session``. Defaults to wall-clock coverage;
+            use ``exclusive`` to attribute time after nested regions.
 
         Notes
         -----
@@ -613,7 +617,12 @@ class ProfilingResults:
             return
 
         rows = region_rows(
-            self, include=include, exclude=exclude, ranks=ranks, sort=sort
+            self,
+            include=include,
+            exclude=exclude,
+            ranks=ranks,
+            sort=sort,
+            percentage_mode=percentage_mode,
         )
         if title is None:
             title = self.default_title()
@@ -624,6 +633,7 @@ class ProfilingResults:
             suppress_notes=suppress_notes,
             total_time=self.total_time,
             columns=columns,
+            percentage_mode=percentage_mode,
         )
 
     def default_title(self) -> str:
