@@ -74,7 +74,9 @@ def plot_rank_heatmap(
         print("Plotting rank × region duration heatmap")
 
     if data_filepath:
-        duration_name = "exclusive_duration_seconds" if exclusive else "total_duration_seconds"
+        duration_name = (
+            "exclusive_duration_seconds" if exclusive else "total_duration_seconds"
+        )
         header = ["file", "rank", "region", duration_name]
         if data_format == "json":
             _write_json(
@@ -139,7 +141,9 @@ def plot_rank_heatmap(
 
     if not single_panel:
         canvas.suptitle(
-            "Rank × region exclusive duration" if exclusive else "Rank × region duration"
+            "Rank × region exclusive duration"
+            if exclusive
+            else "Rank × region duration"
         )
     rendered = _ps._render(canvas, filepath, show, backend, return_fig=return_fig)
     return rendered if return_fig else None

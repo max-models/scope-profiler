@@ -73,7 +73,9 @@ def test_label_leads_the_summary_heading(tmp_path, capsys):
 
     results.print_summary()
 
-    info = next(line for line in capsys.readouterr().out.splitlines() if "Summary:" in line)
+    info = next(
+        line for line in capsys.readouterr().out.splitlines() if "Summary:" in line
+    )
     assert "Summary: 128 ranks - " in info
     assert "run.h5 (1 rank)" in info
 

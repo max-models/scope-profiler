@@ -148,7 +148,9 @@ def test_report_limits_gantt_and_uses_exclusive_rank_heatmap(tmp_path, monkeypat
         return Figure()
 
     monkeypatch.setattr(plotting_scripts, "plot_gantt", fake_gantt)
-    monkeypatch.setattr(plotting_scripts, "plot_durations", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        plotting_scripts, "plot_durations", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(plotting_scripts, "plot_rank_heatmap", fake_heatmap)
     monkeypatch.setattr(plotting_scripts, "plot_flame", lambda *args, **kwargs: None)
 

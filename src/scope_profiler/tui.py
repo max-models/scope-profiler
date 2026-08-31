@@ -948,7 +948,7 @@ def _build_textual_app_class():
     try:
         from rich.text import Text
         from textual.app import App, ComposeResult
-        from textual.containers import Horizontal, Vertical
+        from textual.containers import Horizontal, Vertical, VerticalScroll
         from textual.suggester import Suggester
         from textual.widgets import (
             Button,
@@ -960,7 +960,6 @@ def _build_textual_app_class():
             Static,
             Tree,
         )
-        from textual.containers import VerticalScroll
     except ImportError as exc:
         raise RuntimeError(
             "The interactive TUI requires Textual. Install it with "
