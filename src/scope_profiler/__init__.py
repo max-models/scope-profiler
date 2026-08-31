@@ -15,7 +15,7 @@ from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.mpi_region import MPIRegion
 from scope_profiler.profile_config import ProfilingOptions
 from scope_profiler.profile_manager import ProfileManager
-from scope_profiler.region import Region
+from scope_profiler.region import EventDataUnavailableError, Region
 from scope_profiler.results import ProfilingResults, merge_results
 
 try:
@@ -47,6 +47,7 @@ _LAZY_ATTRS = {
 
 __all__ = [
     "CallArrays",
+    "EventDataUnavailableError",
     "LikwidRegionResult",
     "MPIRegion",
     "NestingError",

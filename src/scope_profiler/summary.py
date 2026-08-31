@@ -312,11 +312,12 @@ def region_rows(
     seen_paths = set()
     selected_ranks = range(results.num_ranks) if ranks is None else ranks
     from scope_profiler.call_stack import NestingError
+    from scope_profiler.region import EventDataUnavailableError
 
     for rank in selected_ranks:
         try:
             calls = results.call_stack(rank=rank, include=include, exclude=exclude)
-        except NestingError:
+        except (NestingError, EventDataUnavailableError):
             # Keep summary output available for legacy profiles containing
             # overlapping intervals that cannot form a call tree.
             continue

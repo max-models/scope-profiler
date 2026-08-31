@@ -125,6 +125,19 @@ for region in results.get_regions():
     print(region.name, region.num_calls, region.total_duration)
 ```
 
+For large runs, restrict the compact read to selected region names or ranks,
+and skip optional profiler payloads when they are not needed:
+
+```python
+results = read_h5_summary(
+    "profiling_data.h5",
+    regions=["solve", "exchange"],
+    ranks=[0, 1],
+    include_likwid=False,
+    include_line_profile=False,
+)
+```
+
 This reads one fixed-size record per rank/region instead of the event-sized
 timestamp, call-ID, and GPU columns. Counts, totals, averages, min/max,
 first/last, standard deviation, rank imbalance, wall-clock span, GPU totals,

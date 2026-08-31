@@ -119,7 +119,7 @@ def _profile_once(config: BenchmarkConfig, path: Path) -> dict:
         )
     if not path.exists():
         raise BenchmarkError(f"Benchmark run produced no profile: {path}")
-    results = read_h5_summary(path)
+    results = read_h5_summary(path, include_likwid=False, include_line_profile=False)
     total = results.total_time
     if total is None or not math.isfinite(total):
         raise BenchmarkError(f"Profile has no finite total time: {path}")

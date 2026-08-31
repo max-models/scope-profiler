@@ -207,9 +207,16 @@ def diff_files(
         Where to write (default: stdout).
     """
     stream = sys.stdout if stream is None else stream
-    reader = read_h5_summary if metric in _SUMMARY_METRICS else read_h5
-    results_a = reader(file_a)
-    results_b = reader(file_b)
+    if metric in _SUMMARY_METRICS:
+        results_a = read_h5_summary(
+            file_a, include_likwid=False, include_line_profile=False
+        )
+        results_b = read_h5_summary(
+            file_b, include_likwid=False, include_line_profile=False
+        )
+    else:
+        results_a = read_h5(file_a)
+        results_b = read_h5(file_b)
 
     print("=" * 78, file=stream)
     print(f"a: {results_a.default_title()}", file=stream)
@@ -276,8 +283,15 @@ def check_files(
 ) -> int:
     """Print a CI regression report and return 0 for pass, 1 for failure."""
     stream = sys.stdout if stream is None else stream
-    reader = read_h5_summary if metric in _SUMMARY_METRICS else read_h5
-    results_a, results_b = reader(file_a), reader(file_b)
+    if metric in _SUMMARY_METRICS:
+        results_a = read_h5_summary(
+            file_a, include_likwid=False, include_line_profile=False
+        )
+        results_b = read_h5_summary(
+            file_b, include_likwid=False, include_line_profile=False
+        )
+    else:
+        results_a, results_b = read_h5(file_a), read_h5(file_b)
     failures = check_rows(
         results_a,
         results_b,

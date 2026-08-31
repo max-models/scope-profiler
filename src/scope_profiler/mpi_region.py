@@ -51,6 +51,11 @@ class MPIRegion:
         """Whether any rank recorded timestamps for this region."""
         return any(region.has_timing for region in self._regions.values())
 
+    @property
+    def has_event_data(self) -> bool:
+        """Whether every represented rank has per-call timestamps loaded."""
+        return all(region.has_event_data for region in self._regions.values())
+
     def _first_captured(self, attr: str):
         """First non-None value of ``attr`` across ranks, in rank order.
 

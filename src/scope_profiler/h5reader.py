@@ -9,12 +9,13 @@ arguments.
 """
 
 import json
+from copy import copy
 from pathlib import Path
 
 import h5py
 import numpy as np
 
-from scope_profiler.h5schema import migrate_schema, read_schema_version
+from scope_profiler.h5schema import HDF5SchemaError, migrate_schema, read_schema_version
 from scope_profiler.likwid_data import LIKWID_GROUP, LikwidRegionResult
 from scope_profiler.mpi_region import MPIRegion
 from scope_profiler.region import Region
@@ -26,6 +27,74 @@ class SummaryDataUnavailable(ValueError):
 
 
 _SUMMARY_DATASET = "summary_statistics"
+_SUMMARY_FIELDS = frozenset(
+    {
+        "total",
+        "minimum",
+        "maximum",
+        "first",
+        "last",
+        "start_minimum",
+        "end_maximum",
+        "gpu_count",
+        "gpu_total",
+        "mean",
+        "m2",
+    }
+)
+_SUMMARY_ROW_DATASETS = (
+    "region_ids",
+    "ranks",
+    "event_counts",
+    "source_lines",
+    "source_files",
+    "source_texts",
+    "tags",
+    _SUMMARY_DATASET,
+)
+
+
+def _validate_summary_index(index, num_region_names: int) -> int:
+    """Validate fixed-size row columns before constructing summary objects."""
+    missing = [name for name in _SUMMARY_ROW_DATASETS if name not in index]
+    if missing:
+        raise HDF5SchemaError(
+            "schema-2 summary index is missing dataset(s): " + ", ".join(missing)
+        )
+    row_count = len(index["region_ids"])
+    for name in _SUMMARY_ROW_DATASETS:
+        dataset = index[name]
+        if dataset.ndim != 1 or len(dataset) != row_count:
+            raise HDF5SchemaError(
+                f"rank_region_index/{name} must be one-dimensional with "
+                f"{row_count} rows, got shape {dataset.shape}"
+            )
+
+    fields = index[_SUMMARY_DATASET].dtype.names
+    missing_fields = sorted(_SUMMARY_FIELDS - set(fields or ()))
+    if missing_fields:
+        raise HDF5SchemaError(
+            "summary_statistics is missing field(s): " + ", ".join(missing_fields)
+        )
+
+    region_ids = index["region_ids"][()]
+    if len(region_ids) and (
+        np.any(region_ids < 0) or np.any(region_ids >= num_region_names)
+    ):
+        raise HDF5SchemaError("summary index contains an out-of-range region id")
+    ranks = index["ranks"][()]
+    pairs = list(zip(region_ids.tolist(), ranks.tolist()))
+    if len(set(pairs)) != len(pairs):
+        raise HDF5SchemaError("summary index contains a duplicate rank/region row")
+    return row_count
+
+
+def _selection_set(values, *, coerce):
+    if values is None:
+        return None
+    if isinstance(values, (str, int)):
+        values = [values]
+    return {coerce(value) for value in values}
 
 
 def _decode_attribute(value):
@@ -356,7 +425,15 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
     }
 
 
-def load_h5_summary(file_path: str | Path, verbose: bool = False) -> dict:
+def load_h5_summary(
+    file_path: str | Path,
+    verbose: bool = False,
+    *,
+    include_likwid: bool = True,
+    include_line_profile: bool = True,
+    regions: str | list[str] | tuple[str, ...] | None = None,
+    ranks: int | list[int] | tuple[int, ...] | None = None,
+) -> dict:
     """Parse fixed-size profile statistics without reading event datasets.
 
     Summary columns were added compatibly within schema 2. Files that predate
@@ -365,6 +442,8 @@ def load_h5_summary(file_path: str | Path, verbose: bool = False) -> dict:
     normal eager reader by default.
     """
     file_path = Path(file_path)
+    selected_names = _selection_set(regions, coerce=str)
+    selected_ranks = _selection_set(ranks, coerce=int)
     if not file_path.exists():
         raise FileNotFoundError(f"HDF5 file not found: {file_path}")
 
@@ -388,6 +467,29 @@ def load_h5_summary(file_path: str | Path, verbose: bool = False) -> dict:
         layout = h5file.attrs.get("storage_layout", "columnar")
         if layout == "aggregate":
             per_region, region_names, exclusive_totals = _read_aggregate_regions(h5file)
+            region_names = [
+                name
+                for name in region_names
+                if selected_names is None or name in selected_names
+            ]
+            per_region = {
+                name: {
+                    rank: region
+                    for rank, region in per_region[name].items()
+                    if selected_ranks is None or rank in selected_ranks
+                }
+                for name in region_names
+            }
+            region_names = [name for name in region_names if per_region[name]]
+            exclusive_totals = {
+                name: {
+                    rank: total
+                    for rank, total in rank_totals.items()
+                    if selected_ranks is None or rank in selected_ranks
+                }
+                for name, rank_totals in exclusive_totals.items()
+                if name in per_region
+            }
         else:
             index = h5file["rank_region_index"]
             if _SUMMARY_DATASET not in index:
@@ -395,26 +497,57 @@ def load_h5_summary(file_path: str | Path, verbose: bool = False) -> dict:
                     "profiling file has no fixed-size summary statistics"
                 )
 
-            region_names = [
+            all_region_names = [
                 _decode_attribute(value) for value in h5file["region_table/names"][()]
             ]
-            region_ids = index["region_ids"][()]
-            ranks = index["ranks"][()]
-            counts = index["event_counts"][()]
-            source_lines = index["source_lines"][()]
-            source_files = index["source_files"][()]
-            source_texts = index["source_texts"][()]
-            tag_blobs = index["tags"][()]
-            summary_statistics = index[_SUMMARY_DATASET][()]
+            row_count = _validate_summary_index(index, len(all_region_names))
+            all_region_ids = index["region_ids"][()]
+            all_ranks = index["ranks"][()]
+            keep = np.ones(row_count, dtype=bool)
+            if selected_names is not None:
+                keep &= np.fromiter(
+                    (
+                        all_region_names[int(region_id)] in selected_names
+                        for region_id in all_region_ids
+                    ),
+                    dtype=bool,
+                    count=row_count,
+                )
+            if selected_ranks is not None:
+                keep &= np.isin(all_ranks, list(selected_ranks))
+            selected_rows = np.flatnonzero(keep)
+
+            def read_selected(name):
+                dataset = index[name]
+                if len(selected_rows):
+                    return dataset[selected_rows]
+                return np.empty(0, dtype=dataset.dtype)
+
+            region_ids = all_region_ids[selected_rows]
+            row_ranks = all_ranks[selected_rows]
+            counts = read_selected("event_counts")
+            source_lines = read_selected("source_lines")
+            source_files = read_selected("source_files")
+            source_texts = read_selected("source_texts")
+            tag_blobs = read_selected("tags")
+            summary_statistics = read_selected(_SUMMARY_DATASET)
             exclusive_column = (
-                index["exclusive_totals"][()] if "exclusive_totals" in index else None
+                read_selected("exclusive_totals")
+                if "exclusive_totals" in index
+                else None
             )
 
+            used_region_ids = {int(region_id) for region_id in region_ids}
+            region_names = [
+                name
+                for region_id, name in enumerate(all_region_names)
+                if region_id in used_region_ids
+            ]
             per_region = {name: {} for name in region_names}
             for row, (region_id, rank, count) in enumerate(
-                zip(region_ids, ranks, counts)
+                zip(region_ids, row_ranks, counts)
             ):
-                name = region_names[int(region_id)]
+                name = all_region_names[int(region_id)]
                 rank = int(rank)
                 aggregate = {
                     "count": int(count),
@@ -444,6 +577,7 @@ def load_h5_summary(file_path: str | Path, verbose: bool = False) -> dict:
                     source_lineno=source_line if source_line >= 0 else None,
                     source_text=_decode_attribute(source_texts[row]) or None,
                     tags=tuple(json.loads(_decode_attribute(tag_blobs[row]) or "[]")),
+                    event_data_available=False,
                 )
 
         rank_group_names = sorted(
@@ -453,11 +587,13 @@ def load_h5_summary(file_path: str | Path, verbose: bool = False) -> dict:
         for rank_group_name in rank_group_names:
             rank_group = h5file[rank_group_name]
             rank = int(rank_group_name[4:])
+            if selected_ranks is not None and rank not in selected_ranks:
+                continue
             if verbose:
                 print(f"rank_group_name = {rank_group_name!r}")
-            if LIKWID_GROUP in rank_group:
+            if include_likwid and LIKWID_GROUP in rank_group:
                 likwid[rank] = _read_likwid_group(rank_group[LIKWID_GROUP])
-            if "line_profile" in rank_group:
+            if include_line_profile and "line_profile" in rank_group:
                 line_profile[rank] = _read_line_profile_group(
                     rank_group["line_profile"]
                 )
@@ -481,11 +617,19 @@ def load_h5_summary(file_path: str | Path, verbose: bool = False) -> dict:
         "line_profile": line_profile,
         "file_path": file_path,
         "exclusive_totals": exclusive_totals,
+        "event_data_available": False,
     }
 
 
 def read_h5_summary(
-    file_path: str | Path, verbose: bool = False, *, fallback: bool = True
+    file_path: str | Path,
+    verbose: bool = False,
+    *,
+    fallback: bool = True,
+    include_likwid: bool = True,
+    include_line_profile: bool = True,
+    regions: str | list[str] | tuple[str, ...] | None = None,
+    ranks: int | list[int] | tuple[int, ...] | None = None,
 ) -> ProfilingResults:
     """Load fixed-size statistics, optionally falling back for older files.
 
@@ -494,11 +638,62 @@ def read_h5_summary(
     data; use :func:`read_h5` when those are required.
     """
     try:
-        return ProfilingResults(**load_h5_summary(file_path, verbose=verbose))
+        return ProfilingResults(
+            **load_h5_summary(
+                file_path,
+                verbose=verbose,
+                include_likwid=include_likwid,
+                include_line_profile=include_line_profile,
+                regions=regions,
+                ranks=ranks,
+            )
+        )
     except SummaryDataUnavailable:
         if not fallback:
             raise
-        return read_h5(file_path, verbose=verbose)
+        results = read_h5(file_path, verbose=verbose)
+        selected_names = _selection_set(regions, coerce=str)
+        selected_ranks = _selection_set(ranks, coerce=int)
+        if selected_names is not None or selected_ranks is not None:
+            results = copy(results)
+            results._region_dict = {
+                name: MPIRegion(
+                    name=name,
+                    regions={
+                        rank: region
+                        for rank, region in mpi_region.regions.items()
+                        if selected_ranks is None or rank in selected_ranks
+                    },
+                )
+                for name, mpi_region in results._region_dict.items()
+                if selected_names is None or name in selected_names
+            }
+            results._region_dict = {
+                name: region
+                for name, region in results._region_dict.items()
+                if region.regions
+            }
+        if not include_likwid or selected_ranks is not None:
+            results._likwid = (
+                {
+                    rank: data
+                    for rank, data in results._likwid.items()
+                    if selected_ranks is None or rank in selected_ranks
+                }
+                if include_likwid
+                else {}
+            )
+        if not include_line_profile or selected_ranks is not None:
+            results._line_profile = (
+                {
+                    rank: data
+                    for rank, data in results._line_profile.items()
+                    if selected_ranks is None or rank in selected_ranks
+                }
+                if include_line_profile
+                else {}
+            )
+        return results
 
 
 def read_h5(file_path: str | Path, verbose: bool = False) -> ProfilingResults:

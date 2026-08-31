@@ -7,6 +7,10 @@ import numpy as np
 NS_PER_SECOND = 1e9
 
 
+class EventDataUnavailableError(RuntimeError):
+    """Raised when a summary-only result is asked for per-call event data."""
+
+
 class Region:
     """Timing data for one region on one rank.
 
@@ -26,6 +30,7 @@ class Region:
         source_text: str | None = None,
         tags=(),
         aggregate: dict | None = None,
+        event_data_available: bool = True,
     ) -> None:
         """
         Initialize a Region with timing information for multiple calls.
@@ -66,6 +71,7 @@ class Region:
         # of reporting a region's exclusive time without its per-call values.
         self._exclusive_total_ns = None
         self._aggregate = aggregate
+        self._event_data_available = bool(event_data_available)
         self._num_calls = (
             int(aggregate.get("count", 0))
             if aggregate is not None
@@ -180,6 +186,11 @@ class Region:
             One entry per call with keys ``call_index``, ``start``, ``end``
             and ``duration``, in seconds and in recorded order.
         """
+        if not self._event_data_available:
+            raise EventDataUnavailableError(
+                "per-call events are unavailable on summary-only results; "
+                "load the profile with read_h5()"
+            )
         starts = self.start_times - origin
         ends = self.end_times - origin
         events = []
@@ -213,6 +224,11 @@ class Region:
     def has_timing(self) -> bool:
         """Whether this region recorded any calls at all."""
         return self.num_calls > 0
+
+    @property
+    def has_event_data(self) -> bool:
+        """Whether per-call timestamps were loaded for this region."""
+        return self._event_data_available
 
     @property
     def has_source(self) -> bool:

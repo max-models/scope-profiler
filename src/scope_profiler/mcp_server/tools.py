@@ -25,9 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
-from scope_profiler.benchmark import (
-    BenchmarkError,
-)
+from scope_profiler.benchmark import BenchmarkError
 from scope_profiler.benchmark import compare_benchmarks as _compare_benchmarks
 from scope_profiler.benchmark import load_config
 from scope_profiler.benchmark import run_benchmark as _run_benchmark
@@ -95,7 +93,9 @@ def _read_profile(file_path: str) -> ProfilingResults:
 def _read_summary_profile(file_path: str) -> ProfilingResults:
     """Load scalar statistics without touching event columns when available."""
     try:
-        return read_h5_summary(file_path)
+        return read_h5_summary(
+            file_path, include_likwid=False, include_line_profile=False
+        )
     except FileNotFoundError as exc:
         raise ToolError(str(exc)) from exc
     except Exception as exc:
