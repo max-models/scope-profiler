@@ -237,6 +237,7 @@ def plot_flame(
             col=col,
             edgecolor="black",
             hover=hover_texts,
+            colors=[_to_hex(color_map[call["name"]]) for call in calls],
             # Canvas.flame_chart colors frames by depth from a colormap and
             # ignores per-frame colors. Only the matplotlib backend takes a
             # matplotlib colormap name; the Plotly one needs a Plotly
@@ -257,6 +258,42 @@ def plot_flame(
     if not single_panel:
         canvas.suptitle("Flame Graphs")
 
+    def improve_plotly_flame(fig) -> None:
+        """Keep frame labels available and make depth rows touch cleanly."""
+        for trace in fig.data:
+            if getattr(trace, "type", None) != "bar" or trace.customdata is None:
+                continue
+            trace.update(
+                width=1.0,
+                cliponaxis=False,
+            )
+        # maxplotlib adds labels for wide frames as layout annotations. The
+        # legend and hover text are less intrusive and remain available for
+        # every frame, so remove those background labels from Plotly output.
+        fig.layout.annotations = tuple(
+            annotation
+            for annotation in (fig.layout.annotations or ())
+            if annotation.text not in all_region_names
+        )
+        from plotly.graph_objects import Scatter
+
+        for name in sorted(all_region_names):
+            fig.add_trace(
+                Scatter(
+                    x=[None],
+                    y=[None],
+                    mode="markers",
+                    marker=dict(color=_to_hex(color_map[name]), size=9),
+                    name=name,
+                    showlegend=True,
+                    hoverinfo="skip",
+                )
+            )
+        fig.update_layout(
+            bargap=0,
+            legend=dict(title="Regions"),
+        )
+
     rendered = _ps._render(
         canvas,
         filepath,
@@ -264,5 +301,6 @@ def plot_flame(
         backend,
         return_fig=return_fig,
         matplotlib_postprocess=add_region_legend if backend == "matplotlib" else None,
+        plotly_postprocess=improve_plotly_flame if backend == "plotly" else None,
     )
     return rendered if return_fig else None

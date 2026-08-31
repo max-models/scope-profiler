@@ -292,10 +292,13 @@ def _render(
     x_tick_rotation: float | None = None,
     return_fig: bool = False,
     matplotlib_postprocess=None,
+    plotly_postprocess=None,
 ) -> tuple[object, object] | object:
     """Save and/or display a canvas."""
     if backend == "plotly":
         fig = canvas.plot_plotly(show=False)
+        if plotly_postprocess is not None:
+            plotly_postprocess(fig)
         layout = dict(plotly_layout or {})
         # Multi-line hover summaries (drawn via Canvas ``hover=`` kwargs)
         # read as a block, not centred prose.

@@ -385,13 +385,29 @@ def test_plotly_flame_hover_names_each_call(tmp_path):
     figure = _plotly_figure(plot_flame, read_h5(file_path))
 
     # maxplotlib draws flame frames as a single Bar trace, one frame per
-    # point, and carries hover text on that trace directly.
-    assert len(figure.data) == 1
+    # point, and carries hover text on that trace directly. Additional
+    # zero-point traces provide the region-color legend.
+    assert figure.data[0].type == "bar"
     texts = _hover_texts(figure)
     assert len(texts) == 5  # one per call
     assert any(
         "call: step &gt; solve" in text or "call: step > solve" in text
         for text in texts
+    )
+
+
+def test_plotly_flame_shows_frame_names_and_tight_depth_rows(tmp_path):
+    file_path = tmp_path / "nested.h5"
+    _write_sample_h5(file_path, _nested_file_data())
+
+    figure = _plotly_figure(plot_flame, read_h5(file_path))
+    trace = figure.data[0]
+
+    assert trace.width == 1.0
+    assert figure.layout.bargap == 0
+    assert figure.layout.legend.title.text == "Regions"
+    assert {trace.name for trace in figure.data[1:]}.issuperset(
+        {"step", "solve", "assemble"}
     )
 
 
