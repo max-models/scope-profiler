@@ -306,10 +306,12 @@ def region_rows(
 
     # Build display rows from the call tree rather than from the flat region
     # registry. A region can occur below multiple parents, in which case each
-    # distinct path gets its own row. The timing values remain the aggregate
-    # values for that region, as they were in the flat summary.
+    # distinct path gets its own row. Consecutive copies of the same name are
+    # one recursive call chain, not distinct aggregate rows: the timing values
+    # already include every invocation of that region.
     display_rows = []
     seen_paths = set()
+    display_by_path = {}
     selected_ranks = range(results.num_ranks) if ranks is None else ranks
     from scope_profiler.call_stack import NestingError
     from scope_profiler.region import EventDataUnavailableError
@@ -333,13 +335,22 @@ def region_rows(
                 parent_id = parent.get("parent")
                 parent = by_id.get(parent_id) if parent_id is not None else None
             path = tuple(reversed(path))
-            if path in seen_paths:
+            collapsed_path = tuple(
+                name
+                for index, name in enumerate(path)
+                if index == 0 or name != path[index - 1]
+            )
+            if collapsed_path in seen_paths:
+                if len(collapsed_path) != len(path):
+                    display_by_path[collapsed_path]["recursive"] = True
                 continue
-            seen_paths.add(path)
+            seen_paths.add(collapsed_path)
             row = dict(rows_by_name[name])
-            row["depth"] = len(path) - 1
+            row["depth"] = len(collapsed_path) - 1
+            row["recursive"] = len(collapsed_path) != len(path)
             row["start"] = float(call["start"])
             display_rows.append(row)
+            display_by_path[collapsed_path] = row
 
     # Keep regions with no reconstructable call tree in the summary.
     for row in rows:
@@ -348,6 +359,7 @@ def region_rows(
         ):
             fallback = dict(row)
             fallback["depth"] = 0
+            fallback["recursive"] = False
             region = results.get_region(row["name"])
             fallback["start"] = (
                 region.first_start_time if region.has_timing else float("inf")
@@ -392,6 +404,14 @@ def _format_percentage(value, denominator) -> str:
     if value is None or denominator is None or denominator <= 0:
         return "-"
     return f"{100.0 * value / denominator:.1e}%"
+
+
+def _display_region_name(row) -> str:
+    """Render a hierarchical name, marking a collapsed recursive chain."""
+    depth = row.get("depth", 0)
+    prefix = f"{'│ ' * (depth - 1)}└─ " if depth else ""
+    recursive = " ↻" if row.get("recursive") else ""
+    return f"{prefix}{row['name']}{recursive}"
 
 
 def print_region_table(
@@ -444,11 +464,7 @@ def print_region_table(
 
     formatted = [
         {
-            "name": (
-                f"{'│ ' * (row.get('depth', 0) - 1)}└─ {row['name']}"
-                if row.get("depth", 0)
-                else row["name"]
-            ),
+            "name": _display_region_name(row),
             "ranks": str(row["num_ranks"]),
             "calls": _format_count(row["calls"]),
             "total": _format_duration(row["total"]),
@@ -502,6 +518,8 @@ def print_region_table(
         notes.append(
             "Regions may nest, so the summed total can exceed the wall-clock time."
         )
+    if any(row.get("recursive") for row in rows):
+        notes.append("↻ Recursive rows aggregate all invocations of that region.")
     if any(row["total"] is None for row in rows):
         notes.append(
             "Regions shown without timing recorded no calls on the selected ranks."

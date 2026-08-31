@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 import scope_profiler
-from scope_profiler import MPIRegion, Region, read_h5
+from scope_profiler import MPIRegion, ProfilingResults, Region, read_h5
 
 NS = 1_000_000_000
 
@@ -83,6 +83,30 @@ def test_region_percentile_rejects_invalid_values():
         region.percentile_duration(-1)
     with pytest.raises(ValueError):
         region.percentile_duration(101)
+
+
+def test_summary_collapses_self_recursive_paths():
+    """Recursive invocations share one aggregate row in the summary."""
+    results = ProfilingResults(
+        {
+            "outer": MPIRegion(
+                "outer",
+                {0: Region(np.array([0]), np.array([100]))},
+            ),
+            "fib": MPIRegion(
+                "fib",
+                {0: Region(np.array([10, 20, 30]), np.array([90, 80, 70]))},
+            ),
+        }
+    )
+
+    from scope_profiler.summary import region_rows
+
+    rows = region_rows(results)
+
+    assert [row["name"] for row in rows] == ["outer", "fib"]
+    assert rows[1]["recursive"] is True
+    assert rows[1]["calls"] == 3
 
 
 def test_region_without_any_calls_is_safe():
