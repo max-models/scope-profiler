@@ -6,7 +6,6 @@ import argparse
 import contextlib
 import io
 import json
-import linecache
 import re
 import socket
 import subprocess
@@ -25,6 +24,7 @@ import numpy as np
 
 from scope_profiler.h5reader import read_h5
 from scope_profiler.inspection import _metadata_sections, _time_span
+from scope_profiler.line_profile_cli import _line_profile_rows
 from scope_profiler.plotting_scripts import (
     FLAME_CMAP,
     available_likwid_metrics,
@@ -531,37 +531,17 @@ def node_detail_text(node: BrowserNode) -> str:
 
     if kind == "line_profile_record":
         record = payload["record"]
-        linecache.checkcache(record["filename"])
         unit = float(record["unit"])
         total_raw = float(np.sum(record["times"]))
         rows = []
-        timings = list(zip(record["line_numbers"], record["hits"], record["times"]))
-        sources = [
-            (
-                linecache.getline(record["filename"], int(line))
-                .rstrip("\r\n")
-                .expandtabs(4)
-                or "<source unavailable>"
-            )
-            for line, _, _ in timings
-        ]
-        base_indentation = (
-            len(sources[0]) - len(sources[0].lstrip(" ")) if sources else 0
-        )
-        for (line, hits, elapsed), source in zip(timings, sources):
+        for line, hits, elapsed, source in _line_profile_rows(record):
+            if hits is None:
+                rows.append((int(line), "", "", "", "", source))
+                continue
             seconds = float(elapsed) * unit
             hits = int(hits)
             per_hit = seconds / hits if hits else 0.0
             percent = float(elapsed) / total_raw * 100 if total_raw else 0.0
-            indentation = len(source) - len(source.lstrip(" "))
-            dedent = min(base_indentation, indentation)
-            source = source[dedent:]
-            indentation -= dedent
-            if indentation:
-                # tabulate strips whitespace at the start of a cell. An
-                # invisible non-whitespace sentinel keeps the real spaces
-                # intact without adding a visible indentation marker.
-                source = "\N{ZERO WIDTH SPACE}" + source
             rows.append(
                 (
                     int(line),
@@ -1025,7 +1005,8 @@ def _build_textual_app_class():
             min-width: 24;
             border: solid $accent;
             padding: 0 1;
-            overflow: hidden;
+            overflow-x: hidden;
+            overflow-y: auto;
         }
 
         #detail-scroll {
