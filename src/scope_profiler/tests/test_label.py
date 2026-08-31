@@ -74,7 +74,8 @@ def test_label_leads_the_summary_heading(tmp_path, capsys):
     results.print_summary()
 
     info = next(line for line in capsys.readouterr().out.splitlines() if "Summary:" in line)
-    assert "Summary: 128 ranks - run.h5 (1 rank)" in info
+    assert "Summary: 128 ranks - " in info
+    assert "run.h5 (1 rank)" in info
 
 
 def test_plot_label_overrides_the_stored_one(tmp_path):

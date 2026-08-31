@@ -10,6 +10,7 @@ plotting functions, the exporters) cannot tell them apart.
 """
 
 import functools
+import os
 import re
 from collections.abc import Iterator
 from pathlib import Path
@@ -648,10 +649,11 @@ class ProfilingResults:
         Returns
         -------
         str
-            e.g. ``"run_a.h5 (128 ranks)"``.
+            e.g. ``"results/run_a.h5 (128 ranks)"``.
         """
         rank_label = "rank" if self.num_ranks == 1 else "ranks"
-        title = f"{self.file_path.name} ({self.num_ranks} {rank_label})"
+        relative_path = os.path.relpath(self.file_path)
+        title = f"{relative_path} ({self.num_ranks} {rank_label})"
         if self.label is not None:
             title = f"{self.label} - {title}"
         return title

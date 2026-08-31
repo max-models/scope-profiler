@@ -153,7 +153,7 @@ def _print_region_sources(results, names, stream) -> None:
             )
             continue
         region = results.get_region(name)
-        if not region.has_source:
+        if not region.has_source or region.source_text is None:
             print(f"  {name}: source not captured", file=stream)
             continue
         print(f"  {name}  ({region.source_file}:{region.source_lineno})", file=stream)

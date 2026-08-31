@@ -8,6 +8,7 @@ Everything here works off duck-typed results/region objects, so this module has
 no scope-profiler imports and cannot introduce an import cycle.
 """
 
+import os
 import re
 import sys
 
@@ -598,10 +599,12 @@ def print_region_table(
     if title:
         notes.append(f"Summary: {title}")
     if file_path is not None:
+        relative_path = os.path.relpath(str(file_path))
         notes.extend(
             (
-                "Inspect: scope-profiler inspect <file.h5>",
-                "Plot: scope-profiler plot default <file.h5> -o plots",
+                f"Inspect: scope-profiler inspect {relative_path}",
+                f"Plot: scope-profiler plot default {relative_path} -o plots --show",
+                f"TUI: scope-profiler tui {relative_path}",
             )
         )
     notes.append("Durations are in seconds.")
