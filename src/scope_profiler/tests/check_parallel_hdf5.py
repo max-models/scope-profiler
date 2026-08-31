@@ -14,7 +14,7 @@ import sys
 
 import h5py
 
-from scope_profiler import ProfileManager, read_h5
+from scope_profiler import ProfileManager, read_h5, read_h5_summary
 
 
 def main() -> int:
@@ -87,10 +87,34 @@ def main() -> int:
             "line-work",
             *(f"rank-{owner}" for owner in range(size)),
         ]
+        summary = read_h5_summary(
+            output,
+            fallback=False,
+            include_likwid=False,
+            include_line_profile=False,
+        )
+        assert summary.has_event_data is False
+        assert summary["common"].num_calls == size
+        assert summary["common"].total_duration == from_disk["common"].total_duration
+        filtered = read_h5_summary(
+            output,
+            fallback=False,
+            regions="common",
+            ranks=size - 1,
+            include_likwid=False,
+            include_line_profile=False,
+        )
+        assert filtered.region_names == ["common"]
+        assert filtered["common"].ranks == [size - 1]
         with h5py.File(output, "r") as handle:
             dataset = handle["events/start_times"]
             assert dataset.compression is None
             assert dataset.chunks == (2,)
+            summary_dataset = handle["rank_region_index/summary_statistics"]
+            assert summary_dataset.shape == handle["rank_region_index/ranks"].shape
+            assert {"total", "minimum", "maximum", "mean", "m2"}.issubset(
+                summary_dataset.dtype.names
+            )
     else:
         assert not results.is_root
         assert results.region_names == []

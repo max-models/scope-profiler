@@ -18,7 +18,7 @@ import numpy as np
 
 from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.mpi_region import MPIRegion
-from scope_profiler.region import NS_PER_SECOND
+from scope_profiler.region import NS_PER_SECOND, EventDataUnavailableError
 
 
 class ProfilingResults:
@@ -90,6 +90,7 @@ class ProfilingResults:
         file_path: str | Path = "",
         is_root: bool = True,
         exclusive_totals: dict[str, dict[int, int]] | None = None,
+        event_data_available: bool = True,
     ) -> None:
         """
         Assemble a result set from already-loaded regions.
@@ -126,6 +127,7 @@ class ProfilingResults:
         self._likwid = dict(likwid or {})
         self._line_profile = dict(line_profile or {})
         self._file_path = Path(file_path)
+        self._event_data_available = bool(event_data_available)
         if num_ranks is None:
             ranks = {rank for region in self._region_dict.values() for rank in region}
             num_ranks = len(ranks)
@@ -381,6 +383,7 @@ class ProfilingResults:
         >>> for event in results.events(include="solve"):  # doctest: +SKIP
         ...     print(event["rank"], event["start"], event["duration"])
         """
+        self._require_event_data("events")
         if origin is None:
             origin = self.time_origin if relative else 0.0
         events = []
@@ -416,6 +419,7 @@ class ProfilingResults:
         ImportError
             If pandas is not installed.
         """
+        self._require_event_data("to_events_dataframe")
         try:
             import pandas as pd
         except ImportError as exc:
@@ -471,6 +475,7 @@ class ProfilingResults:
             ``parent`` (the enclosing call's id, or None). See
             :func:`~scope_profiler.call_stack.build_call_stack`.
         """
+        self._require_event_data("call_stack")
         from scope_profiler.call_stack import build_call_stack
 
         if origin is None:
@@ -719,6 +724,19 @@ class ProfilingResults:
             True unless this is a non-root rank's share of an MPI run.
         """
         return self._is_root
+
+    @property
+    def has_event_data(self) -> bool:
+        """Whether per-call timestamps are available to event-based APIs."""
+        return self._event_data_available
+
+    def _require_event_data(self, operation: str) -> None:
+        """Reject event-dependent operations on fixed-size summary results."""
+        if not self._event_data_available:
+            raise EventDataUnavailableError(
+                f"{operation}() requires per-call events, but this profile was "
+                "loaded with read_h5_summary(); load it with read_h5()"
+            )
 
     @property
     def metadata(self) -> dict:

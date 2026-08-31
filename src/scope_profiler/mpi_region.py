@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 
-from scope_profiler.region import Region
+from scope_profiler.region import NS_PER_SECOND, Region
 
 
 class MPIRegion:
@@ -50,6 +50,11 @@ class MPIRegion:
     def has_timing(self) -> bool:
         """Whether any rank recorded timestamps for this region."""
         return any(region.has_timing for region in self._regions.values())
+
+    @property
+    def has_event_data(self) -> bool:
+        """Whether every represented rank has per-call timestamps loaded."""
+        return all(region.has_event_data for region in self._regions.values())
 
     def _first_captured(self, attr: str):
         """First non-None value of ``attr`` across ranks, in rank order.
@@ -331,15 +336,23 @@ class MPIRegion:
             Average duration in seconds, or 0.0 if no timing was recorded.
         """
         values = self.durations
-        return float(np.mean(values)) if values.size else 0.0
+        if values.size:
+            return float(np.mean(values))
+        return self.total_duration / self.num_calls if self.num_calls else 0.0
 
     @property
     def gpu_average_duration(self) -> float | None:
         """Average CUDA-event elapsed device time across ranks, or None if absent."""
         values = self.gpu_durations
-        if values is None or not values.size:
-            return None
-        return float(np.mean(values))
+        if values is not None and values.size:
+            return float(np.mean(values))
+        count = sum(
+            int(region.stored_summary.get("gpu_count", 0))
+            for region in self._regions.values()
+            if region.stored_summary is not None
+        )
+        total = self.gpu_total_duration
+        return total / count if total is not None and count else None
 
     @property
     def std_duration(self) -> float:
@@ -352,14 +365,37 @@ class MPIRegion:
             Standard deviation in seconds, or 0.0 if no timing was recorded.
         """
         values = self.durations
-        return float(np.std(values)) if values.size else 0.0
+        if values.size:
+            return float(np.std(values))
+        summaries = [
+            region.stored_summary
+            for region in self._regions.values()
+            if region.num_calls and region.stored_summary is not None
+        ]
+        if not summaries or any(
+            "mean" not in summary or "m2" not in summary for summary in summaries
+        ):
+            return 0.0
+        count = sum(int(summary["count"]) for summary in summaries)
+        mean = (
+            sum(int(summary["count"]) * float(summary["mean"]) for summary in summaries)
+            / count
+        )
+        m2 = sum(
+            float(summary["m2"])
+            + int(summary["count"]) * (float(summary["mean"]) - mean) ** 2
+            for summary in summaries
+        )
+        return float(np.sqrt(max(m2, 0.0) / count)) / NS_PER_SECOND
 
-    def percentile_duration(self, percentile: float) -> float:
+    def percentile_duration(self, percentile: float) -> float | None:
         """Return a pooled duration percentile across all ranks."""
         if not 0 <= percentile <= 100:
             raise ValueError("percentile must be between 0 and 100")
         values = self.durations
-        return float(np.percentile(values, percentile)) if values.size else 0.0
+        if values.size:
+            return float(np.percentile(values, percentile))
+        return None if self.num_calls else 0.0
 
     @property
     def p50_duration(self) -> float:
@@ -406,7 +442,12 @@ class MPIRegion:
             The minimum duration among all ranks, in seconds.
         """
         values = self.durations
-        return float(np.min(values)) if values.size else 0.0
+        if values.size:
+            return float(np.min(values))
+        minimums = [
+            region.min_duration for region in self._regions.values() if region.num_calls
+        ]
+        return min(minimums) if minimums else 0.0
 
     @property
     def max_duration(self) -> float:
@@ -419,7 +460,12 @@ class MPIRegion:
             The maximum duration among all ranks, in seconds.
         """
         values = self.durations
-        return float(np.max(values)) if values.size else 0.0
+        if values.size:
+            return float(np.max(values))
+        maximums = [
+            region.max_duration for region in self._regions.values() if region.num_calls
+        ]
+        return max(maximums) if maximums else 0.0
 
     @property
     def first_duration(self) -> float:

@@ -170,6 +170,46 @@ def _rank_imbalance_pct(region, ranks=None) -> float:
     return (max(totals) / float(np.mean(totals)) - 1.0) * 100.0
 
 
+def _stored_distribution_statistics(per_rank):
+    """Combine fixed-size per-rank moments without loading event arrays."""
+    summaries = [
+        data.stored_summary
+        for data in per_rank.values()
+        if data.num_calls and data.stored_summary is not None
+    ]
+    if not summaries:
+        return None, None, None
+
+    first_candidates = [
+        item for item in summaries if "first" in item and "start_minimum" in item
+    ]
+    last_candidates = [
+        item for item in summaries if "last" in item and "end_maximum" in item
+    ]
+    first = (
+        min(first_candidates, key=lambda item: item["start_minimum"])["first"] / 1e9
+        if first_candidates
+        else None
+    )
+    last = (
+        max(last_candidates, key=lambda item: item["end_maximum"])["last"] / 1e9
+        if last_candidates
+        else None
+    )
+
+    if any("mean" not in item or "m2" not in item for item in summaries):
+        return first, last, None
+    count = sum(int(item["count"]) for item in summaries)
+    if not count:
+        return first, last, None
+    mean = sum(int(item["count"]) * float(item["mean"]) for item in summaries) / count
+    m2 = sum(
+        float(item["m2"]) + int(item["count"]) * (float(item["mean"]) - mean) ** 2
+        for item in summaries
+    )
+    return first, last, float(np.sqrt(max(m2, 0.0) / count)) / 1e9
+
+
 def region_row(region, ranks=None) -> dict:
     """Collect the summary statistics shown for one region.
 
@@ -194,6 +234,7 @@ def region_row(region, ranks=None) -> dict:
         minimums = [data.min_duration for data in per_rank.values() if data.num_calls]
         maximums = [data.max_duration for data in per_rank.values() if data.num_calls]
         total = float(sum(totals))
+        first, last, std = _stored_distribution_statistics(per_rank)
         return {
             "name": region.name,
             "num_ranks": len(per_rank),
@@ -202,9 +243,9 @@ def region_row(region, ranks=None) -> dict:
             "avg": total / calls,
             "min": min(minimums),
             "max": max(maximums),
-            "first": None,
-            "last": None,
-            "std": None,
+            "first": first,
+            "last": last,
+            "std": std,
             "p50": None,
             "p95": None,
             "p99": None,
@@ -271,11 +312,12 @@ def region_rows(
     seen_paths = set()
     selected_ranks = range(results.num_ranks) if ranks is None else ranks
     from scope_profiler.call_stack import NestingError
+    from scope_profiler.region import EventDataUnavailableError
 
     for rank in selected_ranks:
         try:
             calls = results.call_stack(rank=rank, include=include, exclude=exclude)
-        except NestingError:
+        except (NestingError, EventDataUnavailableError):
             # Keep summary output available for legacy profiles containing
             # overlapping intervals that cannot form a call tree.
             continue
@@ -306,7 +348,10 @@ def region_rows(
         ):
             fallback = dict(row)
             fallback["depth"] = 0
-            fallback["start"] = float("inf")
+            region = results.get_region(row["name"])
+            fallback["start"] = (
+                region.first_start_time if region.has_timing else float("inf")
+            )
             display_rows.append(fallback)
 
     rows = display_rows

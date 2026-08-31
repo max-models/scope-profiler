@@ -15,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
-from scope_profiler.h5reader import read_h5
+from scope_profiler.h5reader import read_h5, read_h5_summary
 from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import (
     REGION_TABLE_COLUMNS,
@@ -204,7 +204,15 @@ def inspect_file(
         Where to write (default: stdout).
     """
     stream = sys.stdout if stream is None else stream
-    results = read_h5(file_path)
+    # Region tables preserve the event-derived call-tree hierarchy. Metadata
+    # and source-only inspection needs no event data and uses the compact path.
+    results = (
+        read_h5(file_path)
+        if show_regions
+        else read_h5_summary(
+            file_path, include_likwid=False, include_line_profile=False
+        )
+    )
 
     path = Path(results.file_path)
     size_mb = path.stat().st_size / 1024**2
@@ -288,7 +296,11 @@ def collect_file_metadata(
 
     files = []
     for item in profiling_data:
-        results = item if isinstance(item, ProfilingResults) else read_h5(item)
+        results = (
+            item
+            if isinstance(item, ProfilingResults)
+            else read_h5_summary(item, include_likwid=False, include_line_profile=False)
+        )
         files.append(
             {
                 "file_path": str(Path(results.file_path).resolve()),

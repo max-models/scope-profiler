@@ -75,6 +75,7 @@ from scope_profiler import (
     build_call_arrays,
     build_call_stack,
     read_h5,
+    read_h5_summary,
     plot_flame,
     plot_gantt,
     write_region_statistics_json,
@@ -104,6 +105,14 @@ interchangeable.
 
 ```{eval-rst}
 .. autofunction:: scope_profiler.h5reader.read_h5
+```
+
+### read_h5_summary
+
+Load fixed-size scalar statistics without reading per-call event columns.
+
+```{eval-rst}
+.. autofunction:: scope_profiler.h5reader.read_h5_summary
 ```
 
 ### Native (C and Fortran) traces

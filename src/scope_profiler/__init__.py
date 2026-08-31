@@ -10,12 +10,12 @@ from scope_profiler.call_stack import (
     call_stack_children,
     call_stack_roots,
 )
-from scope_profiler.h5reader import read_h5
+from scope_profiler.h5reader import read_h5, read_h5_summary
 from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.mpi_region import MPIRegion
 from scope_profiler.profile_config import ProfilingOptions
 from scope_profiler.profile_manager import ProfileManager
-from scope_profiler.region import Region
+from scope_profiler.region import EventDataUnavailableError, Region
 from scope_profiler.results import ProfilingResults, merge_results
 
 try:
@@ -47,6 +47,7 @@ _LAZY_ATTRS = {
 
 __all__ = [
     "CallArrays",
+    "EventDataUnavailableError",
     "LikwidRegionResult",
     "MPIRegion",
     "NestingError",
@@ -60,6 +61,7 @@ __all__ = [
     "call_stack_roots",
     "merge_results",
     "read_h5",
+    "read_h5_summary",
     *sorted(_LAZY_ATTRS),
 ]
 
