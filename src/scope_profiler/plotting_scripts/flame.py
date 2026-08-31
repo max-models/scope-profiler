@@ -266,5 +266,3 @@ def plot_flame(
         matplotlib_postprocess=add_region_legend if backend == "matplotlib" else None,
     )
     return rendered if return_fig else None
-
-

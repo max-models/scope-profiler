@@ -236,8 +236,6 @@ def _hover_region(region, ranks: list[int] | None):
     return region, region.name
 
 
-
-
 def _save_matplotlib_figure(fig, canvas, filepath: str | Path) -> None:
     """Save a materialized Matplotlib figure using canvas-level DPI if present."""
     savefig_kwargs = {}
@@ -449,4 +447,3 @@ def _normalize_ranks(
     if isinstance(ranks, int):
         return [ranks]
     return list(ranks)
-

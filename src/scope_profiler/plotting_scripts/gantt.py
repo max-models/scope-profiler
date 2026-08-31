@@ -90,7 +90,6 @@ def _add_gantt_bars(
         )
 
 
-
 def _prepare_gantt_data(
     profiling_data: ProfilingResults,
     ranks: list[int] | int | None,
@@ -402,4 +401,3 @@ def plot_gantt(
         return_fig=return_fig,
     )
     return rendered if return_fig else None
-

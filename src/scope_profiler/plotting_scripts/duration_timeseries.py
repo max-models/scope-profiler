@@ -263,5 +263,3 @@ def plot_duration_timeseries(
 
     rendered = _ps._render(canvas, filepath, show, backend, return_fig=return_fig)
     return rendered if return_fig else None
-
-

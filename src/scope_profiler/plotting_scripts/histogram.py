@@ -189,5 +189,3 @@ def plot_duration_histogram(
             _write_csv(data_filepath, header, data_rows)
 
     _ps._render(canvas, filepath, show, backend)
-
-

@@ -135,7 +135,6 @@ def _common_region_names(
     ]
 
 
-
 def _speedup_x_value(run: ProfilingResults, x_field: str):
     """Resolve the x-axis value for a single run given ``x_field``."""
     if x_field == "num_ranks":

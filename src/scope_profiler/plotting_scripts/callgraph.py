@@ -429,4 +429,3 @@ def plot_callgraph(
     if show:
         plt.show()
     return (fig, axis) if return_fig else None
-

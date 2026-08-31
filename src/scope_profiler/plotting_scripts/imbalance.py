@@ -216,5 +216,3 @@ def plot_imbalance(
         canvas.suptitle("Per-rank load imbalance")
 
     _ps._render(canvas, filepath, show, backend)
-
-

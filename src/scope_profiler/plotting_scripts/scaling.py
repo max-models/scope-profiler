@@ -23,7 +23,6 @@ from scope_profiler.plotting_scripts.statistics import (
 )
 from scope_profiler.results import ProfilingResults
 
-
 _SCALING_X_FIELDS = {"num_ranks", "omp_num_threads", "total_cores"}
 
 
@@ -410,8 +409,6 @@ def plot_weak_scaling(
     return rendered if return_fig else None
 
 
-
-
 def plot_scaling_efficiency(
     profiling_data: ProfilingResults | Sequence[ProfilingResults],
     x_field: str = "num_ranks",
@@ -541,5 +538,3 @@ def plot_scaling_efficiency(
     canvas.set_legend()
     rendered = _ps._render(canvas, filepath, show, backend, return_fig=return_fig)
     return rendered if return_fig else None
-
-

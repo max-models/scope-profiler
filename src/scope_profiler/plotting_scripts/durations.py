@@ -686,5 +686,3 @@ def plot_durations(
     if return_fig:
         return rendered_figures[0]
     return saved_paths
-
-
