@@ -32,6 +32,8 @@ _LAZY_ATTRS = {
     "plot_duration_timeseries": "plotting_scripts",
     "plot_durations": "plotting_scripts",
     "plot_flame": "plotting_scripts",
+    "plot_flame_chart": "plotting_scripts",
+    "plot_flame_graph": "plotting_scripts",
     "plot_gantt": "plotting_scripts",
     "plot_speedup": "plotting_scripts",
     "plot_weak_scaling": "plotting_scripts",

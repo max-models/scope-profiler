@@ -26,12 +26,14 @@ import numpy as np
 from scope_profiler.h5reader import read_h5
 from scope_profiler.inspection import _metadata_sections, _time_span
 from scope_profiler.plotting_scripts import (
+    FLAME_CMAP,
     available_likwid_metrics,
     plot_callgraph,
     plot_duration_histogram,
     plot_duration_timeseries,
     plot_durations,
-    plot_flame,
+    plot_flame_chart,
+    plot_flame_graph,
     plot_gantt,
     plot_imbalance,
     plot_likwid,
@@ -43,7 +45,8 @@ from scope_profiler.summary import region_row, region_rows
 _PLOT_CATALOG = {
     "gantt": "Per-rank timeline of recorded calls",
     "durations": "Duration statistics by region",
-    "flame": "Reconstructed nested call-stack flame graph",
+    "flame_chart": "Time-based nested call-stack flame chart",
+    "flame_graph": "Aggregated call-stack flame graph",
     "callgraph": "Call graph from explicit call and parent ids",
     "timeseries": "Duration of each call over time",
     "histogram": "Call-duration distribution by region",
@@ -256,7 +259,9 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
 
     plot_children = [
         BrowserNode(
-            name.title(),
+            {"flame_chart": "Flame chart", "flame_graph": "Flame graph"}.get(
+                name, name.title()
+            ),
             "plot",
             {"results": results, "plot_name": name, "description": description},
         )
@@ -417,7 +422,7 @@ def node_detail_text(node: BrowserNode) -> str:
             "",
             "Press g for Matplotlib, t for Plotext (simple plots), p for Plotly in a browser, or s to save PNG.",
         ]
-        if payload.get("plot_name") == "flame":
+        if payload.get("plot_name") in {"flame_chart", "flame_graph"}:
             lines.append("Press v to open the reconstructed profile in Snakeviz.")
         if payload.get("metric"):
             lines.append(f"Metric: {payload['metric']}")
@@ -761,6 +766,8 @@ def render_plot(
         ranks = sorted(set(ranks))
 
     cmap = settings.get("cmap", "tab20") or "tab20"
+    if name in {"flame_chart", "flame_graph"} and cmap == "tab20":
+        cmap = FLAME_CMAP
     common = {
         "filepath": str(filepath) if filepath else None,
         "show": show,
@@ -773,7 +780,8 @@ def render_plot(
     }
     functions = {
         "gantt": plot_gantt,
-        "flame": plot_flame,
+        "flame_chart": plot_flame_chart,
+        "flame_graph": plot_flame_graph,
         "callgraph": plot_callgraph,
         "durations": plot_durations,
         "timeseries": plot_duration_timeseries,
@@ -948,7 +956,7 @@ def _build_textual_app_class():
     try:
         from rich.text import Text
         from textual.app import App, ComposeResult
-        from textual.containers import Horizontal, Vertical
+        from textual.containers import Horizontal, Vertical, VerticalScroll
         from textual.suggester import Suggester
         from textual.widgets import (
             Button,
@@ -971,6 +979,11 @@ def _build_textual_app_class():
 
         class Detail(Static):
             """Scrollable detail view that can receive keyboard focus."""
+
+            can_focus = True
+
+        class DetailScroll(VerticalScroll):
+            """Scrollable viewport for the detail content."""
 
             can_focus = True
 
@@ -1015,13 +1028,17 @@ def _build_textual_app_class():
             overflow: hidden;
         }
 
-        #detail {
+        #detail-scroll {
             height: 1fr;
             min-height: 20;
             border: solid $accent;
             padding: 1 2;
             overflow-x: auto;
             overflow-y: auto;
+        }
+
+        #detail {
+            height: auto;
             text-wrap: nowrap;
         }
 
@@ -1101,9 +1118,10 @@ def _build_textual_app_class():
             with Horizontal(id="body"):
                 yield Tree(self.model.root.label, id="nav")
                 with Vertical(id="right"):
-                    yield self.Detail(
-                        self._detail(self.model.root.children[0]), id="detail"
-                    )
+                    with self.DetailScroll(id="detail-scroll"):
+                        yield self.Detail(
+                            self._detail(self.model.root.children[0]), id="detail"
+                        )
                     with Vertical(id="settings"):
                         yield Static("Plot settings", id="settings-title")
                         yield Input(
@@ -1193,7 +1211,7 @@ def _build_textual_app_class():
                 else:
                     tree.move_cursor(first)
                 self.selected_browser_node = first.data
-                self.query_one("#detail", Static).update(self._detail(first.data))
+                self.query_one("#detail", self.Detail).update(self._detail(first.data))
                 self._update_selected_regions()
 
         def _populate_tree(self, tree_node, browser_nodes) -> None:
@@ -1215,7 +1233,7 @@ def _build_textual_app_class():
                     # before measuring them for the Plotext canvas.
                     self.call_after_refresh(self._show_plotext_in_detail, node)
                 else:
-                    self.query_one("#detail", Static).update(self._detail(node))
+                    self.query_one("#detail", self.Detail).update(self._detail(node))
 
         def _update_plot_settings_visibility(self, node: BrowserNode) -> None:
             panel = self.query_one("#settings", Vertical)
@@ -1368,7 +1386,8 @@ def _build_textual_app_class():
             if node is None:
                 return
             self._read_plot_settings()
-            detail = self.query_one("#detail", Static)
+            detail = self.query_one("#detail-scroll", self.DetailScroll)
+            detail_content = self.query_one("#detail", self.Detail)
             # ``content_size`` already excludes the widget's border and
             # padding, so the chart can use the complete scrollable viewport.
             width = max(20, detail.content_size.width)
@@ -1388,21 +1407,21 @@ def _build_textual_app_class():
                     # regexes can be invalid, so keep the last chart visible
                     # and let the selected-regions field show the validation.
                     return
-                detail.update(self._detail(node))
+                detail_content.update(self._detail(node))
                 self.notify(str(exc), severity="error", timeout=8)
                 return
             from rich.text import Text
 
             if node is not self.selected_browser_node:
                 return
-            detail.update(Text.from_ansi(plot_text))
+            detail_content.update(Text.from_ansi(plot_text))
 
         def action_show_snakeviz(self) -> None:
             node = self.selected_browser_node
             if (
                 node is None
                 or node.kind != "plot"
-                or node.payload.get("plot_name") != "flame"
+                or node.payload.get("plot_name") not in {"flame_chart", "flame_graph"}
             ):
                 self.notify("Select the Flame plot first.", severity="warning")
                 return

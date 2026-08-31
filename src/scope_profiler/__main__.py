@@ -198,6 +198,11 @@ def _report(argv):
         action="store_true",
         help="Omit embedded interactive charts",
     )
+    parser.add_argument(
+        "--show",
+        action="store_true",
+        help="Open the generated report in the default browser",
+    )
     args = parser.parse_args(argv)
     ranks = None
     if args.ranks:
@@ -213,6 +218,10 @@ def _report(argv):
         include_charts=not args.no_charts,
     )
     print(f"Report written to: {output}")
+    if args.show:
+        import webbrowser
+
+        webbrowser.open(output.resolve().as_uri())
     return 0
 
 

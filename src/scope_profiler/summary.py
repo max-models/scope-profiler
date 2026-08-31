@@ -8,7 +8,9 @@ Everything here works off duck-typed results/region objects, so this module has
 no scope-profiler imports and cannot introduce an import cycle.
 """
 
+import os
 import re
+import shlex
 import sys
 
 import numpy as np
@@ -210,7 +212,35 @@ def _stored_distribution_statistics(per_rank):
     return first, last, float(np.sqrt(max(m2, 0.0) / count)) / 1e9
 
 
-def region_row(region, ranks=None) -> dict:
+def _covered_duration(per_rank) -> float | None:
+    """Return wall-clock coverage, counting overlapping calls only once."""
+    total = 0.0
+    found = False
+    for data in per_rank.values():
+        if not data.num_calls:
+            continue
+        if not data.has_timing:
+            total += data.total_duration
+            found = True
+            continue
+        intervals = sorted(zip(data.start_times, data.end_times))
+        if not intervals:
+            total += data.total_duration
+            found = True
+            continue
+        start, end = intervals[0]
+        for next_start, next_end in intervals[1:]:
+            if next_start <= end:
+                end = max(end, next_end)
+            else:
+                total += end - start
+                start, end = next_start, next_end
+        total += end - start
+        found = True
+    return total if found else None
+
+
+def region_row(region, ranks=None, *, include_exclusive: bool = False) -> dict:
     """Collect the summary statistics shown for one region.
 
     Duration entries are ``None`` when the region has no recorded calls for
@@ -226,6 +256,20 @@ def region_row(region, ranks=None) -> dict:
     durations = _region_durations(region, ranks)
     first, last = _first_last_durations(region, ranks)
     calls = sum(data.num_calls for data in per_rank.values())
+    coverage = _covered_duration(per_rank)
+    exclusive = None
+    if include_exclusive:
+        from scope_profiler.call_stack import NestingError
+        from scope_profiler.region import EventDataUnavailableError
+
+        try:
+            exclusive = float(
+                sum(data.exclusive_duration for data in per_rank.values())
+            )
+        except (NestingError, EventDataUnavailableError):
+            # Legacy profiles may contain overlapping events, for which an
+            # exclusive call tree cannot be reconstructed.
+            exclusive = float(sum(data.total_duration for data in per_rank.values()))
     if not durations.size and calls:
         # Aggregate-only regions intentionally have no per-call duration
         # array. Their scalar statistics are still sufficient for the summary
@@ -240,6 +284,8 @@ def region_row(region, ranks=None) -> dict:
             "num_ranks": len(per_rank),
             "calls": calls,
             "total": total,
+            "coverage": coverage,
+            "exclusive": exclusive,
             "avg": total / calls,
             "min": min(minimums),
             "max": max(maximums),
@@ -260,6 +306,8 @@ def region_row(region, ranks=None) -> dict:
         "num_ranks": len(per_rank),
         "calls": calls,
         "total": float(np.sum(durations)) if durations.size else None,
+        "coverage": coverage,
+        "exclusive": exclusive,
         "avg": float(np.mean(durations)) if durations.size else None,
         "min": float(np.min(durations)) if durations.size else None,
         "max": float(np.max(durations)) if durations.size else None,
@@ -283,6 +331,7 @@ def region_rows(
     exclude=None,
     ranks=None,
     sort: str = "start",
+    percentage_mode: str = "coverage",
 ) -> list:
     """Build the summary rows for every region a result set exposes.
 
@@ -297,19 +346,26 @@ def region_rows(
     sort : str, optional
         One of :data:`SORT_KEYS`: ``start`` (default), ``total``, ``calls``, ``avg``,
         ``min``, ``max`` and ``std`` sort descending, ``name`` alphabetically.
+    percentage_mode : {"coverage", "exclusive"}, optional
+        Quantity used for the ``% session`` column. Wall-clock coverage is the
+        default; exclusive time can be selected for attribution-focused tables.
     """
+    if percentage_mode not in {"coverage", "exclusive"}:
+        raise ValueError("percentage_mode must be 'coverage' or 'exclusive'")
     rows = [
-        region_row(region, ranks)
+        region_row(region, ranks, include_exclusive=percentage_mode == "exclusive")
         for region in results.get_regions(include=include, exclude=exclude)
     ]
     rows_by_name = {row["name"]: row for row in rows}
 
     # Build display rows from the call tree rather than from the flat region
     # registry. A region can occur below multiple parents, in which case each
-    # distinct path gets its own row. The timing values remain the aggregate
-    # values for that region, as they were in the flat summary.
+    # distinct path gets its own row. Consecutive copies of the same name are
+    # one recursive call chain, not distinct aggregate rows: the timing values
+    # already include every invocation of that region.
     display_rows = []
     seen_paths = set()
+    display_by_path = {}
     selected_ranks = range(results.num_ranks) if ranks is None else ranks
     from scope_profiler.call_stack import NestingError
     from scope_profiler.region import EventDataUnavailableError
@@ -333,13 +389,22 @@ def region_rows(
                 parent_id = parent.get("parent")
                 parent = by_id.get(parent_id) if parent_id is not None else None
             path = tuple(reversed(path))
-            if path in seen_paths:
+            collapsed_path = tuple(
+                name
+                for index, name in enumerate(path)
+                if index == 0 or name != path[index - 1]
+            )
+            if collapsed_path in seen_paths:
+                if len(collapsed_path) != len(path):
+                    display_by_path[collapsed_path]["recursive"] = True
                 continue
-            seen_paths.add(path)
+            seen_paths.add(collapsed_path)
             row = dict(rows_by_name[name])
-            row["depth"] = len(path) - 1
+            row["depth"] = len(collapsed_path) - 1
+            row["recursive"] = len(collapsed_path) != len(path)
             row["start"] = float(call["start"])
             display_rows.append(row)
+            display_by_path[collapsed_path] = row
 
     # Keep regions with no reconstructable call tree in the summary.
     for row in rows:
@@ -348,6 +413,7 @@ def region_rows(
         ):
             fallback = dict(row)
             fallback["depth"] = 0
+            fallback["recursive"] = False
             region = results.get_region(row["name"])
             fallback["start"] = (
                 region.first_start_time if region.has_timing else float("inf")
@@ -388,10 +454,26 @@ def _format_count(value) -> str:
 
 
 def _format_percentage(value, denominator) -> str:
-    """Format a duration as a percentage of the session root duration."""
+    """Format a duration as a readable percentage of the session duration.
+
+    Fixed-point notation is easier to scan in terminal tables. Scientific
+    notation is retained only below 0.01%, where two decimal places would
+    otherwise turn a non-zero value into ``0.00%``.
+    """
     if value is None or denominator is None or denominator <= 0:
         return "-"
-    return f"{100.0 * value / denominator:.1e}%"
+    percentage = 100.0 * value / denominator
+    if percentage and abs(percentage) < 0.01:
+        return f"{percentage:.1e}%"
+    return f"{percentage:.2f}%"
+
+
+def _display_region_name(row) -> str:
+    """Render a hierarchical name, marking a collapsed recursive chain."""
+    depth = row.get("depth", 0)
+    prefix = f"{'│ ' * (depth - 1)}└─ " if depth else ""
+    recursive = " ↻" if row.get("recursive") else ""
+    return f"{prefix}{row['name']}{recursive}"
 
 
 def print_region_table(
@@ -401,6 +483,8 @@ def print_region_table(
     suppress_notes: bool = False,
     total_time: float | None = None,
     columns=None,
+    percentage_mode: str = "coverage",
+    file_path=None,
 ) -> None:
     """Print the aligned per-region statistics table.
 
@@ -427,10 +511,15 @@ def print_region_table(
         relative to ``scope_profiler.session``. The public name for the first
         column is ``region``; ``name`` is accepted as an alias for Python
         callers.
+    percentage_mode : {"coverage", "exclusive"}, optional
+        Quantity used for the ``% session`` column. Wall-clock coverage is the
+        default; exclusive time can be selected for attribution-focused tables.
+    file_path : str or Path, optional
+        File represented by the table, used for the help hints in the info box.
     """
     stream = sys.stdout if stream is None else stream
-    selected_columns = normalize_region_table_columns(columns)
-
+    if percentage_mode not in {"coverage", "exclusive"}:
+        raise ValueError("percentage_mode must be 'coverage' or 'exclusive'")
     if not rows:
         if title:
             print(title, file=stream)
@@ -441,18 +530,30 @@ def print_region_table(
         (root["total"] for root in rows if root["name"] == "scope_profiler.session"),
         None,
     )
+    if columns is None and session_total is None:
+        # Percentages are defined relative to the session root. When a
+        # filtered table does not contain that root, omit the unusable column
+        # from the default layout rather than filling it with dashes.
+        columns = ("region", "calls", "total", "avg")
+    selected_columns = normalize_region_table_columns(columns)
 
     formatted = [
         {
-            "name": (
-                f"{'│ ' * (row.get('depth', 0) - 1)}└─ {row['name']}"
-                if row.get("depth", 0)
-                else row["name"]
-            ),
+            "name": _display_region_name(row),
             "ranks": str(row["num_ranks"]),
             "calls": _format_count(row["calls"]),
             "total": _format_duration(row["total"]),
-            "percent": _format_percentage(row["total"], session_total),
+            # The session root represents the complete run, so keep it at
+            # 100% even when exclusive attribution is selected.
+            "percent": _format_percentage(
+                (
+                    row["total"]
+                    if percentage_mode == "exclusive"
+                    and row["name"] == "scope_profiler.session"
+                    else row.get(percentage_mode)
+                ),
+                session_total,
+            ),
             "avg": _format_duration(row["avg"]),
             "min": _format_duration(row["min"]),
             "max": _format_duration(row["max"]),
@@ -476,7 +577,9 @@ def print_region_table(
             "ranks": "",
             "calls": _format_count(sum(row["calls"] for row in rows)),
             "total": _format_duration(sum(timed) if timed else None),
-            "percent": _format_percentage(sum(timed) if timed else None, session_total),
+            # TOTAL is the run represented by the session root, rather than
+            # the sum of the root and its nested contribution rows.
+            "percent": _format_percentage(session_total, session_total),
             "avg": "",
             "min": "",
             "max": "",
@@ -492,23 +595,58 @@ def print_region_table(
 
     headers = [header for _, header in selected_columns]
     table_rows = [[row[key] for key, _ in selected_columns] for row in formatted]
-    _print_table(table_rows, headers, stream, title=title)
-    if not suppress_notes:
-        print("\n  Durations are in seconds.", file=stream)
+    _print_table(table_rows, headers, stream)
     notes = []
+    if title:
+        notes.append(f"Summary: {title}")
+    if file_path is not None:
+        command_path = shlex.quote(os.path.relpath(str(file_path)))
+        notes.extend(
+            (
+                "",
+                "Explore:",
+                f"  Inspect: scope-profiler inspect {command_path}",
+                f"  TUI:     scope-profiler tui {command_path}",
+                "",
+                "Visualize and export:",
+                f"  Plot:    scope-profiler plot default {command_path} -o plots --show",
+                f"  Report:  scope-profiler report {command_path} -o report.html",
+                f"  Export:  scope-profiler export plot-data {command_path} -o data",
+                f"  Lines:   scope-profiler line-profile {command_path}",
+                "",
+                "Compare runs:",
+                "  Diff:    scope-profiler diff BASE.h5 CANDIDATE.h5",
+                "  Check:   scope-profiler check BASE.h5 CANDIDATE.h5",
+            )
+        )
+        notes.append("")
+    notes.append("Durations are in seconds.")
     if len(rows) > 1:
         # Nested regions are counted in both the inner and the outer row, so
         # the summed total legitimately exceeds the run's wall-clock time.
         notes.append(
             "Regions may nest, so the summed total can exceed the wall-clock time."
         )
+    if any(row.get("recursive") for row in rows):
+        notes.append("↻ Recursive rows aggregate all invocations of that region.")
+    if session_total is not None:
+        notes.append(
+            "% session uses wall-clock coverage; overlapping recursive calls "
+            "count once."
+            if percentage_mode == "coverage"
+            else "% session uses exclusive time for each region."
+        )
     if any(row["total"] is None for row in rows):
         notes.append(
             "Regions shown without timing recorded no calls on the selected ranks."
         )
     if not suppress_notes and notes:
+        width = max(len(note) for note in notes)
+        print(file=stream)
+        print(f"  ╭─ Info {'─' * max(1, width - 5)}╮", file=stream)
         for note in notes:
-            print(f"\n  {note}", file=stream)
+            print(f"  │ {note:<{width}} │", file=stream)
+        print(f"  ╰{'─' * (width + 2)}╯", file=stream)
 
     # Trailing blank line so whatever follows (line-profiler stats, a second
     # file's table) is not pressed against the last row.

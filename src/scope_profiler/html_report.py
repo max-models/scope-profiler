@@ -485,6 +485,7 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
         from scope_profiler.plotting_scripts import (
             plot_durations,
             plot_flame,
+            plot_flame_graph,
             plot_gantt,
             plot_rank_heatmap,
         )
@@ -501,12 +502,12 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
         try:
             charts.append(
                 (
-                    f"Timeline: {run.display_label}",
+                    f"Timeline: {run.display_label} (rank 0)",
                     plot_gantt(
                         run,
                         include=include,
                         exclude=exclude,
-                        ranks=ranks,
+                        ranks=[0],
                         show=False,
                         verbose=False,
                         backend="plotly",
@@ -547,6 +548,7 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
                     include=include,
                     exclude=exclude,
                     ranks=ranks,
+                    exclusive=True,
                     show=False,
                     verbose=False,
                     backend="plotly",
@@ -561,7 +563,7 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
         try:
             charts.append(
                 (
-                    f"Flame: {run.display_label}",
+                    f"Flame chart: {run.display_label}",
                     plot_flame(
                         run,
                         include=include,
@@ -577,13 +579,40 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
         except (ImportError, ValueError) as exc:
             failures.append(f"Flame for {run.display_label}: {exc}")
 
+        try:
+            charts.append(
+                (
+                    f"Flame graph: {run.display_label}",
+                    plot_flame_graph(
+                        run,
+                        include=include,
+                        exclude=exclude,
+                        ranks=ranks,
+                        show=False,
+                        verbose=False,
+                        backend="plotly",
+                        return_fig=True,
+                    ),
+                )
+            )
+        except (ImportError, ValueError) as exc:
+            failures.append(f"Flame graph for {run.display_label}: {exc}")
+
     fragments = []
     include_plotlyjs = True
     for title, figure in charts:
         if figure is None:
             continue
+        explanation = ""
+        if title == "Rank heatmap":
+            explanation = (
+                '<p class="muted">This heatmap uses exclusive timings. Exclusive '
+                "duration is the time spent in a region itself, excluding time "
+                "spent in nested child regions; this prevents the enclosing "
+                "session region from dominating the heatmap.</p>"
+            )
         fragments.append(
-            f'<h3>{_text(title)}</h3><div class="chart">'
+            f'<h3>{_text(title)}</h3>{explanation}<div class="chart">'
             f"{figure.to_html(full_html=False, include_plotlyjs=include_plotlyjs)}</div>"
         )
         include_plotlyjs = False

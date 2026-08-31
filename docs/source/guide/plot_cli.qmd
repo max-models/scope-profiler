@@ -89,16 +89,28 @@ share a color, and nested regions such as `assemble` and `solve` get their own
 lanes rather than being drawn inside `timestep` — the flame graph below is the
 view that shows the nesting.
 
-## Flame graph
+## Flame chart
 
-`flame_plot.png` answers *where the time went* instead. The call stack is
+`flame_chart_plot.png` answers *when the calls happened* instead. The call stack is
 reconstructed from timestamp containment — a region whose interval lies
 inside another's is drawn one level above it:
 
-![Flame graph of the mock solver, rank 0](../_static/figures/cli/flame_plot.png)
+![Flame chart of the mock solver, rank 0](../_static/figures/cli/flame_chart_plot.png)
 
-Unlike the Gantt chart, the flame graph is drawn per rank and defaults to
+Like the Gantt chart, the flame chart is drawn per rank and defaults to
 rank 0 only; pass `--ranks` to render more (one panel each).
+Both flame views use the warm `inferno` colormap by default; override it with
+`--cmap` when needed.
+
+## Flame graph
+
+`flame_graph_plot.png` aggregates repeated call paths. Its horizontal axis is
+accumulated duration rather than wall-clock position, so it shows where the
+recorded time went rather than when calls happened:
+
+```bash
+scope-profiler plot flame_graph profiling_data.h5 -o figures
+```
 
 ## Duration bar charts
 

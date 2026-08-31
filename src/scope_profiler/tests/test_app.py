@@ -493,7 +493,7 @@ def test_finalize_prints_the_shared_summary_table(tmp_path, capsys):
 
     # Same header, columns and TOTAL row as ProfilingResults.print_summary().
     results = read_h5(file_path)
-    results.print_summary(title=f"{file_path}  (1 rank(s))")
+    results.print_summary()
     assert printed == capsys.readouterr().out
 
     header = next(line for line in printed.splitlines() if "region" in line)

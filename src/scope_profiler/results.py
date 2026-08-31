@@ -10,6 +10,7 @@ plotting functions, the exporters) cannot tell them apart.
 """
 
 import functools
+import os
 import re
 from collections.abc import Iterator
 from pathlib import Path
@@ -575,6 +576,7 @@ class ProfilingResults:
         stream=None,
         suppress_notes: bool = False,
         columns: list[str] | str | None = None,
+        percentage_mode: str = "coverage",
     ) -> None:
         """
         Print a region summary table, aggregated over ranks.
@@ -601,6 +603,9 @@ class ProfilingResults:
             ``calls``, ``percent``, ``total`` and ``avg``. The
             percentage is relative to ``scope_profiler.session``. Use
             ``region`` for the region-name column.
+        percentage_mode : {"coverage", "exclusive"}, optional
+            Quantity used for ``% session``. Defaults to wall-clock coverage;
+            use ``exclusive`` to attribute time after nested regions.
 
         Notes
         -----
@@ -613,7 +618,12 @@ class ProfilingResults:
             return
 
         rows = region_rows(
-            self, include=include, exclude=exclude, ranks=ranks, sort=sort
+            self,
+            include=include,
+            exclude=exclude,
+            ranks=ranks,
+            sort=sort,
+            percentage_mode=percentage_mode,
         )
         if title is None:
             title = self.default_title()
@@ -624,6 +634,8 @@ class ProfilingResults:
             suppress_notes=suppress_notes,
             total_time=self.total_time,
             columns=columns,
+            percentage_mode=percentage_mode,
+            file_path=self.file_path,
         )
 
     def default_title(self) -> str:
@@ -637,9 +649,11 @@ class ProfilingResults:
         Returns
         -------
         str
-            e.g. ``"128 ranks - results/run_a.h5  (128 rank(s))"``.
+            e.g. ``"results/run_a.h5 (128 ranks)"``.
         """
-        title = f"{self.file_path}  ({self.num_ranks} rank(s))"
+        rank_label = "rank" if self.num_ranks == 1 else "ranks"
+        relative_path = os.path.relpath(self.file_path)
+        title = f"{relative_path} ({self.num_ranks} {rank_label})"
         if self.label is not None:
             title = f"{self.label} - {title}"
         return title
