@@ -26,12 +26,14 @@ import numpy as np
 from scope_profiler.h5reader import read_h5
 from scope_profiler.inspection import _metadata_sections, _time_span
 from scope_profiler.plotting_scripts import (
+    FLAME_CMAP,
     available_likwid_metrics,
     plot_callgraph,
     plot_duration_histogram,
     plot_duration_timeseries,
     plot_durations,
-    plot_flame,
+    plot_flame_chart,
+    plot_flame_graph,
     plot_gantt,
     plot_imbalance,
     plot_likwid,
@@ -43,7 +45,8 @@ from scope_profiler.summary import region_row, region_rows
 _PLOT_CATALOG = {
     "gantt": "Per-rank timeline of recorded calls",
     "durations": "Duration statistics by region",
-    "flame": "Reconstructed nested call-stack flame graph",
+    "flame_chart": "Time-based nested call-stack flame chart",
+    "flame_graph": "Aggregated call-stack flame graph",
     "callgraph": "Call graph from explicit call and parent ids",
     "timeseries": "Duration of each call over time",
     "histogram": "Call-duration distribution by region",
@@ -256,7 +259,9 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
 
     plot_children = [
         BrowserNode(
-            name.title(),
+            {"flame_chart": "Flame chart", "flame_graph": "Flame graph"}.get(
+                name, name.title()
+            ),
             "plot",
             {"results": results, "plot_name": name, "description": description},
         )
@@ -417,7 +422,7 @@ def node_detail_text(node: BrowserNode) -> str:
             "",
             "Press g for Matplotlib, t for Plotext (simple plots), p for Plotly in a browser, or s to save PNG.",
         ]
-        if payload.get("plot_name") == "flame":
+        if payload.get("plot_name") in {"flame_chart", "flame_graph"}:
             lines.append("Press v to open the reconstructed profile in Snakeviz.")
         if payload.get("metric"):
             lines.append(f"Metric: {payload['metric']}")
@@ -761,6 +766,8 @@ def render_plot(
         ranks = sorted(set(ranks))
 
     cmap = settings.get("cmap", "tab20") or "tab20"
+    if name in {"flame_chart", "flame_graph"} and cmap == "tab20":
+        cmap = FLAME_CMAP
     common = {
         "filepath": str(filepath) if filepath else None,
         "show": show,
@@ -773,7 +780,8 @@ def render_plot(
     }
     functions = {
         "gantt": plot_gantt,
-        "flame": plot_flame,
+        "flame_chart": plot_flame_chart,
+        "flame_graph": plot_flame_graph,
         "callgraph": plot_callgraph,
         "durations": plot_durations,
         "timeseries": plot_duration_timeseries,
@@ -1413,7 +1421,7 @@ def _build_textual_app_class():
             if (
                 node is None
                 or node.kind != "plot"
-                or node.payload.get("plot_name") != "flame"
+                or node.payload.get("plot_name") not in {"flame_chart", "flame_graph"}
             ):
                 self.notify("Select the Flame plot first.", severity="warning")
                 return

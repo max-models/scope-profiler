@@ -42,7 +42,12 @@ from scope_profiler.plotting_scripts.durations import (
     _stacked_segments,
     plot_durations,
 )
-from scope_profiler.plotting_scripts.flame import plot_flame
+from scope_profiler.plotting_scripts.flame import (
+    FLAME_CMAP,
+    plot_flame,
+    plot_flame_chart,
+    plot_flame_graph,
+)
 from scope_profiler.plotting_scripts.gantt import (
     _aggregate_gantt_intervals,
     _prepare_gantt_data,
@@ -68,6 +73,7 @@ from scope_profiler.plotting_scripts.timeline import plot_timeline_density
 
 __all__ = [
     "DEFAULT_CMAP",
+    "FLAME_CMAP",
     "available_likwid_metrics",
     "collect_region_statistics",
     "plot_callgraph",
@@ -75,6 +81,8 @@ __all__ = [
     "plot_duration_timeseries",
     "plot_durations",
     "plot_flame",
+    "plot_flame_chart",
+    "plot_flame_graph",
     "plot_gantt",
     "plot_imbalance",
     "plot_likwid",

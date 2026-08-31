@@ -25,6 +25,7 @@ from scope_profiler.plotting_scripts import (
     plot_duration_timeseries,
     plot_durations,
     plot_flame,
+    plot_flame_graph,
     plot_gantt,
     plot_imbalance,
     plot_likwid,
@@ -736,6 +737,23 @@ def test_plot_flame_reconstructs_recursive_calls(tmp_path):
     assert len(calls) == 3
     depths = sorted(call["depth"] for call in calls)
     assert depths == [0, 1, 2]
+
+
+def test_plot_flame_graph_aggregates_repeated_call_paths(tmp_path):
+    file_path = tmp_path / "run.h5"
+    _write_sample_h5(
+        file_path,
+        {0: {"outer": ([0, 100], [100, 200]), "inner": ([10, 110], [50, 150])}},
+    )
+
+    figure = plot_flame_graph(
+        read_h5(file_path), backend="plotly", show=False, verbose=False, return_fig=True
+    )
+    frame = figure.data[0]
+
+    assert list(frame.customdata) == ["outer", "inner"]
+    assert list(frame.x) == [200e-9, 80e-9]
+    assert list(frame.base) == [0.0, 0.0]
 
 
 def test_plot_speedup(tmp_path):

@@ -8,7 +8,6 @@ import numpy as np
 from scope_profiler import plotting_scripts as _ps
 from scope_profiler.call_stack import build_call_stack
 from scope_profiler.plotting_scripts._utils import (
-    DEFAULT_CMAP,
     _as_runs,
     _normalize_ranks,
     _panel_gridspec,
@@ -20,8 +19,18 @@ from scope_profiler.plotting_scripts._utils import (
 )
 from scope_profiler.results import ProfilingResults
 
+FLAME_CMAP = "inferno"
 
-def plot_flame(
+
+def _print_interactive_backend_hint(backend: str, verbose: bool) -> None:
+    if verbose and backend == "matplotlib":
+        print(
+            "For interactive flame-chart hover details, use "
+            "--backend plotly."
+        )
+
+
+def plot_flame_chart(
     profiling_data: ProfilingResults | Sequence[ProfilingResults],
     ranks: list[int] | int | None = None,
     include: list[str] | str | None = None,
@@ -29,14 +38,14 @@ def plot_flame(
     filepath: str | None = None,
     show: bool = False,
     verbose: bool = True,
-    cmap: str = DEFAULT_CMAP,
+    cmap: str = FLAME_CMAP,
     data_filepath: str | Path | None = None,
     data_format: str = "csv",
     backend: str = "matplotlib",
     return_fig: bool = False,
 ) -> object | None:
     """
-    Plot a flame graph reconstructing the call stack from region timings using maxplotlib.
+    Plot a flame chart reconstructing the call stack from region timings.
 
     Parameters
     ----------
@@ -149,11 +158,12 @@ def plot_flame(
 
     if verbose:
         print(
-            "Plotting flame graph for: "
+            "Plotting flame chart for: "
             + ", ".join(
                 f"{run.display_label} (rank {rank})" for run, rank, _ in prepared
             )
         )
+    _print_interactive_backend_hint(backend, verbose)
 
     single_panel = len(prepared) == 1
     panel_heights = [
@@ -304,3 +314,218 @@ def plot_flame(
         plotly_postprocess=improve_plotly_flame if backend == "plotly" else None,
     )
     return rendered if return_fig else None
+
+
+def _aggregate_flame_calls(calls: list[dict]) -> list[dict]:
+    """Collapse repeated call paths into the nodes of a flame graph."""
+    nodes: dict[tuple[str, ...], dict] = {}
+    order: list[tuple[str, ...]] = []
+    for call in calls:
+        path = tuple(str(call["call_path"]).split(" > "))
+        node = nodes.get(path)
+        if node is None:
+            node = {
+                "name": path[-1],
+                "path": path,
+                "inclusive_duration": 0.0,
+                "exclusive_duration": 0.0,
+                "source_file": call["source_file"],
+                "source_lineno": call["source_lineno"],
+                "color": call["color"],
+            }
+            nodes[path] = node
+            order.append(path)
+        node["inclusive_duration"] += call["inclusive_duration"]
+        node["exclusive_duration"] += call["exclusive_duration"]
+
+    index = {path: i for i, path in enumerate(order)}
+    children: dict[tuple[str, ...], list[tuple[str, ...]]] = {}
+    for path in order:
+        parent = path[:-1]
+        children.setdefault(parent, []).append(path)
+
+    starts: dict[tuple[str, ...], float] = {}
+
+    def layout(path: tuple[str, ...], start: float) -> None:
+        starts[path] = start
+        cursor = start
+        for child in children.get(path, []):
+            layout(child, cursor)
+            cursor += nodes[child]["inclusive_duration"]
+
+    roots = children.get((), [])
+    cursor = 0.0
+    for root in roots:
+        layout(root, cursor)
+        cursor += nodes[root]["inclusive_duration"]
+
+    aggregated = []
+    for call_id, path in enumerate(order):
+        node = nodes[path]
+        parent_path = path[:-1]
+        start = starts[path]
+        aggregated.append(
+            {
+                "call_id": call_id,
+                "parent": None if not parent_path else index[parent_path],
+                "name": node["name"],
+                "call_path": " > ".join(path),
+                "start": start,
+                "end": start + node["inclusive_duration"],
+                "inclusive_duration": node["inclusive_duration"],
+                "exclusive_duration": node["exclusive_duration"],
+                "depth": len(path) - 1,
+                "source_file": node["source_file"],
+                "source_lineno": node["source_lineno"],
+                "color": node["color"],
+            }
+        )
+    return aggregated
+
+
+def plot_flame_graph(
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
+    ranks: list[int] | int | None = None,
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+    filepath: str | None = None,
+    show: bool = False,
+    verbose: bool = True,
+    cmap: str = FLAME_CMAP,
+    data_filepath: str | Path | None = None,
+    data_format: str = "csv",
+    backend: str = "matplotlib",
+    return_fig: bool = False,
+) -> object | None:
+    """Plot an aggregated flame graph whose x-axis represents total time."""
+    Canvas = _ps._get_canvas()
+    runs = _as_runs(profiling_data)
+    if not runs:
+        return
+    normalized_ranks = _normalize_ranks(ranks) if ranks is not None else [0]
+
+    reader_regions = []
+    all_region_names: set[str] = set()
+    for run in runs:
+        regions = run.get_regions(include=include, exclude=exclude)
+        if not regions:
+            raise ValueError("No regions matched the selected filters.")
+        all_region_names.update(region.name for region in regions)
+        reader_regions.append((run, regions))
+    color_map = _region_color_map(all_region_names, cmap=cmap)
+    for _, regions in reader_regions:
+        for region in regions:
+            region.color = color_map[region.name]
+
+    prepared = []
+    for run, regions in reader_regions:
+        for rank in normalized_ranks:
+            if rank < 0 or rank >= run.num_ranks:
+                raise ValueError(f"Invalid rank requested: {rank}")
+            calls = _aggregate_flame_calls(build_call_stack(regions, rank))
+            if calls:
+                prepared.append((run, rank, calls))
+    if not prepared:
+        raise ValueError("No calls recorded for the requested ranks.")
+    if data_filepath:
+        labels = _unique_labels([run.display_label for run, _, _ in prepared])
+        rows = [
+            {
+                "file": label,
+                "rank": rank,
+                "call_id": call["call_id"],
+                "parent_call_id": call["parent"],
+                "region": call["name"],
+                "call_path": call["call_path"],
+                "depth": call["depth"],
+                "start_seconds": call["start"],
+                "end_seconds": call["end"],
+                "inclusive_duration_seconds": call["inclusive_duration"],
+                "exclusive_duration_seconds": call["exclusive_duration"],
+            }
+            for label, (_, rank, calls) in zip(labels, prepared)
+            for call in calls
+        ]
+        if data_format == "json":
+            _write_json(data_filepath, {"calls": rows})
+        else:
+            headers = [
+                "file",
+                "rank",
+                "call_id",
+                "parent_call_id",
+                "region",
+                "call_path",
+                "depth",
+                "start_seconds",
+                "end_seconds",
+                "inclusive_duration_seconds",
+                "exclusive_duration_seconds",
+            ]
+            _write_csv(data_filepath, headers, [[row[key] for key in headers] for row in rows])
+    if verbose:
+        print(
+            "Plotting flame graph for: "
+            + ", ".join(f"{run.display_label} (rank {rank})" for run, rank, _ in prepared)
+        )
+    _print_interactive_backend_hint(backend, verbose)
+
+    single_panel = len(prepared) == 1
+    panel_heights = [
+        max(2.0, 0.6 * (max(call["depth"] for call in calls) + 1))
+        for _, _, calls in prepared
+    ]
+    fig_width, fig_height = 12.0, 1.0 + sum(panel_heights)
+    canvas = Canvas(
+        nrows=len(prepared),
+        ncols=1,
+        figsize=(fig_width, fig_height),
+        gridspec_kw=_panel_gridspec(fig_width, fig_height, 8, not single_panel),
+    )
+    for idx, (run, rank, calls) in enumerate(prepared):
+        row = None if single_panel else idx
+        col = None if single_panel else 0
+        total_span = sum(
+            call["inclusive_duration"] for call in calls if call["parent"] is None
+        )
+        max_depth = max(call["depth"] for call in calls)
+        hover = None
+        if backend == "plotly":
+            hover = [
+                _ps._hover_summary(
+                    run.get_region(call["name"])[rank],
+                    title=f"{call['name']} (rank {rank})",
+                    extra=[
+                        ("aggregated path", call["call_path"]),
+                        ("total", f"{call['inclusive_duration']:.6g} s"),
+                        ("self", f"{call['exclusive_duration']:.6g} s"),
+                    ],
+                )
+                for call in calls
+            ]
+        canvas.flame_chart(
+            [call["name"] for call in calls],
+            [call["parent"] for call in calls],
+            [call["inclusive_duration"] for call in calls],
+            start_times=[call["start"] for call in calls],
+            row=row,
+            col=col,
+            colors=[_to_hex(color_map[call["name"]]) for call in calls],
+            edgecolor="black",
+            hover=hover,
+            **({} if backend == "plotly" else {"colormap": cmap}),
+        )
+        canvas.set_xlim(0, total_span, row=row, col=col)
+        canvas.set_ylim(-0.6, max_depth + 1.0, row=row, col=col)
+        canvas.set_xlabel("Accumulated time (seconds)", row=row, col=col)
+        canvas.set_ylabel("Call depth", row=row, col=col)
+        canvas.set_title(f"{run.display_label} (rank {rank})", row=row, col=col)
+        canvas.set_grid(True, row=row, col=col)
+    if not single_panel:
+        canvas.suptitle("Flame Graphs")
+    rendered = _ps._render(canvas, filepath, show, backend, return_fig=return_fig)
+    return rendered if return_fig else None
+
+
+# Backward-compatible name for the former time-based plot.
+plot_flame = plot_flame_chart

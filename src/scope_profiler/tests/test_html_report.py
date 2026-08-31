@@ -122,7 +122,8 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
     assert "Timeline: profile" in document
     assert "Region durations" in document
     assert "Rank heatmap" in document
-    assert "Flame: profile" in document
+    assert "Flame chart: profile" in document
+    assert "Flame graph: profile" in document
     assert "data-plotlyjs=True" in document
     assert "data-plotlyjs=False" in document
 

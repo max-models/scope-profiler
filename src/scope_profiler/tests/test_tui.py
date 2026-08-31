@@ -230,7 +230,8 @@ def test_plot_section_exposes_existing_plot_kinds(sample_file):
     assert [child.label for child in plots.children] == [
         "Gantt",
         "Durations",
-        "Flame",
+        "Flame chart",
+        "Flame graph",
         "Callgraph",
         "Timeseries",
         "Histogram",

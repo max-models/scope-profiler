@@ -485,6 +485,7 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
         from scope_profiler.plotting_scripts import (
             plot_durations,
             plot_flame,
+            plot_flame_graph,
             plot_gantt,
             plot_rank_heatmap,
         )
@@ -562,7 +563,7 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
         try:
             charts.append(
                 (
-                    f"Flame: {run.display_label}",
+                    f"Flame chart: {run.display_label}",
                     plot_flame(
                         run,
                         include=include,
@@ -577,6 +578,25 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
             )
         except (ImportError, ValueError) as exc:
             failures.append(f"Flame for {run.display_label}: {exc}")
+
+        try:
+            charts.append(
+                (
+                    f"Flame graph: {run.display_label}",
+                    plot_flame_graph(
+                        run,
+                        include=include,
+                        exclude=exclude,
+                        ranks=ranks,
+                        show=False,
+                        verbose=False,
+                        backend="plotly",
+                        return_fig=True,
+                    ),
+                )
+            )
+        except (ImportError, ValueError) as exc:
+            failures.append(f"Flame graph for {run.display_label}: {exc}")
 
     fragments = []
     include_plotlyjs = True
