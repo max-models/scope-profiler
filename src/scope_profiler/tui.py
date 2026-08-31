@@ -1005,7 +1005,8 @@ def _build_textual_app_class():
             min-width: 24;
             border: solid $accent;
             padding: 0 1;
-            overflow: hidden;
+            overflow-x: hidden;
+            overflow-y: auto;
         }
 
         #detail-scroll {

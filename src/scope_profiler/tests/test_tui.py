@@ -427,6 +427,33 @@ def test_textual_navigation_renders_stable_detail_views(sample_file, target):
     asyncio.run(scenario())
 
 
+def test_navigation_pane_scrolls_when_tree_is_tall(tmp_path):
+    import asyncio
+
+    from scope_profiler.tui import _build_textual_app_class
+
+    path = tmp_path / "many_regions.h5"
+    _write_sample_h5(
+        path,
+        {
+            0: {
+                f"region-{index:02d}": ([index * NS], [(index + 1) * NS])
+                for index in range(40)
+            }
+        },
+    )
+    app = _build_textual_app_class()(build_browser_model(path))
+
+    async def scenario():
+        async with app.run_test(size=(120, 20)) as pilot:
+            nav = app.query_one("#nav")
+            nav.root.expand_all()
+            await pilot.pause()
+            assert nav.max_scroll_y > 0
+
+    asyncio.run(scenario())
+
+
 def test_textual_navigation_renders_line_profile(line_profile_file):
     import asyncio
 
