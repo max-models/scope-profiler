@@ -10,6 +10,7 @@ no scope-profiler imports and cannot introduce an import cycle.
 
 import os
 import re
+import shlex
 import sys
 
 import numpy as np
@@ -599,14 +600,26 @@ def print_region_table(
     if title:
         notes.append(f"Summary: {title}")
     if file_path is not None:
-        relative_path = os.path.relpath(str(file_path))
+        command_path = shlex.quote(os.path.relpath(str(file_path)))
         notes.extend(
             (
-                f"Inspect: scope-profiler inspect {relative_path}",
-                f"Plot: scope-profiler plot default {relative_path} -o plots --show",
-                f"TUI: scope-profiler tui {relative_path}",
+                "",
+                "Explore:",
+                f"  Inspect: scope-profiler inspect {command_path}",
+                f"  TUI:     scope-profiler tui {command_path}",
+                "",
+                "Visualize and export:",
+                f"  Plot:    scope-profiler plot default {command_path} -o plots --show",
+                f"  Report:  scope-profiler report {command_path} -o report.html",
+                f"  Export:  scope-profiler export plot-data {command_path} -o data",
+                f"  Lines:   scope-profiler line-profile {command_path}",
+                "",
+                "Compare runs:",
+                "  Diff:    scope-profiler diff BASE.h5 CANDIDATE.h5",
+                "  Check:   scope-profiler check BASE.h5 CANDIDATE.h5",
             )
         )
+        notes.append("")
     notes.append("Durations are in seconds.")
     if len(rows) > 1:
         # Nested regions are counted in both the inner and the outer row, so

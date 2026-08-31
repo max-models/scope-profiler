@@ -960,6 +960,7 @@ def _build_textual_app_class():
             Static,
             Tree,
         )
+        from textual.containers import VerticalScroll
     except ImportError as exc:
         raise RuntimeError(
             "The interactive TUI requires Textual. Install it with "
@@ -971,6 +972,11 @@ def _build_textual_app_class():
 
         class Detail(Static):
             """Scrollable detail view that can receive keyboard focus."""
+
+            can_focus = True
+
+        class DetailScroll(VerticalScroll):
+            """Scrollable viewport for the detail content."""
 
             can_focus = True
 
@@ -1015,13 +1021,17 @@ def _build_textual_app_class():
             overflow: hidden;
         }
 
-        #detail {
+        #detail-scroll {
             height: 1fr;
             min-height: 20;
             border: solid $accent;
             padding: 1 2;
             overflow-x: auto;
             overflow-y: auto;
+        }
+
+        #detail {
+            height: auto;
             text-wrap: nowrap;
         }
 
@@ -1101,9 +1111,10 @@ def _build_textual_app_class():
             with Horizontal(id="body"):
                 yield Tree(self.model.root.label, id="nav")
                 with Vertical(id="right"):
-                    yield self.Detail(
-                        self._detail(self.model.root.children[0]), id="detail"
-                    )
+                    with self.DetailScroll(id="detail-scroll"):
+                        yield self.Detail(
+                            self._detail(self.model.root.children[0]), id="detail"
+                        )
                     with Vertical(id="settings"):
                         yield Static("Plot settings", id="settings-title")
                         yield Input(
@@ -1193,7 +1204,7 @@ def _build_textual_app_class():
                 else:
                     tree.move_cursor(first)
                 self.selected_browser_node = first.data
-                self.query_one("#detail", Static).update(self._detail(first.data))
+                self.query_one("#detail", self.Detail).update(self._detail(first.data))
                 self._update_selected_regions()
 
         def _populate_tree(self, tree_node, browser_nodes) -> None:
@@ -1215,7 +1226,7 @@ def _build_textual_app_class():
                     # before measuring them for the Plotext canvas.
                     self.call_after_refresh(self._show_plotext_in_detail, node)
                 else:
-                    self.query_one("#detail", Static).update(self._detail(node))
+                    self.query_one("#detail", self.Detail).update(self._detail(node))
 
         def _update_plot_settings_visibility(self, node: BrowserNode) -> None:
             panel = self.query_one("#settings", Vertical)
@@ -1368,7 +1379,8 @@ def _build_textual_app_class():
             if node is None:
                 return
             self._read_plot_settings()
-            detail = self.query_one("#detail", Static)
+            detail = self.query_one("#detail-scroll", self.DetailScroll)
+            detail_content = self.query_one("#detail", self.Detail)
             # ``content_size`` already excludes the widget's border and
             # padding, so the chart can use the complete scrollable viewport.
             width = max(20, detail.content_size.width)
@@ -1388,14 +1400,14 @@ def _build_textual_app_class():
                     # regexes can be invalid, so keep the last chart visible
                     # and let the selected-regions field show the validation.
                     return
-                detail.update(self._detail(node))
+                detail_content.update(self._detail(node))
                 self.notify(str(exc), severity="error", timeout=8)
                 return
             from rich.text import Text
 
             if node is not self.selected_browser_node:
                 return
-            detail.update(Text.from_ansi(plot_text))
+            detail_content.update(Text.from_ansi(plot_text))
 
         def action_show_snakeviz(self) -> None:
             node = self.selected_browser_node

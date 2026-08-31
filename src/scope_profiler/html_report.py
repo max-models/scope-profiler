@@ -501,12 +501,12 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
         try:
             charts.append(
                 (
-                    f"Timeline: {run.display_label}",
+                    f"Timeline: {run.display_label} (rank 0)",
                     plot_gantt(
                         run,
                         include=include,
                         exclude=exclude,
-                        ranks=ranks,
+                        ranks=[0],
                         show=False,
                         verbose=False,
                         backend="plotly",
@@ -547,6 +547,7 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
                     include=include,
                     exclude=exclude,
                     ranks=ranks,
+                    exclusive=True,
                     show=False,
                     verbose=False,
                     backend="plotly",
@@ -595,7 +596,12 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
         )
     if not fragments:
         fragments.append('<p class="muted">No charts could be rendered.</p>')
-    return "<section><h2>Charts</h2>" + "".join(fragments) + "</section>"
+    explanation = (
+        '<p class="muted">The Gantt chart shows rank 0 only. The rank heatmap '
+        "uses exclusive timings, so time spent in nested regions is attributed "
+        "to the innermost region instead of the enclosing session region.</p>"
+    )
+    return "<section><h2>Charts</h2>" + explanation + "".join(fragments) + "</section>"
 
 
 def create_html_report(

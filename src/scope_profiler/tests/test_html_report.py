@@ -115,6 +115,33 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
     assert "data-plotlyjs=False" in document
 
 
+def test_report_limits_gantt_and_uses_exclusive_rank_heatmap(tmp_path, monkeypatch):
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    _write_sample_h5(profile, _sample_file_data(1, 10, 20))
+
+    from scope_profiler import plotting_scripts
+
+    captured = {}
+
+    def fake_gantt(*args, **kwargs):
+        captured["gantt"] = kwargs
+
+    def fake_heatmap(*args, **kwargs):
+        captured["heatmap"] = kwargs
+
+    monkeypatch.setattr(plotting_scripts, "plot_gantt", fake_gantt)
+    monkeypatch.setattr(plotting_scripts, "plot_durations", lambda *args, **kwargs: None)
+    monkeypatch.setattr(plotting_scripts, "plot_rank_heatmap", fake_heatmap)
+    monkeypatch.setattr(plotting_scripts, "plot_flame", lambda *args, **kwargs: None)
+
+    cli_main(["report", str(profile), "-o", str(report)])
+
+    assert captured["gantt"]["ranks"] == [0]
+    assert captured["heatmap"]["exclusive"] is True
+    assert "exclusive timings" in report.read_text(encoding="utf-8")
+
+
 def test_region_durations_chart_is_stacked_and_sorted_by_total(tmp_path, monkeypatch):
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"

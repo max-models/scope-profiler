@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from scope_profiler import plotting_scripts as _ps
+from scope_profiler.call_stack import NestingError
 from scope_profiler.plotting_scripts._utils import (
     _as_runs,
     _normalize_ranks,
@@ -28,8 +29,9 @@ def plot_rank_heatmap(
     data_format: str = "csv",
     backend: str = "matplotlib",
     return_fig: bool = False,
+    exclusive: bool = False,
 ) -> object | None:
-    """Plot total region time as a rank-by-region heatmap."""
+    """Plot total or exclusive region time as a rank-by-region heatmap."""
     Canvas = _ps._get_canvas()
     runs = _as_runs(profiling_data)
     if not runs:
@@ -55,7 +57,14 @@ def plot_rank_heatmap(
         for col, region in enumerate(regions):
             for row, rank in enumerate(selected_ranks):
                 if rank in region and region[rank].durations.size:
-                    matrix[row, col] = float(np.sum(region[rank].durations))
+                    if exclusive:
+                        try:
+                            value = region[rank].exclusive_duration
+                        except NestingError:
+                            value = region[rank].total_duration
+                    else:
+                        value = float(np.sum(region[rank].durations))
+                    matrix[row, col] = float(value)
                 all_records.append(
                     [run.display_label, rank, region.name, matrix[row, col]]
                 )
@@ -65,7 +74,8 @@ def plot_rank_heatmap(
         print("Plotting rank × region duration heatmap")
 
     if data_filepath:
-        header = ["file", "rank", "region", "total_duration_seconds"]
+        duration_name = "exclusive_duration_seconds" if exclusive else "total_duration_seconds"
+        header = ["file", "rank", "region", duration_name]
         if data_format == "json":
             _write_json(
                 data_filepath,
@@ -121,9 +131,15 @@ def plot_rank_heatmap(
         canvas.set_xlabel("Region", row=row, col=col)
         canvas.set_ylabel("MPI rank", row=row, col=col)
         canvas.set_title(run.display_label, row=row, col=col)
-        canvas.colorbar("Total duration (seconds)", row=row, col=col)
+        canvas.colorbar(
+            "Exclusive duration (seconds)" if exclusive else "Total duration (seconds)",
+            row=row,
+            col=col,
+        )
 
     if not single_panel:
-        canvas.suptitle("Rank × region duration")
+        canvas.suptitle(
+            "Rank × region exclusive duration" if exclusive else "Rank × region duration"
+        )
     rendered = _ps._render(canvas, filepath, show, backend, return_fig=return_fig)
     return rendered if return_fig else None
