@@ -583,8 +583,16 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
     for title, figure in charts:
         if figure is None:
             continue
+        explanation = ""
+        if title == "Rank heatmap":
+            explanation = (
+                '<p class="muted">This heatmap uses exclusive timings. Exclusive '
+                "duration is the time spent in a region itself, excluding time "
+                "spent in nested child regions; this prevents the enclosing "
+                "session region from dominating the heatmap.</p>"
+            )
         fragments.append(
-            f'<h3>{_text(title)}</h3><div class="chart">'
+            f'<h3>{_text(title)}</h3>{explanation}<div class="chart">'
             f"{figure.to_html(full_html=False, include_plotlyjs=include_plotlyjs)}</div>"
         )
         include_plotlyjs = False
@@ -596,12 +604,7 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
         )
     if not fragments:
         fragments.append('<p class="muted">No charts could be rendered.</p>')
-    explanation = (
-        '<p class="muted">The Gantt chart shows rank 0 only. The rank heatmap '
-        "uses exclusive timings, so time spent in nested regions is attributed "
-        "to the innermost region instead of the enclosing session region.</p>"
-    )
-    return "<section><h2>Charts</h2>" + explanation + "".join(fragments) + "</section>"
+    return "<section><h2>Charts</h2>" + "".join(fragments) + "</section>"
 
 
 def create_html_report(
