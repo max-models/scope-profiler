@@ -117,6 +117,33 @@ def test_summary_percentages_use_fixed_point_until_tiny():
     assert _format_percentage(0.00001, 1) == "1.0e-03%"
 
 
+def test_summary_percentage_uses_exclusive_time_for_nested_regions(capsys):
+    results = ProfilingResults(
+        {
+            "scope_profiler.session": MPIRegion(
+                "scope_profiler.session",
+                {0: Region(np.array([0]), np.array([100]))},
+            ),
+            "outer": MPIRegion(
+                "outer",
+                {0: Region(np.array([10]), np.array([90]))},
+            ),
+            "inner": MPIRegion(
+                "inner",
+                {0: Region(np.array([20]), np.array([80]))},
+            ),
+        }
+    )
+
+    results.print_summary()
+    output = capsys.readouterr().out
+
+    assert "100.00%" in output
+    assert "60.00%" in output
+    assert "20.00%" in output
+    assert "80.00%" not in output
+
+
 def test_region_without_any_calls_is_safe():
     """A region that recorded nothing still answers every query."""
     empty = np.empty(0, dtype=np.int64)

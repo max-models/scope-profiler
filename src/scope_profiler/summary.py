@@ -226,6 +226,20 @@ def region_row(region, ranks=None) -> dict:
     durations = _region_durations(region, ranks)
     first, last = _first_last_durations(region, ranks)
     calls = sum(data.num_calls for data in per_rank.values())
+    if calls:
+        from scope_profiler.call_stack import NestingError
+
+        try:
+            exclusive = float(
+                sum(data.exclusive_duration for data in per_rank.values())
+            )
+        except NestingError:
+            # Legacy profiles may contain asynchronous/partially overlapping
+            # intervals, for which exclusive time is undefined. Keep those
+            # summaries readable using their inclusive aggregate instead.
+            exclusive = float(sum(data.total_duration for data in per_rank.values()))
+    else:
+        exclusive = None
     if not durations.size and calls:
         # Aggregate-only regions intentionally have no per-call duration
         # array. Their scalar statistics are still sufficient for the summary
@@ -240,6 +254,7 @@ def region_row(region, ranks=None) -> dict:
             "num_ranks": len(per_rank),
             "calls": calls,
             "total": total,
+            "exclusive": exclusive,
             "avg": total / calls,
             "min": min(minimums),
             "max": max(maximums),
@@ -260,6 +275,7 @@ def region_row(region, ranks=None) -> dict:
         "num_ranks": len(per_rank),
         "calls": calls,
         "total": float(np.sum(durations)) if durations.size else None,
+        "exclusive": exclusive,
         "avg": float(np.mean(durations)) if durations.size else None,
         "min": float(np.min(durations)) if durations.size else None,
         "max": float(np.max(durations)) if durations.size else None,
@@ -476,7 +492,17 @@ def print_region_table(
             "ranks": str(row["num_ranks"]),
             "calls": _format_count(row["calls"]),
             "total": _format_duration(row["total"]),
-            "percent": _format_percentage(row["total"], session_total),
+            # Inclusive totals include nested calls. Contribution percentages
+            # use exclusive time so recursion does not exceed 100%; the
+            # session root remains based on its full inclusive duration.
+            "percent": _format_percentage(
+                (
+                    row["total"]
+                    if row["name"] == "scope_profiler.session"
+                    else row["exclusive"]
+                ),
+                session_total,
+            ),
             "avg": _format_duration(row["avg"]),
             "min": _format_duration(row["min"]),
             "max": _format_duration(row["max"]),
@@ -500,7 +526,9 @@ def print_region_table(
             "ranks": "",
             "calls": _format_count(sum(row["calls"] for row in rows)),
             "total": _format_duration(sum(timed) if timed else None),
-            "percent": _format_percentage(sum(timed) if timed else None, session_total),
+            # TOTAL is the run represented by the session root, rather than
+            # the sum of the root and its nested contribution rows.
+            "percent": _format_percentage(session_total, session_total),
             "avg": "",
             "min": "",
             "max": "",
@@ -528,6 +556,8 @@ def print_region_table(
         )
     if any(row.get("recursive") for row in rows):
         notes.append("↻ Recursive rows aggregate all invocations of that region.")
+    if session_total is not None:
+        notes.append("% session uses exclusive time for nested and recursive regions.")
     if any(row["total"] is None for row in rows):
         notes.append(
             "Regions shown without timing recorded no calls on the selected ranks."
