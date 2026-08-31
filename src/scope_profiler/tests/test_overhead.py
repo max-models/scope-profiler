@@ -268,7 +268,11 @@ def test_source_capture_is_a_one_time_per_name_cost(configure):
     per call, and repeated calls to an already-created region cost nothing
     extra at all.
     """
-    configure(capture_region_source=True)
+    # This test measures one-time source capture, not allocating the default
+    # hot-loop buffer for every distinct name. Sixty-four slots cover the
+    # subsequent repeated-call phase while keeping the benchmark's working
+    # set small and stable on shared CI runners.
+    configure(capture_region_source=True, buffer_limit=64)
     names = 500
 
     def create_regions(iterations, names=names):
