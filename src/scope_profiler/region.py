@@ -222,7 +222,14 @@ class Region:
     @property
     def has_gpu_timing(self) -> bool:
         """Whether this region has CUDA-event elapsed timings."""
+        if self._aggregate is not None:
+            return int(self._aggregate.get("gpu_count", 0)) > 0
         return self._gpu_durations is not None and len(self._gpu_durations) > 0
+
+    @property
+    def stored_summary(self) -> dict | None:
+        """Fixed-size statistics used by aggregate and summary-only results."""
+        return self._aggregate
 
     @property
     def source_file(self) -> str | None:
@@ -287,7 +294,7 @@ class Region:
     def first_start_time(self) -> float:
         """First start time in seconds."""
         if self._aggregate is not None:
-            return 0.0
+            return self._aggregate.get("start_minimum", 0) / NS_PER_SECOND
         return (
             float(np.min(self._start_times)) / NS_PER_SECOND if self.has_timing else 0.0
         )
@@ -296,7 +303,7 @@ class Region:
     def last_end_time(self) -> float:
         """Last end time in seconds."""
         if self._aggregate is not None:
-            return 0.0
+            return self._aggregate.get("end_maximum", 0) / NS_PER_SECOND
         return (
             float(np.max(self._end_times)) / NS_PER_SECOND if self.has_timing else 0.0
         )
@@ -345,6 +352,10 @@ class Region:
     @property
     def gpu_total_duration(self) -> float | None:
         """Total CUDA-event elapsed device time in seconds, or None if absent."""
+        if self._aggregate is not None:
+            if not self._aggregate.get("gpu_count", 0):
+                return None
+            return self._aggregate.get("gpu_total", 0) / NS_PER_SECOND
         if self._gpu_durations is None:
             return None
         return float(np.sum(self._gpu_durations)) / NS_PER_SECOND
@@ -382,6 +393,13 @@ class Region:
     @property
     def gpu_average_duration(self) -> float | None:
         """Average CUDA-event elapsed device time in seconds, or None if absent."""
+        if self._aggregate is not None:
+            count = int(self._aggregate.get("gpu_count", 0))
+            return (
+                self._aggregate.get("gpu_total", 0) / count / NS_PER_SECOND
+                if count
+                else None
+            )
         if self._gpu_durations is None or len(self._gpu_durations) == 0:
             return None
         return float(np.mean(self._gpu_durations)) / NS_PER_SECOND
@@ -408,26 +426,32 @@ class Region:
     def first_duration(self) -> float:
         """Duration of the first recorded call, in seconds."""
         if self._aggregate is not None:
-            return 0.0
+            return self._aggregate.get("first", 0) / NS_PER_SECOND
         return float(self._durations[0]) / NS_PER_SECOND if self.has_timing else 0.0
 
     @property
     def last_duration(self) -> float:
         """Duration of the last recorded call, in seconds."""
         if self._aggregate is not None:
-            return 0.0
+            return self._aggregate.get("last", 0) / NS_PER_SECOND
         return float(self._durations[-1]) / NS_PER_SECOND if self.has_timing else 0.0
 
     @property
     def std_duration(self) -> float:
         """Standard deviation of durations in seconds."""
         if self._aggregate is not None:
-            return 0.0
+            count = int(self._aggregate.get("count", 0))
+            m2 = self._aggregate.get("m2")
+            return (
+                float(np.sqrt(max(float(m2), 0.0) / count)) / NS_PER_SECOND
+                if count and m2 is not None
+                else 0.0
+            )
         return (
             float(np.std(self._durations)) / NS_PER_SECOND if self.has_timing else 0.0
         )
 
-    def percentile_duration(self, percentile: float) -> float:
+    def percentile_duration(self, percentile: float) -> float | None:
         """Return a duration percentile in seconds.
 
         ``percentile`` follows :func:`numpy.percentile` and must be between
@@ -436,6 +460,8 @@ class Region:
         """
         if not 0 <= percentile <= 100:
             raise ValueError("percentile must be between 0 and 100")
+        if self._aggregate is not None and self.num_calls:
+            return None
         return (
             float(np.percentile(self._durations, percentile)) / NS_PER_SECOND
             if self.has_timing

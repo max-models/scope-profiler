@@ -21,6 +21,7 @@ profiling_data.h5
 ├── rank_region_index/
 │   ├── region_ids, ranks
 │   ├── event_offsets, event_counts
+│   ├── summary_statistics   (fixed-size per-rank/region statistics)
 │   └── source_files, source_lines, source_texts, tags
 ├── events/
 │   ├── start_times           (int64, nanoseconds)
@@ -110,6 +111,32 @@ for region in results.get_regions():
 
 Durations and timestamps on `Region` and `MPIRegion` are reported in
 **seconds**, converted from the nanoseconds stored in the file.
+
+### Reading summaries without loading events
+
+Large profiles can contain millions of events. Use `read_h5_summary()` when
+you only need metadata or scalar region statistics:
+
+```python
+from scope_profiler import read_h5_summary
+
+results = read_h5_summary("profiling_data.h5")
+for region in results.get_regions():
+    print(region.name, region.num_calls, region.total_duration)
+```
+
+This reads one fixed-size record per rank/region instead of the event-sized
+timestamp, call-ID, and GPU columns. Counts, totals, averages, min/max,
+first/last, standard deviation, rank imbalance, wall-clock span, GPU totals,
+sources, metadata, and exclusive totals remain exact. Per-call events, call
+trees, timelines, and percentiles require `read_h5()`; percentile properties
+are `None` on summary-only results.
+
+Files created before summary records were added are accepted by default and
+fall back to `read_h5()`. Pass `fallback=False` to require the bounded-memory
+path instead. The `diff`, `check`, benchmark, metadata-only inspection, and
+MCP comparison paths select this reader automatically when their requested
+metric can be computed exactly from the stored statistics.
 
 ### Filtering regions
 

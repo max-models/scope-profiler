@@ -21,6 +21,13 @@ from scope_profiler.region import Region
 from scope_profiler.results import ProfilingResults
 
 
+class SummaryDataUnavailable(ValueError):
+    """Raised when a file predates fixed-size schema-2 summary columns."""
+
+
+_SUMMARY_DATASET = "summary_statistics"
+
+
 def _decode_attribute(value):
     """Convert an HDF5 attribute into a plain Python value.
 
@@ -347,6 +354,151 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
         "file_path": file_path,
         "exclusive_totals": exclusive_totals,
     }
+
+
+def load_h5_summary(file_path: str | Path, verbose: bool = False) -> dict:
+    """Parse fixed-size profile statistics without reading event datasets.
+
+    Summary columns were added compatibly within schema 2. Files that predate
+    them raise :class:`SummaryDataUnavailable`; callers that require broad
+    compatibility should use :func:`read_h5_summary`, which falls back to the
+    normal eager reader by default.
+    """
+    file_path = Path(file_path)
+    if not file_path.exists():
+        raise FileNotFoundError(f"HDF5 file not found: {file_path}")
+
+    metadata = {}
+    likwid = {}
+    line_profile = {}
+    exclusive_totals = {}
+    with h5py.File(file_path, "r") as h5file:
+        schema_version = read_schema_version(h5file)
+        migrate_schema(h5file, schema_version)
+        if schema_version != 2:
+            raise SummaryDataUnavailable(
+                "summary-only reads require a schema-2 profiling file"
+            )
+        if "metadata" in h5file:
+            metadata = {
+                key: _decode_attribute(value)
+                for key, value in h5file["metadata"].attrs.items()
+            }
+
+        layout = h5file.attrs.get("storage_layout", "columnar")
+        if layout == "aggregate":
+            per_region, region_names, exclusive_totals = _read_aggregate_regions(
+                h5file
+            )
+        else:
+            index = h5file["rank_region_index"]
+            if _SUMMARY_DATASET not in index:
+                raise SummaryDataUnavailable(
+                    "profiling file has no fixed-size summary statistics"
+                )
+
+            region_names = [
+                _decode_attribute(value) for value in h5file["region_table/names"][()]
+            ]
+            region_ids = index["region_ids"][()]
+            ranks = index["ranks"][()]
+            counts = index["event_counts"][()]
+            source_lines = index["source_lines"][()]
+            source_files = index["source_files"][()]
+            source_texts = index["source_texts"][()]
+            tag_blobs = index["tags"][()]
+            summary_statistics = index[_SUMMARY_DATASET][()]
+            exclusive_column = (
+                index["exclusive_totals"][()] if "exclusive_totals" in index else None
+            )
+
+            per_region = {name: {} for name in region_names}
+            for row, (region_id, rank, count) in enumerate(
+                zip(region_ids, ranks, counts)
+            ):
+                name = region_names[int(region_id)]
+                rank = int(rank)
+                aggregate = {
+                    "count": int(count),
+                    **{
+                        field: (
+                            float(summary_statistics[field][row])
+                            if field in {"mean", "m2"}
+                            else int(summary_statistics[field][row])
+                        )
+                        for field in summary_statistics.dtype.names
+                    },
+                }
+                exclusive = (
+                    int(exclusive_column[row])
+                    if exclusive_column is not None and exclusive_column[row] >= 0
+                    else aggregate["total"]
+                )
+                aggregate["exclusive"] = exclusive
+                if exclusive_column is not None and exclusive_column[row] >= 0:
+                    exclusive_totals.setdefault(name, {})[rank] = exclusive
+                source_line = int(source_lines[row])
+                per_region[name][rank] = Region(
+                    np.empty(0, dtype=np.int64),
+                    np.empty(0, dtype=np.int64),
+                    aggregate=aggregate,
+                    source_file=_decode_attribute(source_files[row]) or None,
+                    source_lineno=source_line if source_line >= 0 else None,
+                    source_text=_decode_attribute(source_texts[row]) or None,
+                    tags=tuple(json.loads(_decode_attribute(tag_blobs[row]) or "[]")),
+                )
+
+        rank_group_names = sorted(
+            (name for name in h5file if name.startswith("rank") and name[4:].isdigit()),
+            key=lambda name: int(name[4:]),
+        )
+        for rank_group_name in rank_group_names:
+            rank_group = h5file[rank_group_name]
+            rank = int(rank_group_name[4:])
+            if verbose:
+                print(f"rank_group_name = {rank_group_name!r}")
+            if LIKWID_GROUP in rank_group:
+                likwid[rank] = _read_likwid_group(rank_group[LIKWID_GROUP])
+            if "line_profile" in rank_group:
+                line_profile[rank] = _read_line_profile_group(rank_group["line_profile"])
+
+        recorded_ranks = h5file["rank_region_index/ranks"][()]
+        inferred_ranks = int(np.max(recorded_ranks)) + 1 if len(recorded_ranks) else 0
+        num_ranks = (
+            max(int(metadata.get("mpi_size", 1)), inferred_ranks)
+            if len(recorded_ranks)
+            else 0
+        )
+
+    regions = {
+        name: MPIRegion(name=name, regions=per_region[name]) for name in region_names
+    }
+    return {
+        "regions": regions,
+        "metadata": metadata,
+        "num_ranks": num_ranks,
+        "likwid": likwid,
+        "line_profile": line_profile,
+        "file_path": file_path,
+        "exclusive_totals": exclusive_totals,
+    }
+
+
+def read_h5_summary(
+    file_path: str | Path, verbose: bool = False, *, fallback: bool = True
+) -> ProfilingResults:
+    """Load fixed-size statistics, optionally falling back for older files.
+
+    The returned object supports metadata and scalar region statistics. Event,
+    timeline, call-stack and percentile APIs intentionally have no per-call
+    data; use :func:`read_h5` when those are required.
+    """
+    try:
+        return ProfilingResults(**load_h5_summary(file_path, verbose=verbose))
+    except SummaryDataUnavailable:
+        if not fallback:
+            raise
+        return read_h5(file_path, verbose=verbose)
 
 
 def read_h5(file_path: str | Path, verbose: bool = False) -> ProfilingResults:

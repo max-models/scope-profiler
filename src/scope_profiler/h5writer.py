@@ -29,6 +29,80 @@ _NO_GPU_DURATION = -1
 # reconstructing the nesting for those.
 _NO_EXCLUSIVE_TOTAL = -1
 
+# Fixed-size statistics for summary-only readers. These live beside the
+# rank/region index, so commands such as ``diff`` can inspect a profile without
+# reading event-sized timestamp columns. Integer fields remain exact; the two
+# floating-point moment fields use nanoseconds and are combined with Welford's
+# algorithm by the reader.
+_SUMMARY_DTYPE = np.dtype(
+    [
+        ("total", np.int64),
+        ("minimum", np.int64),
+        ("maximum", np.int64),
+        ("first", np.int64),
+        ("last", np.int64),
+        ("start_minimum", np.int64),
+        ("end_maximum", np.int64),
+        ("gpu_count", np.uint64),
+        ("gpu_total", np.int64),
+        ("mean", np.float64),
+        ("m2", np.float64),
+    ]
+)
+
+
+def _timing_summary(arrays) -> dict:
+    """Return fixed-size exact statistics for one rank/region event block."""
+    starts = np.asarray(arrays[0], dtype=np.int64)
+    ends = np.asarray(arrays[1], dtype=np.int64)
+    count = len(starts)
+    if count:
+        durations = ends - starts
+        mean = float(np.mean(durations, dtype=np.float64))
+        m2 = float(np.var(durations, dtype=np.float64)) * count
+        total = int(np.sum(durations, dtype=np.int64))
+        minimum = int(np.min(durations))
+        maximum = int(np.max(durations))
+        first = int(durations[0])
+        last = int(durations[-1])
+        start_minimum = int(np.min(starts))
+        end_maximum = int(np.max(ends))
+    else:
+        total = minimum = maximum = first = last = 0
+        start_minimum = end_maximum = 0
+        mean = m2 = 0.0
+
+    gpu_count = gpu_total = 0
+    if len(arrays) > 2 and arrays[2] is not None:
+        gpu = np.asarray(arrays[2], dtype=np.int64)
+        valid = gpu[gpu >= 0]
+        gpu_count = len(valid)
+        if gpu_count:
+            gpu_total = int(np.sum(valid, dtype=np.int64))
+
+    return {
+        "count": count,
+        "total": total,
+        "minimum": minimum,
+        "maximum": maximum,
+        "first": first,
+        "last": last,
+        "start_minimum": start_minimum,
+        "end_maximum": end_maximum,
+        "mean": mean,
+        "m2": m2,
+        "gpu_count": gpu_count,
+        "gpu_total": gpu_total,
+    }
+
+
+def _summary_records(summaries) -> np.ndarray:
+    """Pack timing summaries into the index's compound dataset dtype."""
+    records = np.empty(len(summaries), dtype=_SUMMARY_DTYPE)
+    for field in _SUMMARY_DTYPE.names:
+        records[field] = [summary[field] for summary in summaries]
+    return records
+
 
 def _append(dataset, values) -> int:
     """Append values to a resizable one-dimensional dataset; return offset."""
@@ -145,6 +219,9 @@ def initialize_columnar_layout(
         ("exclusive_totals", np.int64),
     ):
         index.create_dataset(name, shape=(0,), maxshape=(None,), dtype=dtype)
+    index.create_dataset(
+        "summary_statistics", shape=(0,), maxshape=(None,), dtype=_SUMMARY_DTYPE
+    )
     for name in ("source_files", "source_texts", "tags"):
         index.create_dataset(name, shape=(0,), maxshape=(None,), dtype=_STRING_DTYPE)
 
@@ -305,6 +382,7 @@ def append_columnar_rank(
 
     resolved_sources = [sources.get(name, ("", -1, "")) for name in names]
     exclusive_totals = payload.exclusive_totals or {}
+    summaries = [_timing_summary(payload.regions[name]) for name in names]
     index = h5file["rank_region_index"]
     if "exclusive_totals" not in index:
         # A file this process did not create, from a version that predates the
@@ -331,6 +409,14 @@ def append_columnar_rank(
         index["exclusive_totals"],
         [exclusive_totals.get(name, _NO_EXCLUSIVE_TOTAL) for name in names],
     )
+    if "summary_statistics" not in index:
+        index.create_dataset(
+            "summary_statistics",
+            shape=(len(index["ranks"]) - len(names),),
+            maxshape=(None,),
+            dtype=_SUMMARY_DTYPE,
+        )
+    _append(index["summary_statistics"], _summary_records(summaries))
     return True
 
 
@@ -409,6 +495,7 @@ def payload_layout(payload) -> dict:
                 "source": sources.get(name),
                 "tags": tuple(tags.get(name, ())),
                 "exclusive_total": int(exclusive_totals.get(name, _NO_EXCLUSIVE_TOTAL)),
+                "summary": _timing_summary(arrays),
             }
             for name, arrays in payload.regions.items()
         },
@@ -528,6 +615,9 @@ def write_parallel_payload(
             ("exclusive_totals", np.int64),
         ):
             pair_index.create_dataset(name, shape=(len(pairs),), dtype=dtype)
+        pair_index.create_dataset(
+            "summary_statistics", shape=(len(pairs),), dtype=_SUMMARY_DTYPE
+        )
         for name, dtype in (
             ("source_files", source_files_dtype),
             ("source_texts", source_texts_dtype),
@@ -575,6 +665,9 @@ def write_parallel_payload(
                 description.get("exclusive_total", _NO_EXCLUSIVE_TOTAL)
                 for *_, description in pairs
             ]
+            pair_index["summary_statistics"][:] = _summary_records(
+                [description["summary"] for *_, description in pairs]
+            )
         comm.Barrier()
 
         own_pairs = [pair for pair in pairs if pair[0] == rank]
