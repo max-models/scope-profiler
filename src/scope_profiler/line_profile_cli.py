@@ -14,35 +14,43 @@ from scope_profiler.post_processing import parse_ranks
 from scope_profiler.summary import _name_selected
 
 
-def _source_lines(record):
-    """Return source lines with the function's common indentation removed.
+def _line_profile_rows(record):
+    """Return timed lines plus source-only context rows.
 
     ``tabulate`` strips leading whitespace from cells, so an invisible
-    sentinel is used on lines that retain indentation.  This mirrors the TUI
-    rendering and keeps nested Python blocks readable in the CLI table.
+    sentinel is used on lines that retain indentation.  Source-only rows have
+    no timing values; they make unexecuted branches visible and preserve the
+    relative indentation used by the TUI.
     """
     linecache.checkcache(record["filename"])
-    sources = [
-        linecache.getline(record["filename"], int(line))
+    timed_lines = [int(line) for line in record["line_numbers"]]
+    sources = {
+        line: linecache.getline(record["filename"], line)
         .rstrip("\r\n")
         .expandtabs(4)
-        or "<source unavailable>"
-        for line in record["line_numbers"]
-    ]
+        for line in range(min(timed_lines, default=0), max(timed_lines, default=-1) + 1)
+    }
+    if not any(sources.values()):
+        sources = {line: "<source unavailable>" for line in timed_lines}
+
+    base_source = sources.get(timed_lines[0], "") if timed_lines else ""
     base_indentation = (
-        len(sources[0]) - len(sources[0].lstrip(" ")) if sources else 0
+        len(base_source) - len(base_source.lstrip(" ")) if base_source else 0
     )
-    formatted = []
-    for source in sources:
+    timings = dict(zip(timed_lines, zip(record["hits"], record["times"])))
+    rows = []
+    for line, source in sources.items():
         indentation = len(source) - len(source.lstrip(" "))
         dedent = min(base_indentation, indentation)
         source = source[dedent:]
-        if indentation - dedent:
+        indentation -= dedent
+        if indentation:
             # tabulate strips whitespace at the start of a cell.  The
             # zero-width prefix preserves the real indentation on display.
             source = "\N{ZERO WIDTH SPACE}" + source
-        formatted.append(source)
-    return formatted
+        timing = timings.get(line)
+        rows.append((line, *(timing or (None, None)), source))
+    return rows
 
 
 def print_line_profile(
@@ -87,21 +95,23 @@ def print_line_profile(
             )
             total_time = float(record["times"].sum())
             table_rows = []
-            sources = _source_lines(record)
-            for (line, hits, elapsed), source in zip(
-                zip(record["line_numbers"], record["hits"], record["times"]),
-                sources,
-            ):
-                seconds = float(elapsed) * unit
-                per_hit = seconds / int(hits) if hits else 0.0
-                percent = float(elapsed) / total_time * 100 if total_time else 0.0
+            for line, hits, elapsed, source in _line_profile_rows(record):
+                seconds = float(elapsed) * unit if elapsed is not None else None
+                per_hit = (
+                    seconds / int(hits) if hits and seconds is not None else None
+                )
+                percent = (
+                    float(elapsed) / total_time * 100
+                    if elapsed is not None and total_time
+                    else None
+                )
                 table_rows.append(
                     [
                         int(line),
-                        int(hits),
-                        f"{seconds:.6g}",
-                        f"{per_hit:.6g}",
-                        f"{percent:.2f}",
+                        int(hits) if hits is not None else "",
+                        f"{seconds:.6g}" if seconds is not None else "",
+                        f"{per_hit:.6g}" if per_hit is not None else "",
+                        f"{percent:.2f}" if percent is not None else "",
                         source,
                     ]
                 )

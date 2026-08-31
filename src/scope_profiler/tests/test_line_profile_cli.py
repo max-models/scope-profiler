@@ -9,13 +9,15 @@ from scope_profiler.profile_manager import RankPayload
 def test_line_profile_cli_prints_persisted_records(tmp_path, capsys):
     path = tmp_path / "profile.h5"
     source_path = tmp_path / "app.py"
-    source_path.write_text("\n" * 10 + "    if enabled:\n        total = 0\n")
+    source_path.write_text(
+        "\n" * 10 + "    if enabled:\n        total = 0\n    done = True\n"
+    )
     record = {
         "region": "solve",
         "filename": str(source_path),
         "function": "solve",
         "first_lineno": 10,
-        "line_numbers": np.asarray([11, 12]),
+        "line_numbers": np.asarray([11, 13]),
         "hits": np.asarray([1, 5]),
         "times": np.asarray([10.0, 25.0]),
         "unit": 1e-9,
