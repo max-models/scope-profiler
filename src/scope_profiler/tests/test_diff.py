@@ -180,7 +180,9 @@ def test_diff_files_prints_table(file_a, file_b, capsys):
     assert "Only in b: teardown" in out
 
 
-def test_diff_files_uses_summary_reader_for_scalar_metrics(tmp_path, monkeypatch, capsys):
+def test_diff_files_uses_summary_reader_for_scalar_metrics(
+    tmp_path, monkeypatch, capsys
+):
     from scope_profiler.h5writer import ProfilingWriter
     from scope_profiler.profile_manager import RankPayload
 

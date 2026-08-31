@@ -290,9 +290,7 @@ def collect_file_metadata(
 
     files = []
     for item in profiling_data:
-        results = (
-            item if isinstance(item, ProfilingResults) else read_h5_summary(item)
-        )
+        results = item if isinstance(item, ProfilingResults) else read_h5_summary(item)
         files.append(
             {
                 "file_path": str(Path(results.file_path).resolve()),

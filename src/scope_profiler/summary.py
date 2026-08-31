@@ -204,8 +204,7 @@ def _stored_distribution_statistics(per_rank):
         return first, last, None
     mean = sum(int(item["count"]) * float(item["mean"]) for item in summaries) / count
     m2 = sum(
-        float(item["m2"])
-        + int(item["count"]) * (float(item["mean"]) - mean) ** 2
+        float(item["m2"]) + int(item["count"]) * (float(item["mean"]) - mean) ** 2
         for item in summaries
     )
     return first, last, float(np.sqrt(max(m2, 0.0) / count)) / 1e9

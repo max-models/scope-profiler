@@ -255,11 +255,7 @@ def compare_profiles(
     if top_n is not None and top_n < 1:
         raise ToolError("top_n must be a positive integer, or None/0 for no limit")
 
-    reader = (
-        _read_profile
-        if metric in {"p50", "p95", "p99"}
-        else _read_summary_profile
-    )
+    reader = _read_profile if metric in {"p50", "p95", "p99"} else _read_summary_profile
     baseline = reader(baseline_path)
     candidate = reader(candidate_path)
 

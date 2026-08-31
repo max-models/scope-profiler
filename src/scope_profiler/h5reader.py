@@ -387,9 +387,7 @@ def load_h5_summary(file_path: str | Path, verbose: bool = False) -> dict:
 
         layout = h5file.attrs.get("storage_layout", "columnar")
         if layout == "aggregate":
-            per_region, region_names, exclusive_totals = _read_aggregate_regions(
-                h5file
-            )
+            per_region, region_names, exclusive_totals = _read_aggregate_regions(h5file)
         else:
             index = h5file["rank_region_index"]
             if _SUMMARY_DATASET not in index:
@@ -460,7 +458,9 @@ def load_h5_summary(file_path: str | Path, verbose: bool = False) -> dict:
             if LIKWID_GROUP in rank_group:
                 likwid[rank] = _read_likwid_group(rank_group[LIKWID_GROUP])
             if "line_profile" in rank_group:
-                line_profile[rank] = _read_line_profile_group(rank_group["line_profile"])
+                line_profile[rank] = _read_line_profile_group(
+                    rank_group["line_profile"]
+                )
 
         recorded_ranks = h5file["rank_region_index/ranks"][()]
         inferred_ranks = int(np.max(recorded_ranks)) + 1 if len(recorded_ranks) else 0

@@ -373,10 +373,7 @@ class MPIRegion:
             return 0.0
         count = sum(int(summary["count"]) for summary in summaries)
         mean = (
-            sum(
-                int(summary["count"]) * float(summary["mean"])
-                for summary in summaries
-            )
+            sum(int(summary["count"]) * float(summary["mean"]) for summary in summaries)
             / count
         )
         m2 = sum(
@@ -443,9 +440,7 @@ class MPIRegion:
         if values.size:
             return float(np.min(values))
         minimums = [
-            region.min_duration
-            for region in self._regions.values()
-            if region.num_calls
+            region.min_duration for region in self._regions.values() if region.num_calls
         ]
         return min(minimums) if minimums else 0.0
 
@@ -463,9 +458,7 @@ class MPIRegion:
         if values.size:
             return float(np.max(values))
         maximums = [
-            region.max_duration
-            for region in self._regions.values()
-            if region.num_calls
+            region.max_duration for region in self._regions.values() if region.num_calls
         ]
         return max(maximums) if maximums else 0.0
 
