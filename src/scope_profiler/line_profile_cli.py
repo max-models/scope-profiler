@@ -25,9 +25,7 @@ def _line_profile_rows(record):
     linecache.checkcache(record["filename"])
     timed_lines = [int(line) for line in record["line_numbers"]]
     sources = {
-        line: linecache.getline(record["filename"], line)
-        .rstrip("\r\n")
-        .expandtabs(4)
+        line: linecache.getline(record["filename"], line).rstrip("\r\n").expandtabs(4)
         for line in range(min(timed_lines, default=0), max(timed_lines, default=-1) + 1)
     }
     if not any(sources.values()):
@@ -97,9 +95,7 @@ def print_line_profile(
             table_rows = []
             for line, hits, elapsed, source in _line_profile_rows(record):
                 seconds = float(elapsed) * unit if elapsed is not None else None
-                per_hit = (
-                    seconds / int(hits) if hits and seconds is not None else None
-                )
+                per_hit = seconds / int(hits) if hits and seconds is not None else None
                 percent = (
                     float(elapsed) / total_time * 100
                     if elapsed is not None and total_time
