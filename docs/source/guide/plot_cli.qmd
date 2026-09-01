@@ -91,11 +91,11 @@ view that shows the nesting.
 
 ## Flame chart
 
-`flame_chart_plot.png` answers *when the calls happened* instead. The call stack is
+`flame_plot.png` answers *when the calls happened* instead. The call stack is
 reconstructed from timestamp containment — a region whose interval lies
 inside another's is drawn one level above it:
 
-![Flame chart of the mock solver, rank 0](../_static/figures/cli/flame_chart_plot.png)
+![Flame chart of the mock solver, rank 0](../_static/figures/cli/flame_plot.png)
 
 Like the Gantt chart, the flame chart is drawn per rank and defaults to
 rank 0 only; pass `--ranks` to render more (one panel each).

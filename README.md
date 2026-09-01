@@ -18,7 +18,6 @@ pip install scope-profiler
 from scope_profiler import ProfileManager
 
 with ProfileManager.session():
-
     @ProfileManager.profile("main")
     def main():
         with ProfileManager.profile_region("work"):
@@ -27,6 +26,26 @@ with ProfileManager.session():
     main()
 # writes profiling_data.h5 and prints a summary
 ```
+
+Create independent managers when two profiling sessions need to coexist.
+Each manager records only calls made through that manager and writes its
+own output:
+
+``` python
+compute_profiler = ProfileManager()
+io_profiler = ProfileManager()
+
+with compute_profiler.session(file_path="compute.h5", verbose=False):
+    with io_profiler.session(file_path="io.h5", verbose=False):
+        with compute_profiler.profile_region("solve"):
+            solve()
+        with io_profiler.profile_region("checkpoint"):
+            write_checkpoint()
+```
+
+These are independent nested sessions, not concurrent-thread support.
+LIKWID’s marker state is process-global, so only one overlapping session
+may use `use_likwid=True`.
 
 You can also profile a script without changing its source:
 
@@ -37,10 +56,71 @@ scope-profiler plot default profiling_data.h5 -o figures
 scope-profiler report profiling_data.h5 -o report.html
 ```
 
+Profiling can be suspended around setup, I/O, or other phases that
+should not appear in the trace. Pause at scope boundaries and resume
+when measurement is needed again:
+
+``` python
+ProfileManager.pause()
+simulation.prepare_output()
+ProfileManager.resume()
+```
+
+`pause()` and `resume()` are safe to call repeatedly. Pausing while a
+profiled scope is open raises an error, so a recorded interval can never
+silently span the paused period.
+
+For time-stepping simulations, `sample_every()` provides the same
+control with an explicit timestep number:
+
+``` python
+with ProfileManager.sample_every(10) as profile_step:
+    for timestep in range(num_steps):
+        with profile_step(timestep):
+            simulation.step()
+```
+
+The equivalent fully manual form is useful when the simulation has
+additional conditions around profiling:
+
+``` python
+for timestep in range(num_steps):
+    if timestep % 10 == 0:
+        ProfileManager.resume()
+    else:
+        ProfileManager.pause()
+
+    with ProfileManager.profile_region("simulation.step"):
+        simulation.step()
+```
+
+Here only timesteps `0`, `10`, `20`, and so on are recorded. Call
+`ProfileManager.setup()` before the loop; the initial state is enabled,
+so the first `resume()` is optional but makes the intent explicit.
+
+Reports embed interactive timeline and duration charts when the optional
+post-processing dependencies are installed
+(`pip install "scope-profiler[pproc]"`).
+
 ## Example output
 
 The plotting tools include duration summaries and timelines for finding
 expensive regions:
+
+For dense traces, the Gantt view supports time windows, duration
+filtering, call coalescing, and call-depth collapsing. A binned
+occupancy heatmap avoids drawing every short event:
+
+``` bash
+scope-profiler plot gantt profiling_data.h5 -o figures \
+  --min-duration 0.001 --aggregate-calls 25 --collapse-depth 2
+scope-profiler plot density profiling_data.h5 -o figures \
+  --bins 200 --min-duration 0.0001 --start-time 0 --end-time 10
+```
+
+Use `--aggregation-mode` with `scope-profiler run` when only aggregate
+timing statistics are needed and the per-call timeline should not be
+recorded.
 
 ![Duration
 summary](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/durations_plot.png)
@@ -56,6 +136,30 @@ python examples/benchmark_overhead.py
 
 ![Profiling overhead by region
 type](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/benchmark_overhead.png)
+
+## In a notebook
+
+`%load_ext scope_profiler.ipython_magics` adds magics for the
+measure/compare loop, so a notebook needs no `session()` boilerplate:
+
+``` python
+%%scope_recursive
+result = solve(problem)     # every call recorded, nothing instrumented
+```
+
+``` python
+%scope_compare baseline candidate
+```
+
+`%%scope` times a cell as one region, `%%scope_line` breaks a function
+down by line, `%%scope_agg` handles regions entered millions of times,
+and `%scope_load` pulls in an HDF5 run from an MPI job to compare
+against. See the [notebook magics
+guide](https://max-models.github.io/scope-profiler/guide/notebook_magics.html).
+
+``` bash
+pip install "scope-profiler[notebook]"
+```
 
 ## Documentation
 
@@ -74,6 +178,8 @@ type](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/dev
   [line
   profiling](https://max-models.github.io/scope-profiler/guide/line_profiler.html),
   and [MCP](https://max-models.github.io/scope-profiler/guide/mcp.html)
+- [Jupyter/IPython
+  magics](https://max-models.github.io/scope-profiler/guide/notebook_magics.html)
 - [Tutorial
   notebooks](https://max-models.github.io/scope-profiler/tutorials.html)
 - [Examples](https://github.com/max-models/scope-profiler/tree/devel/examples)

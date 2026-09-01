@@ -2,8 +2,14 @@
 
 ## Unreleased
 
+## 0.5.0 - 2026-09-01
+
 ### Added
 
+- Added independent `ProfileManager()` instances, allowing multiple profiling
+  sessions with separate configurations, regions, decorators, call IDs, and
+  output files to coexist. The class-level `ProfileManager` API remains the
+  backward-compatible process-wide default manager.
 - Added Jupyter/IPython magics via `%load_ext scope_profiler.ipython_magics`,
   and a tutorial notebook covering them. Installed with the new `notebook`
   extra. Recording: `%%scope`, `%scope_timeit`, `%%scope_line`,

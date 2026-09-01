@@ -25,6 +25,25 @@ with ProfileManager.session():
 # writes profiling_data.h5 and prints a summary
 ```
 
+Create independent managers when two profiling sessions need to coexist. Each
+manager records only calls made through that manager and writes its own output:
+
+```python
+compute_profiler = ProfileManager()
+io_profiler = ProfileManager()
+
+with compute_profiler.session(file_path="compute.h5", verbose=False):
+    with io_profiler.session(file_path="io.h5", verbose=False):
+        with compute_profiler.profile_region("solve"):
+            solve()
+        with io_profiler.profile_region("checkpoint"):
+            write_checkpoint()
+```
+
+These are independent nested sessions, not concurrent-thread support. LIKWID's
+marker state is process-global, so only one overlapping session may use
+`use_likwid=True`.
+
 You can also profile a script without changing its source:
 
 ```bash

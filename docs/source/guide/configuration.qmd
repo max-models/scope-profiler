@@ -1,9 +1,41 @@
 # Configuration
 
 All profiling behaviour is controlled through `ProfileManager.setup()`.
-This must be called **once** before any regions are created. The
-configuration is global: every call to `profile()` or `profile_region()`
---- even from other modules --- uses the active settings.
+This must be called **once** before any regions are created. Calls made on the
+`ProfileManager` class use its process-wide default configuration. Independent
+`ProfileManager()` instances each have their own configuration and regions;
+see [Multiple sessions](#multiple-sessions).
+
+## Multiple sessions
+
+Instantiate a manager when two profiling sessions need to coexist. Calls must
+be made through the manager that should receive the event:
+
+```python
+from scope_profiler import ProfileManager
+
+compute_profiler = ProfileManager()
+io_profiler = ProfileManager()
+
+with compute_profiler.session(file_path="compute.h5", verbose=False):
+    with io_profiler.session(file_path="io.h5", verbose=False):
+        with compute_profiler.profile_region("solve"):
+            solve()
+        with io_profiler.profile_region("checkpoint"):
+            write_checkpoint()
+```
+
+The class-level API remains available as the default manager and is isolated
+from instantiated managers. Decorators are isolated in the same way: use
+`@compute_profiler.profile(...)` to attach a function to that session.
+
+The sessions above coexist by nesting distinct managers in one execution
+thread. This feature does not make profiling thread-safe: do not enter or
+finalize profiling sessions concurrently from Python threads. It also does not
+isolate process-global instrumentation backends. In particular, LIKWID owns
+one marker state per process, so only one overlapping manager may use
+`use_likwid=True`. Timing-only, aggregation, line-profiling, GPU-timing, and
+NVTX configurations retain their existing behavior.
 
 ## `ProfileManager.setup()` parameters
 
@@ -156,8 +188,8 @@ only ever one sensible answer:
 
 ## Toggling profiling at runtime
 
-Because the configuration is a singleton, you can leave all instrumentation
-in place and simply flip the master switch:
+With the default class-level manager, you can leave all instrumentation in
+place and simply flip the master switch:
 
 ```python
 import os
