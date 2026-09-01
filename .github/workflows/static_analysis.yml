@@ -64,9 +64,11 @@ jobs:
 
       - name: Linting with ruff
         run: |
-          pip install ruff
-          ruff check src/
-          ruff check tutorials/
+          # Same pin as the dev extra, so a new ruff release cannot fail a
+          # build on its own. Checks everything, not just src/: examples and
+          # docs generators are code users copy from.
+          pip install "ruff>=0.16,<0.17"
+          ruff check .
 
   # Type checking runs in the "Testing" workflow's `typing` job, against the
   # module list in [tool.mypy]. It is a hard gate there, so it is not

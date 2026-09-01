@@ -666,9 +666,7 @@ def _name_selected(name: str, include=None, exclude=None) -> bool:
         exclude = [exclude]
     if include is not None and not any(re.match(p, name) for p in include):
         return False
-    if exclude is not None and any(re.match(p, name) for p in exclude):
-        return False
-    return True
+    return not (exclude is not None and any(re.match(p, name) for p in exclude))
 
 
 def _set_cell(rows: dict, name: str, column: int, value) -> None:

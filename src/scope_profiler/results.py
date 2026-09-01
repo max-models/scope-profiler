@@ -1127,12 +1127,14 @@ class ProfilingResults:
         # Collect regions based on include/exclude filters
         for region_name, region in self._region_dict.items():
             # Match with regex patterns if provided
-            if include is not None:
-                if not any([re.match(pattern, region_name) for pattern in include]):
-                    continue
-            if exclude is not None:
-                if any([re.match(pattern, region_name) for pattern in exclude]):
-                    continue
+            if include is not None and not any(
+                re.match(pattern, region_name) for pattern in include
+            ):
+                continue
+            if exclude is not None and any(
+                re.match(pattern, region_name) for pattern in exclude
+            ):
+                continue
 
             regions.append(region)
 

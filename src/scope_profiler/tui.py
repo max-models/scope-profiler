@@ -16,7 +16,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import quote
 
 import h5py
@@ -311,7 +311,7 @@ def _line_table(
     def safe_value(value):
         try:
             return _format_scalar(value)
-        except Exception:  # noqa: BLE001 -- arbitrary user metadata must not kill TUI
+        except Exception:
             return f"<unprintable {type(value).__name__}>"
 
     rows = [tuple(safe_value(value) for value in row) for row in rows]
@@ -581,8 +581,10 @@ def node_detail_text(node: BrowserNode) -> str:
             ("Min / max", f"{_duration(row['min'])} / {_duration(row['max'])}"),
             (
                 "P50 / P95 / P99",
-                f"{_duration(row['p50'])} / {_duration(row['p95'])} / "
-                f"{_duration(row['p99'])}",
+                (
+                    f"{_duration(row['p50'])} / {_duration(row['p95'])} / "
+                    f"{_duration(row['p99'])}"
+                ),
             ),
             (
                 "Rank imbalance",
@@ -1051,7 +1053,7 @@ def _build_textual_app_class():
             width: 1fr;
         }
         """
-        BINDINGS = [
+        BINDINGS: ClassVar[list] = [
             ("q", "quit", "Quit"),
             ("escape", "focus_navigation", "Focus navigation"),
             ("g", "show_matplotlib", "Show Matplotlib"),
@@ -1083,7 +1085,7 @@ def _build_textual_app_class():
         def _detail(self, node: BrowserNode):
             try:
                 detail_text = node_detail_text(node)
-            except Exception as exc:  # noqa: BLE001 -- keep interactive browser alive
+            except Exception as exc:
                 detail_text = (
                     f"Unable to render {node.label}\n\n{type(exc).__name__}: {exc}"
                 )

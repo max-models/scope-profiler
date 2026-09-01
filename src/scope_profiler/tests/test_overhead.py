@@ -76,8 +76,8 @@ ITERATIONS = 20_000
 REPEATS = 5
 
 MODES = {
-    "disabled": (dict(deactivate_profiling=True), DisabledProfileRegion),
-    "time": (dict(), TimeOnlyProfileRegion),
+    "disabled": ({"deactivate_profiling": True}, DisabledProfileRegion),
+    "time": ({}, TimeOnlyProfileRegion),
 }
 
 

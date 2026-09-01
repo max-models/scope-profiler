@@ -480,12 +480,18 @@ class ProfilingConfig:
             or not isinstance(hdf5_compression_level, int)
         ):
             raise ValueError("hdf5_compression_level must be an integer or None")
-        if hdf5_compression == "gzip" and hdf5_compression_level is not None:
-            if not 0 <= hdf5_compression_level <= 9:
-                raise ValueError("GZIP compression level must be between 0 and 9")
-        if hdf5_compression == "zstd" and hdf5_compression_level is not None:
-            if not 1 <= hdf5_compression_level <= 22:
-                raise ValueError("Zstandard compression level must be between 1 and 22")
+        if (
+            hdf5_compression == "gzip"
+            and hdf5_compression_level is not None
+            and not 0 <= hdf5_compression_level <= 9
+        ):
+            raise ValueError("GZIP compression level must be between 0 and 9")
+        if (
+            hdf5_compression == "zstd"
+            and hdf5_compression_level is not None
+            and not 1 <= hdf5_compression_level <= 22
+        ):
+            raise ValueError("Zstandard compression level must be between 1 and 22")
         if hdf5_compression == "lzf" and hdf5_compression_level is not None:
             raise ValueError("LZF compression does not accept a compression level")
         self._hdf5_compression = hdf5_compression

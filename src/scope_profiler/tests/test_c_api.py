@@ -74,6 +74,7 @@ def build(tmp_path: Path, program: str, name: str = "prog", extra=()) -> Path:
         capture_output=True,
         text=True,
         timeout=300,
+        check=False,
     )
     assert result.returncode == 0, (
         f"compilation failed\n--- stdout ---\n{result.stdout}\n"
@@ -90,6 +91,7 @@ def run(executable: Path, tmp_path: Path, *args) -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
         timeout=300,
+        check=False,
     )
     assert result.returncode == 0, f"run failed:\n{result.stderr}"
     return result
@@ -154,6 +156,7 @@ def test_compiles_clean_in_strict_c99(tmp_path):
         capture_output=True,
         text=True,
         timeout=300,
+        check=False,
     )
     assert result.returncode == 0, result.stderr
     assert "warning" not in result.stderr.lower(), result.stderr
@@ -204,6 +207,7 @@ def test_the_header_is_usable_from_cxx(tmp_path):
         capture_output=True,
         text=True,
         timeout=300,
+        check=False,
     )
     assert result.returncode == 0, result.stderr
 
@@ -474,7 +478,12 @@ int main(void)
 """
     executable = build(tmp_path, program, name="unfinished")
     result = subprocess.run(
-        [str(executable)], cwd=tmp_path, capture_output=True, text=True, timeout=300
+        [str(executable)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
     )
     assert result.returncode == 0
     assert "still open at sp_finalize" in result.stderr
@@ -530,6 +539,7 @@ def test_the_shipped_example_builds_and_runs(tmp_path):
         capture_output=True,
         text=True,
         timeout=300,
+        check=False,
     )
     assert result.returncode == 0, result.stderr
 
@@ -558,6 +568,7 @@ def test_makefile_builds_the_example(tmp_path):
         text=True,
         timeout=300,
         env={**os.environ, "MAKEFLAGS": ""},
+        check=False,
     )
     assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
     assert (tmp_path / "example").exists()
@@ -602,6 +613,7 @@ def test_the_examples_directory_still_builds_and_runs(tmp_path):
         text=True,
         timeout=600,
         env=env,
+        check=False,
     )
     assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
 

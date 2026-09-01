@@ -143,9 +143,11 @@ def _overview_html(results, rows) -> str:
         return '<p class="muted">No timed regions to summarize.</p>'
 
     points = [
-        f"Profiled <strong>{_text(len(rows))}</strong> region(s) across "
-        f"<strong>{_text(results.num_ranks)}</strong> rank(s), spanning "
-        f"{_seconds(results.time_span)} (setup to finalize: {_seconds(results.total_time)})."
+        (
+            f"Profiled <strong>{_text(len(rows))}</strong> region(s) across "
+            f"<strong>{_text(results.num_ranks)}</strong> rank(s), spanning "
+            f"{_seconds(results.time_span)} (setup to finalize: {_seconds(results.total_time)})."
+        )
     ]
 
     total_sum = sum(row["total"] for row in timed)

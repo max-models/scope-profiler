@@ -12,7 +12,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from time import perf_counter_ns
 from types import FrameType
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
 import numpy as np
 
@@ -271,7 +271,7 @@ class ProfileManager:
                 exclusive_totals=self._exclusive_totals,
             )
 
-    _regions = {}
+    _regions: ClassVar[dict] = {}
     # Next call id to hand out, so ids stay unique across the repeated
     # finalize() calls of one run. Reset by setup(), which starts a new run.
     _next_call_id = 0
@@ -283,12 +283,12 @@ class ProfileManager:
     # the one LIKWID's counter read-back forks. See get_config().
     _config: ProfilingConfig | None = None
     _region_cls = DisabledProfileRegion
-    _decorators: dict[str, list] = {}  # name -> [(func, _bound), ...]
-    _decorated_codes = set()
+    _decorators: ClassVar[dict[str, list]] = {}  # name -> [(func, _bound), ...]
+    _decorated_codes: ClassVar[set] = set()
     _recursive_state = threading.local()
-    _user_code_cache: dict[object, bool] = {}
+    _user_code_cache: ClassVar[dict[object, bool]] = {}
     _system_prefixes = None
-    _internal_modules = {
+    _internal_modules: ClassVar[set[str]] = {
         "scope_profiler.profile_manager",
         "scope_profiler.region_profiler",
         "scope_profiler.profile_config",

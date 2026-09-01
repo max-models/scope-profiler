@@ -84,7 +84,11 @@ optional-dependencies.dev = [
   "black[jupyter]",
   "isort >= 9.0.0",
   "mypy >= 1.11.0",
-  "ruff",
+  # Pinned to a minor series. Ruff's default rule set grows between minor
+  # releases, so an unpinned dependency turns a routine upgrade into a red
+  # build on a commit nobody touched (0.15 -> 0.16 added ~79 findings here).
+  # Bump deliberately, fixing or triaging the new rules in the same change.
+  "ruff >= 0.16, < 0.17",
   # `graph` included: the pyvis callgraph backend is a shipped output format,
   # so CI has to be able to render it rather than skipping its tests.
   "scope-profiler[docs,fortran,graph,line-profiler,mcp,mpi,notebook,nvtx,pproc,test,tui]",
@@ -225,6 +229,32 @@ exclude_also = [
 [tool.ruff]
 src = [ "src" ]
 
+[tool.ruff.lint]
+# Ruff's default rule set grows between releases, so these are the rules this
+# project has looked at and deliberately declined -- not a backlog. See the
+# pinned ruff version in the dev extra: an unpinned one turns a routine upgrade
+# into a red build on an untouched commit.
+ignore = [
+  # Blind `except Exception` around optional integrations (LIKWID, NVTX, the
+  # GPU backends) and defensive metadata collection. Swallowing the error is
+  # the behaviour: a profiler must never take down the program it measures
+  # because an optional counter was unavailable.
+  "BLE001",
+  # The same pattern's try/except/pass and try/except/continue forms. There is
+  # nowhere to log to -- the library has no logger and writing to stderr from
+  # a profiled hot path is worse than the failure it reports.
+  "S110",
+  "S112",
+  # Prefer TypeError for an invalid type. The ValueError these sites raise is
+  # part of the public contract and asserted by tests (e.g. sample_every);
+  # changing it is an API break, not a lint fix.
+  "TRY004",
+  # Import sorting belongs to isort, which has its own CI job and its own
+  # [tool.isort] profile. With both enabled the two disagree on a handful of
+  # files and each undoes the other's fix on every run.
+  "I001",
+]
+
 [tool.ruff.lint.per-file-ignores]
 # The tomllib/tomli fallback has to be resolved before anything can be
 # imported from it, so the module's remaining imports follow the try block.
@@ -232,4 +262,24 @@ src = [ "src" ]
 # Tests that skip themselves when an optional extra is missing, or that pin a
 # non-interactive matplotlib backend, must run that statement before the
 # import it guards.
-"src/scope_profiler/tests/*" = [ "E402" ]
+#
+# RUF012: stand-in frame/code/profiler objects built inside a test function.
+# Their class-level attributes are the whole point, and annotating each one
+# ClassVar buries the fake in typing noise.
+#
+# SIM117: nested `with` blocks that nest *profiling regions*. The indentation
+# is what shows the outer/middle/leaf hierarchy under test; flattening them to
+# one `with` keeps the semantics and loses the meaning.
+"src/scope_profiler/tests/*" = [ "E402", "RUF012", "SIM117" ]
+# A verbatim copy of pylikwid's README example, kept runnable as a LIKWID
+# smoke test. PERF402: the append loop is the measured workload -- rewriting
+# it as list(range(...)) profiles nothing.
+"src/scope_profiler/tests/pylikwid_readme.py" = [ "PERF402" ]
+# Tutorials, examples and doc generators nest profiling regions for the same
+# reason the tests do: the indentation shows the region hierarchy.
+"tutorials/*" = [ "SIM117" ]
+"examples/*" = [ "SIM117" ]
+"docs/*" = [ "SIM117" ]
+# PYI034: ProfilingWriter.__enter__ returns the concrete class rather than
+# Self. typing.Self needs Python 3.11 and the package supports 3.10.
+"src/scope_profiler/h5writer.py" = [ "PYI034" ]

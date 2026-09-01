@@ -161,7 +161,8 @@ def test_nvtx_range_is_popped_when_the_body_raises(nvtx, config):
     region = NVTXProfileRegion("solve", config)
 
     with pytest.raises(ZeroDivisionError), region:
-        1 / 0
+        # Raising inside the region is the point of the test.
+        1 / 0  # noqa: B018
 
     assert nvtx.depth == 0
     assert nvtx.calls[-1] == ("pop", None)
