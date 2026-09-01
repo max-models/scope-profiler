@@ -38,4 +38,8 @@ runs:
         # `html` depends on the separate figures and Markdown generation
         # targets before Sphinx copies the assets and builds the site.
         cd docs
-        make html
+        if [[ "${{ inputs.treat-warnings-as-errors }}" == "true" ]]; then
+          make html SPHINXOPTS=-W
+        else
+          make html
+        fi

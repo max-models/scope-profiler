@@ -2,9 +2,11 @@
 
 ## ProfileManager
 
-The main entry point for all profiling operations. All methods are
-class methods on a singleton --- there is no need to instantiate the
-class.
+The main entry point for all profiling operations. Class methods provide the
+process-wide default manager, so the common case does not require an instance.
+Create `ProfileManager()` instances when independent profiling sessions need
+to coexist; each instance owns its configuration, regions, decorators, and
+output.
 
 ```{eval-rst}
 .. autoclass:: scope_profiler.profile_manager.ProfileManager
@@ -14,9 +16,9 @@ class.
 
 ## ProfilingConfig
 
-Singleton that holds the global profiling configuration. Normally you
-interact with it through `ProfileManager.setup()`, but you can also
-construct one directly for advanced use cases.
+Holds one manager's profiling configuration. Normally you interact with it
+through `ProfileManager.setup()`, but you can also construct one directly for
+advanced use cases.
 
 ```{eval-rst}
 .. autoclass:: scope_profiler.profile_config.ProfilingConfig
@@ -235,6 +237,7 @@ See {doc}`guide/likwid` for the workflow and the HDF5 layout.
 .. autoclass:: scope_profiler.likwid_data.LikwidRegionResult
    :members:
    :undoc-members:
+   :no-index:
 ```
 
 ### Summary tables
