@@ -237,6 +237,7 @@ See {doc}`guide/likwid` for the workflow and the HDF5 layout.
 .. autoclass:: scope_profiler.likwid_data.LikwidRegionResult
    :members:
    :undoc-members:
+   :no-index:
 ```
 
 ### Summary tables

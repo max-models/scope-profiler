@@ -53,6 +53,39 @@ def test_multiple_sessions_can_overlap(tmp_path):
     assert second.get_config().file_path == str(second_path)
 
 
+def test_instance_is_isolated_from_class_level_default_manager(tmp_path):
+    isolated = ProfileManager()
+    ProfileManager._reset()
+
+    try:
+        with (
+            ProfileManager.session(
+                file_path=str(tmp_path / "default.h5"),
+                deactivate_file_output=True,
+                return_results=True,
+                verbose=False,
+            ) as default_run,
+            isolated.session(
+                file_path=str(tmp_path / "isolated.h5"),
+                deactivate_file_output=True,
+                return_results=True,
+                verbose=False,
+            ) as isolated_run,
+        ):
+            with ProfileManager.profile_region("default-only"):
+                pass
+            with isolated.profile_region("isolated-only"):
+                pass
+
+        assert "default-only" in default_run.results.region_names
+        assert "isolated-only" not in default_run.results.region_names
+        assert "isolated-only" in isolated_run.results.region_names
+        assert "default-only" not in isolated_run.results.region_names
+    finally:
+        isolated._reset()
+        ProfileManager._reset()
+
+
 def test_decorators_belong_to_the_manager_that_created_them(tmp_path):
     first = ProfileManager()
     second = ProfileManager()

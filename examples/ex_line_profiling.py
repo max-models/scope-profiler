@@ -72,6 +72,6 @@ def run_allocate(N=100_000):
 
 # The session writes timing data to profiling_data.h5 and prints both the
 # region summaries and the line_profiler tables when the block exits.
-with ProfileManager.session(use_line_profiler=True):
+with ProfileManager.session(use_line_profiler=True, verbose_line_profiler=True):
     compute()
     run_allocate()

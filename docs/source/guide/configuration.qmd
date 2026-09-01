@@ -29,6 +29,14 @@ The class-level API remains available as the default manager and is isolated
 from instantiated managers. Decorators are isolated in the same way: use
 `@compute_profiler.profile(...)` to attach a function to that session.
 
+The sessions above coexist by nesting distinct managers in one execution
+thread. This feature does not make profiling thread-safe: do not enter or
+finalize profiling sessions concurrently from Python threads. It also does not
+isolate process-global instrumentation backends. In particular, LIKWID owns
+one marker state per process, so only one overlapping manager may use
+`use_likwid=True`. Timing-only, aggregation, line-profiling, GPU-timing, and
+NVTX configurations retain their existing behavior.
+
 ## `ProfileManager.setup()` parameters
 
 | Parameter             | Type   | Default               | Description                                                                                     |

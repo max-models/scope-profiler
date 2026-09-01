@@ -185,32 +185,6 @@ class ProfileManager:
                     work()
     """
 
-    def __new__(cls):
-        """Create a manager whose classmethod-backed state is isolated.
-
-        The original API intentionally uses class methods so instrumentation
-        can be imported anywhere without passing an object around. A private
-        subclass per instance preserves that low-overhead dispatch while
-        giving each instance a separate set of class attributes.
-        """
-        if cls is not ProfileManager:
-            return object.__new__(cls)
-        isolated_cls = type(
-            "ProfileManagerInstance",
-            (cls,),
-            {
-                "_regions": {},
-                "_next_call_id": 0,
-                "_config": None,
-                "_region_cls": DisabledProfileRegion,
-                "_decorators": {},
-                "_decorated_codes": set(),
-                "_recursive_state": threading.local(),
-                "__module__": cls.__module__,
-            },
-        )
-        return object.__new__(isolated_cls)
-
     class _ResultAccumulator:
         """Builds a ProfilingResults from per-rank payloads, one at a time.
 
@@ -319,6 +293,32 @@ class ProfileManager:
         "scope_profiler.region_profiler",
         "scope_profiler.profile_config",
     }
+
+    def __new__(cls):
+        """Create a manager whose classmethod-backed state is isolated.
+
+        The original API intentionally uses class methods so instrumentation
+        can be imported anywhere without passing an object around. A private
+        subclass per instance preserves that low-overhead dispatch while
+        giving each instance a separate set of class attributes.
+        """
+        if cls is not ProfileManager:
+            return object.__new__(cls)
+        isolated_cls = type(
+            "ProfileManagerInstance",
+            (cls,),
+            {
+                "_regions": {},
+                "_next_call_id": 0,
+                "_config": None,
+                "_region_cls": DisabledProfileRegion,
+                "_decorators": {},
+                "_decorated_codes": set(),
+                "_recursive_state": threading.local(),
+                "__module__": cls.__module__,
+            },
+        )
+        return object.__new__(isolated_cls)
 
     @classmethod
     def _is_internal_frame(cls, frame: FrameType) -> bool:
