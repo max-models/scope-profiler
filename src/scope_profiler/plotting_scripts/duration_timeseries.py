@@ -227,8 +227,10 @@ def plot_duration_timeseries(
                             ("mean", f"{values['mean'][index]:.6g} s"),
                             (
                                 "min-max",
-                                f"{values['min'][index]:.6g} - "
-                                f"{values['max'][index]:.6g} s",
+                                (
+                                    f"{values['min'][index]:.6g} - "
+                                    f"{values['max'][index]:.6g} s"
+                                ),
                             ),
                             ("over ranks", int(values["num_ranks"][index])),
                         ],

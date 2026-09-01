@@ -790,11 +790,19 @@ class NVTXProfileRegion(TimeOnlyProfileRegion):
             raise
 
     def __exit__(self, exc_type, exc_value, traceback):
-        """Pop the NVTX range after recording CPU end time."""
+        """Pop the NVTX range after recording CPU end time.
+
+        A region entered while profiling was paused pushed no range, so it
+        must not pop one either: NVTX keeps a single per-thread range stack,
+        and one unmatched pop shifts the nesting of every range emitted
+        afterwards, for the rest of the process.
+        """
+        paused = bool(self._paused_contexts) and self._paused_contexts[-1]
         try:
             return super().__exit__(exc_type, exc_value, traceback)
         finally:
-            self._nvtx.pop_range()
+            if not paused:
+                self._nvtx.pop_range()
 
 
 class CUDATimingNVTXProfileRegion(CUDATimingProfileRegion):
@@ -835,11 +843,18 @@ class CUDATimingNVTXProfileRegion(CUDATimingProfileRegion):
             raise
 
     def __exit__(self, exc_type, exc_value, traceback):
-        """Record CPU/CUDA end markers and pop the NVTX range."""
+        """Record CPU/CUDA end markers and pop the NVTX range.
+
+        Paused regions pushed no range; see
+        :meth:`NVTXProfileRegion.__exit__` for why popping one anyway would
+        corrupt the rest of the run's NVTX nesting.
+        """
+        paused = bool(self._paused_contexts) and self._paused_contexts[-1]
         try:
             return super().__exit__(exc_type, exc_value, traceback)
         finally:
-            self._nvtx.pop_range()
+            if not paused:
+                self._nvtx.pop_range()
 
 
 # Full region: time + LIKWID

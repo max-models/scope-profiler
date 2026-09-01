@@ -30,6 +30,10 @@ import pytest
 from scope_profiler import ProfileManager
 from scope_profiler.region_profiler import DisabledProfileRegion, TimeOnlyProfileRegion
 
+# Timing sensitive by construction: deselect with '-m "not overhead"' on a
+# machine that cannot hold a stable clock.
+pytestmark = pytest.mark.overhead
+
 # Per-call budgets in nanoseconds, by profiling mode. Measured on an idle
 # laptop (2026): ~100 ns disabled, ~310 ns with timestamps. Of that, ~109 ns
 # is the `with` protocol on Python methods and ~66 ns is the two
@@ -72,8 +76,8 @@ ITERATIONS = 20_000
 REPEATS = 5
 
 MODES = {
-    "disabled": (dict(deactivate_profiling=True), DisabledProfileRegion),
-    "time": (dict(), TimeOnlyProfileRegion),
+    "disabled": ({"deactivate_profiling": True}, DisabledProfileRegion),
+    "time": ({}, TimeOnlyProfileRegion),
 }
 
 

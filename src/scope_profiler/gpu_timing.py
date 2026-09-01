@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, cast
 
 
 class GPUTimingBackend(Protocol):
@@ -93,7 +93,7 @@ def resolve_gpu_timing_backend(backend="auto") -> GPUTimingBackend:
                     "gpu_timing_backend objects must provide record_event() and "
                     "elapsed_time_ns(start_event, end_event)."
                 )
-        return backend
+        return cast("GPUTimingBackend", backend)
 
     normalized = backend.lower()
     choices = {
@@ -119,4 +119,4 @@ def resolve_gpu_timing_backend(backend="auto") -> GPUTimingBackend:
             "Unknown gpu_timing_backend "
             f"{backend!r}; expected 'auto', 'torch', 'pytorch', 'cupy', or a backend object."
         )
-    return choices[normalized]()
+    return cast("GPUTimingBackend", choices[normalized]())

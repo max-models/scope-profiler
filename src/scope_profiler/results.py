@@ -43,6 +43,10 @@ class ProfilingResults:
     All durations are reported in seconds.
     """
 
+    # Declared at class scope so the exclusive-duration machinery below can
+    # be read by a type checker without depending on __init__ appearing first.
+    _exclusive_populated: bool
+
     def _populate_exclusive_durations(self) -> None:
         """Derive per-call exclusive durations from all recorded intervals.
 
@@ -1123,12 +1127,14 @@ class ProfilingResults:
         # Collect regions based on include/exclude filters
         for region_name, region in self._region_dict.items():
             # Match with regex patterns if provided
-            if include is not None:
-                if not any([re.match(pattern, region_name) for pattern in include]):
-                    continue
-            if exclude is not None:
-                if any([re.match(pattern, region_name) for pattern in exclude]):
-                    continue
+            if include is not None and not any(
+                re.match(pattern, region_name) for pattern in include
+            ):
+                continue
+            if exclude is not None and any(
+                re.match(pattern, region_name) for pattern in exclude
+            ):
+                continue
 
             regions.append(region)
 

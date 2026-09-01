@@ -99,9 +99,7 @@ def main():
             verbose=False,
         )
 
-    print(
-        "Figures saved to:\n  " + "\n  ".join([gantt_path, flame_path, durations_path])
-    )
+    print("Figures saved to:\n  " + f"{gantt_path}\n  {flame_path}\n  {durations_path}")
 
 
 if __name__ == "__main__":

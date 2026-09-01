@@ -76,15 +76,15 @@ def main():
     configs = [
         (
             "Disabled",
-            dict(deactivate_profiling=True),
+            {"deactivate_profiling": True},
         ),
         (
             "TimeOnly",
-            dict(deactivate_profiling=False),
+            {"deactivate_profiling": False},
         ),
         (
             "LineProfiler",
-            dict(deactivate_profiling=False, use_line_profiler=True),
+            {"deactivate_profiling": False, "use_line_profiler": True},
         ),
     ]
 

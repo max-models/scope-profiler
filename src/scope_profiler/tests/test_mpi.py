@@ -1,7 +1,13 @@
 import math
 import random
 
+import pytest
+
 from scope_profiler import ProfileManager
+
+# Passes standalone on one rank; the point of it is running under
+# `mpirun -n <N>`, which is how CI invokes it.
+pytestmark = pytest.mark.needs_mpi
 
 
 def random_math(N=100_000):

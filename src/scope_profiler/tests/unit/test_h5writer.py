@@ -528,7 +528,7 @@ def test_prof_export_no_split_timeline(tmp_path):
     # Verify no duplicate entries in pstats
     stat_keys = list(stats.keys())
     assert len(stat_keys) == len(
-        set(key[2] for key in stat_keys)
+        {key[2] for key in stat_keys}
     ), "Duplicate regions in pstats"
 
     # Verify each region appears exactly once

@@ -84,8 +84,14 @@ optional-dependencies.dev = [
   "black[jupyter]",
   "isort >= 9.0.0",
   "mypy >= 1.11.0",
-  "ruff",
-  "scope-profiler[docs,fortran,line-profiler,mcp,mpi,notebook,nvtx,pproc,test,tui]",
+  # Pinned to a minor series. Ruff's default rule set grows between minor
+  # releases, so an unpinned dependency turns a routine upgrade into a red
+  # build on a commit nobody touched (0.15 -> 0.16 added ~79 findings here).
+  # Bump deliberately, fixing or triaging the new rules in the same change.
+  "ruff >= 0.16, < 0.17",
+  # `graph` included: the pyvis callgraph backend is a shipped output format,
+  # so CI has to be able to render it rather than skipping its tests.
+  "scope-profiler[docs,fortran,graph,line-profiler,mcp,mpi,notebook,nvtx,pproc,test,tui]",
 ]
 # https://medium.com/@pratikdomadiya123/build-project-documentation-quickly-with-the-sphinx-python-2a9732b66594
 optional-dependencies.docs = [
@@ -99,7 +105,12 @@ optional-dependencies.docs = [
   "scope-profiler[line-profiler,notebook,pproc,tui]",
 ]
 optional-dependencies.test = [
-  "coverage",
+  # coverage[toml] so the [tool.coverage.*] tables in this file are read on
+  # every supported Python, not only 3.11+.
+  "coverage[toml]",
+  # Property-based tests for the nesting reconstruction and the HDF5 round
+  # trip (src/scope_profiler/tests/unit/test_*_properties.py, test_h5_*.py).
+  "hypothesis",
   "pytest",
 ]
 
@@ -125,26 +136,150 @@ scope_profiler = [
   "c/*.c",
   "c/*.h",
   "c/Makefile",
+  # PEP 561: the annotations on the public result and configuration objects
+  # are only visible to a downstream type checker if this marker ships too.
+  "py.typed",
 ]
 
 [tool.isort]
 profile = "black"
 
 [tool.mypy]
-# Incremental typing starts with the core public result/configuration objects.
-# Optional integrations and older dynamically typed code can be migrated
-# independently without weakening this check.
+# Incremental typing covers the core public result/configuration objects and
+# the pure helpers they rest on. Optional integrations and older dynamically
+# typed code can be migrated independently without weakening this check.
 files = [
   "src/scope_profiler/profile_config.py",
   "src/scope_profiler/region.py",
   "src/scope_profiler/mpi_region.py",
+  "src/scope_profiler/results.py",
+  "src/scope_profiler/h5schema.py",
+  "src/scope_profiler/call_stack.py",
+  "src/scope_profiler/gpu_timing.py",
+  "src/scope_profiler/metadata.py",
+  "src/scope_profiler/mpi_launch.py",
 ]
+# Resolve imports against the source tree rather than whatever happens to be
+# installed. Without this, an editable install (a .pth file mypy cannot follow)
+# silently degrades every intra-package import to Any locally, while CI's
+# regular install -- which now carries a py.typed marker -- checks them for
+# real. That difference hid 131 errors from local runs.
+mypy_path = "src"
 # Run the checker on the lowest CI-supported modern typing environment. The
 # source remains constrained by requires-python >= 3.10.
 python_version = "3.12"
 check_untyped_defs = true
 disallow_untyped_defs = false
 ignore_missing_imports = true
-follow_imports = "skip"
 no_implicit_optional = true
 warn_unused_ignores = true
+# Check the modules listed above, not everything they import. Dropping this
+# pulls in 21 more modules and ~130 pre-existing errors, which is a migration
+# to do module by module (adding each to `files` as it goes green), not a
+# config flip.
+#
+# It also has to stay explicit rather than rely on the default: with a regular
+# install (CI) mypy resolves the intra-package imports and follows them, while
+# with an editable install (the usual local setup) it cannot, so leaving this
+# unset makes local runs pass and CI fail on the very same commit.
+follow_imports = "skip"
+
+[tool.coverage.run]
+# PEP 669 monitoring rather than the C tracer: coverage's default tracer takes
+# the single sys.settrace slot, which the recursive tracer and the line
+# profiler need for their own work. Under the C tracer those code paths cannot
+# be measured *and* their tests fail. sysmon requires Python >= 3.12, so the
+# coverage job runs only on the newer legs of the test matrix.
+core = "sysmon"
+source = [ "src/scope_profiler" ]
+omit = [
+  # The test suite itself, and the hardware-gated helper scripts it shells out
+  # to (real MPI ranks, parallel HDF5, a LIKWID installation) which no
+  # unprivileged CI runner can execute.
+  "src/scope_profiler/tests/*",
+]
+parallel = true
+
+[tool.coverage.paths]
+# Merge measurements taken from the source tree and from an installed wheel.
+source = [ "src/scope_profiler", "*/site-packages/scope_profiler" ]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = true
+# A ratchet, not a target: the measured total rounded down to a whole percent,
+# leaving the fraction as headroom. Raise it when coverage rises; never lower
+# it to make a red build green.
+#
+# The CI job reaches the LIKWID and parallel-HDF5 paths a developer laptop
+# cannot, so its total is at or above what `coverage report` prints locally.
+fail_under = 86
+exclude_also = [
+  # Typing-only constructs that never execute.
+  "if TYPE_CHECKING:",
+  "\\.\\.\\.$",
+  "@(abc\\.)?abstractmethod",
+  "@(typing\\.)?overload",
+  # Defensive re-raises and unreachable guards.
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
+]
+
+[tool.ruff]
+src = [ "src" ]
+
+[tool.ruff.lint]
+# Ruff's default rule set grows between releases, so these are the rules this
+# project has looked at and deliberately declined -- not a backlog. See the
+# pinned ruff version in the dev extra: an unpinned one turns a routine upgrade
+# into a red build on an untouched commit.
+ignore = [
+  # Blind `except Exception` around optional integrations (LIKWID, NVTX, the
+  # GPU backends) and defensive metadata collection. Swallowing the error is
+  # the behaviour: a profiler must never take down the program it measures
+  # because an optional counter was unavailable.
+  "BLE001",
+  # The same pattern's try/except/pass and try/except/continue forms. There is
+  # nowhere to log to -- the library has no logger and writing to stderr from
+  # a profiled hot path is worse than the failure it reports.
+  "S110",
+  "S112",
+  # Prefer TypeError for an invalid type. The ValueError these sites raise is
+  # part of the public contract and asserted by tests (e.g. sample_every);
+  # changing it is an API break, not a lint fix.
+  "TRY004",
+  # Import sorting belongs to isort, which has its own CI job and its own
+  # [tool.isort] profile. With both enabled the two disagree on a handful of
+  # files and each undoes the other's fix on every run.
+  "I001",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The tomllib/tomli fallback has to be resolved before anything can be
+# imported from it, so the module's remaining imports follow the try block.
+"src/scope_profiler/profile_config.py" = [ "E402" ]
+# Tests that skip themselves when an optional extra is missing, or that pin a
+# non-interactive matplotlib backend, must run that statement before the
+# import it guards.
+#
+# RUF012: stand-in frame/code/profiler objects built inside a test function.
+# Their class-level attributes are the whole point, and annotating each one
+# ClassVar buries the fake in typing noise.
+#
+# SIM117: nested `with` blocks that nest *profiling regions*. The indentation
+# is what shows the outer/middle/leaf hierarchy under test; flattening them to
+# one `with` keeps the semantics and loses the meaning.
+"src/scope_profiler/tests/*" = [ "E402", "RUF012", "SIM117" ]
+# A verbatim copy of pylikwid's README example, kept runnable as a LIKWID
+# smoke test. PERF402: the append loop is the measured workload -- rewriting
+# it as list(range(...)) profiles nothing.
+"src/scope_profiler/tests/pylikwid_readme.py" = [ "PERF402" ]
+# Tutorials, examples and doc generators nest profiling regions for the same
+# reason the tests do: the indentation shows the region hierarchy.
+"tutorials/*" = [ "SIM117" ]
+"examples/*" = [ "SIM117" ]
+"docs/*" = [ "SIM117" ]
+# PYI034: ProfilingWriter.__enter__ returns the concrete class rather than
+# Self. typing.Self needs Python 3.11 and the package supports 3.10.
+"src/scope_profiler/h5writer.py" = [ "PYI034" ]

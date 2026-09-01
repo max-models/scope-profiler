@@ -93,11 +93,11 @@ def _depths(start_ns: np.ndarray, end_ns: np.ndarray) -> np.ndarray:
     start; the scale factor keeps that adjustment exact in integers.
     """
     n = start_ns.size
-    scaled_start = start_ns * 2
-    scaled_end = end_ns * 2
+    scaled_start: np.ndarray = start_ns * 2
+    scaled_end: np.ndarray = end_ns * 2
     scaled_end[scaled_end == scaled_start] += 1
     closed = np.searchsorted(np.sort(scaled_end), scaled_start, side="right")
-    depth = np.arange(n, dtype=np.int64)
+    depth: np.ndarray = np.arange(n, dtype=np.int64)
     depth -= closed
     if n and depth.min() < 0:
         raise NestingError("recorded calls are not properly nested")
@@ -111,11 +111,11 @@ def _parents(depth: np.ndarray) -> np.ndarray:
     deep at worst, so this is a handful of vectorized passes.
     """
     n = depth.size
-    parent = np.full(n, -1, dtype=np.int64)
+    parent: np.ndarray = np.full(n, -1, dtype=np.int64)
     if n == 0:
         return parent
-    index = np.arange(n, dtype=np.int64)
-    candidate = np.empty(n, dtype=np.int64)
+    index: np.ndarray = np.arange(n, dtype=np.int64)
+    candidate: np.ndarray = np.empty(n, dtype=np.int64)
     for level in range(1, int(depth.max()) + 1):
         np.copyto(candidate, index)
         candidate[depth != level - 1] = -1
@@ -172,7 +172,7 @@ def build_call_arrays(regions: Iterable, rank: int) -> CallArrays:
         call_index.append(np.arange(region_starts.size, dtype=np.int64))
 
     if not starts:
-        empty = np.empty(0, dtype=np.int64)
+        empty: np.ndarray = np.empty(0, dtype=np.int64)
         return CallArrays(
             names,
             source_files,
@@ -379,7 +379,7 @@ def exclusive_totals_ns(regions: dict, rank: int = 0) -> dict:
         Region name -> total exclusive nanoseconds, for every named region.
     """
     arrays = build_call_arrays(regions_from_snapshot(regions, rank), rank)
-    totals = np.zeros(len(arrays.names), dtype=np.int64)
+    totals: np.ndarray = np.zeros(len(arrays.names), dtype=np.int64)
     np.add.at(totals, arrays.region_index, arrays.exclusive_ns)
     by_name = dict(zip(arrays.names, totals.tolist()))
     return {name: by_name.get(name, 0) for name in regions}

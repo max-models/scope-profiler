@@ -174,7 +174,6 @@ def plot_callgraph(
         graph = Network(height="800px", width="100%", directed=True)
         key = (lambda node: node["name"]) if compact else (lambda node: node["call_id"])
         node_keys = {key(node) for node in nodes}
-        parents = {parent for parent, _ in (edges if compact else [])}
         max_total = max(
             (node.get("exclusive_duration", 0.0) for node in nodes), default=0.0
         )

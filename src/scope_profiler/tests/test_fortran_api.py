@@ -67,6 +67,7 @@ def build(tmp_path: Path, program: str, name: str = "prog") -> Path:
         capture_output=True,
         text=True,
         timeout=300,
+        check=False,
     )
     assert result.returncode == 0, (
         f"compilation failed\n--- stdout ---\n{result.stdout}\n"
@@ -78,7 +79,12 @@ def build(tmp_path: Path, program: str, name: str = "prog") -> Path:
 def run(executable: Path, tmp_path: Path) -> subprocess.CompletedProcess:
     """Run a built program in ``tmp_path`` and return the completed process."""
     result = subprocess.run(
-        [str(executable)], cwd=tmp_path, capture_output=True, text=True, timeout=300
+        [str(executable)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
     )
     assert result.returncode == 0, f"run failed:\n{result.stderr}"
     return result
@@ -141,6 +147,7 @@ def test_module_compiles_without_warnings(tmp_path):
         capture_output=True,
         text=True,
         timeout=300,
+        check=False,
     )
     assert result.returncode == 0, result.stderr
     if "gfortran" in COMPILER:
@@ -374,7 +381,12 @@ end program unfinished
 """
     executable = build(tmp_path, program, name="unfinished")
     result = subprocess.run(
-        [str(executable)], cwd=tmp_path, capture_output=True, text=True, timeout=300
+        [str(executable)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
     )
     assert result.returncode == 0
     assert "still open at sp_finalize" in result.stderr
@@ -496,6 +508,7 @@ def test_the_shipped_example_builds_and_runs(tmp_path):
         capture_output=True,
         text=True,
         timeout=300,
+        check=False,
     )
     assert build_result.returncode == 0, build_result.stderr
 
@@ -541,6 +554,7 @@ def test_the_examples_directory_still_builds_and_runs(tmp_path):
         text=True,
         timeout=600,
         env=env,
+        check=False,
     )
     assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
 
@@ -570,6 +584,7 @@ def test_makefile_builds_the_example(tmp_path):
         text=True,
         timeout=300,
         env={**os.environ, "MAKEFLAGS": ""},
+        check=False,
     )
     assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
     assert (tmp_path / "example").exists()
