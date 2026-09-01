@@ -30,6 +30,12 @@ all through a single, unified API.
   to AI coding agents such as Claude Code, so an agent can inspect a run,
   benchmark a script and compare before/after profiles as part of its own
   workflow. See {doc}`guide/mcp`.
+- **Jupyter/IPython magics** --- `%%scope`, `%%scope_line` and
+  `%%scope_recursive` profile a cell (the last with nothing instrumented at
+  all), while `%scope_compare`, `%scope_df`, `%scope_load` and
+  `%scope_export` compare, analyse and export runs --- including one from an
+  MPI job --- without leaving the notebook. See
+  {doc}`guide/notebook_magics`.
 
 ## Quick example
 
@@ -63,6 +69,7 @@ guide/regions
 guide/hdf5_and_python_api
 guide/plot_cli
 guide/mcp
+guide/notebook_magics
 guide/mpi
 guide/likwid
 guide/line_profiler
@@ -82,6 +89,7 @@ tutorials/03_visualization
 tutorials/04_profiling_modes
 tutorials/05_custom_analysis
 tutorials/06_custom_plots
+tutorials/07_notebook_magics
 ```
 
 ```{toctree}
