@@ -99,7 +99,12 @@ optional-dependencies.docs = [
   "scope-profiler[line-profiler,notebook,pproc,tui]",
 ]
 optional-dependencies.test = [
-  "coverage",
+  # coverage[toml] so the [tool.coverage.*] tables in this file are read on
+  # every supported Python, not only 3.11+.
+  "coverage[toml]",
+  # Property-based tests for the nesting reconstruction and the HDF5 round
+  # trip (src/scope_profiler/tests/unit/test_*_properties.py, test_h5_*.py).
+  "hypothesis",
   "pytest",
 ]
 
@@ -125,19 +130,31 @@ scope_profiler = [
   "c/*.c",
   "c/*.h",
   "c/Makefile",
+  # PEP 561: the annotations on the public result and configuration objects
+  # are only visible to a downstream type checker if this marker ships too.
+  "py.typed",
 ]
 
 [tool.isort]
 profile = "black"
 
 [tool.mypy]
-# Incremental typing starts with the core public result/configuration objects.
-# Optional integrations and older dynamically typed code can be migrated
-# independently without weakening this check.
+# Incremental typing covers the core public result/configuration objects and
+# the pure helpers they rest on. Optional integrations and older dynamically
+# typed code can be migrated independently without weakening this check.
+# `follow_imports` is deliberately left at its default ("normal"): the modules
+# listed below now type-check against the real definitions of what they import
+# rather than against Any.
 files = [
   "src/scope_profiler/profile_config.py",
   "src/scope_profiler/region.py",
   "src/scope_profiler/mpi_region.py",
+  "src/scope_profiler/results.py",
+  "src/scope_profiler/h5schema.py",
+  "src/scope_profiler/call_stack.py",
+  "src/scope_profiler/gpu_timing.py",
+  "src/scope_profiler/metadata.py",
+  "src/scope_profiler/mpi_launch.py",
 ]
 # Run the checker on the lowest CI-supported modern typing environment. The
 # source remains constrained by requires-python >= 3.10.
@@ -145,6 +162,59 @@ python_version = "3.12"
 check_untyped_defs = true
 disallow_untyped_defs = false
 ignore_missing_imports = true
-follow_imports = "skip"
 no_implicit_optional = true
 warn_unused_ignores = true
+
+[tool.coverage.run]
+# PEP 669 monitoring rather than the C tracer: coverage's default tracer takes
+# the single sys.settrace slot, which the recursive tracer and the line
+# profiler need for their own work. Under the C tracer those code paths cannot
+# be measured *and* their tests fail. sysmon requires Python >= 3.12, so the
+# coverage job runs only on the newer legs of the test matrix.
+core = "sysmon"
+source = [ "src/scope_profiler" ]
+omit = [
+  # The test suite itself, and the hardware-gated helper scripts it shells out
+  # to (real MPI ranks, parallel HDF5, a LIKWID installation) which no
+  # unprivileged CI runner can execute.
+  "src/scope_profiler/tests/*",
+]
+parallel = true
+
+[tool.coverage.paths]
+# Merge measurements taken from the source tree and from an installed wheel.
+source = [ "src/scope_profiler", "*/site-packages/scope_profiler" ]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = true
+# A ratchet, not a target: the measured total rounded down to a whole percent,
+# leaving the fraction as headroom. Raise it when coverage rises; never lower
+# it to make a red build green.
+#
+# The CI job reaches the LIKWID and parallel-HDF5 paths a developer laptop
+# cannot, so its total is at or above what `coverage report` prints locally.
+fail_under = 86
+exclude_also = [
+  # Typing-only constructs that never execute.
+  "if TYPE_CHECKING:",
+  "\\.\\.\\.$",
+  "@(abc\\.)?abstractmethod",
+  "@(typing\\.)?overload",
+  # Defensive re-raises and unreachable guards.
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
+]
+
+[tool.ruff]
+src = [ "src" ]
+
+[tool.ruff.lint.per-file-ignores]
+# The tomllib/tomli fallback has to be resolved before anything can be
+# imported from it, so the module's remaining imports follow the try block.
+"src/scope_profiler/profile_config.py" = [ "E402" ]
+# Tests that skip themselves when an optional extra is missing, or that pin a
+# non-interactive matplotlib backend, must run that statement before the
+# import it guards.
+"src/scope_profiler/tests/*" = [ "E402" ]

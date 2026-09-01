@@ -43,6 +43,10 @@ class ProfilingResults:
     All durations are reported in seconds.
     """
 
+    # Declared at class scope so the exclusive-duration machinery below can
+    # be read by a type checker without depending on __init__ appearing first.
+    _exclusive_populated: bool
+
     def _populate_exclusive_durations(self) -> None:
         """Derive per-call exclusive durations from all recorded intervals.
 

@@ -26,6 +26,28 @@ class SummaryDataUnavailable(ValueError):
     """Raised when a file predates fixed-size schema-2 summary columns."""
 
 
+class CorruptProfileError(OSError):
+    """Raised when a profiling file cannot be opened as HDF5 at all.
+
+    The common cause is a run that was killed while writing, leaving a
+    truncated file behind. h5py reports that as a bare ``OSError`` naming
+    neither the file nor what the caller was trying to do, so it is re-raised
+    here with both. It stays an ``OSError`` so existing handlers keep working.
+    """
+
+
+def _open_h5(file_path):
+    """Open a profiling file, reporting an unreadable one in context."""
+    try:
+        return h5py.File(file_path, "r")
+    except OSError as exc:
+        raise CorruptProfileError(
+            f"{file_path} is not a readable HDF5 profiling file. A run that was "
+            "interrupted while writing leaves a truncated file behind; the "
+            f"underlying error was: {exc}"
+        ) from exc
+
+
 _SUMMARY_DATASET = "summary_statistics"
 _SUMMARY_FIELDS = frozenset(
     {
@@ -164,6 +186,35 @@ def _read_line_profile_group(group) -> list:
     return records
 
 
+def _validate_event_index(offsets, counts, num_events: int, file_path: str) -> None:
+    """Check the region index really partitions the shared event columns.
+
+    The writer appends each rank's regions back to back, so the rows are a
+    contiguous, non-overlapping cover of the event columns. A file where that
+    no longer holds has been damaged -- most plausibly truncated -- and
+    reading it anyway would hand a region another region's calls, or slice
+    past the end and silently return fewer calls than the run recorded.
+    Neither failure is visible in the numbers that come out, so it is checked
+    here rather than trusted.
+    """
+    if offsets.size == 0:
+        return
+    starts = offsets.astype(np.int64, copy=False)
+    ends = starts + counts.astype(np.int64, copy=False)
+    if ends.max() > num_events:
+        raise CorruptProfileError(
+            f"{file_path} claims {int(ends.max())} recorded events but its event "
+            f"columns hold {num_events}. The file is truncated or damaged."
+        )
+    order = np.argsort(starts, kind="stable")
+    ordered_starts, ordered_ends = starts[order], ends[order]
+    if np.any(ordered_starts[1:] < ordered_ends[:-1]):
+        raise CorruptProfileError(
+            f"{file_path} has overlapping region rows in its event index. "
+            "The file is damaged."
+        )
+
+
 def _read_columnar_regions(h5file) -> tuple[dict, list[str], dict]:
     """Read schema-2 shared event columns into the existing Region API.
 
@@ -195,6 +246,7 @@ def _read_columnar_regions(h5file) -> tuple[dict, list[str], dict]:
 
     start_times = events["start_times"][()]
     end_times = events["end_times"][()]
+    _validate_event_index(offsets, counts, start_times.size, file_path=h5file.filename)
     gpu_column = events["gpu_durations"][()] if "gpu_durations" in events else None
     call_column = events["call_ids"][()] if "call_ids" in events else None
     parent_column = events["parent_ids"][()] if "parent_ids" in events else None
@@ -310,7 +362,7 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
     _region_dict = {}
     region_names = []
     exclusive_totals: dict[str, dict[int, int]] = {}
-    with h5py.File(file_path, "r") as f:
+    with _open_h5(file_path) as f:
         schema_version = read_schema_version(f)
         migrate_schema(f, schema_version)
         if "metadata" in f:
@@ -451,7 +503,7 @@ def load_h5_summary(
     likwid = {}
     line_profile = {}
     exclusive_totals = {}
-    with h5py.File(file_path, "r") as h5file:
+    with _open_h5(file_path) as h5file:
         schema_version = read_schema_version(h5file)
         migrate_schema(h5file, schema_version)
         if schema_version != 2:

@@ -59,6 +59,73 @@ jobs:
 
       - name: Run incremental type check
         run: mypy
+  coverage:
+    name: Test coverage (floor enforced)
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/scope-profiler-ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    # One Python only, and it has to be >= 3.12: coverage is measured through
+    # PEP 669 monitoring, pinned as core = "sysmon" in [tool.coverage.run].
+    # The default C tracer claims the single sys.settrace slot that this
+    # project's own recursive tracer and line profiler need, which both hides
+    # those code paths from the report and makes their tests fail.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Python 3.12 venv
+        run: echo "/opt/venvs/py312/bin" >> "$GITHUB_PATH"
+
+      - name: Install project
+        run: |
+          pip install --upgrade pip
+          pip install ".[dev]"
+
+      - name: Run the suite under coverage
+        run: coverage run -m pytest -q
+
+      # The parallel-HDF5 writer and the MPI finalize path only execute under
+      # a launcher, in processes pytest never starts. `coverage run -p` gives
+      # each rank its own data file (parallel = true in pyproject.toml), and
+      # the combine below folds them into the same report -- otherwise a few
+      # hundred statements of h5writer.py look permanently untested.
+      - name: Measure the MPI paths under coverage
+        env:
+          OMPI_ALLOW_RUN_AS_ROOT: "1"
+          OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: "1"
+        run: |
+          mpirun -n 2 coverage run -p src/scope_profiler/tests/test_mpi.py
+          mpirun --oversubscribe -n 3 coverage run -p \
+            src/scope_profiler/tests/check_parallel_hdf5.py \
+            "$RUNNER_TEMP/coverage-parallel.h5"
+          coverage run -p src/scope_profiler/tests/check_mpi_launch.py serial
+
+      - name: Combine the measurements
+        run: coverage combine
+
+      # The floor is a ratchet, not a target: raise it when coverage rises,
+      # never lower it to make a red build green. It lives in
+      # [tool.coverage.report] fail_under in pyproject.toml.
+      - name: Enforce the coverage floor
+        run: coverage report
+
+      - name: Write the HTML report
+        if: always()
+        run: coverage html
+
+      - name: Upload the HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: htmlcov/
+          retention-days: 14
+
   pytest:
     runs-on: ubuntu-latest
     permissions:
@@ -385,6 +452,13 @@ jobs:
           mpirun -n 2 python3 src/scope_profiler/tests/test_mpi.py
           scope-profiler plot default profiling_data.h5 --show -o figures
 
+      # More ranks than the runner has cores, so rank ordering and the
+      # collective finalize are exercised with ranks that genuinely contend.
+      - name: Test postprocessing (MPI, four ranks)
+        run: |
+          mpirun --oversubscribe -n 4 python3 src/scope_profiler/tests/test_mpi.py
+          scope-profiler inspect profiling_data.h5 --regions-only --quiet
+
       - name: Test parallel HDF5 writer
         run: |
           python3 -c "import h5py; assert h5py.get_config().mpi"
@@ -393,6 +467,40 @@ jobs:
           mpirun --oversubscribe -n 3 python3 \
             src/scope_profiler/tests/check_parallel_hdf5.py \
             "$RUNNER_TEMP/parallel-profiling-${{ matrix.python-version }}.h5"
+
+  overhead:
+    name: Per-call profiling overhead
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/scope-profiler-ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Python 3.12 venv
+        run: echo "/opt/venvs/py312/bin" >> "$GITHUB_PATH"
+
+      - name: Install project
+        run: |
+          pip install --upgrade pip
+          pip install ".[dev]"
+
+      # The budgets in test_overhead.py are absolute per-call nanoseconds,
+      # deliberately set ~10x above an idle laptop so a loaded shared runner
+      # still passes. They catch a structural regression -- an allocation, a
+      # lock, a filesystem touch added to the hot path -- not a 2x slowdown.
+      # -s prints every measurement plus the summary table, so the trend is
+      # readable in the job log even while the gate stays green.
+      #
+      # Nothing else runs in this job: a parallel test session would compete
+      # for the same cores and inflate every number here.
+      - name: Measure per-call overhead
+        run: pytest -s -m overhead
 
     # - name: Test tutorials
     #   run: |
