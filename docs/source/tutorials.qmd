@@ -6,7 +6,7 @@ topic you need.
 
 ## Choose a tutorial
 
-Six notebooks that build on each other. Each one is self-contained --- it
+Seven notebooks that build on each other. Each one is self-contained --- it
 generates its own profiling data in a temporary directory, so they can be run
 in any order and in any environment.
 
@@ -22,11 +22,17 @@ in any order and in any environment.
    inspect individual calls, timelines, call stacks, and self-time.
 6. [Building your own plots](tutorials/06_custom_plots.ipynb) — draw custom
    visualizations from events and call-stack data.
+7. [Notebook magics](tutorials/07_notebook_magics.ipynb) — profile a cell
+   with `%%scope`, `%%scope_line` and `%%scope_recursive`, then compare,
+   analyse and export runs with `%scope_compare`, `%scope_df`,
+   `%scope_load` and `%scope_export`.
 
-Notebooks 3, 4 and 6 need the post-processing extra:
+Notebooks 3, 4 and 6 need the post-processing extra, and notebook 7 needs the
+notebook extra:
 
 ```bash
 pip install "scope-profiler[pproc]"
+pip install "scope-profiler[notebook]"
 ```
 
 ## Example scripts

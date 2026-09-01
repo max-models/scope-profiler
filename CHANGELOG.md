@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+
+- Added Jupyter/IPython magics via `%load_ext scope_profiler.ipython_magics`,
+  and a tutorial notebook covering them. Installed with the new `notebook`
+  extra. Recording: `%%scope`, `%scope_timeit`, `%%scope_line`,
+  `%%scope_recursive` (every call in a cell, nothing instrumented) and
+  `%%scope_agg` (aggregation mode). Working with recorded runs:
+  `%scope_load` (an HDF5 run from an MPI job or `scope-profiler run`),
+  `%scope_df` (pandas), `%scope_last`, `%scope_compare`, `%scope_export`
+  and `%scope_reset`.
+
 ## 0.4.2 - 2026-08-31
 
 ### Fixed
