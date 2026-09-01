@@ -14,10 +14,10 @@ import pytest
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
-from scope_profiler import ProfileManager  # noqa: E402
-from scope_profiler.plotting_scripts.callgraph import plot_callgraph  # noqa: E402
+from scope_profiler import ProfileManager
+from scope_profiler.plotting_scripts.callgraph import plot_callgraph
 
 
 @pytest.fixture(autouse=True)

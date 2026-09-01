@@ -16,8 +16,8 @@ IPython = pytest.importorskip(
     "IPython", reason="the optional 'notebook' extra is not installed"
 )
 
-import IPython.testing.globalipapp as globalipapp
 from IPython.core.error import UsageError
+from IPython.testing import globalipapp
 
 from scope_profiler.ipython_magics import ScopeMagics
 

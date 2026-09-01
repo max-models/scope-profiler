@@ -138,11 +138,13 @@ class ScopeMagics(Magics):
         """Profile a cell as one region and print its summary table."""
         args = parse_argstring(self.scope_cell, line)
         name = args.name or "cell"
-        with ProfileManager.session(
-            return_results=True, verbose=False, deactivate_file_output=True
-        ) as run:
-            with ProfileManager.profile_region(name):
-                self.shell.run_cell(cell)
+        with (
+            ProfileManager.session(
+                return_results=True, verbose=False, deactivate_file_output=True
+            ) as run,
+            ProfileManager.profile_region(name),
+        ):
+            self.shell.run_cell(cell)
         results = run.results
         self._store(name, results)
         if not args.quiet:
@@ -349,14 +351,16 @@ class ScopeMagics(Magics):
         """
         args = parse_argstring(self.scope_agg_cell, line)
         name = args.name or "cell"
-        with ProfileManager.session(
-            return_results=True,
-            verbose=False,
-            deactivate_file_output=True,
-            aggregation_mode=True,
-        ) as run:
-            with ProfileManager.profile_region(name):
-                self.shell.run_cell(cell)
+        with (
+            ProfileManager.session(
+                return_results=True,
+                verbose=False,
+                deactivate_file_output=True,
+                aggregation_mode=True,
+            ) as run,
+            ProfileManager.profile_region(name),
+        ):
+            self.shell.run_cell(cell)
         results = run.results
         self._store(name, results)
         if not args.quiet:

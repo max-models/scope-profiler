@@ -160,9 +160,8 @@ def test_nvtx_decorator_brackets_the_call(nvtx, config):
 def test_nvtx_range_is_popped_when_the_body_raises(nvtx, config):
     region = NVTXProfileRegion("solve", config)
 
-    with pytest.raises(ZeroDivisionError):
-        with region:
-            1 / 0
+    with pytest.raises(ZeroDivisionError), region:
+        1 / 0
 
     assert nvtx.depth == 0
     assert nvtx.calls[-1] == ("pop", None)
