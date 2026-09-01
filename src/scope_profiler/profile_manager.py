@@ -1,4 +1,4 @@
-"""Singleton manager for creating, configuring, and finalizing profiling regions."""
+"""Managers for creating, configuring, and finalizing profiling regions."""
 
 import functools
 import os
@@ -169,9 +169,47 @@ class _ProfilingSession:
 
 
 class ProfileManager:
+    """Manage and track a set of profiling regions.
+
+    The class methods remain the process-wide default API. Instantiating the
+    class creates an independent manager with its own configuration, regions,
+    decorators, and call-id space, allowing multiple profiling sessions to be
+    active at the same time::
+
+        cpu = ProfileManager()
+        io = ProfileManager()
+
+        with cpu.session(file_path="cpu.h5"):
+            with io.session(file_path="io.h5"):
+                with cpu.profile_region("compute"), io.profile_region("write"):
+                    work()
     """
-    Singleton class to manage and track all ProfileRegion instances.
-    """
+
+    def __new__(cls):
+        """Create a manager whose classmethod-backed state is isolated.
+
+        The original API intentionally uses class methods so instrumentation
+        can be imported anywhere without passing an object around. A private
+        subclass per instance preserves that low-overhead dispatch while
+        giving each instance a separate set of class attributes.
+        """
+        if cls is not ProfileManager:
+            return object.__new__(cls)
+        isolated_cls = type(
+            "ProfileManagerInstance",
+            (cls,),
+            {
+                "_regions": {},
+                "_next_call_id": 0,
+                "_config": None,
+                "_region_cls": DisabledProfileRegion,
+                "_decorators": {},
+                "_decorated_codes": set(),
+                "_recursive_state": threading.local(),
+                "__module__": cls.__module__,
+            },
+        )
+        return object.__new__(isolated_cls)
 
     class _ResultAccumulator:
         """Builds a ProfilingResults from per-rank payloads, one at a time.

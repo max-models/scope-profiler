@@ -181,7 +181,6 @@ _EMPTY_TIMES.flags.writeable = False
 # `np.full` would make creating a region proportional to its capacity, which
 # tests/test_overhead.py budgets against.
 _UNCLOSED = 0
-_AGGREGATE_STACK = []
 
 
 class AggregateProfileRegion:
@@ -254,18 +253,19 @@ class AggregateProfileRegion:
         if self.config.paused:
             return
         self._stack.append(perf_counter_ns())
-        _AGGREGATE_STACK.append(self)
+        self.config._aggregate_stack.append(self)
 
     def _leave(self):
         if self.config.paused:
             return
         duration = perf_counter_ns() - self._stack.pop()
-        _AGGREGATE_STACK.pop()
-        if _AGGREGATE_STACK:
+        aggregate_stack = self.config._aggregate_stack
+        aggregate_stack.pop()
+        if aggregate_stack:
             # Only the direct parent subtracts this duration. Its own
             # inclusive duration is then subtracted from its parent when it
             # exits, preventing nested children from being subtracted twice.
-            _AGGREGATE_STACK[-1]._exclusive -= duration
+            aggregate_stack[-1]._exclusive -= duration
         self._count += 1
         self._total += duration
         self._exclusive += duration

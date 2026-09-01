@@ -1,4 +1,4 @@
-"""Singleton configuration for the profiling system."""
+"""Configuration for profiling managers."""
 
 import os
 import shutil
@@ -328,22 +328,14 @@ def _pylikwid_import_error(exc: ImportError) -> str:
 
 
 class ProfilingConfig:
-    """Singleton class for managing global profiling settings.
+    """Configuration for one profiling manager.
 
     This class centralizes configuration for LIKWID performance counters,
-    buffer limits, and file paths. Constructing it is purely local: it reads
-    the communicator for rank and size but issues no MPI call of its own, so
-    ``setup()`` does not have to be collective.
+    buffer limits, and file paths. Each manager owns a separate instance, so
+    independently configured profiling sessions can coexist. Constructing it
+    is purely local: it reads the communicator for rank and size but issues no
+    MPI call of its own, so ``setup()`` does not have to be collective.
     """
-
-    _instance = None
-    _initialized = False
-
-    def __new__(cls, *args, **kwargs):
-        """Ensure only one instance of ProfilingConfig exists."""
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
 
     def __init__(
         self,
@@ -442,9 +434,6 @@ class ProfilingConfig:
         its ``SCOPE_PROFILER_MPI`` override.
         """
 
-        if self._initialized:
-            return
-
         # The run's origin, on the perf_counter_ns clock. Persisted as
         # metadata, and the point post-processing measures its relative
         # timeline from.
@@ -532,6 +521,10 @@ class ProfilingConfig:
             self._metadata["label"] = self._label
 
         self._pylikwid: Any = None
+        # Aggregate nesting belongs to this configuration. Keeping it here
+        # prevents regions owned by two simultaneously active managers from
+        # being mistaken for parent and child calls.
+        self._aggregate_stack: list = []
         # markerclose() must run exactly once: it writes the marker file and
         # tears the perfmon module down, so a second call (e.g. a second
         # finalize()) would have nothing left to close.
@@ -543,13 +536,14 @@ class ProfilingConfig:
                 self.pylikwid_markerinit()
             except ImportError as e:
                 raise ImportError(_pylikwid_import_error(e)) from e
-        self._initialized = True
 
     @classmethod
     def reset(cls):
-        """Reset the singleton so it can be reinitialized."""
-        cls._instance = None
-        cls._initialized = False
+        """Compatibility no-op retained for callers of older releases.
+
+        Configurations are ordinary per-manager objects now, so there is no
+        process-wide instance to reset.
+        """
 
     def pylikwid_markerinit(self):
         """Initialize LIKWID markers if LIKWID is enabled."""
