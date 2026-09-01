@@ -85,7 +85,9 @@ optional-dependencies.dev = [
   "isort >= 9.0.0",
   "mypy >= 1.11.0",
   "ruff",
-  "scope-profiler[docs,fortran,line-profiler,mcp,mpi,notebook,nvtx,pproc,test,tui]",
+  # `graph` included: the pyvis callgraph backend is a shipped output format,
+  # so CI has to be able to render it rather than skipping its tests.
+  "scope-profiler[docs,fortran,graph,line-profiler,mcp,mpi,notebook,nvtx,pproc,test,tui]",
 ]
 # https://medium.com/@pratikdomadiya123/build-project-documentation-quickly-with-the-sphinx-python-2a9732b66594
 optional-dependencies.docs = [
@@ -142,9 +144,6 @@ profile = "black"
 # Incremental typing covers the core public result/configuration objects and
 # the pure helpers they rest on. Optional integrations and older dynamically
 # typed code can be migrated independently without weakening this check.
-# `follow_imports` is deliberately left at its default ("normal"): the modules
-# listed below now type-check against the real definitions of what they import
-# rather than against Any.
 files = [
   "src/scope_profiler/profile_config.py",
   "src/scope_profiler/region.py",
@@ -156,6 +155,12 @@ files = [
   "src/scope_profiler/metadata.py",
   "src/scope_profiler/mpi_launch.py",
 ]
+# Resolve imports against the source tree rather than whatever happens to be
+# installed. Without this, an editable install (a .pth file mypy cannot follow)
+# silently degrades every intra-package import to Any locally, while CI's
+# regular install -- which now carries a py.typed marker -- checks them for
+# real. That difference hid 131 errors from local runs.
+mypy_path = "src"
 # Run the checker on the lowest CI-supported modern typing environment. The
 # source remains constrained by requires-python >= 3.10.
 python_version = "3.12"
@@ -164,6 +169,16 @@ disallow_untyped_defs = false
 ignore_missing_imports = true
 no_implicit_optional = true
 warn_unused_ignores = true
+# Check the modules listed above, not everything they import. Dropping this
+# pulls in 21 more modules and ~130 pre-existing errors, which is a migration
+# to do module by module (adding each to `files` as it goes green), not a
+# config flip.
+#
+# It also has to stay explicit rather than rely on the default: with a regular
+# install (CI) mypy resolves the intra-package imports and follows them, while
+# with an editable install (the usual local setup) it cannot, so leaving this
+# unset makes local runs pass and CI fail on the very same commit.
+follow_imports = "skip"
 
 [tool.coverage.run]
 # PEP 669 monitoring rather than the C tracer: coverage's default tracer takes

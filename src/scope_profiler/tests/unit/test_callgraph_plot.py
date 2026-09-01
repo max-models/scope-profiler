@@ -6,6 +6,7 @@ profiler really records.
 """
 
 import csv
+import importlib.util
 import json
 
 import matplotlib
@@ -139,6 +140,16 @@ def test_plotly_backend_in_compact_mode_labels_regions(results):
     assert set(markers.text) == {"root", "middle", "leaf", "sibling"}
 
 
+# The pyvis backend is an optional extra (scope-profiler[graph]). CI installs
+# it via the dev extra, so these run there; a partial install skips them
+# instead of reporting the missing dependency as a failure.
+pyvis_backend = pytest.mark.skipif(
+    importlib.util.find_spec("pyvis") is None,
+    reason="the optional 'graph' extra (pyvis) is not installed",
+)
+
+
+@pyvis_backend
 def test_pyvis_backend_writes_a_document_with_the_added_controls(results, tmp_path):
     out = tmp_path / "callgraph.html"
     graph = plot_callgraph(
@@ -150,6 +161,7 @@ def test_pyvis_backend_writes_a_document_with_the_added_controls(results, tmp_pa
     assert "scope-profiler-controls" in document
 
 
+@pyvis_backend
 def test_pyvis_backend_marks_the_critical_path_in_compact_mode(results, tmp_path):
     graph = plot_callgraph(
         results,
@@ -244,6 +256,7 @@ def test_filters_narrow_the_graph(results):
     assert "leaf" not in labels
 
 
+@pyvis_backend
 def test_pyvis_show_writes_to_a_temporary_file_and_opens_it(results, monkeypatch):
     """Without a filepath, --show still needs a document on disk to open."""
     import webbrowser
@@ -261,6 +274,7 @@ def test_pyvis_show_writes_to_a_temporary_file_and_opens_it(results, monkeypatch
     assert opened[0].endswith("callgraph.html")
 
 
+@pyvis_backend
 def test_pyvis_without_filepath_or_show_writes_nothing(results, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     plot_callgraph(results, backend="pyvis", verbose=False)
