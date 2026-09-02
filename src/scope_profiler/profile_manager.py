@@ -1534,7 +1534,9 @@ class ProfileManager:
 
         if verbose and rank == 0 and config.memory_profile_path is not None:
             rank_note = " (one capture per rank)" if size > 1 else ""
-            print(f"\nwrote Memray allocation profile to {config.memory_profile_path}{rank_note}")
+            print(
+                f"\nwrote Memray allocation profile to {config.memory_profile_path}{rank_note}"
+            )
 
         if config.use_line_profiler and verbose_line_profiler:
             for region in cls.get_all_regions().values():

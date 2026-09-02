@@ -80,7 +80,16 @@ def test_run_line_profile_flag_is_passed_to_setup(tmp_path, monkeypatch):
     )
 
     cli_main(
-        ["run", "--line-profile", "--memory-profile", "--all", "-q", str(script), "--", "arg"]
+        [
+            "run",
+            "--line-profile",
+            "--memory-profile",
+            "--all",
+            "-q",
+            str(script),
+            "--",
+            "arg",
+        ]
     )
 
     assert calls["setup"]["use_line_profiler"] is True
