@@ -111,7 +111,16 @@ def plot_flame_chart(
                             "exclusive_duration_seconds": call["exclusive_duration"],
                         }
                     )
-            _write_json(data_filepath, {"calls": call_records, "colors": colors})
+            _write_json(
+                data_filepath,
+                {
+                    "format": "scope-profiler-plot-data",
+                    "format_version": 1,
+                    "plot": "flame",
+                    "calls": call_records,
+                    "colors": colors,
+                },
+            )
         else:
             rows = []
             for label, (_, rank, calls) in zip(labels, prepared):
