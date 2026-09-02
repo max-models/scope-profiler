@@ -3,6 +3,28 @@
 All subcommands live under the single `scope-profiler` executable (also
 runnable as `python -m scope_profiler`).
 
+## pytest integration
+
+The package also exposes an opt-in pytest plugin. It writes a regular HDF5
+profile with one region per selected test, named
+`pytest::<nodeid>::<phase>`:
+
+```bash
+pytest --scope-profile --scope-profile-out pytest-profile.h5
+scope-profiler inspect pytest-profile.h5 --regions-only --sort total
+scope-profiler plot durations pytest-profile.h5 -o pytest-plots
+```
+
+Only the test `call` phase is measured by default. To include fixture setup
+and teardown, pass `--scope-profile-phases=all`. A profiling TOML file can be
+shared with other runs using `--scope-profile-config profiling.toml`.
+
+The plugin deliberately uses an independent manager, so tests that configure
+the process-wide `ProfileManager` do not interfere with it. It times complete
+test phases rather than recursively tracing pytest internals. When using
+`pytest-xdist`, omit `--scope-profile`: parallel workers cannot safely write
+one HDF5 profile yet.
+
 ## `scope-profiler tui`
 
 Open an interactive browser for a profiling HDF5 file. The **Plots** section
