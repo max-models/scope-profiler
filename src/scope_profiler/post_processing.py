@@ -20,6 +20,7 @@ from scope_profiler.plotting_scripts import (
     plot_gantt,
     plot_imbalance,
     plot_likwid,
+    plot_perf_events,
     plot_rank_heatmap,
     plot_scaling_efficiency,
     plot_speedup,
@@ -49,6 +50,10 @@ _PLOT_CATALOG: dict[str, tuple[str, bool]] = {
     "histogram": ("call-duration distribution per region", False),
     "imbalance": ("per-rank duration comparison, to spot stragglers", False),
     "likwid": ("one LIKWID hardware-counter metric (needs --likwid-metric)", False),
+    "perf_events": (
+        "one Linux perf-event metric (needs --metric, e.g. ipc)",
+        False,
+    ),
 }
 _DEFAULT_PLOTS = frozenset(
     name for name, (_, is_default) in _PLOT_CATALOG.items() if is_default
@@ -444,6 +449,13 @@ def build_parser() -> argparse.ArgumentParser:
             )
             plot_parser.add_argument("--top-n", type=int, default=None, metavar="N")
             _add_log_scale_arg(plot_parser)
+        elif kind == "perf_events":
+            plot_parser.add_argument(
+                "--metric",
+                required=True,
+                metavar="NAME",
+                help="Recorded event, ipc, or cache-misses-per-ki.",
+            )
     return parser
 
 
@@ -534,7 +546,7 @@ def _print_plot_list() -> None:
     print("presets:")
     print("  default    " + ", ".join(sorted(_DEFAULT_PLOTS)))
     print("  quick      " + ", ".join(sorted(_QUICK_PLOTS)))
-    print("  all        every plot except likwid, unless --metric is given")
+    print("  all        every plot except counter plots (select those explicitly)")
     print("\nplots:")
     for name, (description, is_default) in _PLOT_CATALOG.items():
         marker = "default" if is_default else "optional"
@@ -594,8 +606,7 @@ def _selected_plots(args: argparse.Namespace) -> set[str]:
         return set(_QUICK_PLOTS)
     if kind == "all":
         plots = set(_PLOT_CATALOG)
-        if not args.metric:
-            plots.remove("likwid")
+        plots.difference_update({"likwid", "perf_events"})
         return plots
     return {kind}
 
@@ -671,6 +682,7 @@ def _plot_options(args: argparse.Namespace, name: str):
         "likwid_metric": (
             metric if name == "likwid" else getattr(args, "likwid_metric", None)
         ),
+        "perf_event_metric": metric if name == "perf_events" else None,
         "speedup_x_field": getattr(args, "x", "num_ranks"),
         "start_time": getattr(args, "start_time", None),
         "end_time": getattr(args, "end_time", None),
@@ -699,6 +711,10 @@ def _render_selected_plots(
         parser.error(
             "likwid requires --metric for plots or --likwid-metric for plot-data."
         )
+    if "perf_events" in selected_plots and not _plot_options(
+        args, "perf_events"
+    )["perf_event_metric"]:
+        parser.error("perf_events requires --metric, e.g. --metric ipc.")
 
     ext = (
         "html"
@@ -993,6 +1009,22 @@ def _render_selected_plots(
         )
         saved.extend(path for path in (path, likwid_data_path) if path)
 
+    if "perf_events" in selected_plots:
+        path = image_path("perf_events", "perf_events_plot")
+        plot_perf_events(
+            runs,
+            metric=_plot_options(args, "perf_events")["perf_event_metric"],
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            cmap=args.cmap,
+            backend=args.backend,
+        )
+        if path:
+            saved.append(path)
+
     if len(runs) > 1 and "speedup" in selected_plots:
         path = image_path("speedup", "speedup_plot")
         plot_speedup(
@@ -1164,6 +1196,11 @@ def export_main(argv: list[str] | None = None):
         )
         if "likwid" in selected_plots and not args.likwid_metric:
             parser.error("plot-data with likwid requires --likwid-metric.")
+        if "perf_events" in selected_plots:
+            parser.error(
+                "plot-data does not yet support perf_events; use "
+                "`scope-profiler plot perf_events --metric ...` instead."
+            )
         args.show = False
         args.backend = "matplotlib"
         args.cmap = DEFAULT_CMAP

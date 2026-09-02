@@ -276,6 +276,16 @@ usage: scope-profiler plot [-h]
 
 `scope-profiler plot list` prints the available plot kinds and presets.
 
+Built-in Linux counter profiles can be plotted with a recorded event name or
+one of the derived metrics:
+
+```bash
+scope-profiler plot perf_events perf_events_example.h5 \
+  --metric ipc -o figures/perf_ipc.png
+scope-profiler plot perf_events perf_events_example.h5 \
+  --metric cache-misses-per-ki -o figures/perf_cache_misses.png
+```
+
 ### Positional arguments
 
 | Argument | Description                                      |
