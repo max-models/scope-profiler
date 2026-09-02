@@ -48,11 +48,14 @@
 
 ### Fixed
 
-- `%%scope_recursive` reports a failing cell with its source again. The magic
-  sliced its own frame off the traceback before handing it to
-  `showtraceback()`, which drops the outermost frame itself (`InteractiveTB`
-  has `tb_offset = 1`); between them they removed the cell's only frame,
-  leaving the exception with no code shown at all.
+- `%%scope_recursive` reports a failing cell with its source again, on every
+  IPython version. The magic sliced its own frame off the traceback and then
+  left the renderer's `tb_offset` at its default, which on some versions
+  drops an outermost frame too -- between them they removed the cell's only
+  frame, leaving the exception with no code shown at all, while on versions
+  that drop nothing the magic's own frame appeared beside the cell. The
+  slice is now the only one that happens: `tb_offset=0` is passed
+  explicitly, so no version's default takes part.
 - `call_stack.build_call_arrays` leaves `CallArrays.lane` empty for a run that
   tracked no threads, instead of materializing a full-length column of `-1`.
   Filling it would have added an allocation, a concatenate and a gather over

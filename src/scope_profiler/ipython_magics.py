@@ -308,14 +308,10 @@ class ScopeMagics(Magics):
                 # machinery is itself Python code, so formatting it inside the
                 # traced window would bury the cell's profile under a million
                 # regions from ultratb/stack_data/executing.
-                # Kept whole. What the user sees still starts at their own
-                # cell rather than at the exec() below, because
-                # showtraceback() renders through InteractiveTB, whose
-                # tb_offset is 1 -- it drops the outermost frame itself, and
-                # here that frame is this method. Slicing it off first as
-                # well left the cell's frame nowhere to be seen: a traceback
-                # with the exception and no source at all.
-                exc_info = sys.exc_info()
+                etype, evalue, tb = sys.exc_info()
+                # Drop this method's frame, so what the user sees starts at
+                # their own cell rather than at the exec() call below.
+                exc_info = (etype, evalue, tb.tb_next if tb is not None else tb)
             finally:
                 sys.setprofile(prev_profiler)
         results = run.results
@@ -323,7 +319,15 @@ class ScopeMagics(Magics):
             # What run_cell() does for the other cell magics: report the error
             # and carry on, so a cell that fails halfway still shows how far
             # it got. KeyboardInterrupt is not caught, and still propagates.
-            self.shell.showtraceback(exc_info)
+            #
+            # tb_offset is pinned rather than left to the renderer. This frame
+            # is already gone from `exc_info` above, and how many *more*
+            # frames IPython drops on its own has varied between versions:
+            # one of them left the cell's frame nowhere to be seen (an
+            # exception with no source at all), another showed this method
+            # alongside the cell. Zero means "drop nothing further", so the
+            # slice above is the only one that happens, on every version.
+            self.shell.showtraceback(exc_info, tb_offset=0)
         self._store(name, results)
         if not args.quiet:
             print(f"%%scope_recursive {name!r}")
