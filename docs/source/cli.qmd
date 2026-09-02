@@ -406,7 +406,7 @@ common regions across all inputs.
 Export profiling data without rendering plot images.
 
 ```text
-usage: scope-profiler export [-h] {prof,speedscope,json,plot-data} ...
+usage: scope-profiler export [-h] {prof,speedscope,chrome-trace,json,plot-data} ...
 ```
 
 ### Plot data
@@ -496,6 +496,22 @@ carries several profiles per file, and speedscope switches between them from
 the dropdown in its top bar. Every profile in a file shares one time origin, so
 ranks stay aligned with each other. The stem of the input file is added to the
 name when several HDF5 files are passed.
+
+### Exporting to Chrome Trace / Perfetto
+
+`export chrome-trace` writes Chrome Trace Event JSON. Each rank is a process;
+tracked threads and asyncio tasks become separate lanes. Region durations are
+complete events, with GPU and await measurements in event arguments. Aggregate
+Linux perf-event values are emitted as counter events at the end of the rank
+timeline.
+
+```bash
+scope-profiler export chrome-trace profiling_data.h5 -o figures
+```
+
+Open `figures/profile.trace.json` in [Perfetto](https://ui.perfetto.dev) or
+`chrome://tracing`. The export is dependency-free and does not require the
+optional plotting dependencies.
 
 The call graph is reconstructed from timestamp containment, as for `.prof`,
 with one extra consequence: speedscope replays the events as a stack machine,
