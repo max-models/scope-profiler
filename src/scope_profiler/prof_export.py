@@ -16,7 +16,9 @@ call path (or, on request, per region name).
 
 from __future__ import annotations
 
+import cProfile
 import marshal
+import pstats
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -293,6 +295,136 @@ def write_prof_file(
     return output_path
 
 
+class ScopeProfile(cProfile.Profile):
+    """A :class:`cProfile.Profile` carrying reconstructed region stats.
+
+    ``pstats.Stats`` only accepts a filename or an object with a
+    ``create_stats()`` method that leaves the finished pstats dict in
+    ``.stats`` (see ``pstats.Stats.load_stats``) -- ``cProfile.Profile`` is
+    the real class satisfying that contract. Subclassing it, instead of
+    merely duck-typing it, lets :func:`build_pstats` hand ``pstats.Stats`` a
+    type it actually declares support for, and skips ``Profile.__init__``
+    (which would start a C-level profiler this class never uses).
+
+    Inherited ``Profile`` methods that only need ``.stats`` work as usual, so
+    ``ScopeProfile(stats).dump_stats(path)`` writes the same ``.prof`` file
+    :func:`write_prof_file` does. Like a real ``Profile``, an instance is
+    consumed by ``pstats.Stats``: it takes ``.stats`` and leaves the profile
+    empty, so build a new one per ``Stats``.
+    """
+
+    def __init__(self, stats: dict[tuple[str, int, str], tuple]) -> None:
+        self.stats = stats
+
+    def create_stats(self) -> None:
+        """No-op: ``self.stats`` is already the finished pstats dict."""
+
+
+def build_pstats(
+    calls: CallArrays,
+    root_name: str | None = None,
+    call_paths: bool = True,
+) -> pstats.Stats:
+    """Build reconstructed calls straight into a :class:`pstats.Stats`.
+
+    The in-memory twin of :func:`build_pstats_dict`, for callers that want to
+    ``sort_stats``/``print_stats`` immediately instead of writing a ``.prof``
+    file first.  A run with no calls yields an empty ``Stats``, which
+    ``pstats`` would otherwise refuse to construct from an empty dict.
+    """
+    stats_dict = build_pstats_dict(calls, root_name=root_name, call_paths=call_paths)
+    if not stats_dict:
+        return pstats.Stats()
+    return pstats.Stats(ScopeProfile(stats_dict))
+
+
+def load_prof(filepath: str | Path) -> pstats.Stats:
+    """Read a ``.prof`` file written by :func:`export_prof` back as a Stats.
+
+    The ``.prof`` twin of :func:`~scope_profiler.json_export.read_json`.
+    """
+    return pstats.Stats(str(filepath))
+
+
+def _prepare_calls(
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
+    ranks: list[int] | int | None,
+    include: list[str] | str | None,
+    exclude: list[str] | str | None,
+) -> tuple[list[tuple[str, int, CallArrays]], bool]:
+    """Reconstruct calls for every requested (run, rank), shared by
+    :func:`export_prof` and :func:`to_pstats`.
+
+    Returns the prepared ``(label, rank, calls)`` triples plus whether more
+    than one run was requested, which callers use to decide whether run
+    labels need to be disambiguated (e.g. in output filenames).
+    """
+    runs = _as_runs(profiling_data)
+    if not runs:
+        # Not this rank's job; rank 0 does the exporting.
+        return [], False
+
+    normalized_ranks = _normalize_ranks(ranks) if ranks is not None else [0]
+    labels = _unique_labels([run.display_label for run in runs])
+
+    prepared = []
+    for label, run in zip(labels, runs):
+        regions = run.get_regions(include=include, exclude=exclude)
+        if not regions:
+            raise ValueError("No regions matched the selected filters.")
+        for rank in normalized_ranks:
+            if rank < 0 or rank >= run.num_ranks:
+                raise ValueError(f"Invalid rank requested: {rank}")
+            calls = build_call_arrays(regions, rank)
+            if len(calls):
+                prepared.append((label, rank, calls))
+
+    if not prepared:
+        raise ValueError("No calls recorded for the requested ranks.")
+    return prepared, len(runs) > 1
+
+
+def to_pstats(
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
+    ranks: list[int] | int | None = None,
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+    call_paths: bool = True,
+) -> dict[tuple[str, int], pstats.Stats]:
+    """Build a :class:`pstats.Stats` per (run label, rank), without disk I/O.
+
+    The in-memory twin of :func:`export_prof`: same call reconstruction and
+    filtering, but returns real ``pstats.Stats`` objects keyed by
+    ``(run_label, rank)`` instead of writing ``.prof`` files.
+
+    Parameters
+    ----------
+    profiling_data : ProfilingResults | Sequence[ProfilingResults]
+        The run(s) to export: file runs, in-memory results from
+        ``ProfileManager.finalize(return_results=True)``, or a mix.
+    ranks : list[int] | int, optional
+        Ranks to export (default: rank 0 only).
+    include, exclude : list[str] | str, optional
+        Region name filters, as for the plotting functions.
+    call_paths : bool, optional
+        Preserve each reconstructed parent/child path as a separate node in
+        the resulting tree; see :func:`build_pstats_dict`.
+
+    Returns
+    -------
+    dict[tuple[str, int], pstats.Stats]
+        Maps ``(run_label, rank)`` to its ``pstats.Stats``, empty on ranks
+        that own no files.
+    """
+    prepared, _multiple_files = _prepare_calls(profiling_data, ranks, include, exclude)
+    return {
+        (label, rank): build_pstats(
+            calls, root_name=f"<{label} rank {rank}>", call_paths=call_paths
+        )
+        for label, rank, calls in prepared
+    }
+
+
 def export_prof(
     profiling_data: ProfilingResults | Sequence[ProfilingResults],
     filepath: str | Path,
@@ -328,33 +460,12 @@ def export_prof(
     list[Path]
         The files written, in the order they were written.
     """
-    runs = _as_runs(profiling_data)
-    if not runs:
-        # Not this rank's job; rank 0 writes the files.
-        return []
-
-    normalized_ranks = _normalize_ranks(ranks) if ranks is not None else [0]
-
-    labels = _unique_labels([run.display_label for run in runs])
-
-    prepared = []
-    for label, run in zip(labels, runs):
-        regions = run.get_regions(include=include, exclude=exclude)
-        if not regions:
-            raise ValueError("No regions matched the selected filters.")
-        for rank in normalized_ranks:
-            if rank < 0 or rank >= run.num_ranks:
-                raise ValueError(f"Invalid rank requested: {rank}")
-            calls = build_call_arrays(regions, rank)
-            if len(calls):
-                prepared.append((label, rank, calls))
-
+    prepared, multiple_files = _prepare_calls(profiling_data, ranks, include, exclude)
     if not prepared:
-        raise ValueError("No calls recorded for the requested ranks.")
+        return []
 
     base_path = Path(filepath)
     suffix = base_path.suffix or ".prof"
-    multiple_files = len(runs) > 1
 
     written = []
     for label, rank, calls in prepared:

@@ -7,7 +7,12 @@ import pytest
 from scope_profiler import read_h5
 from scope_profiler.call_stack import build_call_arrays
 from scope_profiler.post_processing import export_main
-from scope_profiler.prof_export import build_pstats_dict, export_prof
+from scope_profiler.prof_export import (
+    build_pstats_dict,
+    export_prof,
+    load_prof,
+    to_pstats,
+)
 from scope_profiler.tests.test_post_processing import _write_sample_h5
 
 MS = 1_000_000  # nanoseconds per millisecond, the unit stored in the HDF5 files
@@ -267,6 +272,100 @@ def test_cli_export_prof_without_plots(tmp_path, capsys):
         "main > solve",
         "main > solve > assemble",
     }
+
+
+def test_build_pstats_of_an_empty_run_is_an_empty_stats():
+    """pstats refuses to build a Stats from an empty dict; we hand back one."""
+    from scope_profiler.call_stack import build_call_arrays
+    from scope_profiler.prof_export import build_pstats
+
+    stats = build_pstats(build_call_arrays([], rank=0))
+
+    assert isinstance(stats, pstats.Stats)
+    assert stats.stats == {}
+    assert stats.total_calls == 0
+
+
+def test_scope_profile_dumps_the_same_file_as_write_prof_file(tmp_path):
+    """The inherited cProfile.Profile.dump_stats works on our stats dict."""
+    from scope_profiler.prof_export import ScopeProfile, write_prof_file
+
+    calls = _calls(("main", 0.0, 1.0, None), ("child", 0.1, 0.4, 0))
+    stats_dict = build_pstats_dict(calls, root_name="<run>")
+
+    dumped = tmp_path / "dumped.prof"
+    ScopeProfile(stats_dict).dump_stats(str(dumped))
+    written = write_prof_file(tmp_path / "written.prof", stats_dict)
+
+    assert _stats_of(dumped) == _stats_of(written)
+
+
+def test_pstats_reporting_api_works_on_the_built_stats(capsys):
+    """sort_stats/print_callers/print_callees, the reason to build a Stats."""
+    from scope_profiler.prof_export import build_pstats
+
+    calls = _calls(
+        ("main", 0.0, 1.0, None),
+        ("setup", 0.0, 0.2, 0),
+        ("solve", 0.2, 0.9, 0),
+    )
+
+    stats = build_pstats(calls, root_name="<run>")
+
+    # Self time of every region, and one synthetic root spanning the run.
+    assert stats.total_tt == pytest.approx(1.0)
+    stats.sort_stats("cumulative").print_stats()
+    stats.print_callers()
+    stats.print_callees()
+    out = capsys.readouterr().out
+    assert "main > solve" in out
+    assert "was called by" in out
+    assert "called..." in out
+
+
+def test_to_pstats_returns_real_pstats_stats(tmp_path):
+    h5_file = tmp_path / "profiling_data.h5"
+    _write_sample_h5(h5_file, _nested_file_data())
+
+    result = to_pstats(read_h5(h5_file))
+
+    assert set(result) == {("profiling_data", 0)}
+    stats = result[("profiling_data", 0)]
+    assert isinstance(stats, pstats.Stats)
+
+    names = {key[2] for key in stats.stats}
+    assert {
+        "main",
+        "main > setup",
+        "main > solve",
+        "main > solve > assemble",
+    } <= names
+
+    # The regular pstats.Stats API works without ever touching disk.
+    stats.sort_stats("cumulative")
+    assert "main" in stats.get_stats_profile().func_profiles
+
+
+def test_to_pstats_matches_written_prof_file(tmp_path):
+    h5_file = tmp_path / "profiling_data.h5"
+    _write_sample_h5(h5_file, _nested_file_data())
+
+    in_memory = to_pstats(read_h5(h5_file))[("profiling_data", 0)]
+    written = export_prof(read_h5(h5_file), tmp_path / "profile.prof", verbose=False)
+    from_disk = load_prof(written[0])
+
+    assert in_memory.stats == from_disk.stats
+
+
+def test_load_prof_reads_back_a_written_file(tmp_path):
+    h5_file = tmp_path / "profiling_data.h5"
+    _write_sample_h5(h5_file, _nested_file_data())
+    written = export_prof(read_h5(h5_file), tmp_path / "profile.prof", verbose=False)
+
+    stats = load_prof(written[0])
+
+    assert isinstance(stats, pstats.Stats)
+    assert {key[2] for key in stats.stats} >= {"main", "main > setup"}
 
 
 def test_cli_export_prof_with_rank_selection(tmp_path):

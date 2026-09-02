@@ -54,7 +54,7 @@ if TYPE_CHECKING:
         plot_weak_scaling,
         write_region_statistics_json,
     )
-    from scope_profiler.prof_export import export_prof
+    from scope_profiler.prof_export import export_prof, load_prof, to_pstats
     from scope_profiler.speedscope_export import export_speedscope
 
 __all__ = [
@@ -83,6 +83,7 @@ __all__ = [
     "export_prof",
     "export_speedscope",
     "inspect_file",
+    "load_prof",
     "merge_results",
     "plot_duration_timeseries",
     "plot_durations",
@@ -99,6 +100,7 @@ __all__ = [
     "read_h5_summary",
     "read_json",
     "read_profile",
+    "to_pstats",
     "write_json",
     "write_profile",
     "write_region_statistics_json",
@@ -129,6 +131,14 @@ def __getattr__(name: str) -> Any:
         from scope_profiler.prof_export import export_prof
 
         return export_prof
+    if name == "load_prof":
+        from scope_profiler.prof_export import load_prof
+
+        return load_prof
+    if name == "to_pstats":
+        from scope_profiler.prof_export import to_pstats
+
+        return to_pstats
     if name == "export_chrome_trace":
         from scope_profiler.chrome_trace_export import export_chrome_trace
 
