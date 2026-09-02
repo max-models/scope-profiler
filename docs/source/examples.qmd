@@ -11,6 +11,7 @@ repeatable AI optimization workflow.
 - [`ex_region_source.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_region_source.py) — retain and inspect region source code.
 - [`ex_aggregation.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_aggregation.py) — record compact per-region aggregate statistics without storing an event timeline.
 - [`ex_perf_events.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_perf_events.py) — collect Linux CPU-counter totals per profiled region.
+- [`ex_perf_event_plots.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_perf_event_plots.py) — compare IPC and cache-miss pressure across regions.
 - [`ex_threads_and_asyncio.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_threads_and_asyncio.py) — profile concurrent threads, and split an asyncio task's wall time into running and awaiting.
 - [`benchmark_overhead.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/benchmark_overhead.py) — measure instrumentation overhead.
 

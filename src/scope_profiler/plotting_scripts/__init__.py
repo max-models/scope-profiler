@@ -60,6 +60,10 @@ from scope_profiler.plotting_scripts.likwid import (
     available_likwid_metrics,
     plot_likwid,
 )
+from scope_profiler.plotting_scripts.perf_events import (
+    available_perf_event_metrics,
+    plot_perf_events,
+)
 from scope_profiler.plotting_scripts.scaling import (
     plot_scaling_efficiency,
     plot_speedup,
@@ -105,6 +109,7 @@ __all__ = [
     "_write_csv",
     "_write_json",
     "available_likwid_metrics",
+    "available_perf_event_metrics",
     "collect_region_statistics",
     "plot_callgraph",
     "plot_duration_histogram",
@@ -116,6 +121,7 @@ __all__ = [
     "plot_gantt",
     "plot_imbalance",
     "plot_likwid",
+    "plot_perf_events",
     "plot_rank_heatmap",
     "plot_scaling_efficiency",
     "plot_speedup",
