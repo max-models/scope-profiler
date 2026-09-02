@@ -2,7 +2,6 @@
 
 from scope_profiler import read_h5
 
-
 # pytester is bundled with pytest but must be explicitly enabled for its
 # temporary-project fixture.
 pytest_plugins = ("pytester",)

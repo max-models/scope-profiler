@@ -13,7 +13,6 @@ import pytest
 
 from scope_profiler.profile_manager import ProfileManager
 
-
 _MANAGER_ATTRIBUTE = "_scope_profiler_pytest_manager"
 
 
