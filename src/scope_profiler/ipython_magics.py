@@ -319,7 +319,15 @@ class ScopeMagics(Magics):
             # What run_cell() does for the other cell magics: report the error
             # and carry on, so a cell that fails halfway still shows how far
             # it got. KeyboardInterrupt is not caught, and still propagates.
-            self.shell.showtraceback(exc_info)
+            #
+            # tb_offset is pinned rather than left to the renderer. This frame
+            # is already gone from `exc_info` above, and how many *more*
+            # frames IPython drops on its own has varied between versions:
+            # one of them left the cell's frame nowhere to be seen (an
+            # exception with no source at all), another showed this method
+            # alongside the cell. Zero means "drop nothing further", so the
+            # slice above is the only one that happens, on every version.
+            self.shell.showtraceback(exc_info, tb_offset=0)
         self._store(name, results)
         if not args.quiet:
             print(f"%%scope_recursive {name!r}")

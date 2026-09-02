@@ -155,6 +155,7 @@ files = [
   "src/scope_profiler/results.py",
   "src/scope_profiler/h5schema.py",
   "src/scope_profiler/call_stack.py",
+  "src/scope_profiler/concurrency.py",
   "src/scope_profiler/gpu_timing.py",
   "src/scope_profiler/metadata.py",
   "src/scope_profiler/mpi_launch.py",
@@ -214,7 +215,7 @@ skip_covered = true
 #
 # The CI job reaches the LIKWID and parallel-HDF5 paths a developer laptop
 # cannot, so its total is at or above what `coverage report` prints locally.
-fail_under = 86
+fail_under = 87
 exclude_also = [
   # Typing-only constructs that never execute.
   "if TYPE_CHECKING:",

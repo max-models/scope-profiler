@@ -4,11 +4,13 @@ import ast
 import functools
 import inspect
 import linecache
+import threading
 import types
 from time import perf_counter_ns
 
 import numpy as np
 
+from scope_profiler.concurrency import CPU_SAMPLE_MASK, NO_TASK
 from scope_profiler.gpu_timing import resolve_gpu_timing_backend
 from scope_profiler.profile_config import ProfilingConfig
 
@@ -1063,3 +1065,346 @@ class LineProfilerRegion(BaseProfileRegion):
             return
         self._line_profiler.disable_by_count()
         self.end_times[self._pop_scope()] = perf_counter_ns()
+
+
+class _LaneBuffer:
+    """One thread's timestamp buffers for one region.
+
+    Threaded regions never share a buffer between threads: a slot is reserved
+    and written by the same thread that owns the arrays, so the hot path needs
+    no lock, no atomic, and no retry -- which is what keeps per-call overhead
+    in the same order as the single-threaded path. The price is that a
+    region's calls arrive as one buffer per thread and are concatenated once,
+    at ``finalize()``.
+
+    ``stack_slots``/``stack_tasks`` are the scope stack, split into two
+    parallel lists so entering a scope appends two ints rather than
+    allocating a tuple. They are parallel because a thread running an event
+    loop interleaves several tasks, and their ``with`` blocks are LIFO *per
+    task*, not per thread: a call is closed by popping the topmost entry
+    belonging to the task that is exiting, which is the last one in the
+    overwhelmingly common case of no interleaving at all.
+    """
+
+    __slots__ = (
+        "await_ns",
+        "capacity",
+        "emitted",
+        "end_times",
+        "ptr",
+        "record",
+        "stack_slots",
+        "stack_tasks",
+        "start_times",
+        "task_ids",
+        "track_async",
+    )
+
+    def __init__(self, record, capacity: int, track_async: bool) -> None:
+        self.record = record
+        self.capacity = capacity
+        self.ptr = 0
+        self.start_times = np.empty(capacity, dtype=np.int64)
+        self.end_times = np.zeros(capacity, dtype=np.int64)
+        self.track_async = track_async
+        if track_async:
+            self.task_ids = np.full(capacity, NO_TASK, dtype=np.int64)
+            self.await_ns = np.zeros(capacity, dtype=np.int64)
+        else:
+            self.task_ids = None
+            self.await_ns = None
+        self.stack_slots: list[int] = []
+        self.stack_tasks: list[int] = []
+        # Slots already handed to a finalize() that could not rewind this
+        # buffer; see BaseProfileRegion.mark_written.
+        self.emitted = None
+
+    def grow(self) -> None:
+        """Double this lane's buffers, keeping every reserved slot index."""
+        capacity = max(1, self.capacity * 2)
+        start_times = np.empty(capacity, dtype=np.int64)
+        end_times = np.zeros(capacity, dtype=np.int64)
+        start_times[: self.capacity] = self.start_times
+        end_times[: self.capacity] = self.end_times
+        self.start_times = start_times
+        self.end_times = end_times
+        if self.track_async:
+            task_ids = np.full(capacity, NO_TASK, dtype=np.int64)
+            await_ns = np.zeros(capacity, dtype=np.int64)
+            task_ids[: self.capacity] = self.task_ids
+            await_ns[: self.capacity] = self.await_ns
+            self.task_ids = task_ids
+            self.await_ns = await_ns
+        self.capacity = capacity
+
+    def open_slots(self) -> np.ndarray:
+        """Slots whose call is still running, ascending."""
+        if not self.ptr:
+            return _EMPTY_TIMES
+        return np.flatnonzero(self.end_times[: self.ptr] == _UNCLOSED)
+
+    def closed_mask(self) -> "np.ndarray | None":
+        """Mask of slots this finalize() should copy out, or None for all."""
+        if not self.ptr:
+            return None
+        mask = self.end_times[: self.ptr] != _UNCLOSED
+        if self.emitted is not None:
+            mask[: self.emitted.size] &= ~self.emitted
+        return None if mask.all() else mask
+
+    def mark_written(self) -> int:
+        """Rewind onto the still-open calls; return the number retired."""
+        open_slots = self.open_slots()
+        if open_slots.size == 0:
+            retired = self.ptr
+            if self.ptr:
+                self.end_times[: self.ptr] = _UNCLOSED
+            self.ptr = 0
+            self.emitted = None
+            return retired
+        if open_slots.tolist() != sorted(self.stack_slots):
+            # A decorator-form call holds its slot in its own frame, where
+            # nothing can remap it; leave the buffer put and skip what has
+            # already gone out. See BaseProfileRegion.mark_written.
+            self.emitted = self.end_times[: self.ptr] != _UNCLOSED
+            return 0
+        retired = self.ptr - open_slots.size
+        count = open_slots.size
+        self.start_times[:count] = self.start_times[open_slots]
+        if self.track_async:
+            self.task_ids[:count] = self.task_ids[open_slots]
+            self.await_ns[:count] = self.await_ns[open_slots]
+        self.end_times[: self.ptr] = _UNCLOSED
+        remapped = {int(old): new for new, old in enumerate(open_slots.tolist())}
+        self.stack_slots[:] = [
+            remapped[slot] if slot >= 0 else slot for slot in self.stack_slots
+        ]
+        self.ptr = count
+        self.emitted = None
+        return retired
+
+
+class ThreadedProfileRegion(BaseProfileRegion):
+    """Region that records which thread -- and which task -- each call ran on.
+
+    Selected by ``track_threads=True``. Two things change against
+    :class:`TimeOnlyProfileRegion`:
+
+    * every thread gets its own buffers and its own scope stack, so
+      concurrent calls no longer overwrite each other's reserved slots or
+      close each other's scopes;
+    * each recorded call carries the lane it ran on, so the nesting
+      reconstruction can group calls into stacks that really are stacks (see
+      :func:`~scope_profiler.concurrency.lane_ids`).
+
+    With ``track_async=True`` a call additionally carries the id of the
+    asyncio task or greenlet it ran in, and the time that task spent suspended
+    *inside* the call -- the await time of that one call, as opposed to the
+    task's total.
+
+    The per-call cost over :class:`TimeOnlyProfileRegion` is one thread-local
+    lookup plus, in async mode, two integer reads off the current task record.
+    Nothing here allocates or locks per call.
+    """
+
+    __slots__ = (
+        "_async",
+        "_lane_local",
+        "_lanes",
+        "_lanes_lock",
+        "_retired",
+        "_tracker",
+    )
+
+    # The region's own buffers stay unallocated: every timestamp lives in a
+    # lane buffer instead.
+    _records_time = False
+
+    def __init__(self, region_name: str, config: ProfilingConfig, tags=()):
+        super().__init__(region_name, config, tags=tags)
+        self._tracker = config.tracker
+        self._async = config.track_async
+        self._lanes: dict[int, _LaneBuffer] = {}
+        self._lanes_lock = threading.Lock()
+        self._lane_local = threading.local()
+        # Calls already copied out by an earlier finalize(), summed over lanes.
+        self._retired = 0
+
+    def _new_lane(self) -> _LaneBuffer:
+        """Create this thread's buffer for this region, once per thread."""
+        record = self._tracker.current_thread()
+        lane = _LaneBuffer(record, self.buffer_limit, self._async)
+        with self._lanes_lock:
+            self._lanes[record.index] = lane
+        self._lane_local.lane = lane
+        return lane
+
+    @property
+    def num_calls(self) -> int:
+        """Times this region was entered, over every thread, for the process."""
+        with self._lanes_lock:
+            return self._retired + sum(lane.ptr for lane in self._lanes.values())
+
+    @property
+    def threads(self) -> list:
+        """Thread records that have entered this region, in index order."""
+        with self._lanes_lock:
+            lanes = sorted(self._lanes.items())
+        return [lane.record for _, lane in lanes]
+
+    def _enter(self):
+        try:
+            lane = self._lane_local.lane
+        except AttributeError:
+            lane = self._new_lane()
+        task = lane.record.task
+        task_index = NO_TASK if task is None else task.index
+        if self.config.paused:
+            # A paused scope still has to be tracked, or its __exit__ would
+            # close whichever call happens to be open on this lane. -1 is the
+            # slot that means "recorded nothing".
+            lane.stack_slots.append(-1)
+            lane.stack_tasks.append(task_index)
+            return
+        slot = lane.ptr
+        if slot >= lane.capacity:
+            lane.grow()
+        lane.ptr = slot + 1
+        lane.stack_slots.append(slot)
+        lane.stack_tasks.append(task_index)
+        if self._async and task is not None:
+            lane.task_ids[slot] = task_index
+            # Negated base: __exit__ adds the task's counter back, leaving the
+            # suspension that happened inside this call. One array, not two.
+            lane.await_ns[slot] = -task.suspended_ns
+        lane.start_times[slot] = perf_counter_ns()
+
+    def _leave(self):
+        end = perf_counter_ns()
+        try:
+            lane = self._lane_local.lane
+        except AttributeError:  # __exit__ without a matching __enter__
+            return
+        slots = lane.stack_slots
+        if not slots:
+            return
+        tasks = lane.stack_tasks
+        task = lane.record.task
+        task_index = NO_TASK if task is None else task.index
+        if tasks[-1] == task_index:
+            slot = slots.pop()
+            tasks.pop()
+        else:
+            # Another task on this thread entered a scope of this region and
+            # has not left it yet. Close ours, not theirs.
+            position = len(tasks) - 1
+            while position >= 0 and tasks[position] != task_index:
+                position -= 1
+            if position < 0:
+                return
+            slot = slots.pop(position)
+            tasks.pop(position)
+        if slot < 0:  # entered while paused
+            return
+        lane.end_times[slot] = end
+        if self._async and task is not None:
+            lane.await_ns[slot] += task.suspended_ns
+        if not (slot & CPU_SAMPLE_MASK):
+            # Cheap enough to do on the hot path, and the only way a thread
+            # still alive at finalize() reports any CPU time at all.
+            lane.record.sample_cpu()
+
+    def wrap(self, func):
+        """Wrap a function so its calls are recorded on the caller's thread."""
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            if self.config.paused:
+                return func(*args, **kwargs)
+            self._enter()
+            try:
+                return func(*args, **kwargs)
+            finally:
+                self._leave()
+
+        return wrapper
+
+    def __enter__(self):
+        self._enter()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self._leave()
+
+    # -- collection -----------------------------------------------------
+    def snapshot_arrays(self):
+        """This run's completed calls, concatenated over every thread.
+
+        Returns
+        -------
+        tuple or None
+            ``(start_times, end_times, None, None, None, thread_ids,
+            task_ids, await_ns)`` in nanoseconds, laid out on the snapshot
+            tuple :meth:`ProfileManager._snapshot_regions` documents, or None
+            when this region recorded nothing since the last ``finalize()``.
+            ``task_ids`` and ``await_ns`` are None unless async tracking is on.
+        """
+        with self._lanes_lock:
+            lanes = sorted(self._lanes.items())
+        starts, ends, threads, tasks, awaits = [], [], [], [], []
+        for index, lane in lanes:
+            if not lane.ptr:
+                continue
+            keep = lane.closed_mask()
+            lane_starts = lane.start_times[: lane.ptr]
+            lane_ends = lane.end_times[: lane.ptr]
+            if keep is not None:
+                lane_starts = lane_starts[keep]
+                lane_ends = lane_ends[keep]
+            if not lane_starts.size:
+                continue
+            starts.append(np.array(lane_starts))
+            ends.append(np.array(lane_ends))
+            threads.append(np.full(lane_starts.size, index, dtype=np.int64))
+            if self._async:
+                lane_tasks = lane.task_ids[: lane.ptr]
+                lane_awaits = lane.await_ns[: lane.ptr]
+                if keep is not None:
+                    lane_tasks = lane_tasks[keep]
+                    lane_awaits = lane_awaits[keep]
+                tasks.append(np.array(lane_tasks))
+                awaits.append(np.array(lane_awaits))
+        if not starts:
+            return None
+        return (
+            np.concatenate(starts),
+            np.concatenate(ends),
+            None,
+            None,
+            None,
+            np.concatenate(threads),
+            np.concatenate(tasks) if tasks else None,
+            np.concatenate(awaits) if awaits else None,
+        )
+
+    def open_slots(self) -> np.ndarray:
+        """Slots still running, over every lane. For diagnostics only."""
+        with self._lanes_lock:
+            lanes = list(self._lanes.values())
+        return np.concatenate([lane.open_slots() for lane in lanes] or [_EMPTY_TIMES])
+
+    def closed_slots(self):
+        """Not meaningful per lane; :meth:`snapshot_arrays` applies the mask.
+
+        None, as the base class means it: every slot qualifies, and there is
+        no mask for a caller to apply. A threaded region keeps no buffers of
+        its own, so there is nothing here to mask in the first place.
+        """
+        return
+
+    def mark_written(self) -> None:
+        """Rewind every lane, keeping calls that are still running."""
+        with self._lanes_lock:
+            lanes = list(self._lanes.values())
+        for lane in lanes:
+            self._retired += lane.mark_written()

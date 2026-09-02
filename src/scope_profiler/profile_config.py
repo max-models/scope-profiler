@@ -14,6 +14,7 @@ except ModuleNotFoundError:  # Python 3.10
 
 tomllib = _tomllib
 
+from scope_profiler.concurrency import ConcurrencyTracker
 from scope_profiler.metadata import collect_metadata
 from scope_profiler.mpi_launch import get_comm
 
@@ -39,6 +40,8 @@ _CONFIG_FIELDS = {
     "label",
     "capture_region_source",
     "aggregation_mode",
+    "track_threads",
+    "track_async",
 }
 
 
@@ -134,6 +137,15 @@ class ProfilingOptions:
         total per region (default: False). Timeline events are unavailable
         in this mode; it cannot be combined with line, GPU, NVTX, or LIKWID
         profiling.
+    track_threads : bool or None
+        Record which thread each call ran on, and describe every thread the
+        run touched (default: False). Required for correct results from
+        concurrently used regions; see
+        :class:`~scope_profiler.region_profiler.ThreadedProfileRegion`.
+    track_async : bool or None
+        Also record which asyncio task or greenlet each call ran in, and how
+        much of the call was spent awaiting (default: False). Implies
+        ``track_threads``.
     capture_region_source : bool or None
         Record where each region is defined -- the ``with`` block or the
         decorated function -- once per distinct source file, the first time
@@ -174,6 +186,8 @@ class ProfilingOptions:
     deactivate_file_output: bool | None = None
     recursive_profile: bool | None = None
     aggregation_mode: bool | None = None
+    track_threads: bool | None = None
+    track_async: bool | None = None
     capture_region_source: bool | None = None
     buffer_limit: int | None = None
     output_mode: str | None = None
@@ -350,6 +364,8 @@ class ProfilingConfig:
         deactivate_file_output: bool = False,
         recursive_profile: bool = False,
         aggregation_mode: bool = False,
+        track_threads: bool = False,
+        track_async: bool = False,
         capture_region_source: bool = False,
         buffer_limit: int = 1024,
         output_mode: str = "auto",
@@ -393,6 +409,16 @@ class ProfilingConfig:
             exclusive total per region. Timeline events are unavailable in
             this mode; it cannot be combined with line, GPU, NVTX, or LIKWID
             profiling.
+        track_threads : bool
+            Give every thread its own buffers and stamp each call with the
+            thread it ran on, so regions entered concurrently record correct,
+            separable timelines. Cannot be combined with line, GPU, NVTX,
+            LIKWID or aggregation profiling.
+        track_async : bool
+            Additionally follow asyncio tasks and greenlets: each call carries
+            the lane it ran in and the time that lane spent suspended inside
+            the call, and the run reports per-task running and awaiting
+            totals. Implies ``track_threads``.
         capture_region_source : bool
             Record where each region is defined (see
             :attr:`~scope_profiler.region.Region.source_text`), once per
@@ -505,6 +531,27 @@ class ProfilingConfig:
                 "aggregation_mode cannot be combined with line, GPU, NVTX, or LIKWID timing"
             )
         self._aggregation_mode = aggregation_mode
+
+        # track_async is a strict refinement of track_threads: a task lane is
+        # identified relative to the thread it runs on, and its buffers are
+        # the thread's.
+        track_threads = bool(track_threads or track_async)
+        if track_threads and (
+            use_line_profiler
+            or use_gpu_timing
+            or use_likwid
+            or use_nvtx
+            or aggregation_mode
+        ):
+            raise ValueError(
+                "track_threads/track_async cannot be combined with line, GPU, "
+                "NVTX, LIKWID, or aggregation profiling"
+            )
+        self._track_threads = track_threads
+        self._track_async = bool(track_async)
+        self._tracker = (
+            ConcurrencyTracker(track_async=self._track_async) if track_threads else None
+        )
 
         # Local queries, not collectives: nothing here has to be reached by
         # every rank in lockstep. Rank 0 writes the whole output file at
@@ -719,6 +766,25 @@ class ProfilingConfig:
     def aggregation_mode(self) -> bool:
         """Whether regions retain aggregates instead of individual events."""
         return self._aggregation_mode
+
+    @property
+    def track_threads(self) -> bool:
+        """Whether every call records the thread it ran on."""
+        return self._track_threads
+
+    @property
+    def track_async(self) -> bool:
+        """Whether every call records its asyncio task or greenlet."""
+        return self._track_async
+
+    @property
+    def tracker(self):
+        """This run's :class:`~scope_profiler.concurrency.ConcurrencyTracker`.
+
+        None unless ``track_threads`` is set, which is what keeps the default
+        configuration free of any thread, asyncio or greenlet hook.
+        """
+        return self._tracker
 
     @property
     def paused(self) -> bool:

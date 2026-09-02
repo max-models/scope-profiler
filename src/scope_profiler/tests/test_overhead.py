@@ -28,7 +28,11 @@ import numpy as np
 import pytest
 
 from scope_profiler import ProfileManager
-from scope_profiler.region_profiler import DisabledProfileRegion, TimeOnlyProfileRegion
+from scope_profiler.region_profiler import (
+    DisabledProfileRegion,
+    ThreadedProfileRegion,
+    TimeOnlyProfileRegion,
+)
 
 # Timing sensitive by construction: deselect with '-m "not overhead"' on a
 # machine that cannot hold a stable clock.
@@ -49,6 +53,12 @@ pytestmark = pytest.mark.overhead
 BUDGET_NS = {
     "disabled": 2_000,
     "time": 4_000,
+    # Thread tracking adds a thread-local lookup and a second list append per
+    # call; async tracking adds two integer reads off the current task record
+    # on top. Both stay in the same order of magnitude as plain timing, which
+    # is the property worth guarding: a per-call lock or allocation would not.
+    "threads": 6_000,
+    "async": 6_000,
 }
 
 # Extra budget for resolving a region by name on every call instead of
@@ -78,6 +88,8 @@ REPEATS = 5
 MODES = {
     "disabled": ({"deactivate_profiling": True}, DisabledProfileRegion),
     "time": ({}, TimeOnlyProfileRegion),
+    "threads": ({"track_threads": True}, ThreadedProfileRegion),
+    "async": ({"track_async": True}, ThreadedProfileRegion),
 }
 
 

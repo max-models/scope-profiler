@@ -28,6 +28,11 @@ _NO_GPU_DURATION = -1
 # compute one -- a native-trace import, say. The reader falls back to
 # reconstructing the nesting for those.
 _NO_EXCLUSIVE_TOTAL = -1
+# Lane columns of an event whose run did not record one: a Fortran region
+# folded into a thread-aware run, or a rank written before the columns
+# existed. -1 is what concurrency.lane_ids reads as "unknown lane".
+_NO_THREAD = -1
+_NO_TASK = -1
 
 # Fixed-size statistics for summary-only readers. These live beside the
 # rank/region index, so commands such as ``diff`` can inspect a profile without
@@ -241,6 +246,92 @@ def initialize_columnar_layout(
         )
 
 
+# Per-call lane columns, written only by a run that tracked threads. Each is
+# created the first time a rank supplies it and back-filled for the ranks
+# already in the file, exactly like gpu_durations: a column that is absent
+# means "this run did not record it", never "these events had no value".
+_LANE_EVENT_COLUMNS = (
+    ("thread_ids", 5, _NO_THREAD),
+    ("task_ids", 6, _NO_TASK),
+    ("await_ns", 7, 0),
+)
+
+#: Column name -> dtype, for the two lane description tables. ``ranks`` is
+#: prepended to both so one file can hold every rank's lanes in one table,
+#: the way the event columns already do.
+_THREAD_TABLE_COLUMNS = {
+    "index": np.int64,
+    "ident": np.int64,
+    "native_id": np.int64,
+    "daemon": np.int8,
+    "start_ns": np.int64,
+    "end_ns": np.int64,
+    "cpu_ns": np.int64,
+}
+_THREAD_TABLE_STRINGS = ("name",)
+_TASK_TABLE_COLUMNS = {
+    "index": np.int64,
+    "thread_index": np.int64,
+    "created_ns": np.int64,
+    "done_ns": np.int64,
+    "steps": np.int64,
+    "running_ns": np.int64,
+    "suspended_ns": np.int64,
+}
+_TASK_TABLE_STRINGS = ("kind", "name", "coro_name")
+
+
+def _append_lane_table(
+    h5file, group_name: str, rank: int, columns: dict, numeric: dict, strings
+) -> None:
+    """Append one rank's rows to a lane table, creating it on first use."""
+    if not len(columns.get("index", ())):
+        return
+    if group_name not in h5file:
+        group = h5file.create_group(group_name)
+        group.create_dataset("ranks", shape=(0,), maxshape=(None,), dtype=np.uint32)
+        for name, dtype in numeric.items():
+            group.create_dataset(name, shape=(0,), maxshape=(None,), dtype=dtype)
+        for name in strings:
+            group.create_dataset(
+                name, shape=(0,), maxshape=(None,), dtype=_STRING_DTYPE
+            )
+    group = h5file[group_name]
+    rows = len(columns["index"])
+    _append(group["ranks"], np.full(rows, rank, dtype=np.uint32))
+    for name, dtype in numeric.items():
+        _append(group[name], np.asarray(columns[name], dtype=dtype))
+    for name in strings:
+        _append(group[name], [str(value) for value in columns[name]])
+
+
+def write_lane_tables(h5file, rank: int, lanes: dict | None) -> None:
+    """Store one rank's thread and task tables, if the run recorded any.
+
+    The tables describe what the per-call ``thread_ids``/``task_ids`` columns
+    index into, so they are written from the same payload, in the same pass,
+    as the events themselves.
+    """
+    if not lanes:
+        return
+    _append_lane_table(
+        h5file,
+        "thread_table",
+        rank,
+        lanes.get("threads") or {},
+        _THREAD_TABLE_COLUMNS,
+        _THREAD_TABLE_STRINGS,
+    )
+    _append_lane_table(
+        h5file,
+        "task_table",
+        rank,
+        lanes.get("tasks") or {},
+        _TASK_TABLE_COLUMNS,
+        _TASK_TABLE_STRINGS,
+    )
+
+
 def append_aggregate_rank(h5file, rank, payload, *, index_state=None) -> bool:
     """Append one rank of aggregate-only statistics."""
     stats = payload.aggregate_stats or {}
@@ -363,6 +454,40 @@ def append_columnar_rank(
     _append(events["end_times"], _concatenate(payload.regions, names, 1))
     _append(events["call_ids"], _concatenate(payload.regions, names, 3))
     _append(events["parent_ids"], _concatenate(payload.regions, names, 4))
+    for column, position, missing in _LANE_EVENT_COLUMNS:
+        supplied = any(
+            len(arrays) > position and arrays[position] is not None
+            for arrays in payload.regions.values()
+        )
+        if not supplied and column not in events:
+            continue
+        if column not in events:
+            events.create_dataset(
+                column,
+                shape=(total_before,),
+                maxshape=(None,),
+                dtype=np.int64,
+                fillvalue=missing,
+                **dataset_storage_options(
+                    total_before, compression, compression_level, chunk_size
+                ),
+            )
+        _append(
+            events[column],
+            np.concatenate(
+                [
+                    (
+                        np.asarray(payload.regions[name][position], dtype=np.int64)
+                        if len(payload.regions[name]) > position
+                        and payload.regions[name][position] is not None
+                        else np.full(count, missing, dtype=np.int64)
+                    )
+                    for name, count in zip(names, counts)
+                ]
+                or [np.empty(0, dtype=np.int64)]
+            ),
+        )
+    write_lane_tables(h5file, rank, getattr(payload, "lanes", None))
     if "gpu_durations" in events:
         _append(
             events["gpu_durations"],
