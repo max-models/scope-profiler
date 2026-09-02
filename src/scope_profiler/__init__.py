@@ -12,9 +12,16 @@ from scope_profiler.call_stack import (
     call_stack_roots,
 )
 from scope_profiler.h5reader import CorruptProfileError, read_h5, read_h5_summary
+from scope_profiler.json_export import (
+    JSONProfileError,
+    export_json,
+    read_json,
+    write_json,
+)
 from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.mpi_region import MPIRegion
 from scope_profiler.profile_config import ProfilingOptions
+from scope_profiler.profile_io import read_profile, write_profile
 from scope_profiler.profile_manager import ProfileManager
 from scope_profiler.region import EventDataUnavailableError, Region
 from scope_profiler.results import ProfilingResults, merge_results
@@ -51,6 +58,7 @@ __all__ = [
     "CallArrays",
     "CorruptProfileError",
     "EventDataUnavailableError",
+    "JSONProfileError",
     "LikwidRegionResult",
     "MPIRegion",
     "NestingError",
@@ -65,6 +73,7 @@ __all__ = [
     "collect_file_metadata",
     "collect_region_statistics",
     "create_html_report",
+    "export_json",
     "export_prof",
     "export_speedscope",
     "inspect_file",
@@ -81,6 +90,10 @@ __all__ = [
     "plot_weak_scaling",
     "read_h5",
     "read_h5_summary",
+    "read_json",
+    "read_profile",
+    "write_json",
+    "write_profile",
     "write_region_statistics_json",
 ]
 

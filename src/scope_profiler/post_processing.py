@@ -7,7 +7,6 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from scope_profiler.h5reader import read_h5
 from scope_profiler.plotting_scripts import (
     DEFAULT_CMAP,
     FLAME_CMAP,
@@ -28,6 +27,7 @@ from scope_profiler.plotting_scripts import (
     write_region_statistics_json,
 )
 from scope_profiler.prof_export import export_prof
+from scope_profiler.profile_io import read_profile
 from scope_profiler.speedscope_export import export_speedscope
 
 # Single source of truth for --plots: name -> (one-line description, is a
@@ -457,10 +457,24 @@ def build_export_parser() -> argparse.ArgumentParser:
     for kind, description in {
         "prof": "Export cProfile/pstats files.",
         "speedscope": "Export speedscope JSON files.",
+        "json": "Export the whole run as a JSON profile.",
     }.items():
         export_parser = subparsers.add_parser(kind, help=description)
         export_parser.set_defaults(export_kind=kind)
         _add_common_export_args(export_parser)
+        if kind == "json":
+            export_parser.add_argument(
+                "--gzip",
+                action="store_true",
+                help="Write profile.json.gz instead of profile.json",
+            )
+            export_parser.add_argument(
+                "--indent",
+                type=int,
+                default=None,
+                metavar="N",
+                help="Indent the JSON by N spaces (default: one line, smallest)",
+            )
 
     plot_data = subparsers.add_parser(
         "plot-data",
@@ -555,7 +569,7 @@ def _normalize_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -
 
 
 def _load_runs(args: argparse.Namespace, parser: argparse.ArgumentParser):
-    runs = [read_h5(file_path) for file_path in args.files]
+    runs = [read_profile(file_path) for file_path in args.files]
     if args.label is not None:
         if len(args.label) != len(runs):
             parser.error(
@@ -1158,6 +1172,19 @@ def export_main(argv: list[str] | None = None):
             verbose=False,
         )
         saved.extend(str(path) for path in speedscope_paths)
+    elif args.export_kind == "json":
+        from scope_profiler.json_export import export_json
+
+        json_paths = export_json(
+            profiling_data=runs,
+            filepath=os.path.join(args.output, f"profile.json{args.gzip * '.gz'}"),
+            ranks=args.ranks,
+            include=args.include,
+            exclude=args.exclude,
+            verbose=False,
+            indent=args.indent,
+        )
+        saved.extend(str(path) for path in json_paths)
     elif args.export_kind == "plot-data":
         selected_plots = (
             set(args.plots) if args.plots is not None else set(_DEFAULT_PLOTS)
@@ -1192,6 +1219,8 @@ def export_main(argv: list[str] | None = None):
     print("Outputs saved to:\n  " + "\n  ".join(saved))
     if args.export_kind == "prof" and saved:
         print(f"\nView a .prof file with: snakeviz {saved[0]}")
+    if args.export_kind == "json" and saved:
+        print(f"\nRead one back with: scope-profiler inspect {saved[0]}")
     if args.export_kind == "speedscope" and saved:
         print(
             f"\nView {saved[0]} at https://www.speedscope.app "

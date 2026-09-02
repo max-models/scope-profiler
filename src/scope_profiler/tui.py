@@ -22,7 +22,6 @@ from urllib.parse import quote
 import h5py
 import numpy as np
 
-from scope_profiler.h5reader import read_h5
 from scope_profiler.inspection import _metadata_sections, _time_span
 from scope_profiler.line_profile_cli import _line_profile_rows
 from scope_profiler.plotting_scripts import (
@@ -40,6 +39,7 @@ from scope_profiler.plotting_scripts import (
 )
 from scope_profiler.post_processing import parse_ranks
 from scope_profiler.prof_export import export_prof
+from scope_profiler.profile_io import FORMAT_HDF5, profile_format, read_profile
 from scope_profiler.summary import region_row, region_rows
 
 _PLOT_CATALOG = {
@@ -185,7 +185,7 @@ def _build_region_line_profile_node(region_name: str, by_rank: dict) -> BrowserN
 
 def build_browser_model(file_path: str | Path) -> BrowserModel:
     """Load one HDF5 profile and build the selectable TUI navigation tree."""
-    results = read_h5(file_path)
+    results = read_profile(file_path)
     path = Path(results.file_path)
 
     metadata_children = []
@@ -254,8 +254,12 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
             )
         )
 
-    with h5py.File(path, "r") as h5file:
-        raw_node = _build_raw_h5_node("/", h5file)
+    # Only an HDF5 profile has a group tree to browse; a JSON one is read
+    # back into the same results, and simply has no such section.
+    raw_node = None
+    if profile_format(path) == FORMAT_HDF5:
+        with h5py.File(path, "r") as h5file:
+            raw_node = _build_raw_h5_node("/", h5file)
 
     plot_children = [
         BrowserNode(
@@ -295,7 +299,15 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
                 metadata_children,
             ),
             BrowserNode("Regions", "regions", {"results": results}, region_children),
-            BrowserNode("Raw HDF5", "h5_group", raw_node.payload, raw_node.children),
+            *(
+                []
+                if raw_node is None
+                else [
+                    BrowserNode(
+                        "Raw HDF5", "h5_group", raw_node.payload, raw_node.children
+                    )
+                ]
+            ),
         ],
     )
     return BrowserModel(file_path=path, results=results, root=root)

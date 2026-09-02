@@ -73,6 +73,18 @@ scope-profiler plot default profiling_data.h5 -o figures
 scope-profiler report profiling_data.h5 -o report.html
 ```
 
+The extension of `-o` picks the output format. HDF5 is the default and
+the right choice for a long run; JSON holds exactly the same data —
+every call, in integer nanoseconds — for anything that would rather not
+open an HDF5 file:
+
+``` bash
+scope-profiler run -o profile.json my_script.py     # or .json.gz
+scope-profiler run -o report.html my_script.py      # rendered report
+scope-profiler export json profiling_data.h5 -o exports  # convert an existing run
+scope-profiler inspect profile.json                 # read one back anywhere
+```
+
 Profiling can be suspended around setup, I/O, or other phases that
 should not appear in the trace. Pause at scope boundaries and resume
 when measurement is needed again:

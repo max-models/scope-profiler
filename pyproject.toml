@@ -154,6 +154,8 @@ files = [
   "src/scope_profiler/mpi_region.py",
   "src/scope_profiler/results.py",
   "src/scope_profiler/h5schema.py",
+  "src/scope_profiler/json_export.py",
+  "src/scope_profiler/profile_io.py",
   "src/scope_profiler/call_stack.py",
   "src/scope_profiler/concurrency.py",
   "src/scope_profiler/gpu_timing.py",

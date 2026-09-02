@@ -4,6 +4,24 @@
 
 ### Added
 
+- Added a JSON output format, chosen by the output file's extension the way
+  viztracer's is: `scope-profiler run -o profile.json` (or `.json.gz`) writes
+  the run as JSON, `-o report.html` writes a rendered HTML report, and
+  anything else stays HDF5, which remains the default. The run itself always
+  writes HDF5 and the requested format is rendered from it afterwards, so
+  `-o` never changes what a run measures; under MPI rank 0 does the
+  conversion.
+- Added `scope-profiler export json`, `--gzip` and `--indent` included, which
+  converts an existing profile the same way.
+- The JSON document is a lossless copy of the run rather than a view for one
+  viewer: per-call timestamps in integer nanoseconds, thread and task tables,
+  LIKWID counters and line-profiler records. `read_json()` rebuilds a
+  `ProfilingResults` indistinguishable from `read_h5()`'s, and `write_json()`
+  / `export_json()` write one from any result set.
+- `inspect`, `plot`, `report`, `diff`, `check`, `tui`, `line-profile`,
+  `benchmark` and the exporters read a JSON profile wherever they read an
+  HDF5 one, through the new `read_profile()` / `write_profile()` dispatch on
+  the file name.
 - Added `track_threads=True`, which profiles every thread rather than
   assuming one. Each thread gets its own timestamp buffers and its own scope
   stack, so regions entered concurrently no longer reserve and close each

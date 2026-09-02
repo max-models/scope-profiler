@@ -13,8 +13,8 @@ from pathlib import Path
 
 import numpy as np
 
-from scope_profiler.h5reader import read_h5
 from scope_profiler.inspection import _json_safe
+from scope_profiler.profile_io import read_profile
 from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import (
     _region_durations,
@@ -646,7 +646,7 @@ def create_html_report(
     if isinstance(profiling_data, (ProfilingResults, str, Path)):
         profiling_data = [profiling_data]
     runs = [
-        item if isinstance(item, ProfilingResults) else read_h5(item)
+        item if isinstance(item, ProfilingResults) else read_profile(item)
         for item in profiling_data
     ]
     if not runs:

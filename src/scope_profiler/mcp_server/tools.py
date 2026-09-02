@@ -31,12 +31,12 @@ from scope_profiler.benchmark import load_config
 from scope_profiler.benchmark import run_benchmark as _run_benchmark
 from scope_profiler.diff import METRICS as DIFF_METRICS
 from scope_profiler.diff import diff_rows
-from scope_profiler.h5reader import read_h5, read_h5_summary
 from scope_profiler.inspection import (
     _metadata_sections,
     _time_span,
     collect_file_metadata,
 )
+from scope_profiler.profile_io import read_profile, read_profile_summary
 from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import SORT_KEYS, region_rows
 
@@ -84,7 +84,7 @@ def compare_benchmarks(baseline_path: str, candidate_path: str) -> dict:
 def _read_profile(file_path: str) -> ProfilingResults:
     """Load a profiling file, translating failures into a :class:`ToolError`."""
     try:
-        return read_h5(file_path)
+        return read_profile(file_path)
     except FileNotFoundError as exc:
         raise ToolError(str(exc)) from exc
     except Exception as exc:
@@ -96,7 +96,7 @@ def _read_profile(file_path: str) -> ProfilingResults:
 def _read_summary_profile(file_path: str) -> ProfilingResults:
     """Load scalar statistics without touching event columns when available."""
     try:
-        return read_h5_summary(
+        return read_profile_summary(
             file_path, include_likwid=False, include_line_profile=False
         )
     except FileNotFoundError as exc:
