@@ -1,0 +1,40 @@
+name: Publish Plotly Package
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # npm trusted publishing requires Node 22.14+/npm 11.5+; Node 24
+          # also keeps this independent from the project's Python release.
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Test package
+        working-directory: packages/plotly
+        run: npm test
+      - name: Publish to npm with trusted publishing
+        working-directory: packages/plotly
+        run: npm publish
+      - name: Smoke-test the published npm package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./packages/plotly/package.json').version")"
+          mkdir "$RUNNER_TEMP/plotly-consumer"
+          cd "$RUNNER_TEMP/plotly-consumer"
+          npm init --yes
+          npm install --ignore-scripts --no-audit --no-fund "@scope-profiler/plotly@$version"
+          node --input-type=module --eval '
+            import { buildGanttFigure } from "@scope-profiler/plotly";
+            const figure = buildGanttFigure({ intervals: [] });
+            if (figure.layout.barmode !== "overlay") process.exit(1);
+          '
