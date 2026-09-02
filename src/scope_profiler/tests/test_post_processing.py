@@ -9,10 +9,9 @@ import pytest
 
 from scope_profiler import read_h5
 from scope_profiler.call_stack import build_call_stack
+from scope_profiler.h5writer import ProfilingWriter
 from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.perf_events import PerfEventTotals
-from scope_profiler.profile_manager import RankPayload
-from scope_profiler.h5writer import ProfilingWriter
 from scope_profiler.plotting_scripts import (
     _aggregate_gantt_intervals,
     _display_matplotlib_figure_in_notebook,
@@ -41,6 +40,7 @@ from scope_profiler.plotting_scripts import (
     plot_weak_scaling,
 )
 from scope_profiler.post_processing import export_main, main
+from scope_profiler.profile_manager import RankPayload
 from scope_profiler.results import ProfilingResults
 
 
