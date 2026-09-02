@@ -75,15 +75,6 @@ def _floats(values) -> list:
     ]
 
 
-def _float_column(values, shape=None) -> np.ndarray:
-    """Rebuild a float array written by :func:`_floats`."""
-    array: np.ndarray = np.asarray(
-        [math.nan if value is None else float(value) for value in _flatten(values)],
-        dtype=float,
-    )
-    return array if shape is None else array.reshape(shape)
-
-
 def _flatten(values):
     """Yield the scalars of a possibly nested list, row-major."""
     for value in values:
@@ -91,6 +82,15 @@ def _flatten(values):
             yield from _flatten(value)
         else:
             yield value
+
+
+def _float_column(values, shape=None) -> np.ndarray:
+    """Rebuild a float array written by :func:`_floats`."""
+    array: np.ndarray = np.asarray(
+        [math.nan if value is None else float(value) for value in _flatten(values)],
+        dtype=float,
+    )
+    return array if shape is None else array.reshape(shape)
 
 
 def _matrix(array) -> list:
@@ -116,18 +116,6 @@ def _metadata_value(value):
     if isinstance(value, float) and not math.isfinite(value):
         return None
     return value
-
-
-def _region_rows(results: ProfilingResults, region_names, ranks) -> list[dict]:
-    """One row per (region, rank), carrying that rank's raw columns."""
-    rows = []
-    for name in region_names:
-        region = results[name]
-        for rank in sorted(region.regions):
-            if ranks is not None and rank not in ranks:
-                continue
-            rows.append(_region_row(name, rank, region.regions[rank]))
-    return rows
 
 
 def _region_row(name: str, rank: int, region: Region) -> dict:
@@ -177,6 +165,18 @@ def _region_row(name: str, rank: int, region: Region) -> dict:
     if total is not None:
         row["exclusive_total_ns"] = int(total)
     return row
+
+
+def _region_rows(results: ProfilingResults, region_names, ranks) -> list[dict]:
+    """One row per (region, rank), carrying that rank's raw columns."""
+    rows = []
+    for name in region_names:
+        region = results[name]
+        for rank in sorted(region.regions):
+            if ranks is not None and rank not in ranks:
+                continue
+            rows.append(_region_row(name, rank, region.regions[rank]))
+    return rows
 
 
 def _likwid_document(likwid: dict, ranks) -> dict:

@@ -19,7 +19,8 @@ The subcommands:
   output and renders Gantt/flame/duration/speedup charts. See
   ``scope_profiler.post_processing`` for its full set of options.
 - ``scope-profiler export <kind> file.h5 [...]`` -- writes plot data,
-  cProfile/pstats files, speedscope JSON, or the whole run as a JSON profile,
+  cProfile/pstats files, speedscope or Chrome Trace JSON, or the whole run as
+  a JSON profile,
   without rendering charts.
 - ``scope-profiler inspect file.h5 [...]`` -- prints the run metadata and a
   per-region statistics table (including LIKWID hardware counters, when the
@@ -115,6 +116,45 @@ def _parse_run_args(argv):
     return parser.parse_args(argv)
 
 
+def _convert_run_output(profile_path, output_path, quiet=False):
+    """Render the run's HDF5 output as JSON or HTML, then drop the HDF5.
+
+    Under MPI only rank 0 holds the merged file, and only rank 0 wrote it, so
+    only rank 0 converts and unlinks it.
+    """
+    from pathlib import Path
+
+    from scope_profiler.profile_io import (
+        FORMAT_JSON,
+        profile_format,
+        read_profile,
+        write_profile,
+    )
+
+    config = ProfileManager.get_config()
+    if config.comm is not None and config.comm.Get_rank() != 0:
+        return
+    if config.deactivate_profiling or config.deactivate_file_output:
+        return
+    try:
+        results = read_profile(profile_path)
+        # The temporary HDF5 is about to go, so a summary naming it would
+        # print `scope-profiler inspect` hints for a file that no longer
+        # exists. A JSON profile reads back exactly the same way, so the
+        # summary points at that instead.
+        if profile_format(output_path) == FORMAT_JSON:
+            results._file_path = Path(output_path)
+        written = write_profile(results, output_path)
+        if not quiet:
+            results.print_summary()
+            print(f"\nwrote {written}")
+    finally:
+        try:
+            os.remove(profile_path)
+        except OSError:
+            pass
+
+
 def _run(argv):
     """Handle ``scope-profiler run``: profile a script and write its output.
 
@@ -165,45 +205,6 @@ def _run(argv):
         ProfileManager.finalize(verbose=not args.quiet and not convert)
         if convert:
             _convert_run_output(profile_path, args.outfile, quiet=args.quiet)
-
-
-def _convert_run_output(profile_path, output_path, quiet=False):
-    """Render the run's HDF5 output as JSON or HTML, then drop the HDF5.
-
-    Under MPI only rank 0 holds the merged file, and only rank 0 wrote it, so
-    only rank 0 converts and unlinks it.
-    """
-    from pathlib import Path
-
-    from scope_profiler.profile_io import (
-        FORMAT_JSON,
-        profile_format,
-        read_profile,
-        write_profile,
-    )
-
-    config = ProfileManager.get_config()
-    if config.comm is not None and config.comm.Get_rank() != 0:
-        return
-    if config.deactivate_profiling or config.deactivate_file_output:
-        return
-    try:
-        results = read_profile(profile_path)
-        # The temporary HDF5 is about to go, so a summary naming it would
-        # print `scope-profiler inspect` hints for a file that no longer
-        # exists. A JSON profile reads back exactly the same way, so the
-        # summary points at that instead.
-        if profile_format(output_path) == FORMAT_JSON:
-            results._file_path = Path(output_path)
-        written = write_profile(results, output_path)
-        if not quiet:
-            results.print_summary()
-            print(f"\nwrote {written}")
-    finally:
-        try:
-            os.remove(profile_path)
-        except OSError:
-            pass
 
 
 def _plot(argv):
