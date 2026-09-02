@@ -80,6 +80,66 @@ class PerfEventTotals:
     values: dict[str, int]
 
 
+def _py_perf_error(action: str, exc: Exception) -> PerfEventError:
+    """Add the same actionable permission hint to optional-backend errors."""
+    message = str(exc)
+    hint = (
+        "; kernel policy may forbid this (check /proc/sys/kernel/perf_event_paranoid)"
+        if "permission denied" in message.lower() or "os error 13" in message.lower()
+        else ""
+    )
+    return PerfEventError(f"py-perf-event could not {action} counters: {message}{hint}")
+
+
+def _make_py_perf_measure(events: tuple[str, ...]):
+    """Build an optional py-perf-event measurement, if it supports ``events``."""
+    if not all(event in _PY_PERF_EVENT_HARDWARE for event in events):
+        return None
+    try:
+        from py_perf_event import Hardware, Measure
+    except ImportError:
+        return None
+    try:
+        return Measure(
+            [getattr(Hardware, _PY_PERF_EVENT_HARDWARE[event]) for event in events]
+        )
+    except Exception as exc:
+        raise _py_perf_error("create", exc) from exc
+
+
+def _ioctl(fd: int, request: int) -> None:
+    try:
+        import fcntl
+
+        fcntl.ioctl(fd, request, 0)
+    except OSError as exc:
+        raise PerfEventError(f"perf event ioctl failed: {exc}") from exc
+
+
+def _open_event(event_type: int, config: int) -> int:
+    # struct perf_event_attr, zero-filled through ``size``.  The first 40
+    # bytes are stable across supported kernels; 120 keeps modern kernels
+    # happy while allowing older ones to ignore trailing zero fields.
+    attr = (ctypes.c_ubyte * 120)()
+    struct.pack_into("IIQ", attr, 0, event_type, len(attr), config)
+    # disabled | exclude_kernel | exclude_hv: unprivileged users normally
+    # may count user-space code even when kernel/hypervisor counting is barred.
+    struct.pack_into("Q", attr, 40, 1 | (1 << 5) | (1 << 6))
+    syscall = _SYS_PERF_EVENT_OPEN[platform.machine().lower()]
+    libc = ctypes.CDLL(None, use_errno=True)
+    fd = libc.syscall(syscall, ctypes.byref(attr), 0, -1, -1, 0)
+    if fd < 0:
+        err = ctypes.get_errno()
+        detail = os.strerror(err)
+        hint = (
+            "; kernel policy may forbid this (check /proc/sys/kernel/perf_event_paranoid)"
+            if err in {1, 13}
+            else ""
+        )
+        raise PerfEventError(f"Could not open perf event: {detail}{hint}")
+    return fd
+
+
 class PerfEventGroup:
     """Counters opened for one active region invocation.
 
@@ -152,63 +212,3 @@ class PerfEventGroup:
                 self._measure = None
         while self.fds:
             os.close(self.fds.pop())
-
-
-def _make_py_perf_measure(events: tuple[str, ...]):
-    """Build an optional py-perf-event measurement, if it supports ``events``."""
-    if not all(event in _PY_PERF_EVENT_HARDWARE for event in events):
-        return None
-    try:
-        from py_perf_event import Hardware, Measure
-    except ImportError:
-        return None
-    try:
-        return Measure(
-            [getattr(Hardware, _PY_PERF_EVENT_HARDWARE[event]) for event in events]
-        )
-    except Exception as exc:
-        raise _py_perf_error("create", exc) from exc
-
-
-def _py_perf_error(action: str, exc: Exception) -> PerfEventError:
-    """Add the same actionable permission hint to optional-backend errors."""
-    message = str(exc)
-    hint = (
-        "; kernel policy may forbid this (check /proc/sys/kernel/perf_event_paranoid)"
-        if "permission denied" in message.lower() or "os error 13" in message.lower()
-        else ""
-    )
-    return PerfEventError(f"py-perf-event could not {action} counters: {message}{hint}")
-
-
-def _ioctl(fd: int, request: int) -> None:
-    try:
-        import fcntl
-
-        fcntl.ioctl(fd, request, 0)
-    except OSError as exc:
-        raise PerfEventError(f"perf event ioctl failed: {exc}") from exc
-
-
-def _open_event(event_type: int, config: int) -> int:
-    # struct perf_event_attr, zero-filled through ``size``.  The first 40
-    # bytes are stable across supported kernels; 120 keeps modern kernels
-    # happy while allowing older ones to ignore trailing zero fields.
-    attr = (ctypes.c_ubyte * 120)()
-    struct.pack_into("IIQ", attr, 0, event_type, len(attr), config)
-    # disabled | exclude_kernel | exclude_hv: unprivileged users normally
-    # may count user-space code even when kernel/hypervisor counting is barred.
-    struct.pack_into("Q", attr, 40, 1 | (1 << 5) | (1 << 6))
-    syscall = _SYS_PERF_EVENT_OPEN[platform.machine().lower()]
-    libc = ctypes.CDLL(None, use_errno=True)
-    fd = libc.syscall(syscall, ctypes.byref(attr), 0, -1, -1, 0)
-    if fd < 0:
-        err = ctypes.get_errno()
-        detail = os.strerror(err)
-        hint = (
-            "; kernel policy may forbid this (check /proc/sys/kernel/perf_event_paranoid)"
-            if err in {1, 13}
-            else ""
-        )
-        raise PerfEventError(f"Could not open perf event: {detail}{hint}")
-    return fd

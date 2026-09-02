@@ -1396,13 +1396,6 @@ class ThreadedProfileRegion(BaseProfileRegion):
 
         return wrapper
 
-    def __enter__(self):
-        self._enter()
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self._leave()
-
     # -- collection -----------------------------------------------------
     def snapshot_arrays(self):
         """This run's completed calls, concatenated over every thread.
@@ -1475,3 +1468,10 @@ class ThreadedProfileRegion(BaseProfileRegion):
             lanes = list(self._lanes.values())
         for lane in lanes:
             self._retired += lane.mark_written()
+
+    def __enter__(self):
+        self._enter()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self._leave()

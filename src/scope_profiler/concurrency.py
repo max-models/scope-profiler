@@ -56,58 +56,6 @@ UNKNOWN = -1
 CPU_SAMPLE_MASK = 0xFF
 
 
-class ThreadRecord:
-    """One thread of the profiled process, as the lane tables describe it.
-
-    ``index`` is dense within a rank and is what the per-call ``thread_ids``
-    column stores. ``cpu_ns`` is exact for a thread that has ended and a
-    sampled lower bound for one still running; see :data:`CPU_SAMPLE_MASK`.
-    """
-
-    __slots__ = (
-        "cpu_ns",
-        "daemon",
-        "end_ns",
-        "ident",
-        "index",
-        "name",
-        "native_id",
-        "start_ns",
-        "task",
-    )
-
-    def __init__(self, index: int, thread) -> None:
-        self.index = index
-        self.ident = int(thread.ident or 0)
-        self.native_id = int(getattr(thread, "native_id", 0) or 0)
-        self.name = str(thread.name)
-        self.daemon = bool(thread.daemon)
-        self.start_ns = perf_counter_ns()
-        self.end_ns = UNKNOWN
-        self.cpu_ns = thread_time_ns()
-        # The task or greenlet currently running on this thread, maintained by
-        # the step timer and the greenlet trace. Read on the region hot path,
-        # which is why it lives on the thread record rather than behind a
-        # ``asyncio.current_task()`` call.
-        self.task: TaskRecord | None = None
-
-    @property
-    def alive(self) -> bool:
-        """Whether the thread was still running when the run was collected."""
-        return self.end_ns == UNKNOWN
-
-    def sample_cpu(self) -> None:
-        """Refresh this thread's CPU time. Only valid on the thread itself."""
-        self.cpu_ns = thread_time_ns()
-
-    def __repr__(self) -> str:
-        state = "alive" if self.alive else "finished"
-        return (
-            f"ThreadRecord(index={self.index}, name={self.name!r}, "
-            f"ident={self.ident}, {state})"
-        )
-
-
 class TaskRecord:
     """One asyncio task or greenlet, and how its wall time split.
 
@@ -190,6 +138,58 @@ class TaskRecord:
         )
 
 
+class ThreadRecord:
+    """One thread of the profiled process, as the lane tables describe it.
+
+    ``index`` is dense within a rank and is what the per-call ``thread_ids``
+    column stores. ``cpu_ns`` is exact for a thread that has ended and a
+    sampled lower bound for one still running; see :data:`CPU_SAMPLE_MASK`.
+    """
+
+    __slots__ = (
+        "cpu_ns",
+        "daemon",
+        "end_ns",
+        "ident",
+        "index",
+        "name",
+        "native_id",
+        "start_ns",
+        "task",
+    )
+
+    def __init__(self, index: int, thread) -> None:
+        self.index = index
+        self.ident = int(thread.ident or 0)
+        self.native_id = int(getattr(thread, "native_id", 0) or 0)
+        self.name = str(thread.name)
+        self.daemon = bool(thread.daemon)
+        self.start_ns = perf_counter_ns()
+        self.end_ns = UNKNOWN
+        self.cpu_ns = thread_time_ns()
+        # The task or greenlet currently running on this thread, maintained by
+        # the step timer and the greenlet trace. Read on the region hot path,
+        # which is why it lives on the thread record rather than behind a
+        # ``asyncio.current_task()`` call.
+        self.task: TaskRecord | None = None
+
+    @property
+    def alive(self) -> bool:
+        """Whether the thread was still running when the run was collected."""
+        return self.end_ns == UNKNOWN
+
+    def sample_cpu(self) -> None:
+        """Refresh this thread's CPU time. Only valid on the thread itself."""
+        self.cpu_ns = thread_time_ns()
+
+    def __repr__(self) -> str:
+        state = "alive" if self.alive else "finished"
+        return (
+            f"ThreadRecord(index={self.index}, name={self.name!r}, "
+            f"ident={self.ident}, {state})"
+        )
+
+
 class _ThreadExitSentinel:
     """Records a thread's end time and total CPU time, from the thread itself.
 
@@ -239,9 +239,6 @@ class _StepTimer:
         self._record = record
         self._tracker = tracker
 
-    def __iter__(self):
-        return self
-
     def __next__(self):
         return self.send(None)
 
@@ -273,6 +270,9 @@ class _StepTimer:
 
     def close(self):
         return self._coro.close()
+
+    def __iter__(self):
+        return self
 
 
 class _TimedAwaitable:
@@ -312,6 +312,13 @@ def _coroutine_name(coro) -> str:
     return type(coro).__name__
 
 
+# Trackers with hooks currently installed, so a fork can find them from the
+# one handler this module is allowed to register (``register_at_fork`` has no
+# matching unregister, so it must not be called per tracker). Weak, so a
+# tracker that is dropped without being uninstalled does not leak.
+_LIVE_TRACKERS: weakref.WeakSet = weakref.WeakSet()
+
+
 class ConcurrencyTracker:
     """Per-run registry of threads, asyncio tasks and greenlets.
 
@@ -340,6 +347,18 @@ class ConcurrencyTracker:
         self._greenlet_module = None
         self._previous_greenlet_trace = None
 
+    def _register_thread(self) -> ThreadRecord:
+        """Give the calling thread a record, and arrange to close it on exit."""
+        thread = threading.current_thread()
+        with self._lock:
+            record = ThreadRecord(len(self._threads), thread)
+            self._threads.append(record)
+        self._local.record = record
+        # Dropped by the interpreter on this thread, at thread exit; that is
+        # where the exact end time and CPU total come from.
+        self._local.sentinel = _ThreadExitSentinel(record)
+        return record
+
     # ------------------------------------------------------------------
     # Registration
     # ------------------------------------------------------------------
@@ -354,18 +373,6 @@ class ConcurrencyTracker:
             return self._local.record
         except AttributeError:
             return self._register_thread()
-
-    def _register_thread(self) -> ThreadRecord:
-        """Give the calling thread a record, and arrange to close it on exit."""
-        thread = threading.current_thread()
-        with self._lock:
-            record = ThreadRecord(len(self._threads), thread)
-            self._threads.append(record)
-        self._local.record = record
-        # Dropped by the interpreter on this thread, at thread exit; that is
-        # where the exact end time and CPU total come from.
-        self._local.sentinel = _ThreadExitSentinel(record)
-        return record
 
     @property
     def threads(self) -> list[ThreadRecord]:
@@ -386,59 +393,14 @@ class ConcurrencyTracker:
             self._tasks.append(record)
         return record
 
-    # ------------------------------------------------------------------
-    # Installation
-    # ------------------------------------------------------------------
-    def install(self) -> None:
-        """Put the thread-start, asyncio and greenlet hooks in place.
-
-        Idempotent, so a second ``setup()`` on the same configuration does not
-        stack wrappers.
-        """
-        if self._installed:
-            return
-        self._installed = True
-        _LIVE_TRACKERS.add(self)
-        self._install_thread_hook()
-        if self.track_async:
-            self._install_asyncio()
-            self._install_greenlet()
-
-    def uninstall(self) -> None:
-        """Remove every hook and restore what was there before."""
-        if not self._installed:
-            return
-        self._installed = False
-        _LIVE_TRACKERS.discard(self)
-        self._uninstall_thread_hook()
-        self._uninstall_asyncio()
-        self._uninstall_greenlet()
-
-    def _adopt_fork(self) -> None:
-        """Stand down in a process forked out of someone else's session.
-
-        The child inherited this tracker, its hooks and its registries, but
-        not the session that opened them: nothing in the child will ever
-        finalize this run, so left alone the hooks would go on appending a
-        record per thread and per task to a table no one reads, for as long
-        as the child lives. A forked worker running an event loop is exactly
-        that shape.
-
-        The child therefore starts untracked, and profiles concurrency only
-        once it calls ``setup()`` for itself -- which is the supported way to
-        profile a multiprocessing worker in any case, since each process
-        writes its own output file.
-
-        The registries are replaced rather than cleared: they describe the
-        parent's threads, which do not exist here, and the lock guarding them
-        may have been held by a thread that did not survive the fork.
-        """
-        self._lock = threading.Lock()
-        self._local = threading.local()
-        self._threads = []
-        self._tasks = []
-        self._greenlet_records = weakref.WeakKeyDictionary()
-        self.uninstall()
+    def _thread_bootstrap(self, frame, event, arg):
+        sys.setprofile(None)
+        self.current_thread()
+        previous = self._previous_thread_hook
+        if previous is not None:
+            sys.setprofile(previous)
+            return previous(frame, event, arg)
+        return None
 
     # -- threads --------------------------------------------------------
     def _install_thread_hook(self) -> None:
@@ -452,19 +414,6 @@ class ConcurrencyTracker:
         """
         self._previous_thread_hook = getattr(threading, "_profile_hook", None)
         threading.setprofile(self._thread_bootstrap)
-
-    def _thread_bootstrap(self, frame, event, arg):
-        sys.setprofile(None)
-        self.current_thread()
-        previous = self._previous_thread_hook
-        if previous is not None:
-            sys.setprofile(previous)
-            return previous(frame, event, arg)
-        return None
-
-    def _uninstall_thread_hook(self) -> None:
-        threading.setprofile(self._previous_thread_hook)
-        self._previous_thread_hook = None
 
     # -- asyncio --------------------------------------------------------
     def _install_asyncio(self) -> None:
@@ -506,26 +455,69 @@ class ConcurrencyTracker:
         except RuntimeError:
             pass
 
-    def instrument_loop(self, loop) -> None:
-        """Route ``loop``'s task creation through the step timer.
+    def _greenlet_record(self, greenlet_object) -> TaskRecord:
+        record = self._greenlet_records.get(greenlet_object)
+        if record is None:
+            name = getattr(greenlet_object, "name", None) or (
+                f"greenlet-{id(greenlet_object):x}"
+            )
+            target = getattr(greenlet_object, "run", None)
+            record = self._new_task("greenlet", str(name), _coroutine_name(target))
+            self._greenlet_records[greenlet_object] = record
+        return record
 
-        Public because a loop implementation that never reaches
-        ``BaseEventLoop.run_forever`` (uvloop, say) can be handed here
-        directly. Chains onto whatever task factory the application already
-        installed instead of replacing it.
+    def _greenlet_trace(self, event, args):
+        if event in ("switch", "throw"):
+            origin, target = args
+            thread = self.current_thread()
+            running = thread.task
+            if running is not None:
+                running.leave_step()
+            if getattr(origin, "dead", False):
+                self._greenlet_record(origin).finish()
+            record = self._greenlet_record(target)
+            record.enter_step()
+            thread.task = record
+        previous = self._previous_greenlet_trace
+        if previous is not None:
+            previous(event, args)
 
-        Instrumented once per loop, and keyed on the loop rather than on
-        whichever factory is currently in place: an application that installs
-        its own factory *after* the loop has started displaces ours, and
-        re-wrapping to get back on top would make the two call each other
-        forever, since its captured "previous" is us. Such a loop keeps
-        recording regions and thread ids; the tasks created after the swap
-        simply have no lane of their own.
+    # -- greenlets ------------------------------------------------------
+    def _install_greenlet(self) -> None:
+        """Follow greenlet switches, when greenlet is installed at all.
+
+        ``greenlet.settrace`` reports every switch, which is exactly the
+        boundary between one cooperative lane holding the thread and the next
+        -- the same split the asyncio step timer measures.
         """
-        if loop in self._loop_factories:
+        try:
+            import greenlet
+        except ImportError:
             return
-        self._loop_factories[loop] = loop.get_task_factory()
-        loop.set_task_factory(self._task_factory)
+        self._greenlet_module = greenlet
+        self._previous_greenlet_trace = greenlet.settrace(self._greenlet_trace)
+
+    # ------------------------------------------------------------------
+    # Installation
+    # ------------------------------------------------------------------
+    def install(self) -> None:
+        """Put the thread-start, asyncio and greenlet hooks in place.
+
+        Idempotent, so a second ``setup()`` on the same configuration does not
+        stack wrappers.
+        """
+        if self._installed:
+            return
+        self._installed = True
+        _LIVE_TRACKERS.add(self)
+        self._install_thread_hook()
+        if self.track_async:
+            self._install_asyncio()
+            self._install_greenlet()
+
+    def _uninstall_thread_hook(self) -> None:
+        threading.setprofile(self._previous_thread_hook)
+        self._previous_thread_hook = None
 
     def _task_factory(self, loop, coro, **kwargs):
         import asyncio
@@ -561,48 +553,6 @@ class ConcurrencyTracker:
                 pass
         self._loop_factories = weakref.WeakKeyDictionary()
 
-    # -- greenlets ------------------------------------------------------
-    def _install_greenlet(self) -> None:
-        """Follow greenlet switches, when greenlet is installed at all.
-
-        ``greenlet.settrace`` reports every switch, which is exactly the
-        boundary between one cooperative lane holding the thread and the next
-        -- the same split the asyncio step timer measures.
-        """
-        try:
-            import greenlet
-        except ImportError:
-            return
-        self._greenlet_module = greenlet
-        self._previous_greenlet_trace = greenlet.settrace(self._greenlet_trace)
-
-    def _greenlet_record(self, greenlet_object) -> TaskRecord:
-        record = self._greenlet_records.get(greenlet_object)
-        if record is None:
-            name = getattr(greenlet_object, "name", None) or (
-                f"greenlet-{id(greenlet_object):x}"
-            )
-            target = getattr(greenlet_object, "run", None)
-            record = self._new_task("greenlet", str(name), _coroutine_name(target))
-            self._greenlet_records[greenlet_object] = record
-        return record
-
-    def _greenlet_trace(self, event, args):
-        if event in ("switch", "throw"):
-            origin, target = args
-            thread = self.current_thread()
-            running = thread.task
-            if running is not None:
-                running.leave_step()
-            if getattr(origin, "dead", False):
-                self._greenlet_record(origin).finish()
-            record = self._greenlet_record(target)
-            record.enter_step()
-            thread.task = record
-        previous = self._previous_greenlet_trace
-        if previous is not None:
-            previous(event, args)
-
     def _uninstall_greenlet(self) -> None:
         if self._greenlet_module is None:
             return
@@ -610,6 +560,63 @@ class ConcurrencyTracker:
         self._greenlet_module = None
         self._previous_greenlet_trace = None
         self._greenlet_records = weakref.WeakKeyDictionary()
+
+    def uninstall(self) -> None:
+        """Remove every hook and restore what was there before."""
+        if not self._installed:
+            return
+        self._installed = False
+        _LIVE_TRACKERS.discard(self)
+        self._uninstall_thread_hook()
+        self._uninstall_asyncio()
+        self._uninstall_greenlet()
+
+    def _adopt_fork(self) -> None:
+        """Stand down in a process forked out of someone else's session.
+
+        The child inherited this tracker, its hooks and its registries, but
+        not the session that opened them: nothing in the child will ever
+        finalize this run, so left alone the hooks would go on appending a
+        record per thread and per task to a table no one reads, for as long
+        as the child lives. A forked worker running an event loop is exactly
+        that shape.
+
+        The child therefore starts untracked, and profiles concurrency only
+        once it calls ``setup()`` for itself -- which is the supported way to
+        profile a multiprocessing worker in any case, since each process
+        writes its own output file.
+
+        The registries are replaced rather than cleared: they describe the
+        parent's threads, which do not exist here, and the lock guarding them
+        may have been held by a thread that did not survive the fork.
+        """
+        self._lock = threading.Lock()
+        self._local = threading.local()
+        self._threads = []
+        self._tasks = []
+        self._greenlet_records = weakref.WeakKeyDictionary()
+        self.uninstall()
+
+    def instrument_loop(self, loop) -> None:
+        """Route ``loop``'s task creation through the step timer.
+
+        Public because a loop implementation that never reaches
+        ``BaseEventLoop.run_forever`` (uvloop, say) can be handed here
+        directly. Chains onto whatever task factory the application already
+        installed instead of replacing it.
+
+        Instrumented once per loop, and keyed on the loop rather than on
+        whichever factory is currently in place: an application that installs
+        its own factory *after* the loop has started displaces ours, and
+        re-wrapping to get back on top would make the two call each other
+        forever, since its captured "previous" is us. Such a loop keeps
+        recording regions and thread ids; the tasks created after the swap
+        simply have no lane of their own.
+        """
+        if loop in self._loop_factories:
+            return
+        self._loop_factories[loop] = loop.get_task_factory()
+        loop.set_task_factory(self._task_factory)
 
     # ------------------------------------------------------------------
     # Collection
@@ -669,13 +676,6 @@ class ConcurrencyTracker:
                 ),
             },
         }
-
-
-# Trackers with hooks currently installed, so a fork can find them from the
-# one handler this module is allowed to register (``register_at_fork`` has no
-# matching unregister, so it must not be called per tracker). Weak, so a
-# tracker that is dropped without being uninstalled does not leak.
-_LIVE_TRACKERS: weakref.WeakSet = weakref.WeakSet()
 
 
 def _stand_down_after_fork() -> None:
