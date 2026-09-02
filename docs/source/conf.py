@@ -5,12 +5,6 @@
 
 import os
 import shutil
-import sys
-
-# Make the package importable for autodoc
-sys.path.insert(0, os.path.abspath("../../src"))
-
-
 def copy_tutorials(app):
     confdir = os.path.dirname(os.path.abspath(__file__))
     src = os.path.join(confdir, "..", "..", "tutorials")
