@@ -73,10 +73,40 @@ scope-profiler plot default profiling_data.h5 -o figures
 scope-profiler report profiling_data.h5 -o report.html
 ```
 
-The extension of `-o` picks the output format. HDF5 is the default and
-the right choice for a long run; JSON holds exactly the same data —
-every call, in integer nanoseconds — for anything that would rather not
-open an HDF5 file:
+## Profile a pytest suite
+
+The installed package provides an opt-in pytest plugin. It records one
+region for every selected test, named from its pytest node id, so the
+normal post-processing commands can show which tests consume the suite’s
+time:
+
+``` bash
+pytest --scope-profile --scope-profile-out pytest-profile.h5
+scope-profiler inspect pytest-profile.h5 --regions-only --sort total
+scope-profiler plot durations pytest-profile.h5 -o pytest-plots
+```
+
+By default it measures only each test’s `call` phase. Include fixture
+setup and teardown when those are relevant to the investigation:
+
+``` bash
+pytest --scope-profile --scope-profile-phases=all
+```
+
+The plugin uses its own profiling manager, so tests that call
+`ProfileManager.setup()` or `ProfileManager.finalize()` remain isolated.
+The result measures complete test phases; it does not recursively trace
+every function pytest calls. Existing application-level Scope Profiler
+regions are therefore best collected in a dedicated application run when
+detailed function-level attribution is needed. With `pytest-xdist`, the
+plugin cannot yet be used: its workers must not write the same HDF5
+file.
+
+The extension of `-o` picks the output format. HDF5 is the default, and
+stays the better choice for a long run — it is read back column by
+column rather than whole. JSON holds exactly the same data — every call,
+in integer nanoseconds — for anything that would rather not open an HDF5
+file:
 
 ``` bash
 scope-profiler run -o profile.json my_script.py     # or .json.gz

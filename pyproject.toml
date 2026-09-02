@@ -127,6 +127,9 @@ urls."Source" = "https://github.com/max-models/scope-profiler"
 scripts.scope-profiler = "scope_profiler.__main__:main"
 scripts.scope-profiler-mcp = "scope_profiler.mcp_server.server:main"
 
+[project.entry-points.pytest11]
+scope_profiler = "scope_profiler.pytest_plugin"
+
 [tool.setuptools.packages.find]
 where = [ "src" ]
 
