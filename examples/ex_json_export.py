@@ -82,7 +82,7 @@ def main():
         (gzip_path, "JSON, gzipped"),
     ):
         size = path.stat().st_size / 1024
-        print(f"  {str(path):<34} {size:8.1f} KiB  ({description})")
+        print(f"  {path!s:<34} {size:8.1f} KiB  ({description})")
 
     # 2. Read it back. Not "close enough": the same numbers, region by region
     # and call by call, as the HDF5 file the same run wrote.
