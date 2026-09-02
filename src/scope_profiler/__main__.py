@@ -96,6 +96,13 @@ def _parse_run_args(argv):
         "(requires scope-profiler[line-profiler])",
     )
     parser.add_argument(
+        "--memory-profile",
+        action="store_true",
+        default=None,
+        help="Record allocations with Memray (requires scope-profiler[extras]); "
+        "writes an adjacent .memray.bin capture",
+    )
+    parser.add_argument(
         "--buffer-limit",
         type=int,
         default=None,
@@ -186,6 +193,7 @@ def _run(argv):
         recursive_profile=True if args.config is None else None,
         use_likwid=None,
         use_line_profiler=args.line_profile,
+        use_memray=args.memory_profile,
         buffer_limit=args.buffer_limit,
         aggregation_mode=args.aggregation_mode,
         file_path=profile_path,

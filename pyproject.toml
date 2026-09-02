@@ -84,6 +84,13 @@ optional-dependencies.graph = [
   "pyvis >= 0.3.2",
 ]
 
+# One convenient install for broadly installable runtime integrations. LIKWID
+# stays opt-in because it requires a compatible system-level installation.
+optional-dependencies.extras = [
+  "memray",
+  "scope-profiler[compression,fortran,graph,line-profiler,mcp,mpi,notebook,nvtx,perf-events,pproc,tui]",
+]
+
 optional-dependencies.dev = [
   "black[jupyter]",
   "isort >= 9.0.0",
