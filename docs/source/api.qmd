@@ -105,6 +105,8 @@ from scope_profiler import (
     build_call_stack,
     read_h5,
     read_h5_summary,
+    read_json,
+    read_profile,
     plot_flame_chart,
     plot_gantt,
     write_region_statistics_json,
@@ -142,6 +144,21 @@ Load fixed-size scalar statistics without reading per-call event columns.
 
 ```{eval-rst}
 .. autofunction:: scope_profiler.h5reader.read_h5_summary
+```
+
+### read_json and write_json
+
+The same run as a JSON document: `write_json()` writes one, `read_json()`
+reads it back into the very same `ProfilingResults`, and `read_profile()` /
+`write_profile()` pick between JSON and HDF5 by the file name --- the rule
+`scope-profiler run -o` follows. See {doc}`cli` for when to prefer which.
+
+```{eval-rst}
+.. autofunction:: scope_profiler.json_export.read_json
+.. autofunction:: scope_profiler.json_export.write_json
+.. autofunction:: scope_profiler.json_export.export_json
+.. autofunction:: scope_profiler.profile_io.read_profile
+.. autofunction:: scope_profiler.profile_io.write_profile
 ```
 
 ### Native (C and Fortran) traces
@@ -260,6 +277,8 @@ couple of seconds instead of a couple of minutes.
 ```{eval-rst}
 .. autofunction:: scope_profiler.speedscope_export.export_speedscope
 .. autofunction:: scope_profiler.prof_export.export_prof
+.. autofunction:: scope_profiler.json_export.export_json
+   :no-index:
 ```
 
 ## LIKWID

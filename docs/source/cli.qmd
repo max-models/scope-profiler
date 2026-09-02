@@ -51,7 +51,7 @@ usage: scope-profiler run [-h] [-o OUTFILE] [-q] [--all] [--line-profile]
 
 | Flag                | Description                                                          |
 | -------------------- | --------------------------------------------------------------------- |
-| `-o`, `--outfile`    | Path to the merged HDF5 output file (default: `profiling_data.h5`)   |
+| `-o`, `--outfile`    | Path of the output file (default: `profiling_data.h5`); the extension picks the format |
 | `-q`, `--quiet`      | Suppress the per-region summary printed after the run                |
 | `--all`              | Also instrument standard-library/installed-package calls (default: only the script's own code) |
 | `--line-profile`     | Also collect line-by-line timings via `line_profiler` (requires `scope-profiler[line-profiler]`) |
@@ -60,6 +60,37 @@ usage: scope-profiler run [-h] [-o OUTFILE] [-q] [--all] [--line-profile]
 ```bash
 scope-profiler run my_script.py [script args...]
 ```
+
+### Output formats
+
+The extension of `-o` chooses what is written, and HDF5 remains the default:
+
+```bash
+scope-profiler run -o profile.h5 my_script.py       # HDF5 (the default)
+scope-profiler run -o profile.json my_script.py     # a JSON profile
+scope-profiler run -o profile.json.gz my_script.py  # the same, gzip-compressed
+scope-profiler run -o report.html my_script.py      # a rendered HTML report
+```
+
+A JSON profile holds everything the HDF5 file does --- every call's
+timestamps, the lane tables, LIKWID counters, line-profiler records --- in
+integer nanoseconds, so nothing is lost by choosing it. `inspect`, `plot`,
+`report`, `diff`, `tui` and the exporters all read one wherever they read an
+HDF5 file, and `scope_profiler.read_json()` (or the format-dispatching
+`read_profile()`) loads it in Python. It is the format to reach for when the
+consumer is not this package: a browser, `jq`, a code review, or a machine
+without h5py. HDF5 stays the better choice for a long run: it is read back
+column by column rather than whole (a summary read never touches the event
+columns at all), and it is the only format the parallel and rank-by-rank
+writers can produce. On size the two are closer than they look --- for a run
+of a few hundred thousand events, plain JSON is roughly a third larger than
+the HDF5 file and `--gzip` is a few times smaller than it, but a gzipped
+document has to be decompressed and parsed in full before the first number
+comes out.
+
+The run itself always writes HDF5 and the requested format is rendered from it
+afterwards, so `-o` never changes what a run measures or costs. Under MPI the
+conversion happens on rank 0, once the merged file exists.
 
 ## `scope-profiler inspect`
 
@@ -342,7 +373,7 @@ common regions across all inputs.
 Export profiling data without rendering plot images.
 
 ```text
-usage: scope-profiler export [-h] {prof,speedscope,plot-data} ...
+usage: scope-profiler export [-h] {prof,speedscope,json,plot-data} ...
 ```
 
 ### Plot data
@@ -388,6 +419,26 @@ reconstructed from timestamp containment, exactly as the flame chart does. So:
   keyed by function rather than by call path; recursion is reported as
   `2/1`-style call counts, like `cProfile`.
 - LIKWID counters have no place in the `.prof` format and are left out.
+
+### Exporting to JSON
+
+`export json` writes the whole run as a JSON document --- the same data the
+HDF5 file holds, in a format anything can read:
+
+```bash
+scope-profiler export json profiling_data.h5 -o exports
+scope-profiler export json profiling_data.h5 -o exports --gzip --indent 2
+```
+
+Unlike `prof` and `speedscope`, this is a lossless copy rather than a view for
+a particular viewer: every rank is exported by default (`-r/--ranks` narrows
+it), timestamps stay in the integer nanoseconds the run recorded, and
+`scope_profiler.read_json()` rebuilds a `ProfilingResults` indistinguishable
+from the one `read_h5()` gives back. `--gzip` writes `profile.json.gz`, which
+is what a real run wants: the event columns are the bulk of the document and
+compress by roughly an order of magnitude. `--indent N` pretty-prints it for
+reading by eye or diffing in review. One file is written per input file, with
+the run's label added to the name when several are passed.
 
 ### Exporting to speedscope
 

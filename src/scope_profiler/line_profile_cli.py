@@ -9,7 +9,7 @@ from io import StringIO
 
 from tabulate import tabulate
 
-from scope_profiler.h5reader import read_h5
+from scope_profiler.profile_io import read_profile
 from scope_profiler.post_processing import parse_ranks
 from scope_profiler.summary import _name_selected
 
@@ -69,7 +69,7 @@ def print_line_profile(
     """
     output_stream = StringIO() if display_html else stream
     output_stream = sys.stdout if output_stream is None else output_stream
-    results = read_h5(file_path)
+    results = read_profile(file_path)
     selected_ranks = results.line_profile.keys() if ranks is None else ranks
     function_re = re.compile(function) if function else None
     region_re = re.compile(region) if region else None

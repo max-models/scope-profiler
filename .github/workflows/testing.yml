@@ -176,6 +176,7 @@ jobs:
             examples/ex_callgraph.py \
             examples/ex_class_profiling.py \
             examples/ex_in_memory_results.py \
+            examples/ex_json_export.py \
             examples/ex_lazy_setup.py \
             examples/ex_line_profiling.py \
             examples/ex_maxplotlib_plotting.py \
@@ -187,6 +188,14 @@ jobs:
             python3 "$example"
           done
           scope-profiler run --quiet -o cli_example.h5 examples/ex_cli_profiling.py
+          # The -o extension picks the output format; each one is read back by
+          # the subcommand that consumes it.
+          scope-profiler run --quiet -o cli_example.json examples/ex_cli_profiling.py
+          scope-profiler run --quiet -o cli_example.json.gz examples/ex_cli_profiling.py
+          scope-profiler run --quiet -o cli_example.html examples/ex_cli_profiling.py
+          scope-profiler inspect cli_example.json --regions-only --quiet
+          scope-profiler diff cli_example.h5 cli_example.json.gz
+          scope-profiler export json cli_example.h5 -o exports --gzip
 
       # Keep a small baseline/candidate workflow example in CI. Call counts
       # are deterministic on shared runners, so this validates the regression

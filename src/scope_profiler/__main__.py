@@ -2,18 +2,25 @@
 
 Also runnable as ``python -m scope_profiler <command> ...``.
 
-Six subcommands:
+Every subcommand that takes a profile reads an HDF5 file or a JSON one
+(:mod:`scope_profiler.json_export`) interchangeably; the format is chosen by
+the file name.
+
+The subcommands:
 
 - ``scope-profiler run script.py [args...]`` -- profiles a script's function
   calls without requiring any decorators or context managers in the script
   itself, similar to ``python -m cProfile``. By default only the script's
   own code is instrumented (the standard library and installed packages are
-  skipped) to keep overhead low; pass ``--all`` to trace everything.
+  skipped) to keep overhead low; pass ``--all`` to trace everything. The
+  extension of ``-o`` picks the output format: HDF5 by default, a JSON
+  profile for ``.json``/``.json.gz``, a rendered report for ``.html``.
 - ``scope-profiler plot <kind> file.h5 [...]`` -- reads merged HDF5 profiling
   output and renders Gantt/flame/duration/speedup charts. See
   ``scope_profiler.post_processing`` for its full set of options.
 - ``scope-profiler export <kind> file.h5 [...]`` -- writes plot data,
-  cProfile/pstats files, or speedscope JSON without rendering charts.
+  cProfile/pstats files, speedscope JSON, or the whole run as a JSON profile,
+  without rendering charts.
 - ``scope-profiler inspect file.h5 [...]`` -- prints the run metadata and a
   per-region statistics table (including LIKWID hardware counters, when the
   run recorded any) for merged HDF5 profiling output, without producing any
@@ -59,7 +66,9 @@ def _parse_run_args(argv):
         "-o",
         "--outfile",
         default=None,
-        help="Path to the merged HDF5 output file (default: profiling_data.h5)",
+        help="Path of the output file (default: profiling_data.h5). The "
+        "extension picks the format: .h5 for HDF5, .json / .json.gz for a "
+        "JSON profile, .html for a rendered report",
     )
     parser.add_argument(
         "--config",
@@ -107,7 +116,16 @@ def _parse_run_args(argv):
 
 
 def _run(argv):
-    """Handle ``scope-profiler run``: profile a script and write its HDF5 output."""
+    """Handle ``scope-profiler run``: profile a script and write its output.
+
+    The output format follows the ``-o`` extension, as viztracer's does: HDF5
+    unless the name asks for a JSON profile or an HTML report. The run itself
+    always writes HDF5 -- that is the format the parallel and rank-by-rank
+    writers produce -- and the requested format is rendered from it once the
+    script is done, so nothing about the measured run changes with ``-o``.
+    """
+    from scope_profiler.profile_io import FORMAT_HDF5, profile_format
+
     args = _parse_run_args(argv)
 
     if not os.path.isfile(args.script):
@@ -117,6 +135,11 @@ def _run(argv):
         )
         raise SystemExit(1)
 
+    convert = args.outfile is not None and profile_format(args.outfile) != FORMAT_HDF5
+    # Beside the requested file, so the writer's atomic publish stays a rename
+    # within one directory, and so a read-only $TMPDIR cannot break the run.
+    profile_path = args.outfile + ".scope-profiler.h5" if convert else args.outfile
+
     ProfileManager.setup(
         # ``run`` historically enables recursive profiling.  A TOML file may
         # override it, while the no-config path keeps that default.
@@ -125,7 +148,7 @@ def _run(argv):
         use_line_profiler=args.line_profile,
         buffer_limit=args.buffer_limit,
         aggregation_mode=args.aggregation_mode,
-        file_path=args.outfile,
+        file_path=profile_path,
         config_path=args.config,
     )
 
@@ -136,7 +159,51 @@ def _run(argv):
             only_user_code=not args.all,
         )
     finally:
-        ProfileManager.finalize(verbose=not args.quiet)
+        # The summary names the file it came from, so with a conversion still
+        # to come it is printed afterwards, against the file the user asked
+        # for, rather than against a temporary that is about to be deleted.
+        ProfileManager.finalize(verbose=not args.quiet and not convert)
+        if convert:
+            _convert_run_output(profile_path, args.outfile, quiet=args.quiet)
+
+
+def _convert_run_output(profile_path, output_path, quiet=False):
+    """Render the run's HDF5 output as JSON or HTML, then drop the HDF5.
+
+    Under MPI only rank 0 holds the merged file, and only rank 0 wrote it, so
+    only rank 0 converts and unlinks it.
+    """
+    from pathlib import Path
+
+    from scope_profiler.profile_io import (
+        FORMAT_JSON,
+        profile_format,
+        read_profile,
+        write_profile,
+    )
+
+    config = ProfileManager.get_config()
+    if config.comm is not None and config.comm.Get_rank() != 0:
+        return
+    if config.deactivate_profiling or config.deactivate_file_output:
+        return
+    try:
+        results = read_profile(profile_path)
+        # The temporary HDF5 is about to go, so a summary naming it would
+        # print `scope-profiler inspect` hints for a file that no longer
+        # exists. A JSON profile reads back exactly the same way, so the
+        # summary points at that instead.
+        if profile_format(output_path) == FORMAT_JSON:
+            results._file_path = Path(output_path)
+        written = write_profile(results, output_path)
+        if not quiet:
+            results.print_summary()
+            print(f"\nwrote {written}")
+    finally:
+        try:
+            os.remove(profile_path)
+        except OSError:
+            pass
 
 
 def _plot(argv):
