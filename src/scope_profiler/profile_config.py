@@ -28,6 +28,11 @@ _CONFIG_FIELDS = {
     "use_likwid",
     "perf_events",
     "use_line_profiler",
+    "use_memray",
+    "memory_profile_path",
+    "memray_native_traces",
+    "memray_trace_python_allocators",
+    "memray_follow_fork",
     "use_nvtx",
     "use_gpu_timing",
     "gpu_timing_backend",
@@ -112,6 +117,8 @@ class ProfilingOptions:
         Linux ``perf_event_open`` events to collect per region (default: None).
     use_line_profiler : bool or None
         Enable line-by-line profiling via line_profiler (default: False).
+    use_memray : bool or None
+        Record process-wide memory allocations with Memray (default: False).
     deactivate_profiling : bool or None
         Turn profiling off entirely (``setup()`` default: False). Every
         region becomes a no-op, so the instrumentation can stay in the code
@@ -183,6 +190,11 @@ class ProfilingOptions:
     use_likwid: bool | None = None
     perf_events: list[str] | tuple[str, ...] | str | None = None
     use_line_profiler: bool | None = None
+    use_memray: bool | None = None
+    memory_profile_path: str | None = None
+    memray_native_traces: bool | None = None
+    memray_trace_python_allocators: bool | None = None
+    memray_follow_fork: bool | None = None
     deactivate_profiling: bool | None = None
     use_nvtx: bool | None = None
     use_gpu_timing: bool | None = None
@@ -362,6 +374,11 @@ class ProfilingConfig:
         use_likwid: bool = False,
         perf_events: list[str] | tuple[str, ...] | str | None = None,
         use_line_profiler: bool = False,
+        use_memray: bool = False,
+        memory_profile_path: str | None = None,
+        memray_native_traces: bool = False,
+        memray_trace_python_allocators: bool = False,
+        memray_follow_fork: bool = False,
         deactivate_profiling: bool = False,
         use_nvtx: bool = False,
         use_gpu_timing: bool = False,
@@ -393,6 +410,9 @@ class ProfilingConfig:
             Enable LIKWID marker API if available.
         use_line_profiler : bool
             Enable line-by-line profiling via line_profiler.
+        use_memray : bool
+            Record process-wide allocations with Memray in a separate native
+            ``.bin`` capture.
         deactivate_profiling : bool
             Turn profiling off entirely. Every region becomes a no-op, so
             instrumentation can stay in the code at near-zero cost.
@@ -484,6 +504,8 @@ class ProfilingConfig:
             validate_events(perf_events) if perf_events is not None else ()
         )
         self._use_line_profiler = use_line_profiler
+        self._use_memray = use_memray
+        self._memray_tracker = None
         self._use_nvtx = use_nvtx
         self._use_gpu_timing = use_gpu_timing
         self._gpu_timing_backend = gpu_timing_backend
@@ -574,6 +596,21 @@ class ProfilingConfig:
         # per-rank staging file and no shared directory to agree on.
         self._rank = 0 if self._comm is None else self._comm.Get_rank()
         self._size = 1 if self._comm is None else self._comm.Get_size()
+        self._memory_profile_path = (
+            self._memray_path(memory_profile_path)
+            if use_memray and not deactivate_profiling
+            else None
+        )
+        if self._memory_profile_path is not None:
+            from scope_profiler.memray import MemrayAllocationTracker
+
+            self._memray_tracker = MemrayAllocationTracker(
+                self._memory_profile_path,
+                native_traces=memray_native_traces,
+                trace_python_allocators=memray_trace_python_allocators,
+                follow_fork=memray_follow_fork,
+            )
+            self._memray_tracker.start()
 
         # Environment metadata (hostname, OpenMP threads, versions, ...).
         # Collected on every rank, but only rank 0's copy ends up persisted
@@ -587,6 +624,8 @@ class ProfilingConfig:
         self._label = label or None
         if self._label is not None:
             self._metadata["label"] = self._label
+        if self._memory_profile_path is not None:
+            self._metadata["memory_profile_path"] = str(self._memory_profile_path)
 
         self._pylikwid: Any = None
         # Aggregate nesting belongs to this configuration. Keeping it here
@@ -617,6 +656,20 @@ class ProfilingConfig:
         """Initialize LIKWID markers if LIKWID is enabled."""
         if self._pylikwid is not None:
             self._pylikwid.markerinit()
+
+    def _memray_path(self, configured_path: str | None) -> Path:
+        """Return this rank's unique Memray capture path."""
+        path = Path(configured_path) if configured_path else Path(self._file_path)
+        if configured_path is None:
+            path = path.with_suffix(".memray.bin")
+        if self._size > 1:
+            path = path.with_name(f"{path.stem}.rank{self._rank}{path.suffix}")
+        return path
+
+    def stop_memory_profiling(self) -> None:
+        """Finish Memray's process-wide allocation capture, if enabled."""
+        if self._memray_tracker is not None:
+            self._memray_tracker.stop()
 
     def pylikwid_markerclose(self):
         """Close LIKWID markers to finalize measurement regions.
@@ -751,6 +804,16 @@ class ProfilingConfig:
     def use_line_profiler(self) -> bool:
         """Return whether line_profiler profiling is enabled."""
         return self._use_line_profiler
+
+    @property
+    def use_memray(self) -> bool:
+        """Return whether Memray allocation profiling is enabled."""
+        return self._use_memray
+
+    @property
+    def memory_profile_path(self) -> Path | None:
+        """Memray capture path, or None when allocation profiling is off."""
+        return self._memory_profile_path
 
     @property
     def use_nvtx(self) -> bool:

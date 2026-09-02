@@ -7,6 +7,7 @@ repeatable AI optimization workflow.
 
 - [`ex_cli_profiling.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_cli_profiling.py) — profile an unmodified script with the CLI.
 - [`ex_line_profiling.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_line_profiling.py) — collect line-by-line timings.
+- [`ex_memory_profiling.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_memory_profiling.py) — capture allocations with Memray alongside region timings.
 - [`ex_recursive_profiling.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_recursive_profiling.py) — profile nested calls.
 - [`ex_region_source.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_region_source.py) — retain and inspect region source code.
 - [`ex_aggregation.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_aggregation.py) — record compact per-region aggregate statistics without storing an event timeline.

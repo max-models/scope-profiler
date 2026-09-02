@@ -61,6 +61,8 @@ Run the profiled program as its ordinary user afterwards; `sudo python` uses a
 separate Python environment and commonly cannot import the project or its
 optional dependencies.
 | `use_line_profiler`   | `bool` | `False`               | Enable line-by-line profiling via `line_profiler`. See {doc}`line_profiler`.                    |
+| `use_memray`          | `bool` | `False`               | Record process-wide allocations in a native Memray capture. Requires `scope-profiler[memray]`.   |
+| `memory_profile_path` | `str` or `None` | `None`          | Memray capture path; defaults to `<file-stem>.memray.bin`.                                     |
 | `use_nvtx`            | `bool` | `False`               | Add NVTX ranges for NVIDIA Nsight tools; requires `scope-profiler[nvtx]`.                       |
 | `recursive_profile`   | `bool` | `False`               | Enable recursive nested-call profiling for all decorated functions by default.                    |
 | `deactivate_file_output`| `bool` | `False`             | When `True`, write no HDF5 file at all; the run stays in memory. See below.                      |

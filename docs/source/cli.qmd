@@ -66,7 +66,7 @@ Profile a script's function calls without modifying it, similar to
 low; pass `--all` to trace everything.
 
 ```text
-usage: scope-profiler run [-h] [-o OUTFILE] [-q] [--all] [--line-profile]
+usage: scope-profiler run [-h] [-o OUTFILE] [-q] [--all] [--line-profile] [--memory-profile]
                           [--buffer-limit BUFFER_LIMIT]
                           script ...
 ```
@@ -77,6 +77,7 @@ usage: scope-profiler run [-h] [-o OUTFILE] [-q] [--all] [--line-profile]
 | `-q`, `--quiet`      | Suppress the per-region summary printed after the run                |
 | `--all`              | Also instrument standard-library/installed-package calls (default: only the script's own code) |
 | `--line-profile`     | Also collect line-by-line timings via `line_profiler` (requires `scope-profiler[line-profiler]`) |
+| `--memory-profile`   | Record allocations with Memray in an adjacent `.memray.bin` file (requires `scope-profiler[memray]`) |
 | `--buffer-limit`     | Initial buffer capacity per region; grows as needed (default: 1024)     |
 
 ```bash

@@ -1394,6 +1394,10 @@ class ProfileManager:
         # the run's data.
         config.metadata["finalize_time_ns"] = perf_counter_ns()
 
+        # End the process-wide allocation capture before finalization itself
+        # allocates buffers, writes HDF5, or gathers MPI payloads.
+        config.stop_memory_profiling()
+
         if config.deactivate_profiling:
             if return_results:
                 from scope_profiler.results import ProfilingResults
@@ -1527,6 +1531,10 @@ class ProfileManager:
             results.print_summary(
                 title=f"{results.display_label} (in memory, {size} {rank_label})"
             )
+
+        if verbose and rank == 0 and config.memory_profile_path is not None:
+            rank_note = " (one capture per rank)" if size > 1 else ""
+            print(f"\nwrote Memray allocation profile to {config.memory_profile_path}{rank_note}")
 
         if config.use_line_profiler and verbose_line_profiler:
             for region in cls.get_all_regions().values():
@@ -1698,6 +1706,11 @@ class ProfileManager:
         use_likwid: bool | None = None,
         perf_events: list[str] | tuple[str, ...] | str | None = None,
         use_line_profiler: bool | None = None,
+        use_memray: bool | None = None,
+        memory_profile_path: str | None = None,
+        memray_native_traces: bool | None = None,
+        memray_trace_python_allocators: bool | None = None,
+        memray_follow_fork: bool | None = None,
         deactivate_profiling: bool | None = None,
         use_nvtx: bool | None = None,
         use_gpu_timing: bool | None = None,
@@ -1748,6 +1761,15 @@ class ProfileManager:
             Enable LIKWID hardware counter collection (default: False).
         use_line_profiler : bool, optional
             Enable line-by-line profiling via line_profiler (default: False).
+        use_memray : bool, optional
+            Record process-wide allocations with Memray (default: False).
+            The capture is a separate Memray ``.bin`` file and requires
+            ``scope-profiler[memray]``.
+        memory_profile_path : str, optional
+            Memray capture path (default: ``<file-stem>.memray.bin``).
+        memray_native_traces, memray_trace_python_allocators, memray_follow_fork : bool, optional
+            Memray capture options. Python allocator tracing can create much
+            larger traces and has materially higher overhead.
         deactivate_profiling : bool, optional
             Turn profiling off entirely (default: False). Every region
             becomes a no-op, so the instrumentation can stay in the code at
@@ -1857,6 +1879,11 @@ class ProfileManager:
             "use_likwid": False,
             "perf_events": None,
             "use_line_profiler": False,
+            "use_memray": False,
+            "memory_profile_path": None,
+            "memray_native_traces": False,
+            "memray_trace_python_allocators": False,
+            "memray_follow_fork": False,
             "deactivate_profiling": False,
             "use_nvtx": False,
             "use_gpu_timing": False,
@@ -1883,6 +1910,11 @@ class ProfileManager:
             "use_likwid": use_likwid,
             "perf_events": perf_events,
             "use_line_profiler": use_line_profiler,
+            "use_memray": use_memray,
+            "memory_profile_path": memory_profile_path,
+            "memray_native_traces": memray_native_traces,
+            "memray_trace_python_allocators": memray_trace_python_allocators,
+            "memray_follow_fork": memray_follow_fork,
             "deactivate_profiling": deactivate_profiling,
             "use_nvtx": use_nvtx,
             "use_gpu_timing": use_gpu_timing,
@@ -1903,6 +1935,10 @@ class ProfileManager:
             {key: value for key, value in explicit.items() if value is not None}
         )
 
+        # Memray permits exactly one active tracker per process. A new setup
+        # starts a new run, so close the prior run's capture first.
+        if cls._config is not None:
+            cls._config.stop_memory_profiling()
         ProfilingConfig.reset()
         config = ProfilingConfig(
             **settings,
@@ -1968,6 +2004,8 @@ class ProfileManager:
         previous = cls._config
         if previous is not None and previous.tracker is not None:
             previous.tracker.uninstall()
+        if previous is not None:
+            previous.stop_memory_profiling()
         cls._config = config  # Update the config
         if config.tracker is not None:
             config.tracker.install()
@@ -2021,6 +2059,8 @@ class ProfileManager:
         ProfilingConfig.reset()
         if cls._config is not None and cls._config.tracker is not None:
             cls._config.tracker.uninstall()
+        if cls._config is not None:
+            cls._config.stop_memory_profiling()
         cls._config = None
 
     @classmethod

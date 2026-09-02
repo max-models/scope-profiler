@@ -52,6 +52,10 @@ optional-dependencies.line-profiler = [
   "line-profiler",
 ]
 
+optional-dependencies.memray = [
+  "memray",
+]
+
 optional-dependencies.nvtx = [
   "nvtx",
 ]
@@ -95,7 +99,7 @@ optional-dependencies.dev = [
   "ruff >= 0.16, < 0.17",
   # `graph` included: the pyvis callgraph backend is a shipped output format,
   # so CI has to be able to render it rather than skipping its tests.
-  "scope-profiler[docs,fortran,graph,line-profiler,mcp,mpi,notebook,nvtx,pproc,test,tui]",
+  "scope-profiler[docs,fortran,graph,line-profiler,mcp,memray,mpi,notebook,nvtx,pproc,test,tui]",
 ]
 # https://medium.com/@pratikdomadiya123/build-project-documentation-quickly-with-the-sphinx-python-2a9732b66594
 optional-dependencies.docs = [
