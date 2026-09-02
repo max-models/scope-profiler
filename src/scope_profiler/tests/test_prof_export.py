@@ -225,9 +225,7 @@ def test_build_pstats_dict_splits_callers_of_one_aggregated_region():
 
 @pytest.mark.parametrize("call_paths", [True, False])
 @pytest.mark.parametrize("root_name", ["<run>", None])
-def test_build_pstats_dict_holds_the_invariants_pstats_relies_on(
-    call_paths, root_name
-):
+def test_build_pstats_dict_holds_the_invariants_pstats_relies_on(call_paths, root_name):
     """No dangling callers, and counts/times that pstats can render.
 
     Every key named as a caller must also be an entry of its own: pstats'
