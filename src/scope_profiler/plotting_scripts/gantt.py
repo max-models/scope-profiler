@@ -244,7 +244,16 @@ def plot_gantt(
                                     "end_seconds": end - first_start_time,
                                 }
                             )
-            _write_json(data_filepath, {"intervals": intervals, "colors": colors})
+            _write_json(
+                data_filepath,
+                {
+                    "format": "scope-profiler-plot-data",
+                    "format_version": 1,
+                    "plot": "gantt",
+                    "intervals": intervals,
+                    "colors": colors,
+                },
+            )
         else:
             rows = []
             for label, (_, regions, selected_ranks, first_start_time) in zip(

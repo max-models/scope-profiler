@@ -675,7 +675,15 @@ def plot_durations(
                 }
             _write_json(
                 data_filepath,
-                {"bars": bars, "colors": colors_map, "metrics": metric_keys},
+                {
+                    "format": "scope-profiler-plot-data",
+                    "format_version": 1,
+                    "plot": "durations",
+                    "bars": bars,
+                    "colors": colors_map,
+                    "metrics": metric_keys,
+                    "options": {"stack_children": stack_children},
+                },
             )
         else:
             header = ["file", "region", "metric", "value_seconds"]

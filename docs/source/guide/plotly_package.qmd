@@ -1,0 +1,140 @@
+# Plotly figures for the web
+
+`@scope-profiler/plotly` is the browser-facing companion to
+`scope-profiler export plot-data --format json`. It builds plain Plotly figure
+specifications from the exported JSON, without importing Plotly itself. That
+makes it suitable for static sites and any JavaScript framework.
+
+## Install
+
+Install the figure builders plus the Plotly bundle your application wants to
+use:
+
+```sh
+npm install @scope-profiler/plotly plotly.js-dist-min
+```
+
+Then fetch a JSON payload and render it with your own Plotly instance:
+
+```js
+import Plotly from "plotly.js-dist-min";
+import { buildGanttFigure, renderFigure } from "@scope-profiler/plotly";
+
+const payload = await fetch("/figures/gantt_data.json").then((response) => response.json());
+const figure = buildGanttFigure(payload);
+await renderFigure(Plotly, document.querySelector("#gantt"), figure);
+```
+
+## Live examples
+
+The figures below are built by the published npm package in this page. Each
+uses the same shape of payload that `scope-profiler export plot-data --format
+json` writes.
+
+```{=html}
+<div style="display: grid; gap: 1.5rem; margin: 1rem 0;">
+  <div><strong>Gantt — calls across two MPI ranks</strong><div id="scope-plotly-gantt" style="min-height: 290px;"></div></div>
+  <div><strong>Durations — compare regions between runs</strong><div id="scope-plotly-durations" style="min-height: 350px;"></div></div>
+  <div><strong>Flame — nested calls</strong><div id="scope-plotly-flame" style="min-height: 440px;"></div></div>
+  <div><strong>Speedup — region scaling</strong><div id="scope-plotly-speedup" style="min-height: 390px;"></div></div>
+  <div><strong>Duration time series — performance drift</strong><div id="scope-plotly-timeseries" style="min-height: 390px;"></div></div>
+  <div><strong>Histogram — call-duration distribution</strong><div id="scope-plotly-histogram" style="min-height: 380px;"></div></div>
+  <div><strong>Rank heatmap — duration by region and rank</strong><div id="scope-plotly-heatmap" style="min-height: 340px;"></div></div>
+  <div><strong>Imbalance — per-rank duration</strong><div id="scope-plotly-imbalance" style="min-height: 390px;"></div></div>
+</div>
+<script src="https://cdn.plot.ly/plotly-3.7.0.min.js"></script>
+<script type="module">
+  const packageUrl = "../_static/plotly/index.js";
+  const { buildGanttFigure, buildDurationsFigure, buildFlameFigure, buildSpeedupFigure, buildDurationTimeseriesFigure, buildHistogramFigure, buildRankHeatmapFigure, buildImbalanceFigure, renderFigure } = await import(packageUrl);
+  const render = (id, figure) => renderFigure(window.Plotly, document.getElementById(id), figure);
+  await render("scope-plotly-gantt", buildGanttFigure({
+    colors: { setup: "#2a78d6", solve: "#eb6834", exchange: "#1baf7a" },
+    intervals: [
+      { file: "run", rank: 0, region: "setup", start_seconds: 0, end_seconds: 0.7 },
+      { file: "run", rank: 0, region: "solve", start_seconds: 0.8, end_seconds: 2.8 },
+      { file: "run", rank: 0, region: "exchange", start_seconds: 2.9, end_seconds: 3.4 },
+      { file: "run", rank: 1, region: "setup", start_seconds: 0, end_seconds: 0.6 },
+      { file: "run", rank: 1, region: "solve", start_seconds: 0.7, end_seconds: 2.5 },
+      { file: "run", rank: 1, region: "exchange", start_seconds: 2.6, end_seconds: 3.3 },
+    ],
+  }));
+  await render("scope-plotly-durations", buildDurationsFigure({
+    metrics: ["total"], colors: { "1 rank": "#2a78d6", "4 ranks": "#eb6834" },
+    bars: [
+      { file: "1 rank", region: "setup", metric: "total", value_seconds: 0.7 },
+      { file: "1 rank", region: "solve", metric: "total", value_seconds: 5.2 },
+      { file: "1 rank", region: "exchange", metric: "total", value_seconds: 1.4 },
+      { file: "4 ranks", region: "setup", metric: "total", value_seconds: 0.8 },
+      { file: "4 ranks", region: "solve", metric: "total", value_seconds: 1.6 },
+      { file: "4 ranks", region: "exchange", metric: "total", value_seconds: 0.5 },
+    ],
+  }));
+  await render("scope-plotly-flame", buildFlameFigure({
+    colors: { timestep: "#2a78d6", assemble: "#1baf7a", solve: "#eb6834" },
+    calls: [
+      { file: "run", rank: 0, call_id: 1, parent_call_id: null, region: "timestep", start_seconds: 0, end_seconds: 4, inclusive_duration_seconds: 4 },
+      { file: "run", rank: 0, call_id: 2, parent_call_id: 1, region: "assemble", start_seconds: 0.2, end_seconds: 1.1, inclusive_duration_seconds: 0.9 },
+      { file: "run", rank: 0, call_id: 3, parent_call_id: 1, region: "solve", start_seconds: 1.2, end_seconds: 3.8, inclusive_duration_seconds: 2.6 },
+    ],
+  }));
+  await render("scope-plotly-speedup", buildSpeedupFigure({
+    colors: { solve: "#eb6834", exchange: "#1baf7a" },
+    options: { x_field: "num_ranks", x_label: "MPI ranks", baseline: 1 },
+    points: [
+      { region: "solve", num_ranks: 1, speedup: 1 }, { region: "solve", num_ranks: 2, speedup: 1.9 }, { region: "solve", num_ranks: 4, speedup: 3.5 },
+      { region: "exchange", num_ranks: 1, speedup: 1 }, { region: "exchange", num_ranks: 2, speedup: 1.7 }, { region: "exchange", num_ranks: 4, speedup: 2.6 },
+    ],
+  }));
+  await render("scope-plotly-timeseries", buildDurationTimeseriesFigure({
+    colors: { solve: "#eb6834", exchange: "#1baf7a" },
+    points: [
+      { region: "solve", call_index: 0, time_seconds: 1, mean_duration_seconds: 0.42, min_duration_seconds: 0.39, max_duration_seconds: 0.45 },
+      { region: "solve", call_index: 1, time_seconds: 2, mean_duration_seconds: 0.47, min_duration_seconds: 0.43, max_duration_seconds: 0.50 },
+      { region: "solve", call_index: 2, time_seconds: 3, mean_duration_seconds: 0.54, min_duration_seconds: 0.50, max_duration_seconds: 0.58 },
+      { region: "exchange", call_index: 0, time_seconds: 1, mean_duration_seconds: 0.11, min_duration_seconds: 0.09, max_duration_seconds: 0.13 },
+      { region: "exchange", call_index: 1, time_seconds: 2, mean_duration_seconds: 0.13, min_duration_seconds: 0.11, max_duration_seconds: 0.15 },
+      { region: "exchange", call_index: 2, time_seconds: 3, mean_duration_seconds: 0.16, min_duration_seconds: 0.14, max_duration_seconds: 0.18 },
+    ],
+  }));
+  await render("scope-plotly-histogram", buildHistogramFigure({
+    colors: { solve: "#eb6834", exchange: "#1baf7a" },
+    bins: [
+      { region: "solve", bin_low_seconds: 0.3, bin_center_seconds: 0.35, bin_high_seconds: 0.4, count: 2 },
+      { region: "solve", bin_low_seconds: 0.4, bin_center_seconds: 0.45, bin_high_seconds: 0.5, count: 7 },
+      { region: "solve", bin_low_seconds: 0.5, bin_center_seconds: 0.55, bin_high_seconds: 0.6, count: 4 },
+      { region: "exchange", bin_low_seconds: 0.1, bin_center_seconds: 0.15, bin_high_seconds: 0.2, count: 9 },
+      { region: "exchange", bin_low_seconds: 0.2, bin_center_seconds: 0.25, bin_high_seconds: 0.3, count: 3 },
+    ],
+  }));
+  await render("scope-plotly-heatmap", buildRankHeatmapFigure({
+    points: [
+      { rank: 0, region: "setup", total_duration_seconds: 0.7 }, { rank: 0, region: "solve", total_duration_seconds: 2.0 }, { rank: 0, region: "exchange", total_duration_seconds: 0.4 },
+      { rank: 1, region: "setup", total_duration_seconds: 0.8 }, { rank: 1, region: "solve", total_duration_seconds: 2.4 }, { rank: 1, region: "exchange", total_duration_seconds: 0.5 },
+      { rank: 2, region: "setup", total_duration_seconds: 0.7 }, { rank: 2, region: "solve", total_duration_seconds: 2.1 }, { rank: 2, region: "exchange", total_duration_seconds: 0.4 },
+    ],
+  }));
+  await render("scope-plotly-imbalance", buildImbalanceFigure({
+    metric: "total", colors: { solve: "#eb6834", exchange: "#1baf7a" },
+    points: [
+      { region: "solve", rank: 0, value_seconds: 2.0, mean_over_ranks_seconds: 2.2 }, { region: "solve", rank: 1, value_seconds: 2.6, mean_over_ranks_seconds: 2.2 }, { region: "solve", rank: 2, value_seconds: 2.0, mean_over_ranks_seconds: 2.2 },
+      { region: "exchange", rank: 0, value_seconds: 0.4, mean_over_ranks_seconds: 0.5 }, { region: "exchange", rank: 1, value_seconds: 0.6, mean_over_ranks_seconds: 0.5 }, { region: "exchange", rank: 2, value_seconds: 0.5, mean_over_ranks_seconds: 0.5 },
+    ],
+  }));
+</script>
+```
+
+## Builders
+
+| Builder | Input payload | Use case |
+| --- | --- | --- |
+| `buildGanttFigure(payload)` | `gantt_data.json` | Timeline of every call, lane by file and rank |
+| `buildFlameFigure(payload)` | `flame_data.json` | Nested call hierarchy |
+| `buildDurationsFigure(payload, { metric })` | `durations_data.json` | Per-region duration bars |
+| `buildSpeedupFigure(payload)` | `speedup_data.json` | Scaling curves |
+| `buildDurationTimeseriesFigure(payload)` | `duration_timeseries_data.json` | Duration drift over time |
+| `buildHistogramFigure(payload)` | `histogram_data.json` | Call-duration distribution |
+| `buildRankHeatmapFigure(payload)` | `rank_heatmap_data.json` | Rank × region duration matrix |
+| `buildImbalanceFigure(payload)` | `imbalance_data.json` | Per-rank duration imbalance |
+
+Use `renderFigure(Plotly, element, figure)` as a convenience, or pass
+`figure.data` and `figure.layout` to `Plotly.newPlot` directly.

@@ -69,6 +69,7 @@ guide/regions
 guide/concurrency
 guide/hdf5_and_python_api
 guide/plot_cli
+guide/plotly_package
 guide/mcp
 guide/notebook_magics
 guide/mpi

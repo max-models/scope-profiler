@@ -1,0 +1,21 @@
+{
+  "name": "@scope-profiler/plotly",
+  "version": "0.1.1",
+  "description": "Framework-neutral Plotly figure builders for scope-profiler plot-data JSON.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/max-models/scope-profiler.git"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": ["src", "README.md", "LICENSE.txt"],
+  "publishConfig": { "access": "public" },
+  "scripts": { "test": "node --test" },
+  "keywords": ["scope-profiler", "plotly", "profiling", "gantt", "flamegraph"]
+}
