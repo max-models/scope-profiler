@@ -440,18 +440,24 @@ selected with `-r/--ranks` are exported, default rank 0), prefixed with the
 input file's stem when several HDF5 files are passed. Regions become
 "functions", `cumtime` is a region's total wall time and `tottime` is that
 minus the time spent in its nested regions, with a synthetic
-`<file rank N>` frame as the root of the tree.
+`<file rank N>` frame as the root of the tree. Regions that captured a Python
+source location are keyed by it, so viewers link back to the source line.
 
 Since regions carry no call graph, the caller/callee relations are
 reconstructed from timestamp containment, exactly as the flame chart does. So:
 
-- Regions that only partially overlap (async work, threads) are attributed to
-  whichever region enclosed their start, and the enclosing region's `tottime`
-  is clamped at zero rather than going negative.
-- A region called from several places is merged into one entry, as pstats is
-  keyed by function rather than by call path; recursion is reported as
-  `2/1`-style call counts, like `cProfile`.
+- By default each distinct call path is its own entry, named `parent > child`,
+  so a region used below two different parents stays two nodes in the tree.
+  Pass `--no-call-paths` to merge every call of a region into one entry
+  instead, which is how pstats keys a real `cProfile` run; recursion is then
+  reported as `2/1`-style call counts, like `cProfile`.
+- Regions must nest: intervals that only partially overlap (async work,
+  threads) are rejected with a `NestingError` rather than being silently
+  attributed to whichever region enclosed their start.
 - LIKWID counters have no place in the `.prof` format and are left out.
+
+The same data is available in memory, without writing a file, through
+`scope_profiler.to_pstats()`, which returns a `pstats.Stats` per rank.
 
 ### Exporting to JSON
 

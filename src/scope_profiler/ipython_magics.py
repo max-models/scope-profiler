@@ -56,6 +56,8 @@ Eleven magics are registered:
     Export a previous run to a ``.prof`` (pstats/snakeviz) or speedscope
     JSON file via ``scope_profiler.prof_export``/``speedscope_export``.
     Format defaults to whatever ``filepath``'s extension implies.
+    ``--no-call-paths`` makes the ``.prof`` one entry per region instead of
+    one per ``parent > child`` call path.
 ``%scope_reset [name]``
     Drop one recorded run, or with no argument, every run recorded so far.
 
@@ -454,6 +456,11 @@ class ScopeMagics(Magics):
     )
     @argument("--include", default=None, help="regex selecting which regions to export")
     @argument("--exclude", default=None, help="regex selecting which regions to drop")
+    @argument(
+        "--no-call-paths",
+        action="store_true",
+        help="prof only: one entry per region instead of per 'parent > child' path",
+    )
     @line_magic("scope_export")
     def scope_export(self, line):
         """Export a previous run to a .prof or speedscope JSON file."""
@@ -474,6 +481,7 @@ class ScopeMagics(Magics):
                 args.filepath,
                 include=args.include,
                 exclude=args.exclude,
+                call_paths=not args.no_call_paths,
                 verbose=False,
             )
         else:

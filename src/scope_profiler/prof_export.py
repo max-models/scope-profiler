@@ -454,6 +454,8 @@ def export_prof(
         the exported pstats tree.  This makes SnakeViz distinguish same-named
         regions called below different parents. Set to ``False`` for a
         compact, name-aggregated export.
+    verbose : bool, optional
+        Print each file written, with the ``snakeviz`` command that opens it.
 
     Returns
     -------
