@@ -29,6 +29,14 @@
 
 ### Changed
 
+- A process forked out of an active `track_threads`/`track_async` session now
+  stands down: the thread, asyncio and greenlet hooks are removed in the child
+  and the inherited lane tables dropped, since nothing in the child will ever
+  finalize that run. Without it a forked worker running an event loop
+  accumulated a task record per task for its whole life. The child tracks
+  again as soon as it opens a session of its own, which is how a
+  multiprocessing worker is meant to be profiled -- one run, one file, per
+  process.
 - `export_speedscope` writes one profile per lane -- named after its thread or
   task -- rather than one per rank, and `call_stack.split_by_lane()` exposes
   the same split. An evented speedscope profile's timestamps must not go

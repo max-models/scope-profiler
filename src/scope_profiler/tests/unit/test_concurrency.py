@@ -223,3 +223,44 @@ def test_uninstall_is_safe_without_greenlet_or_asyncio():
     tracker.uninstall()
 
     assert tracker.threads == []
+
+
+def test_standing_down_after_a_fork_drops_the_inherited_registries():
+    """What the child of a fork does, exercised without forking.
+
+    The forked child runs this through ``os.register_at_fork``; calling it
+    directly is what makes the behaviour assertable, since a child that leaves
+    through ``os._exit`` reports nothing back.
+    """
+    from scope_profiler.concurrency import _LIVE_TRACKERS, _stand_down_after_fork
+
+    stock_create_task = asyncio.BaseEventLoop.create_task
+    tracker = ConcurrencyTracker(track_async=True)
+    tracker.install()
+    tracker.current_thread()
+    tracker._new_task("task", "Task-1", "job")
+    assert tracker in _LIVE_TRACKERS
+    inherited_lock = tracker._lock
+
+    _stand_down_after_fork()
+
+    assert tracker.threads == []
+    assert tracker.tasks == []
+    # A fresh lock: the inherited one may have been held by a thread that did
+    # not survive the fork.
+    assert tracker._lock is not inherited_lock
+    assert asyncio.BaseEventLoop.create_task is stock_create_task
+    assert tracker not in _LIVE_TRACKERS
+    # Standing down twice is harmless, and so is a fork with nothing installed.
+    _stand_down_after_fork()
+    assert tracker.tasks == []
+
+
+def test_a_tracker_that_never_installed_is_not_touched_by_a_fork():
+    from scope_profiler.concurrency import _LIVE_TRACKERS
+
+    tracker = ConcurrencyTracker()
+    tracker.current_thread()
+
+    assert tracker not in _LIVE_TRACKERS
+    assert len(tracker.threads) == 1

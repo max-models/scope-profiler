@@ -31,6 +31,7 @@ default single-lane path is untouched, hot loop included.
 
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import weakref
@@ -397,6 +398,7 @@ class ConcurrencyTracker:
         if self._installed:
             return
         self._installed = True
+        _LIVE_TRACKERS.add(self)
         self._install_thread_hook()
         if self.track_async:
             self._install_asyncio()
@@ -407,9 +409,36 @@ class ConcurrencyTracker:
         if not self._installed:
             return
         self._installed = False
+        _LIVE_TRACKERS.discard(self)
         self._uninstall_thread_hook()
         self._uninstall_asyncio()
         self._uninstall_greenlet()
+
+    def _adopt_fork(self) -> None:
+        """Stand down in a process forked out of someone else's session.
+
+        The child inherited this tracker, its hooks and its registries, but
+        not the session that opened them: nothing in the child will ever
+        finalize this run, so left alone the hooks would go on appending a
+        record per thread and per task to a table no one reads, for as long
+        as the child lives. A forked worker running an event loop is exactly
+        that shape.
+
+        The child therefore starts untracked, and profiles concurrency only
+        once it calls ``setup()`` for itself -- which is the supported way to
+        profile a multiprocessing worker in any case, since each process
+        writes its own output file.
+
+        The registries are replaced rather than cleared: they describe the
+        parent's threads, which do not exist here, and the lock guarding them
+        may have been held by a thread that did not survive the fork.
+        """
+        self._lock = threading.Lock()
+        self._local = threading.local()
+        self._threads = []
+        self._tasks = []
+        self._greenlet_records = weakref.WeakKeyDictionary()
+        self.uninstall()
 
     # -- threads --------------------------------------------------------
     def _install_thread_hook(self) -> None:
@@ -640,6 +669,23 @@ class ConcurrencyTracker:
                 ),
             },
         }
+
+
+# Trackers with hooks currently installed, so a fork can find them from the
+# one handler this module is allowed to register (``register_at_fork`` has no
+# matching unregister, so it must not be called per tracker). Weak, so a
+# tracker that is dropped without being uninstalled does not leak.
+_LIVE_TRACKERS: weakref.WeakSet = weakref.WeakSet()
+
+
+def _stand_down_after_fork() -> None:
+    """Detach every installed tracker in a freshly forked child."""
+    for tracker in list(_LIVE_TRACKERS):
+        tracker._adopt_fork()
+
+
+if hasattr(os, "register_at_fork"):  # POSIX only; there is no fork elsewhere
+    os.register_at_fork(after_in_child=_stand_down_after_fork)
 
 
 def lane_ids(thread_ids: np.ndarray, task_ids: np.ndarray | None) -> np.ndarray:

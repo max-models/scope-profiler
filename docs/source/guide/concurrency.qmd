@@ -158,6 +158,41 @@ call tree produce exactly that.
 `call_stack.split_by_lane()` is the same split, for building your own
 per-thread view.
 
+## Multiprocessing
+
+Threads and tasks share an interpreter; processes do not. There is no
+cross-process merge --- that is what the MPI path is for --- so **each process
+profiles itself, into a file of its own**:
+
+```python
+def worker(index):
+    manager = ProfileManager()
+    with manager.session(file_path=f"worker_{index}.h5", track_threads=True):
+        ...
+
+with multiprocessing.Pool(4) as pool:
+    pool.map(worker, range(4))
+```
+
+That works under every start method. Give each worker a distinct `file_path`:
+the default is the same name in every process, so they would overwrite one
+another.
+
+Under `fork`, a child inherits the parent's profiling state along with
+everything else — its regions, their buffered events, and, if a session was
+open at the fork, its thread and asyncio hooks. Two consequences:
+
+* A child forked out of an *active* session **stands down**: the hooks come
+  out, and the inherited thread and task tables are dropped. Otherwise the
+  child would go on appending a record per thread and per task to a table
+  nothing in the child ever finalizes — unbounded, for a long-lived forked
+  worker running an event loop. The child tracks concurrency again as soon as
+  it calls `setup()` for itself, which is the pattern above.
+* The inherited *region buffers* are not dropped, so calling `finalize()` in
+  the child on the **parent's** manager reports the parent's pre-fork events
+  as well as the child's. This predates lane tracking and is unchanged by it.
+  Open a session in the child instead of finalizing the parent's.
+
 ## Lifetime of the hooks
 
 `session()` installs the hooks at entry and removes them at exit. With the
