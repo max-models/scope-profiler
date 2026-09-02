@@ -7,6 +7,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from scope_profiler.chrome_trace_export import export_chrome_trace
 from scope_profiler.plotting_scripts import (
     DEFAULT_CMAP,
     FLAME_CMAP,
@@ -29,7 +30,6 @@ from scope_profiler.plotting_scripts import (
 )
 from scope_profiler.prof_export import export_prof
 from scope_profiler.profile_io import read_profile
-from scope_profiler.chrome_trace_export import export_chrome_trace
 from scope_profiler.speedscope_export import export_speedscope
 
 # Single source of truth for --plots: name -> (one-line description, is a
