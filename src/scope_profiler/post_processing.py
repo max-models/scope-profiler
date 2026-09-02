@@ -476,6 +476,15 @@ def build_export_parser() -> argparse.ArgumentParser:
         export_parser = subparsers.add_parser(kind, help=description)
         export_parser.set_defaults(export_kind=kind)
         _add_common_export_args(export_parser)
+        if kind == "prof":
+            export_parser.add_argument(
+                "--no-call-paths",
+                action="store_true",
+                help=(
+                    "Aggregate every call of a region into one entry, instead "
+                    "of keeping 'parent > child' paths apart."
+                ),
+            )
         if kind == "json":
             export_parser.add_argument(
                 "--gzip",
@@ -1194,6 +1203,7 @@ def export_main(argv: list[str] | None = None):
             ranks=args.ranks,
             include=args.include,
             exclude=args.exclude,
+            call_paths=not args.no_call_paths,
             verbose=False,
         )
         saved.extend(str(path) for path in prof_paths)

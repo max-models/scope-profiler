@@ -278,6 +278,10 @@ couple of seconds instead of a couple of minutes.
 .. autofunction:: scope_profiler.speedscope_export.export_speedscope
 .. autofunction:: scope_profiler.chrome_trace_export.export_chrome_trace
 .. autofunction:: scope_profiler.prof_export.export_prof
+.. autofunction:: scope_profiler.prof_export.to_pstats
+.. autofunction:: scope_profiler.prof_export.build_pstats
+.. autofunction:: scope_profiler.prof_export.load_prof
+.. autoclass:: scope_profiler.prof_export.ScopeProfile
 .. autofunction:: scope_profiler.json_export.export_json
    :no-index:
 ```
