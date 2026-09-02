@@ -77,7 +77,7 @@ def _floats(values) -> list:
 
 def _float_column(values, shape=None) -> np.ndarray:
     """Rebuild a float array written by :func:`_floats`."""
-    array = np.asarray(
+    array: np.ndarray = np.asarray(
         [math.nan if value is None else float(value) for value in _flatten(values)],
         dtype=float,
     )
