@@ -48,6 +48,18 @@ behavior.
 | --------------------- | ------ | --------------------- | ----------------------------------------------------------------------------------------------- |
 | `deactivate_profiling`| `bool` | `False`               | Master switch. When `True`, all regions become no-ops with near-zero cost.                      |
 | `use_likwid`          | `bool` | `False`               | Wrap regions with LIKWID marker API calls for hardware counter collection. Requires `pylikwid`. |
+| `perf_events`         | `list[str]` or `None` | `None` | Collect selected Linux `perf_event_open` counts per region. |
+
+For the richer counter backend, install `scope-profiler[perf-events]`. It uses
+`py-perf-event` when every selected event is supported by that package and
+falls back to the built-in Linux syscall backend otherwise. Both routes remain
+subject to the host's `perf_event_paranoid` policy.
+
+If a host reports permission denied, an administrator can grant normal users
+access for the current boot with `sudo sysctl -w kernel.perf_event_paranoid=1`.
+Run the profiled program as its ordinary user afterwards; `sudo python` uses a
+separate Python environment and commonly cannot import the project or its
+optional dependencies.
 | `use_line_profiler`   | `bool` | `False`               | Enable line-by-line profiling via `line_profiler`. See {doc}`line_profiler`.                    |
 | `use_nvtx`            | `bool` | `False`               | Add NVTX ranges for NVIDIA Nsight tools; requires `scope-profiler[nvtx]`.                       |
 | `recursive_profile`   | `bool` | `False`               | Enable recursive nested-call profiling for all decorated functions by default.                    |

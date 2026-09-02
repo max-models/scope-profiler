@@ -26,6 +26,7 @@ _CONFIG_FIELDS = {
     "deactivate_profiling",
     "deactivate_file_output",
     "use_likwid",
+    "perf_events",
     "use_line_profiler",
     "use_nvtx",
     "use_gpu_timing",
@@ -107,6 +108,8 @@ class ProfilingOptions:
         post-processing step.
     use_likwid : bool or None
         Enable LIKWID hardware counter collection (default: False).
+    perf_events : sequence of str or None
+        Linux ``perf_event_open`` events to collect per region (default: None).
     use_line_profiler : bool or None
         Enable line-by-line profiling via line_profiler (default: False).
     deactivate_profiling : bool or None
@@ -178,6 +181,7 @@ class ProfilingOptions:
     file_path: str | None = None
     label: str | None = None
     use_likwid: bool | None = None
+    perf_events: list[str] | tuple[str, ...] | str | None = None
     use_line_profiler: bool | None = None
     deactivate_profiling: bool | None = None
     use_nvtx: bool | None = None
@@ -356,6 +360,7 @@ class ProfilingConfig:
         file_path: str = "profiling_data.h5",
         label: str | None = None,
         use_likwid: bool = False,
+        perf_events: list[str] | tuple[str, ...] | str | None = None,
         use_line_profiler: bool = False,
         deactivate_profiling: bool = False,
         use_nvtx: bool = False,
@@ -473,6 +478,9 @@ class ProfilingConfig:
         self._paused = False
         self._deactivate_file_output = deactivate_file_output
         self._use_likwid = use_likwid
+        from scope_profiler.perf_events import validate_events
+
+        self._perf_events = validate_events(perf_events) if perf_events is not None else ()
         self._use_line_profiler = use_line_profiler
         self._use_nvtx = use_nvtx
         self._use_gpu_timing = use_gpu_timing
@@ -525,10 +533,10 @@ class ProfilingConfig:
         self._hdf5_chunk_size = hdf5_chunk_size
         self._capture_region_source = capture_region_source
         if aggregation_mode and (
-            use_line_profiler or use_gpu_timing or use_likwid or use_nvtx
+            use_line_profiler or use_gpu_timing or use_likwid or use_nvtx or self._perf_events
         ):
             raise ValueError(
-                "aggregation_mode cannot be combined with line, GPU, NVTX, or LIKWID timing"
+                "aggregation_mode cannot be combined with line, GPU, NVTX, LIKWID, or perf events"
             )
         self._aggregation_mode = aggregation_mode
 
@@ -540,12 +548,13 @@ class ProfilingConfig:
             use_line_profiler
             or use_gpu_timing
             or use_likwid
+            or self._perf_events
             or use_nvtx
             or aggregation_mode
         ):
             raise ValueError(
                 "track_threads/track_async cannot be combined with line, GPU, "
-                "NVTX, LIKWID, or aggregation profiling"
+                "NVTX, LIKWID, perf events, or aggregation profiling"
             )
         self._track_threads = track_threads
         self._track_async = bool(track_async)
@@ -726,6 +735,11 @@ class ProfilingConfig:
     def use_likwid(self) -> bool:
         """Return whether LIKWID profiling is enabled."""
         return self._use_likwid
+
+    @property
+    def perf_events(self) -> tuple[str, ...]:
+        """Requested Linux perf event names, or an empty tuple when disabled."""
+        return self._perf_events
 
     @property
     def use_line_profiler(self) -> bool:

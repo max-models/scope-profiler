@@ -44,6 +44,10 @@ optional-dependencies.likwid = [
   "pylikwid",
 ]
 
+optional-dependencies.perf-events = [
+  "py-perf-event>=0.3.1",
+]
+
 optional-dependencies.line-profiler = [
   "line-profiler",
 ]
