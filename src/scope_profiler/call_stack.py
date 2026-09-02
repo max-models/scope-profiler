@@ -35,7 +35,6 @@ import numpy as np
 
 from scope_profiler.concurrency import lane_ids
 
-
 # Lane column of a result reconstructed without one: a single stack per rank.
 _NO_LANE: np.ndarray = np.full(0, -1, dtype=np.int64)
 _NO_LANE.flags.writeable = False
