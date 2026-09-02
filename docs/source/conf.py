@@ -5,6 +5,8 @@
 
 import os
 import shutil
+
+
 def copy_tutorials(app):
     confdir = os.path.dirname(os.path.abspath(__file__))
     src = os.path.join(confdir, "..", "..", "tutorials")
