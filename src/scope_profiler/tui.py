@@ -22,7 +22,6 @@ from urllib.parse import quote
 import h5py
 import numpy as np
 
-from scope_profiler.profile_io import FORMAT_HDF5, profile_format, read_profile
 from scope_profiler.inspection import _metadata_sections, _time_span
 from scope_profiler.line_profile_cli import _line_profile_rows
 from scope_profiler.plotting_scripts import (
@@ -40,6 +39,7 @@ from scope_profiler.plotting_scripts import (
 )
 from scope_profiler.post_processing import parse_ranks
 from scope_profiler.prof_export import export_prof
+from scope_profiler.profile_io import FORMAT_HDF5, profile_format, read_profile
 from scope_profiler.summary import region_row, region_rows
 
 _PLOT_CATALOG = {

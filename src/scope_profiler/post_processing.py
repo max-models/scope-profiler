@@ -7,7 +7,6 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from scope_profiler.profile_io import read_profile
 from scope_profiler.plotting_scripts import (
     DEFAULT_CMAP,
     FLAME_CMAP,
@@ -28,6 +27,7 @@ from scope_profiler.plotting_scripts import (
     write_region_statistics_json,
 )
 from scope_profiler.prof_export import export_prof
+from scope_profiler.profile_io import read_profile
 from scope_profiler.speedscope_export import export_speedscope
 
 # Single source of truth for --plots: name -> (one-line description, is a
@@ -717,9 +717,7 @@ def _render_selected_plots(
     ext = (
         "html"
         if getattr(args, "backend", "matplotlib") in {"plotly", "pyvis"}
-        else "txt"
-        if getattr(args, "backend", "matplotlib") == "plotext"
-        else "png"
+        else "txt" if getattr(args, "backend", "matplotlib") == "plotext" else "png"
     )
     options = _plot_options(args, "")
     saved: list[str] = []

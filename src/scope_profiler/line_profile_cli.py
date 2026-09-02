@@ -9,8 +9,8 @@ from io import StringIO
 
 from tabulate import tabulate
 
-from scope_profiler.profile_io import read_profile
 from scope_profiler.post_processing import parse_ranks
+from scope_profiler.profile_io import read_profile
 from scope_profiler.summary import _name_selected
 
 

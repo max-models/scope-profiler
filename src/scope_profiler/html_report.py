@@ -13,8 +13,8 @@ from pathlib import Path
 
 import numpy as np
 
-from scope_profiler.profile_io import read_profile
 from scope_profiler.inspection import _json_safe
+from scope_profiler.profile_io import read_profile
 from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import (
     _region_durations,
