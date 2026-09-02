@@ -264,3 +264,55 @@ def test_a_tracker_that_never_installed_is_not_touched_by_a_fork():
 
     assert tracker not in _LIVE_TRACKERS
     assert len(tracker.threads) == 1
+
+
+def test_the_thread_start_hook_registers_the_thread_and_removes_itself():
+    """What ``threading.setprofile`` calls on the first frame of a new thread.
+
+    Driven directly here: the real callback runs inside a thread being born,
+    where nothing can observe it. What matters is that it registers the
+    thread and then takes the profile function back out, so no profiling
+    overhead survives into the thread's actual work.
+    """
+    import sys
+
+    tracker = ConcurrencyTracker()
+    tracker.install()
+    try:
+        assert tracker.threads == []
+        assert tracker._thread_bootstrap(sys._getframe(), "call", None) is None
+        assert sys.getprofile() is None
+        assert [record.name for record in tracker.threads] == [
+            threading.current_thread().name
+        ]
+    finally:
+        sys.setprofile(None)
+        tracker.uninstall()
+
+
+def test_the_thread_start_hook_chains_to_a_profiler_that_was_already_there():
+    """An application profiling its own threads keeps its hook."""
+    import sys
+
+    seen = []
+
+    def previous(frame, event, arg):
+        seen.append(event)
+
+    threading.setprofile(previous)
+    tracker = ConcurrencyTracker()
+    tracker.install()
+    try:
+        tracker._thread_bootstrap(sys._getframe(), "call", None)
+        # Ours is gone; theirs is left running for the rest of the thread --
+        # which is why it has to come back out before anything else is
+        # asserted, or it keeps recording this test's own frames.
+        installed = sys.getprofile()
+        sys.setprofile(None)
+        assert installed is previous
+        assert seen[0] == "call"
+        assert len(tracker.threads) == 1
+    finally:
+        sys.setprofile(None)
+        tracker.uninstall()
+        threading.setprofile(None)

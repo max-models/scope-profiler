@@ -1394,8 +1394,13 @@ class ThreadedProfileRegion(BaseProfileRegion):
         return np.concatenate([lane.open_slots() for lane in lanes] or [_EMPTY_TIMES])
 
     def closed_slots(self):
-        """Not meaningful per lane; :meth:`snapshot_arrays` applies the mask."""
-        return None
+        """Not meaningful per lane; :meth:`snapshot_arrays` applies the mask.
+
+        None, as the base class means it: every slot qualifies, and there is
+        no mask for a caller to apply. A threaded region keeps no buffers of
+        its own, so there is nothing here to mask in the first place.
+        """
+        return
 
     def mark_written(self) -> None:
         """Rewind every lane, keeping calls that are still running."""

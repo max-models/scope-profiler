@@ -308,10 +308,14 @@ class ScopeMagics(Magics):
                 # machinery is itself Python code, so formatting it inside the
                 # traced window would bury the cell's profile under a million
                 # regions from ultratb/stack_data/executing.
-                etype, evalue, tb = sys.exc_info()
-                # Drop this method's frame, so what the user sees starts at
-                # their own cell rather than at the exec() call below.
-                exc_info = (etype, evalue, tb.tb_next if tb is not None else tb)
+                # Kept whole. What the user sees still starts at their own
+                # cell rather than at the exec() below, because
+                # showtraceback() renders through InteractiveTB, whose
+                # tb_offset is 1 -- it drops the outermost frame itself, and
+                # here that frame is this method. Slicing it off first as
+                # well left the cell's frame nowhere to be seen: a traceback
+                # with the exception and no source at all.
+                exc_info = sys.exc_info()
             finally:
                 sys.setprofile(prev_profiler)
         results = run.results

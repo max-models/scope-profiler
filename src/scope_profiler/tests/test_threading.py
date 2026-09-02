@@ -565,3 +565,71 @@ def test_an_untracked_run_builds_no_lane_column(tmp_path):
     assert arrays.depth.max() == 2
     calls = run.results.call_stack(rank=0)
     assert {call["lane"] for call in calls} == {-1}
+
+
+def test_a_call_open_across_finalize_is_reported_once_when_it_ends(tmp_path):
+    """A thread still inside a region when finalize() runs keeps its slot.
+
+    Its lane rewinds onto that one call rather than re-reporting the calls
+    that finished before it, so the run that eventually collects it counts it
+    exactly once.
+    """
+    manager = ProfileManager()
+    manager.setup(track_threads=True, file_path=str(tmp_path / "held.h5"))
+    entered = threading.Event()
+    release = threading.Event()
+
+    def hold():
+        with manager.profile_region("outer"):
+            entered.set()
+            release.wait(BARRIER_TIMEOUT)
+
+    holder = threading.Thread(target=hold, name="holder")
+    holder.start()
+    assert entered.wait(BARRIER_TIMEOUT)
+    for _ in range(2):
+        with manager.profile_region("outer"):
+            pass
+
+    first = manager.finalize(verbose=False, return_results=True)
+    release.set()
+    holder.join(BARRIER_TIMEOUT)
+    second = manager.finalize(verbose=False, return_results=True)
+
+    def thread_names(results):
+        table = {thread.index: thread.name for thread in results.threads[0]}
+        return [table[index] for index in results["outer"][0].thread_ids.tolist()]
+
+    # The two completed calls now, the held one only once it returned.
+    assert first["outer"][0].num_calls == 2
+    assert thread_names(first) == ["MainThread", "MainThread"]
+    assert second["outer"][0].num_calls == 1
+    assert thread_names(second) == ["holder"]
+    assert second["outer"][0].durations_ns[0] > 0
+    manager._reset()
+
+
+def test_a_lane_defers_when_an_open_slot_is_not_on_its_scope_stack():
+    """The fallback for a slot nothing can remap.
+
+    A scope entered while profiling was paused sits on the stack as ``-1``
+    without owning a slot, so the buffer cannot be rewound onto its open
+    calls. It stays put, and the slots already reported are recorded so the
+    next finalize() skips them instead of counting them twice.
+    """
+    from scope_profiler.region_profiler import _LaneBuffer
+
+    lane = _LaneBuffer(record=None, capacity=4, track_async=False)
+    lane.start_times[0], lane.end_times[0] = 10, 20  # a completed call
+    lane.start_times[1] = 30  # still running
+    lane.ptr = 2
+    lane.stack_slots.extend([-1, 1])  # a paused scope, then the open call
+    lane.stack_tasks.extend([-1, -1])
+
+    assert lane.mark_written() == 0  # nothing retired: the buffer stayed put
+    assert lane.ptr == 2
+    assert lane.emitted.tolist() == [True, False]
+    # The completed call is not offered a second time; the open one still is.
+    assert lane.closed_mask().tolist() == [False, False]
+    lane.end_times[1] = 40
+    assert lane.closed_mask().tolist() == [False, True]

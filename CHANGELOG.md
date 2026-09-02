@@ -48,6 +48,11 @@
 
 ### Fixed
 
+- `%%scope_recursive` reports a failing cell with its source again. The magic
+  sliced its own frame off the traceback before handing it to
+  `showtraceback()`, which drops the outermost frame itself (`InteractiveTB`
+  has `tb_offset = 1`); between them they removed the cell's only frame,
+  leaving the exception with no code shown at all.
 - `call_stack.build_call_arrays` leaves `CallArrays.lane` empty for a run that
   tracked no threads, instead of materializing a full-length column of `-1`.
   Filling it would have added an allocation, a concatenate and a gather over

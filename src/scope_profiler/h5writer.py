@@ -299,8 +299,8 @@ def _append_lane_table(
     group = h5file[group_name]
     rows = len(columns["index"])
     _append(group["ranks"], np.full(rows, rank, dtype=np.uint32))
-    for name in numeric:
-        _append(group[name], np.asarray(columns[name], dtype=numeric[name]))
+    for name, dtype in numeric.items():
+        _append(group[name], np.asarray(columns[name], dtype=dtype))
     for name in strings:
         _append(group[name], [str(value) for value in columns[name]])
 

@@ -863,7 +863,7 @@ class ProfilingResults:
         by_thread: dict[int, list[int]] = {}
         for thread in threads:
             by_thread[thread.index] = [0, 0]
-        for name, region in self._region_dict.items():
+        for region in self._region_dict.values():
             for region_rank, region_data in region.regions.items():
                 if region_rank != int(rank) or region_data.thread_ids is None:
                     continue
