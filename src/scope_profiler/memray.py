@@ -19,7 +19,8 @@ class MemrayAllocationTracker:
         except ImportError as exc:
             raise ImportError(
                 "Memory allocation profiling requested but memray is not installed. "
-                'Install it with `pip install "scope-profiler[memray]"`.'
+                'Install it with `pip install "scope-profiler[extras]"` '
+                "or `pip install memray`."
             ) from exc
 
         self.path = Path(path)

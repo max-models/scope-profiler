@@ -61,7 +61,7 @@ def test_memray_capture_is_started_and_finished(tmp_path, monkeypatch):
 def test_memray_missing_dependency_has_actionable_error(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "memray", None)
 
-    with pytest.raises(ImportError, match=r"scope-profiler\[memray\]"):
+    with pytest.raises(ImportError, match=r"scope-profiler\[extras\]"):
         ProfileManager.setup(file_path=str(tmp_path / "timing.h5"), use_memray=True)
 
 

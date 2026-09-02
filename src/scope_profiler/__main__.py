@@ -99,7 +99,7 @@ def _parse_run_args(argv):
         "--memory-profile",
         action="store_true",
         default=None,
-        help="Record allocations with Memray (requires scope-profiler[memray]); "
+        help="Record allocations with Memray (requires scope-profiler[extras]); "
         "writes an adjacent .memray.bin capture",
     )
     parser.add_argument(

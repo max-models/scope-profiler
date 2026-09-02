@@ -2,7 +2,7 @@
 
 Install the optional dependency, then run this example::
 
-    pip install "scope-profiler[memray]"
+    pip install "scope-profiler[extras]"
     python examples/ex_memory_profiling.py
 
 It writes the usual ``memory_allocation_example.h5`` timing profile and a

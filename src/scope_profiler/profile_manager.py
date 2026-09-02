@@ -1764,7 +1764,7 @@ class ProfileManager:
         use_memray : bool, optional
             Record process-wide allocations with Memray (default: False).
             The capture is a separate Memray ``.bin`` file and requires
-            ``scope-profiler[memray]``.
+            the separately installed ``memray`` package.
         memory_profile_path : str, optional
             Memray capture path (default: ``<file-stem>.memray.bin``).
         memray_native_traces, memray_trace_python_allocators, memray_follow_fork : bool, optional
