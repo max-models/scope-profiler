@@ -10,6 +10,7 @@ import pytest
 from scope_profiler.__main__ import main as cli_main
 from scope_profiler.h5writer import ProfilingWriter
 from scope_profiler.profile_manager import RankPayload
+from scope_profiler.perf_events import PerfEventTotals
 from scope_profiler.tests.test_inspection import _write_sample_h5
 from scope_profiler.tui import (
     _matplotlib_child_script,
@@ -96,6 +97,24 @@ def _find_tree_data(node, data):
     return None
 
 
+@pytest.fixture
+def perf_events_file(tmp_path):
+    path = tmp_path / "perf_events.h5"
+    payload = RankPayload(
+        regions={"solve": (np.asarray([0]), np.asarray([NS]))},
+        likwid={},
+        likwid_environment={},
+        perf_events={
+            "solve": PerfEventTotals(
+                calls=1, values={"cycles": 1234, "instructions": 5678}
+            )
+        },
+    )
+    with ProfilingWriter(path) as writer:
+        writer.write_rank(0, payload)
+    return path
+
+
 def test_browser_model_exposes_major_sections(sample_file):
     model = build_browser_model(sample_file)
 
@@ -132,6 +151,16 @@ def test_region_details_include_ranks_calls_source_and_raw_hdf5(sample_file):
     start_times = _find(model.root, "start_times")
     assert "HDF5 dataset" in node_detail_text(start_times)
     assert "Dtype: int64" in node_detail_text(start_times)
+
+
+def test_browser_model_shows_perf_events(perf_events_file):
+    model = build_browser_model(perf_events_file)
+    node = _find(model.root, "Perf events rank 0")
+
+    assert node is not None
+    detail = node_detail_text(node)
+    assert "Calls: 1" in detail
+    assert "cycles" in detail and "1,234" in detail
 
 
 def test_overview_shows_dashboard_metrics_and_top_regions(sample_file):

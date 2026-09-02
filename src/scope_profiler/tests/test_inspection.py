@@ -15,6 +15,9 @@ from scope_profiler.inspection import (
 from scope_profiler.inspection import main as inspect_main
 from scope_profiler.inspection import write_metadata_json
 from scope_profiler.likwid_data import LikwidRegionResult, write_likwid_results
+from scope_profiler.perf_events import PerfEventTotals
+from scope_profiler.profile_manager import RankPayload
+from scope_profiler.h5writer import ProfilingWriter
 
 NS = 1_000_000_000
 
@@ -114,6 +117,29 @@ def test_inspect_prints_metadata_and_regions(sample_file, capsys):
     assert "min [s]" not in header and "std [s]" not in header
     assert "setup" in out and "solve" in out
     assert "TOTAL" not in out
+
+
+def test_inspect_prints_perf_event_totals(tmp_path, capsys):
+    path = tmp_path / "perf_events.h5"
+    payload = RankPayload(
+        regions={"solve": (np.asarray([0]), np.asarray([NS]))},
+        likwid={},
+        likwid_environment={},
+        perf_events={
+            "solve": PerfEventTotals(
+                calls=1, values={"cycles": 1234, "instructions": 5678}
+            )
+        },
+    )
+    with ProfilingWriter(path) as writer:
+        writer.write_rank(0, payload)
+
+    inspect_file(path)
+    out = capsys.readouterr().out
+
+    assert "Perf events (rank 0)" in out
+    assert "cycles" in out and "1234" in out
+    assert "instructions" in out and "5678" in out
 
 
 def test_region_statistics_are_seconds(sample_file, capsys):

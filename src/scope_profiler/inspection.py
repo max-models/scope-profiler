@@ -21,6 +21,7 @@ from scope_profiler.summary import (
     REGION_TABLE_COLUMNS,
     SORT_KEYS,
     print_likwid_tables,
+    print_perf_event_tables,
     print_region_table,
     region_rows,
 )
@@ -259,6 +260,9 @@ def inspect_file(
             file_path=path,
         )
         print_likwid_tables(
+            results, include=include, exclude=exclude, ranks=ranks, stream=stream
+        )
+        print_perf_event_tables(
             results, include=include, exclude=exclude, ranks=ranks, stream=stream
         )
 
