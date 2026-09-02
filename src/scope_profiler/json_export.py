@@ -245,7 +245,7 @@ def _ns(seconds) -> int:
 
     if seconds is None:
         return UNKNOWN
-    return int(round(float(seconds) * 1e9))
+    return round(float(seconds) * 1e9)
 
 
 _THREAD_FIELDS = (
@@ -344,9 +344,11 @@ def write_json_file(filepath: str | Path, document: dict, indent=None) -> Path:
         # Neither the name nor the time of writing goes into the header, so
         # two exports of the same run are byte-identical -- what deterministic
         # output means, and what a content hash in CI relies on.
-        with open(output_path, "wb") as raw:
-            with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as f:
-                f.write(text.encode("utf-8"))
+        with (
+            open(output_path, "wb") as raw,
+            gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as f,
+        ):
+            f.write(text.encode("utf-8"))
     else:
         output_path.write_text(text, encoding="utf-8")
     return output_path
