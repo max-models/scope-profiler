@@ -294,6 +294,55 @@ The matplotlib backend (the default) writes `.png` and needs no extra
 dependency; the Plotly backend writes `.html` and likewise needs nothing
 beyond Plotly itself.
 
+### Build a chart in your own site
+
+`@scope-profiler/plotly` turns the JSON written by `export plot-data` into a
+plain Plotly `{ data, layout }` figure. It does not bundle Plotly, so a site
+can choose its own Plotly build and renderer. This live example is rendered by
+the published npm package in the documentation page itself:
+
+```{=html}
+<div id="scope-profiler-plotly-demo" style="min-height: 330px; margin: 1rem 0;" aria-label="Interactive scope-profiler Gantt chart"></div>
+<script type="module">
+  const target = document.getElementById("scope-profiler-plotly-demo");
+  try {
+    const [PlotlyModule, scopeProfilerPlotly] = await Promise.all([
+      import("https://cdn.jsdelivr.net/npm/plotly.js-dist-min@3.7.0/+esm"),
+      import("https://cdn.jsdelivr.net/npm/@scope-profiler/plotly@0.1.2/+esm"),
+    ]);
+    const Plotly = PlotlyModule.default;
+    const payload = {
+      format: "scope-profiler-plot-data",
+      format_version: 1,
+      plot: "gantt",
+      colors: { setup: "#2a78d6", solve: "#eb6834" },
+      intervals: [
+        { file: "example", rank: 0, region: "setup", start_seconds: 0, end_seconds: 0.8 },
+        { file: "example", rank: 0, region: "solve", start_seconds: 0.9, end_seconds: 2.8 },
+        { file: "example", rank: 1, region: "setup", start_seconds: 0, end_seconds: 0.7 },
+        { file: "example", rank: 1, region: "solve", start_seconds: 0.8, end_seconds: 2.4 },
+      ],
+    };
+    const figure = scopeProfilerPlotly.buildGanttFigure(payload, {
+      layout: { title: { text: "Two-rank solver timeline" } },
+    });
+    await scopeProfilerPlotly.renderFigure(Plotly, target, figure);
+  } catch (error) {
+    target.textContent = `Could not load the interactive example: ${error.message}`;
+  }
+</script>
+```
+
+The same pattern works with real output:
+
+```js
+import Plotly from "plotly.js-dist-min";
+import { buildGanttFigure, renderFigure } from "@scope-profiler/plotly";
+
+const payload = await fetch("/figures/gantt_data.json").then((response) => response.json());
+await renderFigure(Plotly, document.querySelector("#gantt"), buildGanttFigure(payload));
+```
+
 For terminal-friendly simple plots, use Plotext 6:
 
 ```console

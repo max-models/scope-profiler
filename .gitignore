@@ -196,6 +196,8 @@ sim_*/
 node_modules/
 package-lock.json
 package.json
+# The npm package is source, not an application-local manifest.
+!packages/plotly/package.json
 docs/source/_static/figures/
 
 # Quarto-generated documentation Markdown. Edit the corresponding .qmd file
