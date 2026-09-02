@@ -203,7 +203,25 @@ def plot_speedup(
             colors_map = {
                 name: _to_hex(color) for name, color in zip(region_names, colors)
             }
-            _write_json(data_filepath, {"points": points, "colors": colors_map})
+            _write_json(
+                data_filepath,
+                {
+                    "format": "scope-profiler-plot-data",
+                    "format_version": 1,
+                    "plot": "speedup",
+                    "points": points,
+                    "colors": colors_map,
+                    "options": {
+                        "x_field": x_field,
+                        "x_label": {
+                            "num_ranks": "MPI ranks",
+                            "omp_num_threads": "OpenMP threads",
+                            "total_cores": "MPI ranks × OpenMP threads",
+                        }.get(x_field, x_field),
+                        "baseline": baseline_key,
+                    },
+                },
+            )
         else:
             _write_csv(data_filepath, ["region", x_field, "speedup"], data_rows)
 

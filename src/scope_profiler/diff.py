@@ -12,7 +12,7 @@ import sys
 
 from tabulate import tabulate
 
-from scope_profiler.h5reader import read_h5, read_h5_summary
+from scope_profiler.profile_io import read_profile, read_profile_summary
 from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import region_rows
 
@@ -208,15 +208,15 @@ def diff_files(
     """
     stream = sys.stdout if stream is None else stream
     if metric in _SUMMARY_METRICS:
-        results_a = read_h5_summary(
+        results_a = read_profile_summary(
             file_a, include_likwid=False, include_line_profile=False
         )
-        results_b = read_h5_summary(
+        results_b = read_profile_summary(
             file_b, include_likwid=False, include_line_profile=False
         )
     else:
-        results_a = read_h5(file_a)
-        results_b = read_h5(file_b)
+        results_a = read_profile(file_a)
+        results_b = read_profile(file_b)
 
     print("=" * 78, file=stream)
     print(f"a: {results_a.default_title()}", file=stream)
@@ -284,14 +284,14 @@ def check_files(
     """Print a CI regression report and return 0 for pass, 1 for failure."""
     stream = sys.stdout if stream is None else stream
     if metric in _SUMMARY_METRICS:
-        results_a = read_h5_summary(
+        results_a = read_profile_summary(
             file_a, include_likwid=False, include_line_profile=False
         )
-        results_b = read_h5_summary(
+        results_b = read_profile_summary(
             file_b, include_likwid=False, include_line_profile=False
         )
     else:
-        results_a, results_b = read_h5(file_a), read_h5(file_b)
+        results_a, results_b = read_profile(file_a), read_profile(file_b)
     failures = check_rows(
         results_a,
         results_b,

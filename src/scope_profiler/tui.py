@@ -16,13 +16,12 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import quote
 
 import h5py
 import numpy as np
 
-from scope_profiler.h5reader import read_h5
 from scope_profiler.inspection import _metadata_sections, _time_span
 from scope_profiler.line_profile_cli import _line_profile_rows
 from scope_profiler.plotting_scripts import (
@@ -40,6 +39,7 @@ from scope_profiler.plotting_scripts import (
 )
 from scope_profiler.post_processing import parse_ranks
 from scope_profiler.prof_export import export_prof
+from scope_profiler.profile_io import FORMAT_HDF5, profile_format, read_profile
 from scope_profiler.summary import region_row, region_rows
 
 _PLOT_CATALOG = {
@@ -185,7 +185,7 @@ def _build_region_line_profile_node(region_name: str, by_rank: dict) -> BrowserN
 
 def build_browser_model(file_path: str | Path) -> BrowserModel:
     """Load one HDF5 profile and build the selectable TUI navigation tree."""
-    results = read_h5(file_path)
+    results = read_profile(file_path)
     path = Path(results.file_path)
 
     metadata_children = []
@@ -235,6 +235,18 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
                     )
                 )
         extra_children.extend(likwid_children)
+        perf_children = []
+        for rank, by_region in sorted(results.get_perf_events().items()):
+            totals = by_region.get(region.name)
+            if totals is not None:
+                perf_children.append(
+                    BrowserNode(
+                        f"Perf events rank {rank}",
+                        "perf_events_rank",
+                        {"rank": rank, "region_name": region.name, "totals": totals},
+                    )
+                )
+        extra_children.extend(perf_children)
         region_children.append(
             BrowserNode(
                 region.name,
@@ -254,8 +266,12 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
             )
         )
 
-    with h5py.File(path, "r") as h5file:
-        raw_node = _build_raw_h5_node("/", h5file)
+    # Only an HDF5 profile has a group tree to browse; a JSON one is read
+    # back into the same results, and simply has no such section.
+    raw_node = None
+    if profile_format(path) == FORMAT_HDF5:
+        with h5py.File(path, "r") as h5file:
+            raw_node = _build_raw_h5_node("/", h5file)
 
     plot_children = [
         BrowserNode(
@@ -295,7 +311,15 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
                 metadata_children,
             ),
             BrowserNode("Regions", "regions", {"results": results}, region_children),
-            BrowserNode("Raw HDF5", "h5_group", raw_node.payload, raw_node.children),
+            *(
+                []
+                if raw_node is None
+                else [
+                    BrowserNode(
+                        "Raw HDF5", "h5_group", raw_node.payload, raw_node.children
+                    )
+                ]
+            ),
         ],
     )
     return BrowserModel(file_path=path, results=results, root=root)
@@ -311,7 +335,7 @@ def _line_table(
     def safe_value(value):
         try:
             return _format_scalar(value)
-        except Exception:  # noqa: BLE001 -- arbitrary user metadata must not kill TUI
+        except Exception:
             return f"<unprintable {type(value).__name__}>"
 
     rows = [tuple(safe_value(value) for value in row) for row in rows]
@@ -581,8 +605,10 @@ def node_detail_text(node: BrowserNode) -> str:
             ("Min / max", f"{_duration(row['min'])} / {_duration(row['max'])}"),
             (
                 "P50 / P95 / P99",
-                f"{_duration(row['p50'])} / {_duration(row['p95'])} / "
-                f"{_duration(row['p99'])}",
+                (
+                    f"{_duration(row['p50'])} / {_duration(row['p95'])} / "
+                    f"{_duration(row['p99'])}"
+                ),
             ),
             (
                 "Rank imbalance",
@@ -675,6 +701,21 @@ def node_detail_text(node: BrowserNode) -> str:
                 )
             )
         return "\n".join(lines)
+
+    if kind == "perf_events_rank":
+        totals = payload["totals"]
+        return "\n".join(
+            [
+                f"Region: {payload['region_name']}",
+                f"Rank: {payload['rank']}",
+                f"Calls: {totals.calls}",
+                "",
+                _line_table(
+                    ("Event", "Count"),
+                    ((event, f"{value:,}") for event, value in totals.values.items()),
+                ),
+            ]
+        )
 
     if kind == "h5_group":
         attrs = payload.get("attrs", {})
@@ -1051,7 +1092,7 @@ def _build_textual_app_class():
             width: 1fr;
         }
         """
-        BINDINGS = [
+        BINDINGS: ClassVar[list] = [
             ("q", "quit", "Quit"),
             ("escape", "focus_navigation", "Focus navigation"),
             ("g", "show_matplotlib", "Show Matplotlib"),
@@ -1083,7 +1124,7 @@ def _build_textual_app_class():
         def _detail(self, node: BrowserNode):
             try:
                 detail_text = node_detail_text(node)
-            except Exception as exc:  # noqa: BLE001 -- keep interactive browser alive
+            except Exception as exc:
                 detail_text = (
                     f"Unable to render {node.label}\n\n{type(exc).__name__}: {exc}"
                 )

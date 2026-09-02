@@ -30,12 +30,17 @@ from instantiated managers. Decorators are isolated in the same way: use
 `@compute_profiler.profile(...)` to attach a function to that session.
 
 The sessions above coexist by nesting distinct managers in one execution
-thread. This feature does not make profiling thread-safe: do not enter or
-finalize profiling sessions concurrently from Python threads. It also does not
-isolate process-global instrumentation backends. In particular, LIKWID owns
-one marker state per process, so only one overlapping manager may use
-`use_likwid=True`. Timing-only, aggregation, line-profiling, GPU-timing, and
-NVTX configurations retain their existing behavior.
+thread. Setting up and finalizing a session is still a single-threaded
+operation: do not enter or finalize profiling sessions concurrently from
+Python threads. Profiling *regions* from several threads is supported --- see
+{doc}`concurrency` --- but that is a property of `track_threads`, not of
+multiple managers.
+
+Multiple sessions also do not isolate process-global instrumentation backends.
+In particular, LIKWID owns one marker state per process, so only one
+overlapping manager may use `use_likwid=True`. Timing-only, aggregation,
+line-profiling, GPU-timing, and NVTX configurations retain their existing
+behavior.
 
 ## `ProfileManager.setup()` parameters
 
@@ -43,7 +48,21 @@ NVTX configurations retain their existing behavior.
 | --------------------- | ------ | --------------------- | ----------------------------------------------------------------------------------------------- |
 | `deactivate_profiling`| `bool` | `False`               | Master switch. When `True`, all regions become no-ops with near-zero cost.                      |
 | `use_likwid`          | `bool` | `False`               | Wrap regions with LIKWID marker API calls for hardware counter collection. Requires `pylikwid`. |
+| `perf_events`         | `list[str]` or `None` | `None` | Collect selected Linux `perf_event_open` counts per region. |
+
+For the richer counter backend, install `scope-profiler[perf-events]`. It uses
+`py-perf-event` when every selected event is supported by that package and
+falls back to the built-in Linux syscall backend otherwise. Both routes remain
+subject to the host's `perf_event_paranoid` policy.
+
+If a host reports permission denied, an administrator can grant normal users
+access for the current boot with `sudo sysctl -w kernel.perf_event_paranoid=1`.
+Run the profiled program as its ordinary user afterwards; `sudo python` uses a
+separate Python environment and commonly cannot import the project or its
+optional dependencies.
 | `use_line_profiler`   | `bool` | `False`               | Enable line-by-line profiling via `line_profiler`. See {doc}`line_profiler`.                    |
+| `use_memray`          | `bool` | `False`               | Record process-wide allocations in a native Memray capture. Requires `scope-profiler[extras]`.   |
+| `memory_profile_path` | `str` or `None` | `None`          | Memray capture path; defaults to `<file-stem>.memray.bin`.                                     |
 | `use_nvtx`            | `bool` | `False`               | Add NVTX ranges for NVIDIA Nsight tools; requires `scope-profiler[nvtx]`.                       |
 | `recursive_profile`   | `bool` | `False`               | Enable recursive nested-call profiling for all decorated functions by default.                    |
 | `deactivate_file_output`| `bool` | `False`             | When `True`, write no HDF5 file at all; the run stays in memory. See below.                      |
@@ -56,6 +75,8 @@ NVTX configurations retain their existing behavior.
 | `label`               | `str`  | `None`                | Short name for the run, used by post-processing wherever a run has to be named. See below.       |
 | `capture_region_source`| `bool` | `False`              | Record where each region is defined (see {doc}`hdf5_and_python_api`). Off by default; see below for its cost and how to turn it on. |
 | `aggregation_mode`     | `bool` | `False`              | Keep only count, total, minimum, maximum, and exclusive total per region; individual timeline events are unavailable. |
+| `track_threads`        | `bool` | `False`              | Give every thread its own buffers and lane, and describe every thread the run touched. See {doc}`concurrency`. |
+| `track_async`          | `bool` | `False`              | Also follow asyncio tasks and greenlets, and record the await time of every call. Implies `track_threads`. |
 
 ## HDF5 compression and chunking
 

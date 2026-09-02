@@ -111,7 +111,16 @@ def plot_flame_chart(
                             "exclusive_duration_seconds": call["exclusive_duration"],
                         }
                     )
-            _write_json(data_filepath, {"calls": call_records, "colors": colors})
+            _write_json(
+                data_filepath,
+                {
+                    "format": "scope-profiler-plot-data",
+                    "format_version": 1,
+                    "plot": "flame",
+                    "calls": call_records,
+                    "colors": colors,
+                },
+            )
         else:
             rows = []
             for label, (_, rank, calls) in zip(labels, prepared):
@@ -290,7 +299,7 @@ def plot_flame_chart(
                     x=[None],
                     y=[None],
                     mode="markers",
-                    marker=dict(color=_to_hex(color_map[name]), size=9),
+                    marker={"color": _to_hex(color_map[name]), "size": 9},
                     name=name,
                     showlegend=True,
                     hoverinfo="skip",
@@ -298,7 +307,7 @@ def plot_flame_chart(
             )
         fig.update_layout(
             bargap=0,
-            legend=dict(title="Regions"),
+            legend={"title": "Regions"},
         )
 
     rendered = _ps._render(

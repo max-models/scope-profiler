@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from scope_profiler.h5reader import read_h5
+from scope_profiler.chrome_trace_export import export_chrome_trace
 from scope_profiler.plotting_scripts import (
     DEFAULT_CMAP,
     FLAME_CMAP,
@@ -20,6 +20,7 @@ from scope_profiler.plotting_scripts import (
     plot_gantt,
     plot_imbalance,
     plot_likwid,
+    plot_perf_events,
     plot_rank_heatmap,
     plot_scaling_efficiency,
     plot_speedup,
@@ -28,6 +29,7 @@ from scope_profiler.plotting_scripts import (
     write_region_statistics_json,
 )
 from scope_profiler.prof_export import export_prof
+from scope_profiler.profile_io import read_profile
 from scope_profiler.speedscope_export import export_speedscope
 
 # Single source of truth for --plots: name -> (one-line description, is a
@@ -49,6 +51,10 @@ _PLOT_CATALOG: dict[str, tuple[str, bool]] = {
     "histogram": ("call-duration distribution per region", False),
     "imbalance": ("per-rank duration comparison, to spot stragglers", False),
     "likwid": ("one LIKWID hardware-counter metric (needs --likwid-metric)", False),
+    "perf_events": (
+        "one Linux perf-event metric (needs --metric, e.g. ipc)",
+        False,
+    ),
 }
 _DEFAULT_PLOTS = frozenset(
     name for name, (_, is_default) in _PLOT_CATALOG.items() if is_default
@@ -444,6 +450,13 @@ def build_parser() -> argparse.ArgumentParser:
             )
             plot_parser.add_argument("--top-n", type=int, default=None, metavar="N")
             _add_log_scale_arg(plot_parser)
+        elif kind == "perf_events":
+            plot_parser.add_argument(
+                "--metric",
+                required=True,
+                metavar="NAME",
+                help="Recorded event, ipc, or cache-misses-per-ki.",
+            )
     return parser
 
 
@@ -457,10 +470,34 @@ def build_export_parser() -> argparse.ArgumentParser:
     for kind, description in {
         "prof": "Export cProfile/pstats files.",
         "speedscope": "Export speedscope JSON files.",
+        "chrome-trace": "Export Chrome Trace Event JSON files for Perfetto.",
+        "json": "Export the whole run as a JSON profile.",
     }.items():
         export_parser = subparsers.add_parser(kind, help=description)
         export_parser.set_defaults(export_kind=kind)
         _add_common_export_args(export_parser)
+        if kind == "prof":
+            export_parser.add_argument(
+                "--no-call-paths",
+                action="store_true",
+                help=(
+                    "Aggregate every call of a region into one entry, instead "
+                    "of keeping 'parent > child' paths apart."
+                ),
+            )
+        if kind == "json":
+            export_parser.add_argument(
+                "--gzip",
+                action="store_true",
+                help="Write profile.json.gz instead of profile.json",
+            )
+            export_parser.add_argument(
+                "--indent",
+                type=int,
+                default=None,
+                metavar="N",
+                help="Indent the JSON by N spaces (default: one line, smallest)",
+            )
 
     plot_data = subparsers.add_parser(
         "plot-data",
@@ -534,7 +571,7 @@ def _print_plot_list() -> None:
     print("presets:")
     print("  default    " + ", ".join(sorted(_DEFAULT_PLOTS)))
     print("  quick      " + ", ".join(sorted(_QUICK_PLOTS)))
-    print("  all        every plot except likwid, unless --metric is given")
+    print("  all        every plot except counter plots (select those explicitly)")
     print("\nplots:")
     for name, (description, is_default) in _PLOT_CATALOG.items():
         marker = "default" if is_default else "optional"
@@ -555,7 +592,7 @@ def _normalize_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -
 
 
 def _load_runs(args: argparse.Namespace, parser: argparse.ArgumentParser):
-    runs = [read_h5(file_path) for file_path in args.files]
+    runs = [read_profile(file_path) for file_path in args.files]
     if args.label is not None:
         if len(args.label) != len(runs):
             parser.error(
@@ -594,8 +631,7 @@ def _selected_plots(args: argparse.Namespace) -> set[str]:
         return set(_QUICK_PLOTS)
     if kind == "all":
         plots = set(_PLOT_CATALOG)
-        if not args.metric:
-            plots.remove("likwid")
+        plots.difference_update({"likwid", "perf_events"})
         return plots
     return {kind}
 
@@ -671,6 +707,7 @@ def _plot_options(args: argparse.Namespace, name: str):
         "likwid_metric": (
             metric if name == "likwid" else getattr(args, "likwid_metric", None)
         ),
+        "perf_event_metric": metric if name == "perf_events" else None,
         "speedup_x_field": getattr(args, "x", "num_ranks"),
         "start_time": getattr(args, "start_time", None),
         "end_time": getattr(args, "end_time", None),
@@ -699,6 +736,11 @@ def _render_selected_plots(
         parser.error(
             "likwid requires --metric for plots or --likwid-metric for plot-data."
         )
+    if (
+        "perf_events" in selected_plots
+        and not _plot_options(args, "perf_events")["perf_event_metric"]
+    ):
+        parser.error("perf_events requires --metric, e.g. --metric ipc.")
 
     ext = (
         "html"
@@ -993,6 +1035,22 @@ def _render_selected_plots(
         )
         saved.extend(path for path in (path, likwid_data_path) if path)
 
+    if "perf_events" in selected_plots:
+        path = image_path("perf_events", "perf_events_plot")
+        plot_perf_events(
+            runs,
+            metric=_plot_options(args, "perf_events")["perf_event_metric"],
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            cmap=args.cmap,
+            backend=args.backend,
+        )
+        if path:
+            saved.append(path)
+
     if len(runs) > 1 and "speedup" in selected_plots:
         path = image_path("speedup", "speedup_plot")
         plot_speedup(
@@ -1145,6 +1203,7 @@ def export_main(argv: list[str] | None = None):
             ranks=args.ranks,
             include=args.include,
             exclude=args.exclude,
+            call_paths=not args.no_call_paths,
             verbose=False,
         )
         saved.extend(str(path) for path in prof_paths)
@@ -1158,12 +1217,40 @@ def export_main(argv: list[str] | None = None):
             verbose=False,
         )
         saved.extend(str(path) for path in speedscope_paths)
+    elif args.export_kind == "chrome-trace":
+        trace_paths = export_chrome_trace(
+            profiling_data=runs,
+            filepath=os.path.join(args.output, "profile.trace.json"),
+            ranks=args.ranks,
+            include=args.include,
+            exclude=args.exclude,
+            verbose=False,
+        )
+        saved.extend(str(path) for path in trace_paths)
+    elif args.export_kind == "json":
+        from scope_profiler.json_export import export_json
+
+        json_paths = export_json(
+            profiling_data=runs,
+            filepath=os.path.join(args.output, f"profile.json{args.gzip * '.gz'}"),
+            ranks=args.ranks,
+            include=args.include,
+            exclude=args.exclude,
+            verbose=False,
+            indent=args.indent,
+        )
+        saved.extend(str(path) for path in json_paths)
     elif args.export_kind == "plot-data":
         selected_plots = (
             set(args.plots) if args.plots is not None else set(_DEFAULT_PLOTS)
         )
         if "likwid" in selected_plots and not args.likwid_metric:
             parser.error("plot-data with likwid requires --likwid-metric.")
+        if "perf_events" in selected_plots:
+            parser.error(
+                "plot-data does not yet support perf_events; use "
+                "`scope-profiler plot perf_events --metric ...` instead."
+            )
         args.show = False
         args.backend = "matplotlib"
         args.cmap = DEFAULT_CMAP
@@ -1192,11 +1279,15 @@ def export_main(argv: list[str] | None = None):
     print("Outputs saved to:\n  " + "\n  ".join(saved))
     if args.export_kind == "prof" and saved:
         print(f"\nView a .prof file with: snakeviz {saved[0]}")
+    if args.export_kind == "json" and saved:
+        print(f"\nRead one back with: scope-profiler inspect {saved[0]}")
     if args.export_kind == "speedscope" and saved:
         print(
             f"\nView {saved[0]} at https://www.speedscope.app "
             "(or: npx speedscope <file>)"
         )
+    if args.export_kind == "chrome-trace" and saved:
+        print(f"\nOpen {saved[0]} with https://ui.perfetto.dev or chrome://tracing")
 
 
 if __name__ == "__main__":

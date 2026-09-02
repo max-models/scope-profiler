@@ -11,10 +11,18 @@ from scope_profiler.call_stack import (
     call_stack_children,
     call_stack_roots,
 )
-from scope_profiler.h5reader import read_h5, read_h5_summary
+from scope_profiler.h5reader import CorruptProfileError, read_h5, read_h5_summary
+from scope_profiler.json_export import (
+    JSONProfileError,
+    export_json,
+    read_json,
+    write_json,
+)
 from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.mpi_region import MPIRegion
+from scope_profiler.perf_events import PerfEventError, PerfEventTotals
 from scope_profiler.profile_config import ProfilingOptions
+from scope_profiler.profile_io import read_profile, write_profile
 from scope_profiler.profile_manager import ProfileManager
 from scope_profiler.region import EventDataUnavailableError, Region
 from scope_profiler.results import ProfilingResults, merge_results
@@ -28,6 +36,7 @@ except PackageNotFoundError:
 # plotting/reporting dependencies at runtime.  Dynamic module attributes are
 # otherwise invisible to hover, completion, and static type checkers.
 if TYPE_CHECKING:
+    from scope_profiler.chrome_trace_export import export_chrome_trace
     from scope_profiler.html_report import create_html_report
     from scope_profiler.inspection import collect_file_metadata, inspect_file
     from scope_profiler.plotting_scripts import (
@@ -38,21 +47,26 @@ if TYPE_CHECKING:
         plot_flame_chart,
         plot_flame_graph,
         plot_gantt,
+        plot_perf_events,
         plot_rank_heatmap,
         plot_scaling_efficiency,
         plot_speedup,
         plot_weak_scaling,
         write_region_statistics_json,
     )
-    from scope_profiler.prof_export import export_prof
+    from scope_profiler.prof_export import export_prof, load_prof, to_pstats
     from scope_profiler.speedscope_export import export_speedscope
 
 __all__ = [
     "CallArrays",
+    "CorruptProfileError",
     "EventDataUnavailableError",
+    "JSONProfileError",
     "LikwidRegionResult",
     "MPIRegion",
     "NestingError",
+    "PerfEventError",
+    "PerfEventTotals",
     "ProfileManager",
     "ProfilingOptions",
     "ProfilingResults",
@@ -64,9 +78,12 @@ __all__ = [
     "collect_file_metadata",
     "collect_region_statistics",
     "create_html_report",
+    "export_chrome_trace",
+    "export_json",
     "export_prof",
     "export_speedscope",
     "inspect_file",
+    "load_prof",
     "merge_results",
     "plot_duration_timeseries",
     "plot_durations",
@@ -74,12 +91,18 @@ __all__ = [
     "plot_flame_chart",
     "plot_flame_graph",
     "plot_gantt",
+    "plot_perf_events",
     "plot_rank_heatmap",
     "plot_scaling_efficiency",
     "plot_speedup",
     "plot_weak_scaling",
     "read_h5",
     "read_h5_summary",
+    "read_json",
+    "read_profile",
+    "to_pstats",
+    "write_json",
+    "write_profile",
     "write_region_statistics_json",
 ]
 
@@ -95,6 +118,7 @@ def __getattr__(name: str) -> Any:
         "plot_flame_graph",
         "plot_gantt",
         "plot_rank_heatmap",
+        "plot_perf_events",
         "plot_scaling_efficiency",
         "plot_speedup",
         "plot_weak_scaling",
@@ -107,6 +131,18 @@ def __getattr__(name: str) -> Any:
         from scope_profiler.prof_export import export_prof
 
         return export_prof
+    if name == "load_prof":
+        from scope_profiler.prof_export import load_prof
+
+        return load_prof
+    if name == "to_pstats":
+        from scope_profiler.prof_export import to_pstats
+
+        return to_pstats
+    if name == "export_chrome_trace":
+        from scope_profiler.chrome_trace_export import export_chrome_trace
+
+        return export_chrome_trace
     if name == "export_speedscope":
         from scope_profiler.speedscope_export import export_speedscope
 

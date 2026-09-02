@@ -104,6 +104,7 @@ def kernels(tmp_path_factory):
         capture_output=True,
         text=True,
         timeout=900,
+        check=False,
     )
     if result.returncode != 0:
         pytest.skip(f"f2py build failed:\n{result.stdout}\n{result.stderr}")

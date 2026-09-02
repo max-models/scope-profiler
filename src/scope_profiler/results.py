@@ -43,6 +43,10 @@ class ProfilingResults:
     All durations are reported in seconds.
     """
 
+    # Declared at class scope so the exclusive-duration machinery below can
+    # be read by a type checker without depending on __init__ appearing first.
+    _exclusive_populated: bool
+
     def _populate_exclusive_durations(self) -> None:
         """Derive per-call exclusive durations from all recorded intervals.
 
@@ -87,11 +91,14 @@ class ProfilingResults:
         metadata: dict | None = None,
         num_ranks: int | None = None,
         likwid: dict[int, dict[str, LikwidRegionResult]] | None = None,
+        perf_events: dict[int, dict] | None = None,
         line_profile: dict[int, list] | None = None,
         file_path: str | Path = "",
         is_root: bool = True,
         exclusive_totals: dict[str, dict[int, int]] | None = None,
         event_data_available: bool = True,
+        threads: dict[int, list] | None = None,
+        tasks: dict[int, list] | None = None,
     ) -> None:
         """
         Assemble a result set from already-loaded regions.
@@ -121,14 +128,25 @@ class ProfilingResults:
             against everything else recorded on the same rank, so a total
             carried over from a different result set would be wrong. Omitting
             them costs nothing but a call-stack reconstruction on first use.
+        threads : dict, optional
+            Rank -> list of :class:`~scope_profiler.concurrency.ThreadInfo`,
+            for a run profiled with ``track_threads``. See :attr:`threads`.
+        tasks : dict, optional
+            Rank -> list of :class:`~scope_profiler.concurrency.TaskInfo`,
+            for a run profiled with ``track_async``. See :attr:`tasks`.
         """
         self._is_root = is_root
         self._region_dict = dict(regions)
         self._metadata = dict(metadata or {})
         self._likwid = dict(likwid or {})
+        self._perf_events = dict(perf_events or {})
         self._line_profile = dict(line_profile or {})
         self._file_path = Path(file_path)
         self._event_data_available = bool(event_data_available)
+        self._threads = {
+            int(rank): list(rows) for rank, rows in (threads or {}).items()
+        }
+        self._tasks = {int(rank): list(rows) for rank, rows in (tasks or {}).items()}
         if num_ranks is None:
             ranks = {rank for region in self._region_dict.values() for rank in region}
             num_ranks = len(ranks)
@@ -766,6 +784,124 @@ class ProfilingResults:
         return self._metadata
 
     @property
+    def threads(self) -> dict[int, list]:
+        """Rank -> the threads that recorded calls, in registration order.
+
+        Each entry is a :class:`~scope_profiler.concurrency.ThreadInfo`: name,
+        OS ids, when the thread started and ended, and the CPU time it burned.
+        Empty unless the run profiled with ``track_threads=True``::
+
+            for rank, threads in results.threads.items():
+                for thread in threads:
+                    print(rank, thread.name, thread.cpu_time)
+
+        The per-call ``thread_ids`` column of every region indexes into this
+        rank's list, so ``results["solve"][0].for_thread(2)`` is the part of
+        ``solve`` that ran on ``results.threads[0][2]``.
+        """
+        return self._threads
+
+    @property
+    def tasks(self) -> dict[int, list]:
+        """Rank -> the asyncio tasks and greenlets the run followed.
+
+        Each entry is a :class:`~scope_profiler.concurrency.TaskInfo`, whose
+        ``running_time`` and ``awaiting_time`` split the lane's life into the
+        part it held a thread and the part it was suspended. Empty unless the
+        run profiled with ``track_async=True``.
+        """
+        return self._tasks
+
+    def lane_label(self, lane: int, rank: int = 0) -> str:
+        """A human-readable name for one lane of ``rank``.
+
+        Lanes are the stacks a rank's calls were reconstructed into (see
+        :func:`~scope_profiler.concurrency.lane_ids`). This turns one back
+        into something worth putting on a chart or a speedscope profile
+        selector: a task's own name where the lane is a task, the thread's
+        name where it is a bare thread.
+        """
+        lane = int(lane)
+        if lane >= 0:
+            for task in self._tasks.get(int(rank), []):
+                if task.index == lane:
+                    thread = self.lane_label(-2 - task.thread_index, rank)
+                    tail = task.coro_name.rsplit(".", 1)[-1]
+                    return f"{task.name} ({tail}) on {thread}"
+            return f"task {lane}"
+        if lane == -1:
+            return "unknown lane"
+        index = -2 - lane
+        for thread in self._threads.get(int(rank), []):
+            if thread.index == index:
+                return thread.name
+        return f"thread {index}"
+
+    def thread_summary(self, rank: int = 0) -> list[dict]:
+        """Per-thread wall time, CPU time and call count for one rank.
+
+        Wall and CPU time come from the thread table; the call count and the
+        time attributed to regions come from the events, so a thread that
+        burned CPU outside every profiled region shows the gap directly.
+
+        Returns
+        -------
+        list of dict
+            One entry per thread with keys ``index``, ``name``, ``alive``,
+            ``wall_time``, ``cpu_time``, ``num_calls`` and
+            ``region_time`` (the summed inclusive duration of that thread's
+            top-level calls, so nested regions are not counted twice), in
+            thread-table order. Empty when the run did not track threads.
+        """
+        from scope_profiler.call_stack import build_call_arrays
+
+        threads = self._threads.get(int(rank), [])
+        if not threads:
+            return []
+        arrays = build_call_arrays(self._region_dict.values(), int(rank))
+        # Top level per lane, which is what "not counted twice" means once
+        # several stacks share a rank.
+        roots = arrays.parent < 0
+        by_thread: dict[int, list[int]] = {}
+        for thread in threads:
+            by_thread[thread.index] = [0, 0]
+        for region in self._region_dict.values():
+            for region_rank, region_data in region.regions.items():
+                if region_rank != int(rank) or region_data.thread_ids is None:
+                    continue
+                for index, count in zip(
+                    *np.unique(region_data.thread_ids, return_counts=True)
+                ):
+                    entry = by_thread.setdefault(int(index), [0, 0])
+                    entry[0] += int(count)
+        durations = arrays.end_ns - arrays.start_ns
+        lane_of_root = arrays.lane[roots]
+        root_durations = durations[roots]
+        for thread in threads:
+            # A thread's lanes are its own bare lane plus every task that ran
+            # on it; see concurrency.lane_ids.
+            lanes = {-2 - thread.index}
+            lanes.update(
+                task.index
+                for task in self._tasks.get(int(rank), [])
+                if task.thread_index == thread.index
+            )
+            mask = np.isin(lane_of_root, list(lanes))
+            by_thread[thread.index][1] = int(root_durations[mask].sum())
+        return [
+            {
+                "index": thread.index,
+                "name": thread.name,
+                "alive": thread.alive,
+                "wall_time": thread.wall_time,
+                "cpu_time": thread.cpu_time,
+                "num_calls": by_thread[thread.index][0],
+                "region_time": by_thread[thread.index][1] / NS_PER_SECOND,
+            }
+            for thread in threads
+        ]
+
+    @property
     def line_profile(self) -> dict[int, list]:
         """Persisted line-profiler records keyed by rank.
 
@@ -828,6 +964,17 @@ class ProfilingResults:
         if rank is None:
             return dict(self._likwid)
         return self._likwid.get(rank, {})
+
+    @property
+    def has_perf_events(self) -> bool:
+        """Whether this run recorded built-in Linux perf-event counters."""
+        return any(self._perf_events.values())
+
+    def get_perf_events(self, rank: int | None = None) -> dict:
+        """Return aggregated Linux ``perf_event_open`` counts by region."""
+        if rank is None:
+            return dict(self._perf_events)
+        return self._perf_events.get(rank, {})
 
     def get_likwid_region(self, tag: str, rank: int = 0) -> LikwidRegionResult:
         """
@@ -1123,12 +1270,14 @@ class ProfilingResults:
         # Collect regions based on include/exclude filters
         for region_name, region in self._region_dict.items():
             # Match with regex patterns if provided
-            if include is not None:
-                if not any([re.match(pattern, region_name) for pattern in include]):
-                    continue
-            if exclude is not None:
-                if any([re.match(pattern, region_name) for pattern in exclude]):
-                    continue
+            if include is not None and not any(
+                re.match(pattern, region_name) for pattern in include
+            ):
+                continue
+            if exclude is not None and any(
+                re.match(pattern, region_name) for pattern in exclude
+            ):
+                continue
 
             regions.append(region)
 

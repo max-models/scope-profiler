@@ -16,8 +16,8 @@ IPython = pytest.importorskip(
     "IPython", reason="the optional 'notebook' extra is not installed"
 )
 
-import IPython.testing.globalipapp as globalipapp
 from IPython.core.error import UsageError
+from IPython.testing import globalipapp
 
 from scope_profiler.ipython_magics import ScopeMagics
 
@@ -166,6 +166,20 @@ def test_scope_export_prof(shell, tmp_path):
     out_path = tmp_path / "run.prof"
     shell.run_line_magic("scope_export", str(out_path))
     assert list(tmp_path.glob("run*.prof"))
+
+
+def test_scope_export_prof_no_call_paths(shell, tmp_path):
+    import marshal
+
+    shell.run_cell_magic("scope", "naive", "x = sum(range(1000))")
+    out_path = tmp_path / "run.prof"
+    shell.run_line_magic("scope_export", f"--no-call-paths {out_path}")
+
+    written = list(tmp_path.glob("run*.prof"))
+    assert written
+    with open(written[0], "rb") as f:
+        names = {key[2] for key in marshal.load(f)}
+    assert not any(" > " in name for name in names)
 
 
 def test_scope_export_speedscope(shell, tmp_path):

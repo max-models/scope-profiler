@@ -40,9 +40,24 @@ with compute_profiler.session(file_path="compute.h5", verbose=False):
             write_checkpoint()
 ```
 
-These are independent nested sessions, not concurrent-thread support. LIKWID's
-marker state is process-global, so only one overlapping session may use
-`use_likwid=True`.
+These are independent nested sessions. LIKWID's marker state is
+process-global, so only one overlapping session may use `use_likwid=True`.
+
+Concurrency is a separate switch. `track_threads=True` gives every thread its
+own buffers and its own lane in the reconstructed call graph, and reports each
+thread's name, lifetime and CPU time; `track_async=True` does the same for
+asyncio tasks and greenlets, and splits every call into the time its task held
+the thread and the time it spent awaiting:
+
+```python
+with ProfileManager.session(track_async=True, return_results=True) as run:
+    asyncio.run(main())
+
+fetch = run.results["fetch"][0]
+fetch.durations - fetch.await_times     # time actually spent running
+for task in run.results.tasks[0]:
+    print(task.name, task.running_time, task.awaiting_time)
+```
 
 You can also profile a script without changing its source:
 
@@ -51,6 +66,45 @@ scope-profiler run my_script.py
 scope-profiler inspect profiling_data.h5
 scope-profiler plot default profiling_data.h5 -o figures
 scope-profiler report profiling_data.h5 -o report.html
+```
+
+## Profile a pytest suite
+
+The installed package provides an opt-in pytest plugin. It records one region
+for every selected test, named from its pytest node id, so the normal
+post-processing commands can show which tests consume the suite's time:
+
+``` bash
+pytest --scope-profile --scope-profile-out pytest-profile.h5
+scope-profiler inspect pytest-profile.h5 --regions-only --sort total
+scope-profiler plot durations pytest-profile.h5 -o pytest-plots
+```
+
+By default it measures only each test's `call` phase. Include fixture setup
+and teardown when those are relevant to the investigation:
+
+``` bash
+pytest --scope-profile --scope-profile-phases=all
+```
+
+The plugin uses its own profiling manager, so tests that call
+`ProfileManager.setup()` or `ProfileManager.finalize()` remain isolated. The
+result measures complete test phases; it does not recursively trace every
+function pytest calls. Existing application-level Scope Profiler regions are
+therefore best collected in a dedicated application run when detailed
+function-level attribution is needed. With `pytest-xdist`, the plugin cannot
+yet be used: its workers must not write the same HDF5 file.
+
+The extension of `-o` picks the output format. HDF5 is the default, and stays
+the better choice for a long run --- it is read back column by column rather
+than whole. JSON holds exactly the same data --- every call, in integer
+nanoseconds --- for anything that would rather not open an HDF5 file:
+
+```bash
+scope-profiler run -o profile.json my_script.py     # or .json.gz
+scope-profiler run -o report.html my_script.py      # rendered report
+scope-profiler export json profiling_data.h5 -o exports  # convert an existing run
+scope-profiler inspect profile.json                 # read one back anywhere
 ```
 
 Profiling can be suspended around setup, I/O, or other phases that should not
@@ -159,12 +213,32 @@ pip install "scope-profiler[notebook]"
 - [Quick start](https://max-models.github.io/scope-profiler/quickstart.html)
 - [Python API and post-processing](https://max-models.github.io/scope-profiler/guide/hdf5_and_python_api.html)
 - [CLI reference](https://max-models.github.io/scope-profiler/cli.html)
+- [Plotly figures for the web](https://max-models.github.io/scope-profiler/guide/plotly_package.html)
 - [Configuration and profiling regions](https://max-models.github.io/scope-profiler/guide/configuration.html)
 - [MPI](https://max-models.github.io/scope-profiler/guide/mpi.html), [C](https://max-models.github.io/scope-profiler/guide/c.html), and [Fortran](https://max-models.github.io/scope-profiler/guide/fortran.html)
 - [LIKWID](https://max-models.github.io/scope-profiler/guide/likwid.html), [line profiling](https://max-models.github.io/scope-profiler/guide/line_profiler.html), and [MCP](https://max-models.github.io/scope-profiler/guide/mcp.html)
 - [Jupyter/IPython magics](https://max-models.github.io/scope-profiler/guide/notebook_magics.html)
 - [Tutorial notebooks](https://max-models.github.io/scope-profiler/tutorials.html)
 - [Examples](https://github.com/max-models/scope-profiler/tree/devel/examples)
+
+### Build the documentation locally
+
+The hosted documentation is built with Sphinx from the `.qmd` sources. Install
+[Quarto](https://quarto.org/docs/get-started/) and Pandoc first, then create a
+development environment and run the docs target from the repository root:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -e ".[docs]"
+make -C docs html
+```
+
+This refreshes the generated command output and Markdown sources before
+building the HTML site. Open `docs/build/html/index.html` locally, or serve
+that directory with any static-file server. The GitHub Pages workflow uses the
+same `make -C docs html` command.
 
 ## Development
 

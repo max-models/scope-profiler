@@ -68,6 +68,33 @@ advanced use cases.
    :undoc-members:
 ```
 
+### ThreadedProfileRegion
+
+Selected by `track_threads=True`; see [Threads, tasks and
+coroutines](guide/concurrency.qmd).
+
+```{eval-rst}
+.. autoclass:: scope_profiler.region_profiler.ThreadedProfileRegion
+   :members:
+   :undoc-members:
+```
+
+## Threads, tasks and coroutines
+
+A run profiled with `track_threads` describes the lanes its calls ran on. The
+records below are what `ProfilingResults.threads` and `ProfilingResults.tasks`
+hand back.
+
+```{eval-rst}
+.. autoclass:: scope_profiler.concurrency.ThreadInfo
+   :members:
+.. autoclass:: scope_profiler.concurrency.TaskInfo
+   :members:
+.. autoclass:: scope_profiler.concurrency.ConcurrencyTracker
+   :members: threads, tasks, current_thread, instrument_loop, install, uninstall, snapshot
+.. autofunction:: scope_profiler.concurrency.lane_ids
+```
+
 ## Post-processing
 
 Everything in this section is importable from the package root:
@@ -78,6 +105,8 @@ from scope_profiler import (
     build_call_stack,
     read_h5,
     read_h5_summary,
+    read_json,
+    read_profile,
     plot_flame_chart,
     plot_gantt,
     write_region_statistics_json,
@@ -115,6 +144,21 @@ Load fixed-size scalar statistics without reading per-call event columns.
 
 ```{eval-rst}
 .. autofunction:: scope_profiler.h5reader.read_h5_summary
+```
+
+### read_json and write_json
+
+The same run as a JSON document: `write_json()` writes one, `read_json()`
+reads it back into the very same `ProfilingResults`, and `read_profile()` /
+`write_profile()` pick between JSON and HDF5 by the file name --- the rule
+`scope-profiler run -o` follows. See {doc}`cli` for when to prefer which.
+
+```{eval-rst}
+.. autofunction:: scope_profiler.json_export.read_json
+.. autofunction:: scope_profiler.json_export.write_json
+.. autofunction:: scope_profiler.json_export.export_json
+.. autofunction:: scope_profiler.profile_io.read_profile
+.. autofunction:: scope_profiler.profile_io.write_profile
 ```
 
 ### Native (C and Fortran) traces
@@ -168,17 +212,25 @@ when building your own nested visualisation.
 .. autofunction:: scope_profiler.call_stack.call_stack_children
 ```
 
-#### Intervals must be properly nested
+#### Intervals must be properly nested, within a lane
 
-Two calls recorded on one rank either nest completely or do not overlap at
-all. A call that starts inside another and ends after it raises
-`NestingError` rather than being reconstructed under a guessed parent — there
-is no call stack that describes it, and every consumer (flame chart, `.prof`,
-speedscope, exclusive time) would otherwise have to invent one.
+Two calls recorded on one *lane* — one thread, or one asyncio task or greenlet
+running on it — either nest completely or do not overlap at all. A call that
+starts inside another on the same lane and ends after it raises `NestingError`
+rather than being reconstructed under a guessed parent — there is no call
+stack that describes it, and every consumer (flame chart, `.prof`, speedscope,
+exclusive time) would otherwise have to invent one.
 
-A stack of `with` blocks or decorated functions always satisfies this. The
-realistic way to violate it is a mismatched `sp_begin`/`sp_end` pair in C or
-Fortran; see the [C](guide/c.qmd) and [Fortran](guide/fortran.qmd) guides.
+Calls on different lanes overlap freely and are reconstructed as separate
+stacks. A run profiled with `track_threads` records a lane per call, which is
+what makes that possible; without it a whole rank is one lane, so profiling
+concurrent threads raises here instead. See [Threads, tasks and
+coroutines](guide/concurrency.qmd).
+
+A stack of `with` blocks or decorated functions on one lane always satisfies
+this. The other realistic way to violate it is a mismatched `sp_begin`/`sp_end`
+pair in C or Fortran; see the [C](guide/c.qmd) and
+[Fortran](guide/fortran.qmd) guides.
 
 `finalize()` is deliberately more forgiving than the readers: a rank whose
 intervals do not nest keeps its timings and loses only the call graph, with a
@@ -224,7 +276,14 @@ couple of seconds instead of a couple of minutes.
 
 ```{eval-rst}
 .. autofunction:: scope_profiler.speedscope_export.export_speedscope
+.. autofunction:: scope_profiler.chrome_trace_export.export_chrome_trace
 .. autofunction:: scope_profiler.prof_export.export_prof
+.. autofunction:: scope_profiler.prof_export.to_pstats
+.. autofunction:: scope_profiler.prof_export.build_pstats
+.. autofunction:: scope_profiler.prof_export.load_prof
+.. autoclass:: scope_profiler.prof_export.ScopeProfile
+.. autofunction:: scope_profiler.json_export.export_json
+   :no-index:
 ```
 
 ## LIKWID

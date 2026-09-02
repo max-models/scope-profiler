@@ -56,6 +56,8 @@ Eleven magics are registered:
     Export a previous run to a ``.prof`` (pstats/snakeviz) or speedscope
     JSON file via ``scope_profiler.prof_export``/``speedscope_export``.
     Format defaults to whatever ``filepath``'s extension implies.
+    ``--no-call-paths`` makes the ``.prof`` one entry per region instead of
+    one per ``parent > child`` call path.
 ``%scope_reset [name]``
     Drop one recorded run, or with no argument, every run recorded so far.
 
@@ -138,11 +140,13 @@ class ScopeMagics(Magics):
         """Profile a cell as one region and print its summary table."""
         args = parse_argstring(self.scope_cell, line)
         name = args.name or "cell"
-        with ProfileManager.session(
-            return_results=True, verbose=False, deactivate_file_output=True
-        ) as run:
-            with ProfileManager.profile_region(name):
-                self.shell.run_cell(cell)
+        with (
+            ProfileManager.session(
+                return_results=True, verbose=False, deactivate_file_output=True
+            ) as run,
+            ProfileManager.profile_region(name),
+        ):
+            self.shell.run_cell(cell)
         results = run.results
         self._store(name, results)
         if not args.quiet:
@@ -317,7 +321,15 @@ class ScopeMagics(Magics):
             # What run_cell() does for the other cell magics: report the error
             # and carry on, so a cell that fails halfway still shows how far
             # it got. KeyboardInterrupt is not caught, and still propagates.
-            self.shell.showtraceback(exc_info)
+            #
+            # tb_offset is pinned rather than left to the renderer. This frame
+            # is already gone from `exc_info` above, and how many *more*
+            # frames IPython drops on its own has varied between versions:
+            # one of them left the cell's frame nowhere to be seen (an
+            # exception with no source at all), another showed this method
+            # alongside the cell. Zero means "drop nothing further", so the
+            # slice above is the only one that happens, on every version.
+            self.shell.showtraceback(exc_info, tb_offset=0)
         self._store(name, results)
         if not args.quiet:
             print(f"%%scope_recursive {name!r}")
@@ -349,14 +361,16 @@ class ScopeMagics(Magics):
         """
         args = parse_argstring(self.scope_agg_cell, line)
         name = args.name or "cell"
-        with ProfileManager.session(
-            return_results=True,
-            verbose=False,
-            deactivate_file_output=True,
-            aggregation_mode=True,
-        ) as run:
-            with ProfileManager.profile_region(name):
-                self.shell.run_cell(cell)
+        with (
+            ProfileManager.session(
+                return_results=True,
+                verbose=False,
+                deactivate_file_output=True,
+                aggregation_mode=True,
+            ) as run,
+            ProfileManager.profile_region(name),
+        ):
+            self.shell.run_cell(cell)
         results = run.results
         self._store(name, results)
         if not args.quiet:
@@ -442,6 +456,11 @@ class ScopeMagics(Magics):
     )
     @argument("--include", default=None, help="regex selecting which regions to export")
     @argument("--exclude", default=None, help="regex selecting which regions to drop")
+    @argument(
+        "--no-call-paths",
+        action="store_true",
+        help="prof only: one entry per region instead of per 'parent > child' path",
+    )
     @line_magic("scope_export")
     def scope_export(self, line):
         """Export a previous run to a .prof or speedscope JSON file."""
@@ -462,6 +481,7 @@ class ScopeMagics(Magics):
                 args.filepath,
                 include=args.include,
                 exclude=args.exclude,
+                call_paths=not args.no_call_paths,
                 verbose=False,
             )
         else:

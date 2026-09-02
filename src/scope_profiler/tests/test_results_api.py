@@ -761,7 +761,8 @@ def test_top_level_exports_and_lazy_plotting():
         assert getattr(scope_profiler, name) is not None
 
     with pytest.raises(AttributeError):
-        scope_profiler.not_a_real_attribute
+        # The attribute access itself is what must raise.
+        scope_profiler.not_a_real_attribute  # noqa: B018
 
 
 def test_merging_recomputes_exclusive_time_against_the_new_neighbours(tmp_path):

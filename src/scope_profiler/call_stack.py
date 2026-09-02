@@ -6,15 +6,26 @@ starts while another is still open is its child. The flame chart, the ``.prof``
 export and the speedscope export all build on this, and so can user code that
 wants to draw its own nested view.
 
-**Intervals must be properly nested.** Two calls recorded on one rank either
-nest completely or do not overlap at all; a call that starts inside another
-and ends after it is rejected rather than reconstructed. That is what a stack
-of ``with`` blocks always produces, and assuming it is what makes
-:func:`build_call_arrays` a handful of vectorized passes instead of a
-per-call Python loop - the reconstruction is O(events) in numpy rather than
-O(events) in dicts, which is the difference between 2 s and 160 s on a run
-with ten million events. Manual ``sp_begin``/``sp_end`` pairs in native code
-are the only realistic way to violate it; see :class:`NestingError`.
+**Intervals must be properly nested, within a lane.** A *lane* is one
+sequential flow of control: a thread, or an asyncio task or greenlet running
+on one. Two calls recorded on the same lane either nest completely or do not
+overlap at all; a call that starts inside another and ends after it is
+rejected rather than reconstructed. That is what a stack of ``with`` blocks
+always produces, and assuming it is what makes :func:`build_call_arrays` a
+handful of vectorized passes instead of a per-call Python loop - the
+reconstruction is O(events) in numpy rather than O(events) in dicts, which is
+the difference between 2 s and 160 s on a run with ten million events.
+
+Calls on *different* lanes routinely overlap without nesting, and are
+reconstructed as separate stacks: a run profiled with ``track_threads`` (see
+:mod:`scope_profiler.concurrency`) carries a lane per call, and every lane is
+reconstructed on its own. Without that column the whole rank is one lane,
+which is correct for the single-threaded runs it describes and is why
+profiling concurrent threads without ``track_threads`` raises
+:class:`NestingError` instead of inventing a call graph.
+
+Manual ``sp_begin``/``sp_end`` pairs in native code are the other realistic
+way to violate the assumption.
 """
 
 from collections.abc import Iterable
@@ -22,18 +33,25 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
+from scope_profiler.concurrency import lane_ids
+
+# Lane column of a result reconstructed without one: a single stack per rank.
+_NO_LANE: np.ndarray = np.full(0, -1, dtype=np.int64)
+_NO_LANE.flags.writeable = False
+
 
 class NestingError(ValueError):
     """Raised when recorded intervals are not properly nested.
 
-    A rank's calls must form a forest: any two intervals are either disjoint
-    or one contains the other. Partial overlap has no call stack to
-    reconstruct, and every consumer of this module (flame chart, ``.prof``,
-    speedscope, exclusive time) would have to invent one.
+    A lane's calls must form a forest: any two intervals on one lane are
+    either disjoint or one contains the other. Partial overlap has no call
+    stack to reconstruct, and every consumer of this module (flame chart,
+    ``.prof``, speedscope, exclusive time) would have to invent one.
 
     In practice this means a mismatched ``sp_begin``/``sp_end`` pair in C or
-    Fortran, or region objects driven from several threads, which the region
-    buffers do not support anyway.
+    Fortran, or regions driven from several threads in a run that did not
+    profile with ``track_threads=True`` -- without that, every thread's calls
+    land in one lane and interleave.
     """
 
 
@@ -56,6 +74,16 @@ class CallArrays(NamedTuple):
     depth: np.ndarray
     parent: np.ndarray
     exclusive_ns: np.ndarray
+    lane: np.ndarray = _NO_LANE
+    """Which stack each call belongs to; see :func:`scope_profiler.concurrency.lane_ids`.
+
+    **Empty** for a run that did not track threads, meaning the whole rank is
+    one stack -- rather than a full-length array of ``-1``, which would cost
+    three more passes over the events of every single-threaded run to say
+    nothing. Consumers must therefore check ``lane.size`` before indexing it.
+    Defaulted so the field can be omitted by older callers constructing this
+    tuple themselves.
+    """
 
     def __len__(self) -> int:
         return int(self.start_ns.size)
@@ -93,11 +121,11 @@ def _depths(start_ns: np.ndarray, end_ns: np.ndarray) -> np.ndarray:
     start; the scale factor keeps that adjustment exact in integers.
     """
     n = start_ns.size
-    scaled_start = start_ns * 2
-    scaled_end = end_ns * 2
+    scaled_start: np.ndarray = start_ns * 2
+    scaled_end: np.ndarray = end_ns * 2
     scaled_end[scaled_end == scaled_start] += 1
     closed = np.searchsorted(np.sort(scaled_end), scaled_start, side="right")
-    depth = np.arange(n, dtype=np.int64)
+    depth: np.ndarray = np.arange(n, dtype=np.int64)
     depth -= closed
     if n and depth.min() < 0:
         raise NestingError("recorded calls are not properly nested")
@@ -111,17 +139,43 @@ def _parents(depth: np.ndarray) -> np.ndarray:
     deep at worst, so this is a handful of vectorized passes.
     """
     n = depth.size
-    parent = np.full(n, -1, dtype=np.int64)
+    parent: np.ndarray = np.full(n, -1, dtype=np.int64)
     if n == 0:
         return parent
-    index = np.arange(n, dtype=np.int64)
-    candidate = np.empty(n, dtype=np.int64)
+    index: np.ndarray = np.arange(n, dtype=np.int64)
+    candidate: np.ndarray = np.empty(n, dtype=np.int64)
     for level in range(1, int(depth.max()) + 1):
         np.copyto(candidate, index)
         candidate[depth != level - 1] = -1
         np.maximum.accumulate(candidate, out=candidate)
         np.copyto(parent, candidate, where=depth == level)
     return parent
+
+
+def _lane_nesting(lane: np.ndarray, start_ns: np.ndarray, end_ns: np.ndarray):
+    """Depth and parent of every call, reconstructing each lane separately.
+
+    Only calls on one lane can nest: two threads, or two coroutines
+    interleaved on one thread, overlap freely and belong to different stacks.
+    The inputs are already in the global ``(start, -end)`` order, and taking
+    a lane's positions out of it preserves that order, so each lane is handed
+    to the same routines the single-lane path uses. Parents come back as
+    positions in the global arrays.
+
+    The loop runs once per lane, not once per call, and each pass is
+    vectorized: a run with a few dozen threads costs a few dozen passes. A run
+    that creates hundreds of thousands of short-lived asyncio tasks pays one
+    pass per task, which is the one shape where this is not free.
+    """
+    depth: np.ndarray = np.empty(lane.size, dtype=np.int64)
+    parent: np.ndarray = np.full(lane.size, -1, dtype=np.int64)
+    for value in np.unique(lane):
+        positions = np.flatnonzero(lane == value)
+        lane_depth = _depths(start_ns[positions], end_ns[positions])
+        lane_parent = _parents(lane_depth)
+        depth[positions] = lane_depth
+        parent[positions] = np.where(lane_parent < 0, -1, positions[lane_parent])
+    return depth, parent
 
 
 def build_call_arrays(regions: Iterable, rank: int) -> CallArrays:
@@ -157,6 +211,14 @@ def build_call_arrays(regions: Iterable, rank: int) -> CallArrays:
     ends: list[np.ndarray] = []
     region_index: list[np.ndarray] = []
     call_index: list[np.ndarray] = []
+    # (call count, thread ids or None, task ids or None) per region. Held
+    # rather than turned into a lane column straight away: a run that tracked
+    # no threads has one lane, and materializing a full-length array of -1 for
+    # it would put three more passes over every event -- an allocation, a
+    # concatenate and a gather -- into the reconstruction of every
+    # single-threaded run, which is the overwhelmingly common one.
+    lane_sources: list[tuple[int, Any, Any]] = []
+    any_lane = False
     for region in regions:
         if rank not in region.regions:
             continue
@@ -170,14 +232,24 @@ def build_call_arrays(regions: Iterable, rank: int) -> CallArrays:
         ends.append(region_ends)
         region_index.append(np.full(region_starts.size, len(names) - 1, dtype=np.int64))
         call_index.append(np.arange(region_starts.size, dtype=np.int64))
+        thread_ids = getattr(region_data, "thread_ids", None)
+        any_lane = any_lane or thread_ids is not None
+        lane_sources.append(
+            (
+                region_starts.size,
+                thread_ids,
+                getattr(region_data, "task_ids", None),
+            )
+        )
 
     if not starts:
-        empty = np.empty(0, dtype=np.int64)
+        empty: np.ndarray = np.empty(0, dtype=np.int64)
         return CallArrays(
             names,
             source_files,
             source_lines,
             empty,
+            empty.copy(),
             empty.copy(),
             empty.copy(),
             empty.copy(),
@@ -200,8 +272,28 @@ def build_call_arrays(regions: Iterable, rank: int) -> CallArrays:
     call_of = np.concatenate(call_index)[order]
     n = start_ns.size
 
-    depth = _depths(start_ns, end_ns)
-    parent = _parents(depth)
+    if any_lane:
+        # A region with no lane column of its own -- one imported from a
+        # Fortran trace, say -- lands on lane -1, which no thread or task
+        # uses. See concurrency.lane_ids.
+        lane = np.concatenate(
+            [
+                (
+                    np.full(count, -1, dtype=np.int64)
+                    if thread_ids is None
+                    else lane_ids(thread_ids, task_ids)
+                )
+                for count, thread_ids, task_ids in lane_sources
+            ]
+        )[order]
+        depth, parent = _lane_nesting(lane, start_ns, end_ns)
+    else:
+        # Left empty rather than filled with -1: every consumer reads an
+        # empty lane column as "one lane", and a long run saves three passes
+        # over its whole event set. See CallArrays.lane.
+        lane = _NO_LANE
+        depth = _depths(start_ns, end_ns)
+        parent = _parents(depth)
 
     # The one check that proves the assumption: every child lies inside the
     # parent it was assigned. Its start does so by construction (the sort),
@@ -229,7 +321,66 @@ def build_call_arrays(regions: Iterable, rank: int) -> CallArrays:
         depth=depth,
         parent=parent,
         exclusive_ns=exclusive_ns,
+        lane=lane,
     )
+
+
+def split_by_lane(calls: CallArrays) -> list[tuple[int, CallArrays]]:
+    """Split a reconstruction into one :class:`CallArrays` per lane.
+
+    Anything that has to emit calls in time order -- the speedscope exporter,
+    above all -- cannot walk a multi-lane reconstruction as one tree: two
+    lanes interleave, so a depth-first walk of the roots emits an event at a
+    time earlier than the one before it. Per lane the intervals nest, so each
+    lane walks exactly the way a single-threaded run always did.
+
+    Parents are remapped to positions within each returned lane, and the
+    ``lane`` column is carried through so callers can name the result.
+
+    Returns
+    -------
+    list of (int, CallArrays)
+        One entry per lane, in lane order. A reconstruction with no lane
+        column comes back as a single entry keyed ``-1``, i.e. unchanged.
+    """
+    if len(calls) == 0:
+        return []
+    if calls.lane.size == 0:
+        return [(-1, calls)]  # no lane column: one stack, unchanged
+    lanes = np.unique(calls.lane)
+    if lanes.size <= 1:
+        return [(int(lanes[0]), calls)]
+
+    split = []
+    for value in lanes:
+        positions = np.flatnonzero(calls.lane == value)
+        # Global position -> position within this lane. Parents are always on
+        # the same lane, so every non-root parent is in the mapping.
+        local: np.ndarray = np.full(len(calls), -1, dtype=np.int64)
+        local[positions] = np.arange(positions.size, dtype=np.int64)
+        parent = calls.parent[positions]
+        # Built field by field rather than with ``_replace``: this tuple
+        # overrides ``__len__`` to report its call count, which is exactly
+        # what namedtuple's ``_make`` checks against the field count.
+        split.append(
+            (
+                int(value),
+                CallArrays(
+                    names=calls.names,
+                    source_files=calls.source_files,
+                    source_lines=calls.source_lines,
+                    region_index=calls.region_index[positions],
+                    call_index=calls.call_index[positions],
+                    start_ns=calls.start_ns[positions],
+                    end_ns=calls.end_ns[positions],
+                    depth=calls.depth[positions],
+                    parent=np.where(parent < 0, -1, local[parent]),
+                    exclusive_ns=calls.exclusive_ns[positions],
+                    lane=calls.lane[positions],
+                ),
+            )
+        )
+    return split
 
 
 def build_call_stack(regions: Iterable, rank: int, origin: float = 0.0) -> list[dict]:
@@ -256,7 +407,7 @@ def build_call_stack(regions: Iterable, rank: int, origin: float = 0.0) -> list[
     -------
     list of dict
         One dict per call, ordered by start time (parents before children),
-        with keys ``call_id``, ``name``, ``call_path``, ``start``, ``end``,
+        with keys ``call_id``, ``name``, ``call_path``, ``lane``, ``start``, ``end``,
         ``duration`` (the inclusive duration), ``inclusive_duration``,
         ``exclusive_duration`` (seconds), ``depth`` (0 for a top-level call)
         and ``parent`` (the ``call_id`` of the enclosing call in this same
@@ -309,6 +460,7 @@ def build_call_stack(regions: Iterable, rank: int, origin: float = 0.0) -> list[
                 ),
                 "source_file": arrays.source_files[region_row],
                 "source_lineno": arrays.source_lines[region_row],
+                "lane": int(arrays.lane[call_id]) if arrays.lane.size else -1,
                 "color": colors[name],
             }
         )
@@ -344,8 +496,21 @@ def regions_from_snapshot(regions: dict, rank: int) -> list:
     from scope_profiler.mpi_region import MPIRegion
     from scope_profiler.region import Region
 
+    def column(arrays, position):
+        return arrays[position] if len(arrays) > position else None
+
     return [
-        MPIRegion(name=name, regions={rank: Region(arrays[0], arrays[1])})
+        MPIRegion(
+            name=name,
+            regions={
+                rank: Region(
+                    arrays[0],
+                    arrays[1],
+                    thread_ids=column(arrays, 5),
+                    task_ids=column(arrays, 6),
+                )
+            },
+        )
         for name, arrays in regions.items()
     ]
 
@@ -379,7 +544,7 @@ def exclusive_totals_ns(regions: dict, rank: int = 0) -> dict:
         Region name -> total exclusive nanoseconds, for every named region.
     """
     arrays = build_call_arrays(regions_from_snapshot(regions, rank), rank)
-    totals = np.zeros(len(arrays.names), dtype=np.int64)
+    totals: np.ndarray = np.zeros(len(arrays.names), dtype=np.int64)
     np.add.at(totals, arrays.region_index, arrays.exclusive_ns)
     by_name = dict(zip(arrays.names, totals.tolist()))
     return {name: by_name.get(name, 0) for name in regions}

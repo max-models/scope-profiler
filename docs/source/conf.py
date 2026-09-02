@@ -5,10 +5,6 @@
 
 import os
 import shutil
-import sys
-
-# Make the package importable for autodoc
-sys.path.insert(0, os.path.abspath("../../src"))
 
 
 def copy_tutorials(app):
@@ -36,9 +32,25 @@ def copy_figures(app):
         shutil.copytree(src, dst)
 
 
+def copy_plotly_package(app):
+    """Expose the local npm source to docs builds outside release CI."""
+
+    if os.environ.get("SCOPE_PROFILER_DOCS_USE_RELEASED_NPM"):
+        # Release CI places the npm-installed module here before Sphinx runs.
+        return
+    confdir = os.path.dirname(os.path.abspath(__file__))
+    src = os.path.join(confdir, "..", "..", "packages", "plotly", "src")
+    dst = os.path.join(confdir, "_static", "plotly")
+    if os.path.exists(dst):
+        shutil.rmtree(dst)
+    if os.path.exists(src):
+        shutil.copytree(src, dst)
+
+
 def setup(app):
     app.connect("builder-inited", copy_tutorials)
     app.connect("builder-inited", copy_figures)
+    app.connect("builder-inited", copy_plotly_package)
     app.add_css_file("custom.css")
 
 

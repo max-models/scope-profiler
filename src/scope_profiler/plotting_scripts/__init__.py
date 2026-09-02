@@ -60,6 +60,10 @@ from scope_profiler.plotting_scripts.likwid import (
     available_likwid_metrics,
     plot_likwid,
 )
+from scope_profiler.plotting_scripts.perf_events import (
+    available_perf_event_metrics,
+    plot_perf_events,
+)
 from scope_profiler.plotting_scripts.scaling import (
     plot_scaling_efficiency,
     plot_speedup,
@@ -74,24 +78,6 @@ from scope_profiler.plotting_scripts.timeline import plot_timeline_density
 __all__ = [
     "DEFAULT_CMAP",
     "FLAME_CMAP",
-    "available_likwid_metrics",
-    "collect_region_statistics",
-    "plot_callgraph",
-    "plot_duration_histogram",
-    "plot_duration_timeseries",
-    "plot_durations",
-    "plot_flame",
-    "plot_flame_chart",
-    "plot_flame_graph",
-    "plot_gantt",
-    "plot_imbalance",
-    "plot_likwid",
-    "plot_rank_heatmap",
-    "plot_scaling_efficiency",
-    "plot_speedup",
-    "plot_timeline_density",
-    "plot_weak_scaling",
-    "write_region_statistics_json",
     # Private helpers re-exported for internal cross-module use and for
     # tests that reach into ``scope_profiler.plotting_scripts.<helper>``
     # (including monkeypatching ``_get_canvas``/``_render``/``_hover_summary``).
@@ -122,4 +108,24 @@ __all__ = [
     "_unique_labels",
     "_write_csv",
     "_write_json",
+    "available_likwid_metrics",
+    "available_perf_event_metrics",
+    "collect_region_statistics",
+    "plot_callgraph",
+    "plot_duration_histogram",
+    "plot_duration_timeseries",
+    "plot_durations",
+    "plot_flame",
+    "plot_flame_chart",
+    "plot_flame_graph",
+    "plot_gantt",
+    "plot_imbalance",
+    "plot_likwid",
+    "plot_perf_events",
+    "plot_rank_heatmap",
+    "plot_scaling_efficiency",
+    "plot_speedup",
+    "plot_timeline_density",
+    "plot_weak_scaling",
+    "write_region_statistics_json",
 ]

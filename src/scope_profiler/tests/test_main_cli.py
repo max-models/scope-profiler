@@ -45,6 +45,14 @@ def test_run_help_lists_line_profile_flag(capsys):
     assert "--line-profile" in capsys.readouterr().out
 
 
+def test_run_help_lists_memory_profile_flag(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main(["run", "--help"])
+
+    assert exc_info.value.code == 0
+    assert "--memory-profile" in capsys.readouterr().out
+
+
 def test_run_line_profile_flag_is_passed_to_setup(tmp_path, monkeypatch):
     script = tmp_path / "script.py"
     script.write_text("print('hello')\n", encoding="utf-8")
@@ -71,9 +79,21 @@ def test_run_line_profile_flag_is_passed_to_setup(tmp_path, monkeypatch):
         "scope_profiler.__main__.ProfileManager.finalize", fake_finalize
     )
 
-    cli_main(["run", "--line-profile", "--all", "-q", str(script), "--", "arg"])
+    cli_main(
+        [
+            "run",
+            "--line-profile",
+            "--memory-profile",
+            "--all",
+            "-q",
+            str(script),
+            "--",
+            "arg",
+        ]
+    )
 
     assert calls["setup"]["use_line_profiler"] is True
+    assert calls["setup"]["use_memray"] is True
     assert calls["setup"]["recursive_profile"] is True
     assert calls["run_script"] == {
         "path": str(script),

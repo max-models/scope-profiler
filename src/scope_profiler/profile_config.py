@@ -14,6 +14,7 @@ except ModuleNotFoundError:  # Python 3.10
 
 tomllib = _tomllib
 
+from scope_profiler.concurrency import ConcurrencyTracker
 from scope_profiler.metadata import collect_metadata
 from scope_profiler.mpi_launch import get_comm
 
@@ -25,7 +26,13 @@ _CONFIG_FIELDS = {
     "deactivate_profiling",
     "deactivate_file_output",
     "use_likwid",
+    "perf_events",
     "use_line_profiler",
+    "use_memray",
+    "memory_profile_path",
+    "memray_native_traces",
+    "memray_trace_python_allocators",
+    "memray_follow_fork",
     "use_nvtx",
     "use_gpu_timing",
     "gpu_timing_backend",
@@ -39,6 +46,8 @@ _CONFIG_FIELDS = {
     "label",
     "capture_region_source",
     "aggregation_mode",
+    "track_threads",
+    "track_async",
 }
 
 
@@ -104,8 +113,12 @@ class ProfilingOptions:
         post-processing step.
     use_likwid : bool or None
         Enable LIKWID hardware counter collection (default: False).
+    perf_events : sequence of str or None
+        Linux ``perf_event_open`` events to collect per region (default: None).
     use_line_profiler : bool or None
         Enable line-by-line profiling via line_profiler (default: False).
+    use_memray : bool or None
+        Record process-wide memory allocations with Memray (default: False).
     deactivate_profiling : bool or None
         Turn profiling off entirely (``setup()`` default: False). Every
         region becomes a no-op, so the instrumentation can stay in the code
@@ -134,6 +147,15 @@ class ProfilingOptions:
         total per region (default: False). Timeline events are unavailable
         in this mode; it cannot be combined with line, GPU, NVTX, or LIKWID
         profiling.
+    track_threads : bool or None
+        Record which thread each call ran on, and describe every thread the
+        run touched (default: False). Required for correct results from
+        concurrently used regions; see
+        :class:`~scope_profiler.region_profiler.ThreadedProfileRegion`.
+    track_async : bool or None
+        Also record which asyncio task or greenlet each call ran in, and how
+        much of the call was spent awaiting (default: False). Implies
+        ``track_threads``.
     capture_region_source : bool or None
         Record where each region is defined -- the ``with`` block or the
         decorated function -- once per distinct source file, the first time
@@ -166,7 +188,13 @@ class ProfilingOptions:
     file_path: str | None = None
     label: str | None = None
     use_likwid: bool | None = None
+    perf_events: list[str] | tuple[str, ...] | str | None = None
     use_line_profiler: bool | None = None
+    use_memray: bool | None = None
+    memory_profile_path: str | None = None
+    memray_native_traces: bool | None = None
+    memray_trace_python_allocators: bool | None = None
+    memray_follow_fork: bool | None = None
     deactivate_profiling: bool | None = None
     use_nvtx: bool | None = None
     use_gpu_timing: bool | None = None
@@ -174,6 +202,8 @@ class ProfilingOptions:
     deactivate_file_output: bool | None = None
     recursive_profile: bool | None = None
     aggregation_mode: bool | None = None
+    track_threads: bool | None = None
+    track_async: bool | None = None
     capture_region_source: bool | None = None
     buffer_limit: int | None = None
     output_mode: str | None = None
@@ -342,7 +372,13 @@ class ProfilingConfig:
         file_path: str = "profiling_data.h5",
         label: str | None = None,
         use_likwid: bool = False,
+        perf_events: list[str] | tuple[str, ...] | str | None = None,
         use_line_profiler: bool = False,
+        use_memray: bool = False,
+        memory_profile_path: str | None = None,
+        memray_native_traces: bool = False,
+        memray_trace_python_allocators: bool = False,
+        memray_follow_fork: bool = False,
         deactivate_profiling: bool = False,
         use_nvtx: bool = False,
         use_gpu_timing: bool = False,
@@ -350,6 +386,8 @@ class ProfilingConfig:
         deactivate_file_output: bool = False,
         recursive_profile: bool = False,
         aggregation_mode: bool = False,
+        track_threads: bool = False,
+        track_async: bool = False,
         capture_region_source: bool = False,
         buffer_limit: int = 1024,
         output_mode: str = "auto",
@@ -372,6 +410,9 @@ class ProfilingConfig:
             Enable LIKWID marker API if available.
         use_line_profiler : bool
             Enable line-by-line profiling via line_profiler.
+        use_memray : bool
+            Record process-wide allocations with Memray in a separate native
+            ``.bin`` capture.
         deactivate_profiling : bool
             Turn profiling off entirely. Every region becomes a no-op, so
             instrumentation can stay in the code at near-zero cost.
@@ -393,6 +434,16 @@ class ProfilingConfig:
             exclusive total per region. Timeline events are unavailable in
             this mode; it cannot be combined with line, GPU, NVTX, or LIKWID
             profiling.
+        track_threads : bool
+            Give every thread its own buffers and stamp each call with the
+            thread it ran on, so regions entered concurrently record correct,
+            separable timelines. Cannot be combined with line, GPU, NVTX,
+            LIKWID or aggregation profiling.
+        track_async : bool
+            Additionally follow asyncio tasks and greenlets: each call carries
+            the lane it ran in and the time that lane spent suspended inside
+            the call, and the run reports per-task running and awaiting
+            totals. Implies ``track_threads``.
         capture_region_source : bool
             Record where each region is defined (see
             :attr:`~scope_profiler.region.Region.source_text`), once per
@@ -447,7 +498,14 @@ class ProfilingConfig:
         self._paused = False
         self._deactivate_file_output = deactivate_file_output
         self._use_likwid = use_likwid
+        from scope_profiler.perf_events import validate_events
+
+        self._perf_events = (
+            validate_events(perf_events) if perf_events is not None else ()
+        )
         self._use_line_profiler = use_line_profiler
+        self._use_memray = use_memray
+        self._memray_tracker = None
         self._use_nvtx = use_nvtx
         self._use_gpu_timing = use_gpu_timing
         self._gpu_timing_backend = gpu_timing_backend
@@ -480,12 +538,18 @@ class ProfilingConfig:
             or not isinstance(hdf5_compression_level, int)
         ):
             raise ValueError("hdf5_compression_level must be an integer or None")
-        if hdf5_compression == "gzip" and hdf5_compression_level is not None:
-            if not 0 <= hdf5_compression_level <= 9:
-                raise ValueError("GZIP compression level must be between 0 and 9")
-        if hdf5_compression == "zstd" and hdf5_compression_level is not None:
-            if not 1 <= hdf5_compression_level <= 22:
-                raise ValueError("Zstandard compression level must be between 1 and 22")
+        if (
+            hdf5_compression == "gzip"
+            and hdf5_compression_level is not None
+            and not 0 <= hdf5_compression_level <= 9
+        ):
+            raise ValueError("GZIP compression level must be between 0 and 9")
+        if (
+            hdf5_compression == "zstd"
+            and hdf5_compression_level is not None
+            and not 1 <= hdf5_compression_level <= 22
+        ):
+            raise ValueError("Zstandard compression level must be between 1 and 22")
         if hdf5_compression == "lzf" and hdf5_compression_level is not None:
             raise ValueError("LZF compression does not accept a compression level")
         self._hdf5_compression = hdf5_compression
@@ -493,12 +557,38 @@ class ProfilingConfig:
         self._hdf5_chunk_size = hdf5_chunk_size
         self._capture_region_source = capture_region_source
         if aggregation_mode and (
-            use_line_profiler or use_gpu_timing or use_likwid or use_nvtx
+            use_line_profiler
+            or use_gpu_timing
+            or use_likwid
+            or use_nvtx
+            or self._perf_events
         ):
             raise ValueError(
-                "aggregation_mode cannot be combined with line, GPU, NVTX, or LIKWID timing"
+                "aggregation_mode cannot be combined with line, GPU, NVTX, LIKWID, or perf events"
             )
         self._aggregation_mode = aggregation_mode
+
+        # track_async is a strict refinement of track_threads: a task lane is
+        # identified relative to the thread it runs on, and its buffers are
+        # the thread's.
+        track_threads = bool(track_threads or track_async)
+        if track_threads and (
+            use_line_profiler
+            or use_gpu_timing
+            or use_likwid
+            or self._perf_events
+            or use_nvtx
+            or aggregation_mode
+        ):
+            raise ValueError(
+                "track_threads/track_async cannot be combined with line, GPU, "
+                "NVTX, LIKWID, perf events, or aggregation profiling"
+            )
+        self._track_threads = track_threads
+        self._track_async = bool(track_async)
+        self._tracker = (
+            ConcurrencyTracker(track_async=self._track_async) if track_threads else None
+        )
 
         # Local queries, not collectives: nothing here has to be reached by
         # every rank in lockstep. Rank 0 writes the whole output file at
@@ -506,6 +596,21 @@ class ProfilingConfig:
         # per-rank staging file and no shared directory to agree on.
         self._rank = 0 if self._comm is None else self._comm.Get_rank()
         self._size = 1 if self._comm is None else self._comm.Get_size()
+        self._memory_profile_path = (
+            self._memray_path(memory_profile_path)
+            if use_memray and not deactivate_profiling
+            else None
+        )
+        if self._memory_profile_path is not None:
+            from scope_profiler.memray import MemrayAllocationTracker
+
+            self._memray_tracker = MemrayAllocationTracker(
+                self._memory_profile_path,
+                native_traces=memray_native_traces,
+                trace_python_allocators=memray_trace_python_allocators,
+                follow_fork=memray_follow_fork,
+            )
+            self._memray_tracker.start()
 
         # Environment metadata (hostname, OpenMP threads, versions, ...).
         # Collected on every rank, but only rank 0's copy ends up persisted
@@ -519,6 +624,8 @@ class ProfilingConfig:
         self._label = label or None
         if self._label is not None:
             self._metadata["label"] = self._label
+        if self._memory_profile_path is not None:
+            self._metadata["memory_profile_path"] = str(self._memory_profile_path)
 
         self._pylikwid: Any = None
         # Aggregate nesting belongs to this configuration. Keeping it here
@@ -549,6 +656,20 @@ class ProfilingConfig:
         """Initialize LIKWID markers if LIKWID is enabled."""
         if self._pylikwid is not None:
             self._pylikwid.markerinit()
+
+    def _memray_path(self, configured_path: str | None) -> Path:
+        """Return this rank's unique Memray capture path."""
+        path = Path(configured_path) if configured_path else Path(self._file_path)
+        if configured_path is None:
+            path = path.with_suffix(".memray.bin")
+        if self._size > 1:
+            path = path.with_name(f"{path.stem}.rank{self._rank}{path.suffix}")
+        return path
+
+    def stop_memory_profiling(self) -> None:
+        """Finish Memray's process-wide allocation capture, if enabled."""
+        if self._memray_tracker is not None:
+            self._memray_tracker.stop()
 
     def pylikwid_markerclose(self):
         """Close LIKWID markers to finalize measurement regions.
@@ -675,9 +796,24 @@ class ProfilingConfig:
         return self._use_likwid
 
     @property
+    def perf_events(self) -> tuple[str, ...]:
+        """Requested Linux perf event names, or an empty tuple when disabled."""
+        return self._perf_events
+
+    @property
     def use_line_profiler(self) -> bool:
         """Return whether line_profiler profiling is enabled."""
         return self._use_line_profiler
+
+    @property
+    def use_memray(self) -> bool:
+        """Return whether Memray allocation profiling is enabled."""
+        return self._use_memray
+
+    @property
+    def memory_profile_path(self) -> Path | None:
+        """Memray capture path, or None when allocation profiling is off."""
+        return self._memory_profile_path
 
     @property
     def use_nvtx(self) -> bool:
@@ -713,6 +849,25 @@ class ProfilingConfig:
     def aggregation_mode(self) -> bool:
         """Whether regions retain aggregates instead of individual events."""
         return self._aggregation_mode
+
+    @property
+    def track_threads(self) -> bool:
+        """Whether every call records the thread it ran on."""
+        return self._track_threads
+
+    @property
+    def track_async(self) -> bool:
+        """Whether every call records its asyncio task or greenlet."""
+        return self._track_async
+
+    @property
+    def tracker(self):
+        """This run's :class:`~scope_profiler.concurrency.ConcurrencyTracker`.
+
+        None unless ``track_threads`` is set, which is what keeps the default
+        configuration free of any thread, asyncio or greenlet hook.
+        """
+        return self._tracker
 
     @property
     def paused(self) -> bool:

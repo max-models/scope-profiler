@@ -7,9 +7,15 @@ repeatable AI optimization workflow.
 
 - [`ex_cli_profiling.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_cli_profiling.py) — profile an unmodified script with the CLI.
 - [`ex_line_profiling.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_line_profiling.py) — collect line-by-line timings.
+- [`ex_memory_profiling.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_memory_profiling.py) — capture allocations with Memray alongside region timings.
 - [`ex_recursive_profiling.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_recursive_profiling.py) — profile nested calls.
 - [`ex_region_source.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_region_source.py) — retain and inspect region source code.
 - [`ex_aggregation.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_aggregation.py) — record compact per-region aggregate statistics without storing an event timeline.
+- [`ex_perf_events.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_perf_events.py) — collect Linux CPU-counter totals per profiled region.
+- [`ex_perf_event_plots.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_perf_event_plots.py) — compare IPC and cache-miss pressure across regions.
+- [`ex_threads_and_asyncio.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_threads_and_asyncio.py) — profile concurrent threads, and split an asyncio task's wall time into running and awaiting.
+- [`ex_json_export.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_json_export.py) — write the run as JSON instead of HDF5, and read it back into the same results.
+- [`ex_prof_export.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_prof_export.py) — read a run with `pstats`/SnakeViz, in memory or as a `.prof` file.
 - [`benchmark_overhead.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/benchmark_overhead.py) — measure instrumentation overhead.
 
 Run an example with:
@@ -36,6 +42,28 @@ run.results.print_summary(title="Aggregate profile")
 See [`ex_aggregation.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_aggregation.py)
 for a complete runnable example. Individual events and timeline plots are not
 available in this mode.
+
+## Output formats
+
+The extension of the output path picks the format, and HDF5 remains the
+default. A JSON profile holds exactly the same run --- every call, in integer
+nanoseconds --- and reads back into the same `ProfilingResults`:
+
+```bash
+scope-profiler run -o profile.json my_script.py          # or .json.gz, or .html
+scope-profiler export json profiling_data.h5 -o exports  # convert an existing run
+```
+
+```python
+from scope_profiler import read_json, write_json
+
+write_json(run.results, "profile.json.gz")
+results = read_json("profile.json.gz")
+```
+
+See [`ex_json_export.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_json_export.py)
+for a complete runnable example, and {doc}`cli` for when to prefer which
+format.
 
 ## AI optimization workflow
 

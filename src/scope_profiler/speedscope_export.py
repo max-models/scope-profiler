@@ -22,7 +22,7 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from scope_profiler.call_stack import CallArrays, build_call_arrays
+from scope_profiler.call_stack import CallArrays, build_call_arrays, split_by_lane
 from scope_profiler.plotting_scripts import (
     _as_runs,
     _filename_slug,
@@ -188,8 +188,9 @@ def export_speedscope(
 ) -> list[Path]:
     """Write speedscope JSON files for the selected ranks.
 
-    One file is written per input HDF5 file, holding one profile per rank:
-    unlike ``.prof``, the format carries several profiles per file, and
+    One file is written per input HDF5 file, holding one profile per rank ---
+    or, for a run profiled with ``track_threads``, one per thread and task.
+    Unlike ``.prof``, the format carries several profiles per file, and
     speedscope switches between them from its profile selector.
 
     Parameters
@@ -229,8 +230,17 @@ def export_speedscope(
             if rank < 0 or rank >= run.num_ranks:
                 raise ValueError(f"Invalid rank requested: {rank}")
             calls = build_call_arrays(regions, rank)
-            if len(calls):
-                named_calls.append((f"rank {rank}", calls))
+            # One profile per lane, which is exactly speedscope's model of a
+            # thread -- and a necessity rather than a nicety: an evented
+            # profile's timestamps must not go backwards, and two interleaved
+            # lanes walked as one tree do exactly that.
+            for lane, lane_calls in split_by_lane(calls):
+                if not len(lane_calls):
+                    continue
+                profile_label = f"rank {rank}"
+                if lane != -1:
+                    profile_label = f"{profile_label} - {run.lane_label(lane, rank)}"
+                named_calls.append((profile_label, lane_calls))
         if named_calls:
             prepared.append((label, named_calls))
 

@@ -207,7 +207,7 @@ def test_diff_files_uses_summary_reader_for_scalar_metrics(
     def reject_eager_read(*args, **kwargs):
         raise AssertionError("scalar diff used the eager reader")
 
-    monkeypatch.setattr("scope_profiler.diff.read_h5", reject_eager_read)
+    monkeypatch.setattr("scope_profiler.diff.read_profile", reject_eager_read)
     diff_files(*paths, metric="total")
     assert "+100%" in capsys.readouterr().out
 

@@ -1,0 +1,240 @@
+---
+title: "Threads, tasks and coroutines"
+---
+
+A region records a start and an end timestamp, and nothing else. That is
+enough as long as one call stack owns the process: a call that starts while
+another is open is nested inside it, and the whole post-processing stack ---
+flame charts, exclusive time, the `.prof` and speedscope exports --- follows
+from that single rule.
+
+Concurrency breaks the rule. Two threads inside the same region produce
+intervals that overlap without nesting, and by default they also share one
+buffer and one scope stack, so they overwrite each other's reserved slots.
+Coroutines do the same on a single thread, and add a second problem: a `with`
+block held across an `await` measures wall time the task never spent running.
+
+`track_threads` and `track_async` fix both. They are off by default, so a
+single-threaded run pays nothing for them.
+
+## Profiling every thread
+
+```python
+from scope_profiler import ProfileManager
+
+with ProfileManager.session(track_threads=True, return_results=True) as run:
+    start_worker_threads()
+    join_worker_threads()
+
+results = run.results
+```
+
+Each thread now gets its own timestamp buffers and its own scope stack, and
+every recorded call carries the thread it ran on. Nesting is reconstructed per
+thread, so `exclusive_duration`, the flame chart and the call graph describe
+what actually happened rather than an interleaving of unrelated stacks.
+
+The run also describes the threads themselves:
+
+```python
+for thread in results.threads[0]:          # rank 0
+    print(thread.name, thread.cpu_time, thread.wall_time, thread.alive)
+```
+
+| Field | Meaning |
+| ----- | ------- |
+| `index` | Dense id within the rank; what the per-call `thread_ids` column stores |
+| `name` | The `threading.Thread` name |
+| `ident`, `native_id` | The interpreter's and the OS's thread ids |
+| `daemon` | Whether the thread was a daemon |
+| `start_time`, `end_time` | Relative to the start of the run; `end_time` is `None` for a thread still alive at `finalize()` |
+| `wall_time` | `end_time - start_time`, or `None` while alive |
+| `cpu_time` | CPU seconds the thread burned |
+
+A thread's start time is exact: threads are registered at their first
+bytecode, through a profile hook that removes itself immediately, so nothing
+of it survives into the thread's real work. The end time and the CPU total are
+exact too, and are taken *on the dying thread* --- `time.thread_time_ns()` can
+only be read from the thread it describes. A thread still running at
+`finalize()` reports `alive` and a CPU time sampled during profiling rather
+than at the end.
+
+`thread_summary()` puts the two sides together, so CPU burned outside every
+profiled region shows up as the gap between `cpu_time` and `region_time`:
+
+```python
+for row in results.thread_summary(rank=0):
+    print(row["name"], row["num_calls"], row["region_time"], row["cpu_time"])
+```
+
+To look at one thread's share of a region, slice it:
+
+```python
+solve = results["solve"][0]
+for index in solve.threads:
+    per_thread = solve.for_thread(index)     # an ordinary Region
+    print(index, per_thread.num_calls, per_thread.average_duration)
+```
+
+## Asyncio and greenlets
+
+`track_async=True` implies `track_threads=True` and additionally follows every
+asyncio task and, when `greenlet` is installed, every greenlet:
+
+```python
+import asyncio
+from scope_profiler import ProfileManager
+
+async def fetch(url):
+    with ProfileManager.profile_region("fetch"):
+        return await client.get(url)
+
+with ProfileManager.session(track_async=True, return_results=True) as run:
+    asyncio.run(main())
+```
+
+Each task becomes a lane of its own, so tasks that interleave are no longer
+mistaken for nested calls. Every call additionally records **how much of it
+was spent awaiting**:
+
+```python
+fetch = run.results["fetch"][0]
+fetch.durations        # wall time of each call
+fetch.await_times      # the part of it the task was suspended
+fetch.durations - fetch.await_times   # the part it actually held the thread
+```
+
+and every task is described in its own table:
+
+```python
+for task in run.results.tasks[0]:
+    print(task.name, task.coro_name, task.running_time, task.awaiting_time)
+```
+
+| Field | Meaning |
+| ----- | ------- |
+| `index` | Dense id within the rank; what the per-call `task_ids` column stores (`-1` outside any task) |
+| `kind` | `"task"` or `"greenlet"` |
+| `name` | `Task.get_name()`, or the greenlet's name |
+| `coro_name` | Qualified name of the coroutine or greenlet target |
+| `thread_index` | The thread the lane ran on |
+| `steps` | Times the loop resumed it |
+| `running_time` | Seconds it held its thread, summed over every step |
+| `awaiting_time` | Seconds between steps: awaiting, or switched away from |
+| `created_time`, `done_time` | Relative to the start of the run; `done_time` is `None` if it never finished |
+
+### How it works
+
+The measurement sits on the task, not on the event loop. Each task's coroutine
+is wrapped so that every `send()` and `throw()` the loop performs is timed:
+the interval inside a step is running time, and the gap between steps is
+suspension. That is why the numbers are exact rather than sampled, and why
+they work with the C implementation of `asyncio.Task`, which ignores
+Python-level subclass overrides.
+
+Event loops are found through `BaseEventLoop.run_forever` and
+`BaseEventLoop.create_task`, so `asyncio.run()`, `run_until_complete()` and a
+bare `run_forever()` are all covered, including loops created long after
+`setup()`. An application that already installs its own task factory keeps it:
+scope-profiler chains onto it rather than replacing it. A loop implementation
+that never reaches `BaseEventLoop` (uvloop, for one) can be instrumented by
+hand:
+
+```python
+ProfileManager.get_config().tracker.instrument_loop(loop)
+```
+
+Greenlets are followed with `greenlet.settrace`, which reports exactly the
+switches that separate one cooperative lane from the next.
+
+## Exporting a concurrent run
+
+`export_speedscope` writes one profile per lane instead of one per rank, named
+after the thread or task it came from, and speedscope's profile selector
+switches between them. That is not only nicer to read: an evented profile's
+timestamps must never go backwards, and two interleaved lanes walked as one
+call tree produce exactly that.
+
+`call_stack.split_by_lane()` is the same split, for building your own
+per-thread view.
+
+## Multiprocessing
+
+Threads and tasks share an interpreter; processes do not. There is no
+cross-process merge --- that is what the MPI path is for --- so **each process
+profiles itself, into a file of its own**:
+
+```python
+def worker(index):
+    manager = ProfileManager()
+    with manager.session(file_path=f"worker_{index}.h5", track_threads=True):
+        ...
+
+with multiprocessing.Pool(4) as pool:
+    pool.map(worker, range(4))
+```
+
+That works under every start method. Give each worker a distinct `file_path`:
+the default is the same name in every process, so they would overwrite one
+another.
+
+Under `fork`, a child inherits the parent's profiling state along with
+everything else — its regions, their buffered events, and, if a session was
+open at the fork, its thread and asyncio hooks. Two consequences:
+
+* A child forked out of an *active* session **stands down**: the hooks come
+  out, and the inherited thread and task tables are dropped. Otherwise the
+  child would go on appending a record per thread and per task to a table
+  nothing in the child ever finalizes — unbounded, for a long-lived forked
+  worker running an event loop. The child tracks concurrency again as soon as
+  it calls `setup()` for itself, which is the pattern above.
+* The inherited *region buffers* are not dropped, so calling `finalize()` in
+  the child on the **parent's** manager reports the parent's pre-fork events
+  as well as the child's. This predates lane tracking and is unchanged by it.
+  Open a session in the child instead of finalizing the parent's.
+
+## Lifetime of the hooks
+
+`session()` installs the hooks at entry and removes them at exit. With the
+lower-level `setup()`/`finalize()` pair they stay in place until the next
+`setup()`, because `finalize()` there can be a checkpoint in the middle of a
+run whose threads are still working.
+
+## Limits
+
+* `track_threads` cannot be combined with line, GPU, NVTX, LIKWID or
+  aggregation profiling. Those record process- or device-global state whose
+  per-thread meaning is a separate question; `setup()` raises rather than
+  reporting something wrong.
+* Under MPI the writer falls back to `output_mode="direct"`, because the
+  collective parallel-HDF5 path lays the file out from a shape-only
+  description that carries no lane columns. `output_mode="parallel"` raises.
+* Regions imported from a Fortran or C trace have no lane of their own and are
+  reconstructed as one stack, as they were before.
+* A run that creates hundreds of thousands of short-lived tasks pays one
+  vectorized pass per lane when the nesting is reconstructed.
+
+## What a run without tracking does
+
+Nothing changes, and that is measured rather than assumed. `track_threads` is
+a different region class chosen once, at `setup()`, so a run without it
+executes the same per-call code it always did: one `with region:` costs
+~370 ns and one decorated call ~350 ns, on the same machine, with or without
+this feature present --- the difference is inside the ±25 ns run-to-run spread
+of the measurement. Importing the package is unchanged too (~135 ms; `asyncio`
+and `greenlet` are imported only when `track_async` actually installs its
+hooks).
+
+Reconstruction is unchanged as well: a run with no lane column skips the lane
+machinery entirely rather than filling a column with "one stack" --- 2 million
+events reconstruct in ~460 ms either way, where materializing that column
+would have added ~8 ms and 48 MB of transient memory for no information. This
+is why `CallArrays.lane` is *empty* rather than all `-1` on such a run.
+
+A file written without tracking carries no lane columns at all, and
+`results.threads` is empty --- which is how post-processing tells
+"single-threaded" from "threads not recorded".
+
+Profiling concurrent threads *without* `track_threads` still raises
+`NestingError` from the call-graph reconstruction, rather than inventing a
+call graph out of interleaved intervals.

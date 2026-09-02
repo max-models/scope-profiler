@@ -160,6 +160,9 @@ def main() -> None:
             cwd=ROOT,
             capture_output=True,
             text=True,
+            # A non-zero exit is the expected outcome here: the returncode is
+            # asserted on below.
+            check=False,
         )
         if checked.returncode != 1:
             raise RuntimeError("The generated check example must report a regression")

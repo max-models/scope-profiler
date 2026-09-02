@@ -666,9 +666,7 @@ def _name_selected(name: str, include=None, exclude=None) -> bool:
         exclude = [exclude]
     if include is not None and not any(re.match(p, name) for p in include):
         return False
-    if exclude is not None and any(re.match(p, name) for p in exclude):
-        return False
-    return True
+    return not (exclude is not None and any(re.match(p, name) for p in exclude))
 
 
 def _set_cell(rows: dict, name: str, column: int, value) -> None:
@@ -843,3 +841,66 @@ def print_likwid_tables(results, include=None, exclude=None, ranks=None, stream=
     """
     for table in likwid_tables(results, include=include, exclude=exclude, ranks=ranks):
         print_likwid_table(table, stream=stream)
+
+
+def perf_event_tables(results, include=None, exclude=None, ranks=None) -> list:
+    """Build one built-in perf-event counter table per rank.
+
+    These counters are already summed across calls by the collector, so each
+    region occupies one row and calls/events occupy columns. Missing events
+    use ``-`` rather than being treated as zero.
+    """
+    tables = []
+    for rank, regions in sorted(results.get_perf_events().items()):
+        if ranks is not None and rank not in ranks:
+            continue
+        selected = [
+            (name, totals)
+            for name, totals in regions.items()
+            if _name_selected(name, include, exclude)
+        ]
+        if not selected:
+            continue
+        selected.sort(key=lambda item: item[0])
+        event_names = sorted(
+            {event for _, totals in selected for event in totals.values}
+        )
+        tables.append(
+            {
+                "rank": rank,
+                "events": event_names,
+                "rows": [
+                    (
+                        name,
+                        totals.calls,
+                        *[totals.values.get(event) for event in event_names],
+                    )
+                    for name, totals in selected
+                ],
+            }
+        )
+    return tables
+
+
+def print_perf_event_tables(
+    results, include=None, exclude=None, ranks=None, stream=None
+):
+    """Print every built-in Linux perf-event counter table in ``results``."""
+    stream = sys.stdout if stream is None else stream
+    for table in perf_event_tables(
+        results, include=include, exclude=exclude, ranks=ranks
+    ):
+        _print_heading(f"Perf events (rank {table['rank']})", stream)
+        _print_table(
+            [
+                [
+                    name,
+                    _format_counter(calls),
+                    *[_format_counter(value) for value in values],
+                ]
+                for name, calls, *values in table["rows"]
+            ],
+            ("region", "calls", *table["events"]),
+            stream,
+        )
+        print(file=stream)

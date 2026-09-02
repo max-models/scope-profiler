@@ -13,8 +13,8 @@ from pathlib import Path
 
 import numpy as np
 
-from scope_profiler.h5reader import read_h5
 from scope_profiler.inspection import _json_safe
+from scope_profiler.profile_io import read_profile
 from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import (
     _region_durations,
@@ -143,9 +143,11 @@ def _overview_html(results, rows) -> str:
         return '<p class="muted">No timed regions to summarize.</p>'
 
     points = [
-        f"Profiled <strong>{_text(len(rows))}</strong> region(s) across "
-        f"<strong>{_text(results.num_ranks)}</strong> rank(s), spanning "
-        f"{_seconds(results.time_span)} (setup to finalize: {_seconds(results.total_time)})."
+        (
+            f"Profiled <strong>{_text(len(rows))}</strong> region(s) across "
+            f"<strong>{_text(results.num_ranks)}</strong> rank(s), spanning "
+            f"{_seconds(results.time_span)} (setup to finalize: {_seconds(results.total_time)})."
+        )
     ]
 
     total_sum = sum(row["total"] for row in timed)
@@ -644,7 +646,7 @@ def create_html_report(
     if isinstance(profiling_data, (ProfilingResults, str, Path)):
         profiling_data = [profiling_data]
     runs = [
-        item if isinstance(item, ProfilingResults) else read_h5(item)
+        item if isinstance(item, ProfilingResults) else read_profile(item)
         for item in profiling_data
     ]
     if not runs:

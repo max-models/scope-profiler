@@ -12,7 +12,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from time import perf_counter_ns
 from types import FrameType
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
 import numpy as np
 
@@ -35,6 +35,8 @@ from scope_profiler.region_profiler import (
     FullProfileRegion,
     LineProfilerRegion,
     NVTXProfileRegion,
+    PerfEventProfileRegion,
+    ThreadedProfileRegion,
     TimeOnlyProfileRegion,
     call_site_source,
     function_source,
@@ -80,6 +82,8 @@ class RankPayload(NamedTuple):
 
     likwid_environment: dict
 
+    perf_events: dict | None = None
+
     sources: dict | None = None
 
     tags: dict | None = None
@@ -89,6 +93,8 @@ class RankPayload(NamedTuple):
     exclusive_totals: dict | None = None
 
     aggregate_stats: dict | None = None
+
+    lanes: dict | None = None
     """Region name -> timing arrays, in nanoseconds.
 
     Values are ``(start_times, end_times)`` for CPU timing only, or
@@ -120,6 +126,13 @@ class RankPayload(NamedTuple):
     rank does its own, so the cost is spread over the job.
     """
     """Region name -> aggregate counters for aggregation mode."""
+    """This rank's thread and task tables, as columns.
+
+    ``{"threads": {...}, "tasks": {...}}`` exactly as
+    :meth:`~scope_profiler.concurrency.ConcurrencyTracker.snapshot` builds it,
+    or None when the run did not track threads. The per-call ``thread_ids``
+    and ``task_ids`` columns index into these.
+    """
 
 
 class _ProfilingSession:
@@ -159,12 +172,24 @@ class _ProfilingSession:
         try:
             self._root_region.__exit__(exc_type, exc_value, traceback)
         finally:
-            self.results = self._manager.finalize(
-                verbose=self._verbose,
-                verbose_line_profiler=self._verbose_line_profiler,
-                return_results=self._return_results,
-                native_traces=self._native_traces,
-            )
+            try:
+                self.results = self._manager.finalize(
+                    verbose=self._verbose,
+                    verbose_line_profiler=self._verbose_line_profiler,
+                    return_results=self._return_results,
+                    native_traces=self._native_traces,
+                )
+            finally:
+                # The session is the profiling window, so its end is where
+                # the thread, asyncio and greenlet hooks come out again --
+                # setup() installed them, and leaving them behind would have
+                # a later, unrelated event loop still feeding a finished run.
+                # (setup()/finalize() used directly instead keep them until
+                # the next setup(), since finalize() there can be a
+                # checkpoint in the middle of a run.)
+                config = self._manager._config
+                if config is not None and config.tracker is not None:
+                    config.tracker.uninstall()
         return False
 
 
@@ -199,7 +224,10 @@ class ProfileManager:
             self._per_region: dict[str, dict] = {}
             self._likwid: dict[int, dict] = {}
             self._line_profile: dict[int, list] = {}
+            self._perf_events: dict[int, dict] = {}
             self._exclusive_totals: dict[str, dict] = {}
+            self._threads: dict[int, list] = {}
+            self._tasks: dict[int, list] = {}
 
         def add(self, rank: int, payload: "RankPayload") -> None:
             """Fold one rank's payload into the result set."""
@@ -209,6 +237,16 @@ class ProfileManager:
                 self._likwid[rank] = payload.likwid
             if payload.line_profile:
                 self._line_profile[rank] = payload.line_profile
+            if payload.perf_events:
+                self._perf_events[rank] = payload.perf_events
+            if payload.lanes:
+                from scope_profiler.concurrency import lane_tables_from_columns
+
+                threads, tasks = lane_tables_from_columns(rank, payload.lanes)
+                if threads:
+                    self._threads[rank] = threads
+                if tasks:
+                    self._tasks[rank] = tasks
             sources = payload.sources or {}
             tags = payload.tags or {}
             exclusive_totals = payload.exclusive_totals or {}
@@ -217,6 +255,9 @@ class ProfileManager:
                 gpu_durations = arrays[2] if len(arrays) > 2 else None
                 call_ids = arrays[3] if len(arrays) > 3 else None
                 parent_ids = arrays[4] if len(arrays) > 4 else None
+                thread_ids = arrays[5] if len(arrays) > 5 else None
+                task_ids = arrays[6] if len(arrays) > 6 else None
+                await_times = arrays[7] if len(arrays) > 7 else None
                 source_file, source_lineno, source_text = sources.get(
                     name, (None, None, None)
                 )
@@ -226,6 +267,9 @@ class ProfileManager:
                     gpu_durations=gpu_durations,
                     call_ids=call_ids,
                     parent_ids=parent_ids,
+                    thread_ids=thread_ids,
+                    task_ids=task_ids,
+                    await_times=await_times,
                     source_file=source_file,
                     source_lineno=source_lineno,
                     source_text=source_text,
@@ -267,11 +311,14 @@ class ProfileManager:
                 num_ranks=self._config._size,
                 likwid=self._likwid,
                 line_profile=self._line_profile,
+                perf_events=self._perf_events,
                 file_path=self._config.file_path,
                 exclusive_totals=self._exclusive_totals,
+                threads=self._threads,
+                tasks=self._tasks,
             )
 
-    _regions = {}
+    _regions: ClassVar[dict] = {}
     # Next call id to hand out, so ids stay unique across the repeated
     # finalize() calls of one run. Reset by setup(), which starts a new run.
     _next_call_id = 0
@@ -283,12 +330,12 @@ class ProfileManager:
     # the one LIKWID's counter read-back forks. See get_config().
     _config: ProfilingConfig | None = None
     _region_cls = DisabledProfileRegion
-    _decorators: dict[str, list] = {}  # name -> [(func, _bound), ...]
-    _decorated_codes = set()
+    _decorators: ClassVar[dict[str, list]] = {}  # name -> [(func, _bound), ...]
+    _decorated_codes: ClassVar[set] = set()
     _recursive_state = threading.local()
-    _user_code_cache: dict[object, bool] = {}
+    _user_code_cache: ClassVar[dict[object, bool]] = {}
     _system_prefixes = None
-    _internal_modules = {
+    _internal_modules: ClassVar[set[str]] = {
         "scope_profiler.profile_manager",
         "scope_profiler.region_profiler",
         "scope_profiler.profile_config",
@@ -443,6 +490,8 @@ class ProfileManager:
             cls._region_cls = LineProfilerRegion
         elif cfg.use_likwid:
             cls._region_cls = FullProfileRegion
+        elif cfg.perf_events:
+            cls._region_cls = PerfEventProfileRegion
         elif cfg.use_nvtx and cfg.use_gpu_timing:
             cls._region_cls = CUDATimingNVTXProfileRegion
         elif cfg.use_gpu_timing:
@@ -451,6 +500,8 @@ class ProfileManager:
             cls._region_cls = NVTXProfileRegion
         elif cfg.aggregation_mode:
             cls._region_cls = AggregateProfileRegion
+        elif cfg.track_threads:
+            cls._region_cls = ThreadedProfileRegion
         else:
             cls._region_cls = TimeOnlyProfileRegion
 
@@ -778,11 +829,23 @@ class ProfileManager:
         Returns
         -------
         dict
-            Region name -> ``(start_times, end_times)`` or
-            ``(start_times, end_times, gpu_durations)``, in nanoseconds.
+            Region name -> a tuple of nanosecond arrays, positionally
+            ``(start_times, end_times, gpu_durations, call_ids, parent_ids,
+            thread_ids, task_ids, await_ns)``. It is truncated after the last
+            column the run actually has, and any column may be None -- a
+            reader must check both. The call graph columns are filled in
+            afterwards by :meth:`_snapshot_call_graph`.
         """
         snapshot = {}
         for name, region in cls.get_all_regions().items():
+            # A thread-aware region keeps one buffer per thread and hands
+            # them over already concatenated, with the lane columns attached.
+            per_thread = getattr(region, "snapshot_arrays", None)
+            if per_thread is not None:
+                arrays = per_thread()
+                if arrays is not None:
+                    snapshot[name] = arrays
+                continue
             # Only this run's calls: mark_written() rewinds ptr at the end of
             # each finalize().
             if region.ptr == 0:
@@ -866,6 +929,9 @@ class ProfileManager:
                 region_arrays[2] if len(region_arrays) > 2 else None,
                 call_ids,
                 parent_ids,
+                region_arrays[5] if len(region_arrays) > 5 else None,
+                region_arrays[6] if len(region_arrays) > 6 else None,
+                region_arrays[7] if len(region_arrays) > 7 else None,
             )
         return updated, exclusive_totals
 
@@ -1148,7 +1214,11 @@ class ProfileManager:
         # Base this only on the shared configuration, never on rank-local
         # payload contents: choosing different backends on different ranks
         # would deadlock the collective parallel-HDF5 path.
-        parallel_compatible = not config.use_likwid
+        # Thread tracking joins LIKWID here: the collective writer lays the
+        # file out from a shape-only description of each rank's payload, which
+        # carries no lane columns and no lane tables, so a parallel write
+        # would silently drop everything track_threads recorded.
+        parallel_compatible = not config.use_likwid and not config.track_threads
         requested = config.output_mode
         available = parallel_hdf5_available()
         filter_available = compression_filter_available(config.hdf5_compression)
@@ -1156,6 +1226,12 @@ class ProfileManager:
         if requested == "parallel" and not available:
             raise RuntimeError(
                 "output_mode='parallel' requires an h5py build with MPI support"
+            )
+        if requested == "parallel" and config.track_threads:
+            raise RuntimeError(
+                "output_mode='parallel' cannot be combined with track_threads: "
+                "the collective writer does not carry the per-call thread and "
+                "task columns. Use output_mode='direct'."
             )
         if requested == "parallel" and not parallel_compatible:
             raise RuntimeError(
@@ -1318,6 +1394,10 @@ class ProfileManager:
         # the run's data.
         config.metadata["finalize_time_ns"] = perf_counter_ns()
 
+        # End the process-wide allocation capture before finalization itself
+        # allocates buffers, writes HDF5, or gathers MPI payloads.
+        config.stop_memory_profiling()
+
         if config.deactivate_profiling:
             if return_results:
                 from scope_profiler.results import ProfilingResults
@@ -1357,6 +1437,12 @@ class ProfileManager:
         sources = cls._snapshot_sources(source_names) if need_payload else {}
         tags = cls._snapshot_tags(source_names) if need_payload else {}
         line_profile = cls._snapshot_line_profile() if need_payload else None
+        tracker = config.tracker
+        lanes = (
+            tracker.snapshot(config.start_time_ns)
+            if need_payload and tracker is not None
+            else None
+        )
 
         # The data is safely copied, so the run boundary can be marked now: a
         # second finalize() in this process then reports only its own events.
@@ -1375,6 +1461,15 @@ class ProfileManager:
             likwid_results = config.collect_likwid_results(cls.get_all_regions().keys())
             if likwid_results:
                 likwid_environment = config.likwid_environment()
+        perf_events = (
+            {
+                name: region.perf_event_totals()
+                for name, region in cls.get_all_regions().items()
+                if hasattr(region, "perf_event_totals") and region.num_calls
+            }
+            if config.perf_events
+            else None
+        )
 
         # 3. Fold in the regions a Fortran (or other native) part of this
         # process recorded for itself. Each rank picks up its own trace, so
@@ -1397,11 +1492,13 @@ class ProfileManager:
             regions=snapshot,
             likwid={result.tag: result for result in likwid_results},
             likwid_environment=likwid_environment,
+            perf_events=perf_events,
             sources=sources,
             tags=tags,
             line_profile=line_profile,
             exclusive_totals=exclusive_totals,
             aggregate_stats=aggregate_stats,
+            lanes=lanes,
         )
 
         # 5. Move every rank's payload to rank 0, which writes it straight into
@@ -1433,6 +1530,12 @@ class ProfileManager:
             rank_label = "rank" if size == 1 else "ranks"
             results.print_summary(
                 title=f"{results.display_label} (in memory, {size} {rank_label})"
+            )
+
+        if verbose and rank == 0 and config.memory_profile_path is not None:
+            rank_note = " (one capture per rank)" if size > 1 else ""
+            print(
+                f"\nwrote Memray allocation profile to {config.memory_profile_path}{rank_note}"
             )
 
         if config.use_line_profiler and verbose_line_profiler:
@@ -1603,7 +1706,13 @@ class ProfileManager:
         file_path: str | None = None,
         label: str | None = None,
         use_likwid: bool | None = None,
+        perf_events: list[str] | tuple[str, ...] | str | None = None,
         use_line_profiler: bool | None = None,
+        use_memray: bool | None = None,
+        memory_profile_path: str | None = None,
+        memray_native_traces: bool | None = None,
+        memray_trace_python_allocators: bool | None = None,
+        memray_follow_fork: bool | None = None,
         deactivate_profiling: bool | None = None,
         use_nvtx: bool | None = None,
         use_gpu_timing: bool | None = None,
@@ -1611,6 +1720,8 @@ class ProfileManager:
         deactivate_file_output: bool | None = None,
         recursive_profile: bool | None = None,
         aggregation_mode: bool | None = None,
+        track_threads: bool | None = None,
+        track_async: bool | None = None,
         capture_region_source: bool | None = None,
         buffer_limit: int | None = None,
         output_mode: str | None = None,
@@ -1652,6 +1763,15 @@ class ProfileManager:
             Enable LIKWID hardware counter collection (default: False).
         use_line_profiler : bool, optional
             Enable line-by-line profiling via line_profiler (default: False).
+        use_memray : bool, optional
+            Record process-wide allocations with Memray (default: False).
+            The capture is a separate Memray ``.bin`` file and requires
+            the separately installed ``memray`` package.
+        memory_profile_path : str, optional
+            Memray capture path (default: ``<file-stem>.memray.bin``).
+        memray_native_traces, memray_trace_python_allocators, memray_follow_fork : bool, optional
+            Memray capture options. Python allocator tracing can create much
+            larger traces and has materially higher overhead.
         deactivate_profiling : bool, optional
             Turn profiling off entirely (default: False). Every region
             becomes a no-op, so the instrumentation can stay in the code at
@@ -1686,6 +1806,27 @@ class ProfileManager:
             exclusive total per region. Timeline events are unavailable in
             this mode; it cannot be combined with line, GPU, NVTX, or LIKWID
             profiling.
+        track_threads : bool, optional
+            Profile every thread (default: False). Each thread gets its own
+            buffers and scope stack, so regions entered concurrently no
+            longer overwrite one another, and every recorded call carries the
+            thread it ran on. The run also reports each thread's name, OS
+            ids, lifetime and CPU time -- see
+            :attr:`~scope_profiler.results.ProfilingResults.threads`::
+
+                with ProfileManager.session(track_threads=True):
+                    ...
+
+            Cannot be combined with line, GPU, NVTX, LIKWID or aggregation
+            profiling.
+        track_async : bool, optional
+            Follow asyncio tasks and greenlets as well (default: False, and
+            implies ``track_threads``). Each call additionally carries the
+            task it ran in and the time that task spent suspended inside the
+            call, so a ``with`` block held across an ``await`` reports its
+            await time rather than charging it to the region. Per-task
+            running and awaiting totals are available from
+            :attr:`~scope_profiler.results.ProfilingResults.tasks`.
         capture_region_source : bool, optional
             Record where each region is defined -- the ``with`` block or the
             decorated function -- once per distinct source file, the first
@@ -1738,7 +1879,13 @@ class ProfileManager:
             "file_path": "profiling_data.h5",
             "label": None,
             "use_likwid": False,
+            "perf_events": None,
             "use_line_profiler": False,
+            "use_memray": False,
+            "memory_profile_path": None,
+            "memray_native_traces": False,
+            "memray_trace_python_allocators": False,
+            "memray_follow_fork": False,
             "deactivate_profiling": False,
             "use_nvtx": False,
             "use_gpu_timing": False,
@@ -1746,6 +1893,8 @@ class ProfileManager:
             "deactivate_file_output": False,
             "recursive_profile": False,
             "aggregation_mode": False,
+            "track_threads": False,
+            "track_async": False,
             "capture_region_source": False,
             "buffer_limit": 1024,
             "output_mode": "auto",
@@ -1761,7 +1910,13 @@ class ProfileManager:
             "file_path": file_path,
             "label": label,
             "use_likwid": use_likwid,
+            "perf_events": perf_events,
             "use_line_profiler": use_line_profiler,
+            "use_memray": use_memray,
+            "memory_profile_path": memory_profile_path,
+            "memray_native_traces": memray_native_traces,
+            "memray_trace_python_allocators": memray_trace_python_allocators,
+            "memray_follow_fork": memray_follow_fork,
             "deactivate_profiling": deactivate_profiling,
             "use_nvtx": use_nvtx,
             "use_gpu_timing": use_gpu_timing,
@@ -1769,6 +1924,8 @@ class ProfileManager:
             "deactivate_file_output": deactivate_file_output,
             "recursive_profile": recursive_profile,
             "aggregation_mode": aggregation_mode,
+            "track_threads": track_threads,
+            "track_async": track_async,
             "capture_region_source": capture_region_source,
             "buffer_limit": buffer_limit,
             "output_mode": output_mode,
@@ -1780,6 +1937,10 @@ class ProfileManager:
             {key: value for key, value in explicit.items() if value is not None}
         )
 
+        # Memray permits exactly one active tracker per process. A new setup
+        # starts a new run, so close the prior run's capture first.
+        if cls._config is not None:
+            cls._config.stop_memory_profiling()
         ProfilingConfig.reset()
         config = ProfilingConfig(
             **settings,
@@ -1839,7 +2000,17 @@ class ProfileManager:
         cls._regions.clear()  # Clear old regions
         # A new run gets a fresh id space; ids stay unique only within one.
         cls._next_call_id = 0
+        # The thread, asyncio and greenlet hooks belong to a configuration and
+        # live exactly as long as it is the active one, so a run that
+        # finalizes periodically keeps following the threads it started with.
+        previous = cls._config
+        if previous is not None and previous.tracker is not None:
+            previous.tracker.uninstall()
+        if previous is not None:
+            previous.stop_memory_profiling()
         cls._config = config  # Update the config
+        if config.tracker is not None:
+            config.tracker.install()
         cls._update_region_cls()  # Set the proper region class
         # Rebind all registered decorator wrappers to the new region class.
         # This is the only place rebinding happens — there is no per-call check.
@@ -1888,6 +2059,10 @@ class ProfileManager:
         constructed here, so a reset cannot pull MPI in either.
         """
         ProfilingConfig.reset()
+        if cls._config is not None and cls._config.tracker is not None:
+            cls._config.tracker.uninstall()
+        if cls._config is not None:
+            cls._config.stop_memory_profiling()
         cls._config = None
 
     @classmethod

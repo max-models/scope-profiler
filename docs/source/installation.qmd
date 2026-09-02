@@ -17,6 +17,7 @@ with the bracket syntax:
 
 | Extra           | Install command                               | What it adds                                                                         |
 | --------------- | --------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `extras`        | `pip install "scope-profiler[extras]"`        | Broadly installable runtime integrations, including Memray (excludes LIKWID)       |
 | `likwid`        | `pip install "scope-profiler[likwid]"`        | LIKWID hardware counters via [pylikwid](https://github.com/RRZE-HPC/pylikwid)         |
 | `line-profiler` | `pip install "scope-profiler[line-profiler]"` | Line-by-line profiling via [line_profiler](https://github.com/pyutils/line_profiler) |
 | `nvtx`          | `pip install "scope-profiler[nvtx]"`          | NVTX ranges for NVIDIA Nsight profiling                                                  |
