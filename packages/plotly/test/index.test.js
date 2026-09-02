@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildDurationsFigure, buildFlameFigure, buildGanttFigure, buildSpeedupFigure } from "../src/index.js";
+import { buildDurationTimeseriesFigure, buildDurationsFigure, buildFlameFigure, buildGanttFigure, buildHistogramFigure, buildImbalanceFigure, buildRankHeatmapFigure, buildSpeedupFigure } from "../src/index.js";
 
 test("gantt keeps separate file/rank lanes and supplied colors", () => {
   const figure = buildGanttFigure({ colors: { solve: "#123456" }, intervals: [
@@ -35,4 +35,11 @@ test("durations preserves stacked child segments", () => {
   assert.equal(figure.layout.barmode, "stack");
   assert.deepEqual(figure.data.map((trace) => trace.name), ["own", "child"]);
   assert.equal(figure.data[0].marker.color, "#111111");
+});
+
+test("additional exported data types build Plotly traces", () => {
+  assert.equal(buildDurationTimeseriesFigure({ points: [{ region: "solve", time_seconds: 1, mean_duration_seconds: 2, min_duration_seconds: 1, max_duration_seconds: 3 }] }).data[0].type, "scatter");
+  assert.equal(buildHistogramFigure({ bins: [{ region: "solve", bin_low_seconds: 0, bin_center_seconds: 1, bin_high_seconds: 2, count: 4 }] }).data[0].type, "bar");
+  assert.equal(buildRankHeatmapFigure({ points: [{ rank: 0, region: "solve", total_duration_seconds: 2 }] }).data[0].type, "heatmap");
+  assert.equal(buildImbalanceFigure({ metric: "total", points: [{ rank: 0, region: "solve", value_seconds: 2, mean_over_ranks_seconds: 2 }] }).data[0].type, "scatter");
 });

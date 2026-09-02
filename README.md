@@ -228,6 +228,8 @@ pip install "scope-profiler[notebook]"
 - [Python API and
   post-processing](https://max-models.github.io/scope-profiler/guide/hdf5_and_python_api.html)
 - [CLI reference](https://max-models.github.io/scope-profiler/cli.html)
+- [Plotly figures for the
+  web](https://max-models.github.io/scope-profiler/guide/plotly_package.html)
 - [Configuration and profiling
   regions](https://max-models.github.io/scope-profiler/guide/configuration.html)
 - [MPI](https://max-models.github.io/scope-profiler/guide/mpi.html),
@@ -242,6 +244,26 @@ pip install "scope-profiler[notebook]"
 - [Tutorial
   notebooks](https://max-models.github.io/scope-profiler/tutorials.html)
 - [Examples](https://github.com/max-models/scope-profiler/tree/devel/examples)
+
+### Build the documentation locally
+
+The hosted documentation is built with Sphinx from the `.qmd` sources.
+Install [Quarto](https://quarto.org/docs/get-started/) and Pandoc first,
+then create a development environment and run the docs target from the
+repository root:
+
+``` bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -e ".[docs]"
+make -C docs html
+```
+
+This refreshes the generated command output and Markdown sources before
+building the HTML site. Open `docs/build/html/index.html` locally, or
+serve that directory with any static-file server. The GitHub Pages
+workflow uses the same `make -C docs html` command.
 
 ## Development
 

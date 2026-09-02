@@ -116,6 +116,62 @@ export function buildSpeedupFigure(payload, options = {}) {
   return { data, layout: withEmptyState(layout, points.length > 0) };
 }
 
+/** Build mean call duration over time, one trace per region. */
+export function buildDurationTimeseriesFigure(payload, options = {}) {
+  const points = filtered(values(payload, "points"), options);
+  const regions = [...new Set(points.map((point) => point.region))];
+  const colors = colorMap(regions, options.colors ?? payload.colors);
+  const data = regions.map((region) => {
+    const rows = points.filter((point) => point.region === region).sort((a, b) => a.time_seconds - b.time_seconds);
+    return { type: "scatter", mode: "lines+markers", name: region, x: rows.map((row) => row.time_seconds), y: rows.map((row) => row.mean_duration_seconds), line: { color: colors.get(region), width: 2.2 }, marker: { color: colors.get(region), size: 5 }, customdata: rows.map((row) => [row.min_duration_seconds, row.max_duration_seconds, row.call_index]), hovertemplate: `<b>${region}</b><br>time: %{x:.6g} s<br>mean: %{y:.6g} s<br>min–max: %{customdata[0]:.4g}–%{customdata[1]:.4g} s<extra></extra>` };
+  });
+  const layout = baseLayout({ height: 420, showlegend: regions.length > 1, xaxis: axis({ title: "Time (s)" }), yaxis: axis({ title: "Mean call duration (s)" }), ...options.layout });
+  return { data, layout: withEmptyState(layout, points.length > 0) };
+}
+
+/** Build duration distributions from histogram bin records. */
+export function buildHistogramFigure(payload, options = {}) {
+  const bins = filtered(values(payload, "bins"), options);
+  const regions = [...new Set(bins.map((bin) => bin.region))];
+  const colors = colorMap(regions, options.colors ?? payload.colors);
+  const data = regions.map((region) => {
+    const rows = bins.filter((bin) => bin.region === region).sort((a, b) => a.bin_center_seconds - b.bin_center_seconds);
+    return { type: "bar", name: region, x: rows.map((bin) => bin.bin_center_seconds), y: rows.map((bin) => bin.count), width: rows.map((bin) => bin.bin_high_seconds - bin.bin_low_seconds), marker: { color: colors.get(region), line: { color: "rgba(0, 0, 0, 0.2)", width: 0.5 } }, hovertemplate: `<b>${region}</b><br>%{x:.6g} s: %{y} calls<extra></extra>` };
+  });
+  const layout = baseLayout({ barmode: "overlay", height: 400, showlegend: regions.length > 1, xaxis: axis({ title: "Call duration (s)" }), yaxis: axis({ title: "Calls" }), ...options.layout });
+  return { data, layout: withEmptyState(layout, bins.length > 0) };
+}
+
+/** Build a rank × region heatmap from duration records. */
+export function buildRankHeatmapFigure(payload, options = {}) {
+  const points = filtered(values(payload, "points"), options);
+  const regions = [...new Set(points.map((point) => point.region))];
+  const ranks = [...new Set(points.map((point) => point.rank))].sort((a, b) => a - b);
+  const inferredValueKey = points[0] ? Object.keys(points[0]).find((key) => key.endsWith("_duration_seconds")) : undefined;
+  const valueKey = options.valueKey ?? inferredValueKey ?? "total_duration_seconds";
+  const byCell = new Map(points.map((point) => [`${point.rank}:${point.region}`, point[valueKey]]));
+  const data = [{ type: "heatmap", x: regions, y: ranks.map(String), z: ranks.map((rank) => regions.map((region) => byCell.get(`${rank}:${region}`) ?? null)), colorscale: options.colorscale ?? "Viridis", colorbar: { title: "Seconds" }, hovertemplate: "rank %{y}<br>%{x}: %{z:.6g} s<extra></extra>" }];
+  const layout = baseLayout({ height: Math.max(320, 44 * ranks.length + 150), xaxis: axis({ title: "Region" }), yaxis: axis({ title: "Rank", autorange: "reversed", showgrid: false }), ...options.layout });
+  return { data, layout: withEmptyState(layout, points.length > 0) };
+}
+
+/** Build per-rank duration lines, with a dashed rank mean for each region. */
+export function buildImbalanceFigure(payload, options = {}) {
+  const points = filtered(values(payload, "points"), options);
+  const regions = [...new Set(points.map((point) => point.region))];
+  const colors = colorMap(regions, options.colors ?? payload.colors);
+  const data = regions.flatMap((region) => {
+    const rows = points.filter((point) => point.region === region).sort((a, b) => a.rank - b.rank);
+    const color = colors.get(region);
+    return [
+      { type: "scatter", mode: "lines+markers", name: region, x: rows.map((row) => row.rank), y: rows.map((row) => row.value_seconds), line: { color, width: 2.2 }, marker: { color, size: 7 }, hovertemplate: `<b>${region}</b><br>rank %{x}: %{y:.6g} s<extra></extra>` },
+      { type: "scatter", mode: "lines", name: `${region} mean`, x: rows.map((row) => row.rank), y: rows.map((row) => row.mean_over_ranks_seconds), line: { color, dash: "dot", width: 1.3 }, hoverinfo: "skip", showlegend: false },
+    ];
+  });
+  const layout = baseLayout({ height: 420, showlegend: regions.length > 1, xaxis: axis({ title: "Rank", dtick: 1 }), yaxis: axis({ title: `${payload.metric ?? "Duration"} (s)` }), ...options.layout });
+  return { data, layout: withEmptyState(layout, points.length > 0) };
+}
+
 /** Render a figure with any Plotly-compatible bundle. */
 export function renderFigure(plotly, element, figure, config = {}) {
   if (!plotly || typeof plotly.newPlot !== "function") throw new TypeError("renderFigure requires a Plotly-compatible object with newPlot().");

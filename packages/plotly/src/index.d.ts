@@ -5,4 +5,8 @@ export function buildGanttFigure(payload: object, options?: BuildOptions): Figur
 export function buildFlameFigure(payload: object, options?: BuildOptions): Figure;
 export function buildDurationsFigure(payload: object, options?: BuildOptions): Figure;
 export function buildSpeedupFigure(payload: object, options?: BuildOptions): Figure;
+export function buildDurationTimeseriesFigure(payload: object, options?: BuildOptions): Figure;
+export function buildHistogramFigure(payload: object, options?: BuildOptions): Figure;
+export function buildRankHeatmapFigure(payload: object, options?: BuildOptions & { valueKey?: string; colorscale?: string }): Figure;
+export function buildImbalanceFigure(payload: object, options?: BuildOptions): Figure;
 export function renderFigure(plotly: PlotlyLike, element: Element | string, figure: Figure, config?: object): unknown;
