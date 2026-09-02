@@ -2,6 +2,54 @@
 
 ## Unreleased
 
+### Added
+
+- Added `track_threads=True`, which profiles every thread rather than
+  assuming one. Each thread gets its own timestamp buffers and its own scope
+  stack, so regions entered concurrently no longer reserve and close each
+  other's slots, and every recorded call carries the thread it ran on.
+  Nesting, exclusive time and the call graph are reconstructed per thread.
+  The run also describes each thread -- name, OS ids, exact start and end
+  times, and CPU time -- through `ProfilingResults.threads` and
+  `ProfilingResults.thread_summary()`, and `Region.for_thread()` slices a
+  region down to one thread.
+- Added `track_async=True` (which implies `track_threads`), following every
+  asyncio task and, when `greenlet` is installed, every greenlet. Interleaved
+  tasks become separate lanes instead of bogus nesting, each call records the
+  time its task spent suspended inside it (`Region.await_times`), and
+  `ProfilingResults.tasks` reports per-task step counts with running and
+  awaiting totals. Loops are found through `BaseEventLoop.run_forever` and
+  `create_task`, an application's own task factory is chained rather than
+  replaced, and `tracker.instrument_loop(loop)` covers loop implementations
+  that reach neither.
+- Added the per-call `thread_ids`, `task_ids` and `await_ns` event columns and
+  the `thread_table` / `task_table` groups to the HDF5 layout, within schema
+  2. They are written only by a run that tracked threads, and a file without
+  them reads back exactly as before.
+
+### Changed
+
+- `export_speedscope` writes one profile per lane -- named after its thread or
+  task -- rather than one per rank, and `call_stack.split_by_lane()` exposes
+  the same split. An evented speedscope profile's timestamps must not go
+  backwards, which two interleaved lanes walked as one call tree produce.
+- `ProfileManager.session()` now removes the thread, asyncio and greenlet
+  hooks when the session ends. The lower-level `setup()`/`finalize()` pair
+  keeps them until the next `setup()`, since `finalize()` there can be a
+  checkpoint in the middle of a run.
+
+### Fixed
+
+- `call_stack.build_call_arrays` leaves `CallArrays.lane` empty for a run that
+  tracked no threads, instead of materializing a full-length column of `-1`.
+  Filling it would have added an allocation, a concatenate and a gather over
+  every event to the reconstruction of every single-threaded run (~8 ms and
+  48 MB per two million events) to say only "one stack".
+- `call_stack.build_call_arrays` reconstructs each lane separately instead of
+  treating a whole rank as one stack, so overlapping calls from different
+  threads or tasks no longer raise `NestingError` on a run that recorded
+  which lane they belong to.
+
 ## 0.5.0 - 2026-09-01
 
 ### Added

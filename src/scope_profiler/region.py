@@ -25,6 +25,9 @@ class Region:
         gpu_durations: np.ndarray | None = None,
         call_ids: np.ndarray | None = None,
         parent_ids: np.ndarray | None = None,
+        thread_ids: np.ndarray | None = None,
+        task_ids: np.ndarray | None = None,
+        await_times: np.ndarray | None = None,
         source_file: str | None = None,
         source_lineno: int | None = None,
         source_text: str | None = None,
@@ -41,6 +44,12 @@ class Region:
             Start times of all calls in nanoseconds.
         end_times : np.ndarray
             End times of all calls in nanoseconds.
+        thread_ids, task_ids, await_times : optional
+            Per-call lane columns, recorded only under ``track_threads`` /
+            ``track_async``. ``thread_ids`` indexes the run's thread table,
+            ``task_ids`` its task table (``-1`` outside any task), and
+            ``await_times`` holds the nanoseconds the call's task spent
+            suspended inside that call. None on a run that tracked neither.
         source_file, source_lineno, source_text : optional
             Where this region is defined in user code, and its source text
             (the ``with`` block or decorated function). None when not
@@ -58,6 +67,15 @@ class Region:
         )
         self._parent_ids = (
             None if parent_ids is None else np.asarray(parent_ids, dtype=np.int64)
+        )
+        self._thread_ids = (
+            None if thread_ids is None else np.asarray(thread_ids, dtype=np.int64)
+        )
+        self._task_ids = (
+            None if task_ids is None else np.asarray(task_ids, dtype=np.int64)
+        )
+        self._await_times = (
+            None if await_times is None else np.asarray(await_times, dtype=np.int64)
         )
         # A Region does not know about other regions, so until it is attached
         # to ProfilingResults exclusive time defaults to inclusive time. The
@@ -209,8 +227,102 @@ class Region:
             if self._call_ids is not None and self._parent_ids is not None:
                 event["call_id"] = int(self._call_ids[index])
                 event["parent_id"] = int(self._parent_ids[index])
+            if self._thread_ids is not None:
+                event["thread"] = int(self._thread_ids[index])
+            if self._task_ids is not None and self._await_times is not None:
+                event["task"] = int(self._task_ids[index])
+                event["await_duration"] = float(
+                    self._await_times[index] / NS_PER_SECOND
+                )
             events.append(event)
         return events
+
+    @property
+    def thread_ids(self) -> "np.ndarray | None":
+        """Thread-table index of every call, or None if threads were not tracked."""
+        return self._thread_ids
+
+    @property
+    def task_ids(self) -> "np.ndarray | None":
+        """Task-table index of every call, ``-1`` outside a task.
+
+        None unless the run used ``track_async``.
+        """
+        return self._task_ids
+
+    @property
+    def await_times_ns(self) -> "np.ndarray | None":
+        """Nanoseconds each call spent with its task suspended, or None."""
+        return self._await_times
+
+    @property
+    def await_times(self) -> "np.ndarray | None":
+        """Seconds each call spent with its task suspended, or None.
+
+        The wall time inside the ``with`` block during which the task was not
+        running: awaiting, or switched away from. Subtracting it from the
+        call's duration leaves the time the lane actually held its thread.
+        """
+        if self._await_times is None:
+            return None
+        return self._await_times / NS_PER_SECOND
+
+    @property
+    def total_await_duration(self) -> float | None:
+        """Total awaited seconds over every call, or None if not tracked."""
+        if self._await_times is None:
+            return None
+        return float(np.sum(self._await_times)) / NS_PER_SECOND
+
+    @property
+    def has_thread_data(self) -> bool:
+        """Whether this region recorded the thread each call ran on."""
+        return self._thread_ids is not None
+
+    @property
+    def threads(self) -> list[int]:
+        """Sorted thread-table indices this region recorded calls on."""
+        if self._thread_ids is None:
+            return []
+        return [int(value) for value in np.unique(self._thread_ids)]
+
+    def for_thread(self, thread_index: int) -> "Region":
+        """A view of this region holding only the calls of one thread.
+
+        Every column is sliced with the same mask, so the returned region is
+        an ordinary :class:`Region` -- summaries, durations and percentiles
+        all describe that thread alone.
+
+        Raises
+        ------
+        ValueError
+            If this region has no thread column (the run did not use
+            ``track_threads``).
+        """
+        if self._thread_ids is None:
+            raise ValueError(
+                "this run did not record thread ids; profile with track_threads=True"
+            )
+        mask = self._thread_ids == int(thread_index)
+
+        def select(values):
+            return None if values is None else values[mask]
+
+        return Region(
+            self._start_times[mask],
+            self._end_times[mask],
+            gpu_durations=select(self._gpu_durations),
+            call_ids=select(self._call_ids),
+            parent_ids=select(self._parent_ids),
+            thread_ids=select(self._thread_ids),
+            task_ids=select(self._task_ids),
+            await_times=select(self._await_times),
+            source_file=self._source_file,
+            source_lineno=self._source_lineno,
+            source_text=self._source_text,
+            tags=self._tags,
+            event_data_available=self._event_data_available,
+        )
 
     @property
     def call_ids(self):

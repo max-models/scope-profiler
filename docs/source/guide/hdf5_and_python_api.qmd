@@ -26,7 +26,12 @@ profiling_data.h5
 ├── events/
 │   ├── start_times           (int64, nanoseconds)
 │   ├── end_times             (int64, nanoseconds)
-│   └── gpu_durations         (optional int64, -1 means unavailable)
+│   ├── gpu_durations         (optional int64, -1 means unavailable)
+│   ├── thread_ids            (optional int64, -1 means unknown)
+│   ├── task_ids              (optional int64, -1 means "outside any task")
+│   └── await_ns              (optional int64, nanoseconds suspended)
+├── thread_table/             (optional; one row per thread, per rank)
+├── task_table/               (optional; one row per asyncio task or greenlet)
 └── rank<N>/                  (only auxiliary line-profile/LIKWID records)
 ```
 
@@ -39,6 +44,12 @@ files from a newer, unsupported schema are rejected with an upgrade hint.
   slice of the shared event columns, avoiding thousands of small HDF5 objects.
 - Timestamps are stored as **int64 nanoseconds** from
   `time.perf_counter_ns()`.
+- Runs with `track_threads=True` add the `thread_ids` event column and the
+  `thread_table` group; `track_async=True` adds `task_ids`, `await_ns` and
+  `task_table`. The two tables describe what those per-call columns index
+  into. A run without them writes none of the four, which is how a reader
+  tells "single-threaded" from "threads not recorded". See
+  {doc}`concurrency`.
 - Runs with `use_likwid=True` additionally get a `rank<N>/likwid/` group
   holding the hardware counters and derived metrics of every marker region.
   See {doc}`likwid`.

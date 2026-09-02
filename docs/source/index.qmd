@@ -66,6 +66,7 @@ quickstart
 
 guide/configuration
 guide/regions
+guide/concurrency
 guide/hdf5_and_python_api
 guide/plot_cli
 guide/mcp

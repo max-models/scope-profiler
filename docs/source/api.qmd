@@ -68,6 +68,33 @@ advanced use cases.
    :undoc-members:
 ```
 
+### ThreadedProfileRegion
+
+Selected by `track_threads=True`; see [Threads, tasks and
+coroutines](guide/concurrency.qmd).
+
+```{eval-rst}
+.. autoclass:: scope_profiler.region_profiler.ThreadedProfileRegion
+   :members:
+   :undoc-members:
+```
+
+## Threads, tasks and coroutines
+
+A run profiled with `track_threads` describes the lanes its calls ran on. The
+records below are what `ProfilingResults.threads` and `ProfilingResults.tasks`
+hand back.
+
+```{eval-rst}
+.. autoclass:: scope_profiler.concurrency.ThreadInfo
+   :members:
+.. autoclass:: scope_profiler.concurrency.TaskInfo
+   :members:
+.. autoclass:: scope_profiler.concurrency.ConcurrencyTracker
+   :members: threads, tasks, current_thread, instrument_loop, install, uninstall, snapshot
+.. autofunction:: scope_profiler.concurrency.lane_ids
+```
+
 ## Post-processing
 
 Everything in this section is importable from the package root:
@@ -168,17 +195,25 @@ when building your own nested visualisation.
 .. autofunction:: scope_profiler.call_stack.call_stack_children
 ```
 
-#### Intervals must be properly nested
+#### Intervals must be properly nested, within a lane
 
-Two calls recorded on one rank either nest completely or do not overlap at
-all. A call that starts inside another and ends after it raises
-`NestingError` rather than being reconstructed under a guessed parent — there
-is no call stack that describes it, and every consumer (flame chart, `.prof`,
-speedscope, exclusive time) would otherwise have to invent one.
+Two calls recorded on one *lane* — one thread, or one asyncio task or greenlet
+running on it — either nest completely or do not overlap at all. A call that
+starts inside another on the same lane and ends after it raises `NestingError`
+rather than being reconstructed under a guessed parent — there is no call
+stack that describes it, and every consumer (flame chart, `.prof`, speedscope,
+exclusive time) would otherwise have to invent one.
 
-A stack of `with` blocks or decorated functions always satisfies this. The
-realistic way to violate it is a mismatched `sp_begin`/`sp_end` pair in C or
-Fortran; see the [C](guide/c.qmd) and [Fortran](guide/fortran.qmd) guides.
+Calls on different lanes overlap freely and are reconstructed as separate
+stacks. A run profiled with `track_threads` records a lane per call, which is
+what makes that possible; without it a whole rank is one lane, so profiling
+concurrent threads raises here instead. See [Threads, tasks and
+coroutines](guide/concurrency.qmd).
+
+A stack of `with` blocks or decorated functions on one lane always satisfies
+this. The other realistic way to violate it is a mismatched `sp_begin`/`sp_end`
+pair in C or Fortran; see the [C](guide/c.qmd) and
+[Fortran](guide/fortran.qmd) guides.
 
 `finalize()` is deliberately more forgiving than the readers: a rank whose
 intervals do not nest keeps its timings and loses only the call graph, with a

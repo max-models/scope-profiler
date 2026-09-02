@@ -36,6 +36,12 @@ ARRAY_PROPERTIES = (
     "durations",
     "inclusive_durations",
     "exclusive_durations",
+    # Lane columns. None on the runs generated here, which is itself worth
+    # pinning: a file written without them must not come back with zeros.
+    "thread_ids",
+    "task_ids",
+    "await_times",
+    "await_times_ns",
 )
 SCALAR_PROPERTIES = (
     "has_timing",
@@ -67,6 +73,9 @@ SCALAR_PROPERTIES = (
     "gpu_total_duration",
     "gpu_average_duration",
     "stored_summary",
+    "has_thread_data",
+    "threads",
+    "total_await_duration",
 )
 
 

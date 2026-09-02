@@ -215,6 +215,69 @@ def _validate_event_index(offsets, counts, num_events: int, file_path: str) -> N
         )
 
 
+def _read_lane_tables(h5file) -> tuple[dict, dict]:
+    """Read the run's thread and task tables, keyed by rank.
+
+    Absent on every file written by a run that did not track threads, which
+    is why this returns two empty dicts rather than raising.
+    """
+    from scope_profiler.concurrency import lane_tables_from_columns
+
+    def columns(group_name, names):
+        if group_name not in h5file:
+            return {}
+        group = h5file[group_name]
+        return {name: group[name][()] for name in names if name in group}
+
+    threads = columns(
+        "thread_table",
+        (
+            "ranks",
+            "index",
+            "ident",
+            "native_id",
+            "daemon",
+            "name",
+            "start_ns",
+            "end_ns",
+            "cpu_ns",
+        ),
+    )
+    tasks = columns(
+        "task_table",
+        (
+            "ranks",
+            "index",
+            "kind",
+            "name",
+            "coro_name",
+            "thread_index",
+            "created_ns",
+            "done_ns",
+            "steps",
+            "running_ns",
+            "suspended_ns",
+        ),
+    )
+
+    def by_rank(table, key, position):
+        rows_by_rank: dict[int, list] = {}
+        if not table:
+            return rows_by_rank
+        ranks = table["ranks"]
+        for rank in sorted({int(value) for value in ranks}):
+            mask = ranks == rank
+            sliced = {
+                name: values[mask] for name, values in table.items() if name != "ranks"
+            }
+            rows = lane_tables_from_columns(rank, {key: sliced})[position]
+            if rows:
+                rows_by_rank[rank] = rows
+        return rows_by_rank
+
+    return by_rank(threads, "threads", 0), by_rank(tasks, "tasks", 1)
+
+
 def _read_columnar_regions(h5file) -> tuple[dict, list[str], dict]:
     """Read schema-2 shared event columns into the existing Region API.
 
@@ -250,6 +313,9 @@ def _read_columnar_regions(h5file) -> tuple[dict, list[str], dict]:
     gpu_column = events["gpu_durations"][()] if "gpu_durations" in events else None
     call_column = events["call_ids"][()] if "call_ids" in events else None
     parent_column = events["parent_ids"][()] if "parent_ids" in events else None
+    thread_column = events["thread_ids"][()] if "thread_ids" in events else None
+    task_column = events["task_ids"][()] if "task_ids" in events else None
+    await_column = events["await_ns"][()] if "await_ns" in events else None
 
     per_region: dict[str, dict[int, Region]] = {name: {} for name in names}
     exclusive_totals: dict[str, dict[int, int]] = {}
@@ -267,6 +333,9 @@ def _read_columnar_regions(h5file) -> tuple[dict, list[str], dict]:
                 gpu_durations = candidate
         call_ids = call_column[event_slice] if call_column is not None else None
         parent_ids = parent_column[event_slice] if parent_column is not None else None
+        thread_ids = thread_column[event_slice] if thread_column is not None else None
+        task_ids = task_column[event_slice] if task_column is not None else None
+        await_times = await_column[event_slice] if await_column is not None else None
         source_line = int(source_lines[row])
         per_region[name][rank] = Region(
             start_times[event_slice],
@@ -274,6 +343,9 @@ def _read_columnar_regions(h5file) -> tuple[dict, list[str], dict]:
             gpu_durations=gpu_durations,
             call_ids=call_ids,
             parent_ids=parent_ids,
+            thread_ids=thread_ids,
+            task_ids=task_ids,
+            await_times=await_times,
             source_file=_decode_attribute(source_files[row]) or None,
             source_lineno=source_line if source_line >= 0 else None,
             source_text=_decode_attribute(source_texts[row]) or None,
@@ -355,6 +427,9 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
     # rank -> {tag: LikwidRegionResult}; empty unless the run used LIKWID.
     likwid: dict[int, dict[str, LikwidRegionResult]] = {}
     line_profile: dict[int, list] = {}
+    # Empty unless the run tracked threads; see _read_lane_tables.
+    threads: dict[int, list] = {}
+    tasks: dict[int, list] = {}
     if not file_path.exists():
         raise FileNotFoundError(f"HDF5 file not found: {file_path}")
 
@@ -378,6 +453,7 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
                 else _read_columnar_regions
             )
             _region_dict, region_names, exclusive_totals = reader(f)
+            threads, tasks = _read_lane_tables(f)
             recorded_ranks = f["rank_region_index/ranks"][()]
             inferred_ranks = (
                 int(np.max(recorded_ranks)) + 1 if len(recorded_ranks) else 0
@@ -472,6 +548,8 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
         "num_ranks": num_ranks,
         "likwid": likwid,
         "line_profile": line_profile,
+        "threads": threads,
+        "tasks": tasks,
         "file_path": file_path,
         "exclusive_totals": exclusive_totals,
     }
@@ -503,6 +581,8 @@ def load_h5_summary(
     likwid = {}
     line_profile = {}
     exclusive_totals = {}
+    threads: dict[int, list] = {}
+    tasks: dict[int, list] = {}
     with _open_h5(file_path) as h5file:
         schema_version = read_schema_version(h5file)
         migrate_schema(h5file, schema_version)
@@ -514,6 +594,18 @@ def load_h5_summary(
             metadata = {
                 key: _decode_attribute(value)
                 for key, value in h5file["metadata"].attrs.items()
+            }
+
+        # Small enough to read even here: the lane tables have a row per
+        # thread and task, not per event, which is what this reader exists to
+        # avoid touching.
+        threads, tasks = _read_lane_tables(h5file)
+        if selected_ranks is not None:
+            threads = {
+                rank: rows for rank, rows in threads.items() if rank in selected_ranks
+            }
+            tasks = {
+                rank: rows for rank, rows in tasks.items() if rank in selected_ranks
             }
 
         layout = h5file.attrs.get("storage_layout", "columnar")
@@ -667,6 +759,8 @@ def load_h5_summary(
         "num_ranks": num_ranks,
         "likwid": likwid,
         "line_profile": line_profile,
+        "threads": threads,
+        "tasks": tasks,
         "file_path": file_path,
         "exclusive_totals": exclusive_totals,
         "event_data_available": False,

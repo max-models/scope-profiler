@@ -10,6 +10,7 @@ repeatable AI optimization workflow.
 - [`ex_recursive_profiling.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_recursive_profiling.py) — profile nested calls.
 - [`ex_region_source.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_region_source.py) — retain and inspect region source code.
 - [`ex_aggregation.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_aggregation.py) — record compact per-region aggregate statistics without storing an event timeline.
+- [`ex_threads_and_asyncio.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_threads_and_asyncio.py) — profile concurrent threads, and split an asyncio task's wall time into running and awaiting.
 - [`benchmark_overhead.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/benchmark_overhead.py) — measure instrumentation overhead.
 
 Run an example with:

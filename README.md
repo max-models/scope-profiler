@@ -43,9 +43,26 @@ with compute_profiler.session(file_path="compute.h5", verbose=False):
             write_checkpoint()
 ```
 
-These are independent nested sessions, not concurrent-thread support.
-LIKWID’s marker state is process-global, so only one overlapping session
-may use `use_likwid=True`.
+These are independent nested sessions. LIKWID’s marker state is
+process-global, so only one overlapping session may use
+`use_likwid=True`.
+
+Concurrency is a separate switch. `track_threads=True` gives every
+thread its own buffers and its own lane in the reconstructed call graph,
+and reports each thread’s name, lifetime and CPU time;
+`track_async=True` does the same for asyncio tasks and greenlets, and
+splits every call into the time its task held the thread and the time it
+spent awaiting:
+
+``` python
+with ProfileManager.session(track_async=True, return_results=True) as run:
+    asyncio.run(main())
+
+fetch = run.results["fetch"][0]
+fetch.durations - fetch.await_times     # time actually spent running
+for task in run.results.tasks[0]:
+    print(task.name, task.running_time, task.awaiting_time)
+```
 
 You can also profile a script without changing its source:
 
