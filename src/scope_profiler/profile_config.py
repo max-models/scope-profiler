@@ -480,7 +480,9 @@ class ProfilingConfig:
         self._use_likwid = use_likwid
         from scope_profiler.perf_events import validate_events
 
-        self._perf_events = validate_events(perf_events) if perf_events is not None else ()
+        self._perf_events = (
+            validate_events(perf_events) if perf_events is not None else ()
+        )
         self._use_line_profiler = use_line_profiler
         self._use_nvtx = use_nvtx
         self._use_gpu_timing = use_gpu_timing
@@ -533,7 +535,11 @@ class ProfilingConfig:
         self._hdf5_chunk_size = hdf5_chunk_size
         self._capture_region_source = capture_region_source
         if aggregation_mode and (
-            use_line_profiler or use_gpu_timing or use_likwid or use_nvtx or self._perf_events
+            use_line_profiler
+            or use_gpu_timing
+            or use_likwid
+            or use_nvtx
+            or self._perf_events
         ):
             raise ValueError(
                 "aggregation_mode cannot be combined with line, GPU, NVTX, LIKWID, or perf events"

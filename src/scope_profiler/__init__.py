@@ -13,8 +13,8 @@ from scope_profiler.call_stack import (
 )
 from scope_profiler.h5reader import CorruptProfileError, read_h5, read_h5_summary
 from scope_profiler.likwid_data import LikwidRegionResult
-from scope_profiler.perf_events import PerfEventError, PerfEventTotals
 from scope_profiler.mpi_region import MPIRegion
+from scope_profiler.perf_events import PerfEventError, PerfEventTotals
 from scope_profiler.profile_config import ProfilingOptions
 from scope_profiler.profile_manager import ProfileManager
 from scope_profiler.region import EventDataUnavailableError, Region

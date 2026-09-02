@@ -711,9 +711,10 @@ def _render_selected_plots(
         parser.error(
             "likwid requires --metric for plots or --likwid-metric for plot-data."
         )
-    if "perf_events" in selected_plots and not _plot_options(
-        args, "perf_events"
-    )["perf_event_metric"]:
+    if (
+        "perf_events" in selected_plots
+        and not _plot_options(args, "perf_events")["perf_event_metric"]
+    ):
         parser.error("perf_events requires --metric, e.g. --metric ipc.")
 
     ext = (

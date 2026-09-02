@@ -12,8 +12,8 @@ import numpy as np
 
 from scope_profiler.concurrency import CPU_SAMPLE_MASK, NO_TASK
 from scope_profiler.gpu_timing import resolve_gpu_timing_backend
-from scope_profiler.profile_config import ProfilingConfig
 from scope_profiler.perf_events import PerfEventGroup, PerfEventTotals
+from scope_profiler.profile_config import ProfilingConfig
 
 # Parsed module ASTs, memoized by filename. Capturing a region's source only
 # runs once per region name (see BaseProfileRegion.set_source), but a file can

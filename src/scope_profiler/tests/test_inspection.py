@@ -8,6 +8,7 @@ import pytest
 
 from scope_profiler import read_h5
 from scope_profiler.__main__ import main as cli_main
+from scope_profiler.h5writer import ProfilingWriter
 from scope_profiler.inspection import (
     collect_file_metadata,
     inspect_file,
@@ -17,7 +18,6 @@ from scope_profiler.inspection import write_metadata_json
 from scope_profiler.likwid_data import LikwidRegionResult, write_likwid_results
 from scope_profiler.perf_events import PerfEventTotals
 from scope_profiler.profile_manager import RankPayload
-from scope_profiler.h5writer import ProfilingWriter
 
 NS = 1_000_000_000
 

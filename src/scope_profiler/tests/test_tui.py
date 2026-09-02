@@ -9,8 +9,8 @@ import pytest
 
 from scope_profiler.__main__ import main as cli_main
 from scope_profiler.h5writer import ProfilingWriter
-from scope_profiler.profile_manager import RankPayload
 from scope_profiler.perf_events import PerfEventTotals
+from scope_profiler.profile_manager import RankPayload
 from scope_profiler.tests.test_inspection import _write_sample_h5
 from scope_profiler.tui import (
     _matplotlib_child_script,

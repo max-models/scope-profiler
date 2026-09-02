@@ -35,9 +35,9 @@ from scope_profiler.region_profiler import (
     FullProfileRegion,
     LineProfilerRegion,
     NVTXProfileRegion,
+    PerfEventProfileRegion,
     ThreadedProfileRegion,
     TimeOnlyProfileRegion,
-    PerfEventProfileRegion,
     call_site_source,
     function_source,
 )
@@ -1458,8 +1458,11 @@ class ProfileManager:
             if likwid_results:
                 likwid_environment = config.likwid_environment()
         perf_events = (
-            {name: region.perf_event_totals() for name, region in cls.get_all_regions().items()
-             if hasattr(region, "perf_event_totals") and region.num_calls}
+            {
+                name: region.perf_event_totals()
+                for name, region in cls.get_all_regions().items()
+                if hasattr(region, "perf_event_totals") and region.num_calls
+            }
             if config.perf_events
             else None
         )

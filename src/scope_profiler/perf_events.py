@@ -163,7 +163,9 @@ def _make_py_perf_measure(events: tuple[str, ...]):
     except ImportError:
         return None
     try:
-        return Measure([getattr(Hardware, _PY_PERF_EVENT_HARDWARE[event]) for event in events])
+        return Measure(
+            [getattr(Hardware, _PY_PERF_EVENT_HARDWARE[event]) for event in events]
+        )
     except Exception as exc:
         raise _py_perf_error("create", exc) from exc
 

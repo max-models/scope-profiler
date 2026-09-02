@@ -1060,7 +1060,11 @@ def write_rank_payload(
         compression_level=compression_level,
         chunk_size=chunk_size,
     )
-    if not payload.likwid and not payload.line_profile and not getattr(payload, "perf_events", None):
+    if (
+        not payload.likwid
+        and not payload.line_profile
+        and not getattr(payload, "perf_events", None)
+    ):
         return wrote_regions
 
     # Auxiliary records retain rank-local groups because their matrices and
@@ -1078,7 +1082,9 @@ def write_rank_payload(
             region = perf_group.create_group(name)
             region.attrs["calls"] = totals.calls
             region.attrs["event_names"] = list(totals.values)
-            region.create_dataset("values", data=np.asarray(list(totals.values.values()), dtype=np.uint64))
+            region.create_dataset(
+                "values", data=np.asarray(list(totals.values.values()), dtype=np.uint64)
+            )
     write_line_profile(
         group,
         payload.line_profile,
