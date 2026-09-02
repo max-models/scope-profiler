@@ -7,8 +7,11 @@ machine immediately after a run, and can be opened locally in any browser.
 from __future__ import annotations
 
 import html
+import json
 import linecache
+import tempfile
 from collections.abc import Sequence
+from importlib.resources import files
 from pathlib import Path
 
 import numpy as np
@@ -27,6 +30,7 @@ body { color: #1f2937; font: 15px/1.45 system-ui, sans-serif; margin: 2rem auto;
        max-width: 1100px; padding: 0 1rem; }
 h1, h2, h3 { color: #111827; } section { margin: 2rem 0; }
 .chart { min-height: 360px; margin: 1rem 0 2rem; }
+.chart-error { color: #b91c1c; padding: 1rem; }
 .facts { display: flex; flex-wrap: wrap; gap: .75rem; }
 .fact { background: #f3f4f6; border-radius: .4rem; padding: .5rem .75rem; }
 .overview { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: .5rem;
@@ -482,7 +486,7 @@ def _line_profile_html(results, ranks) -> str:
 
 
 def _chart_sections(runs, include, exclude, ranks) -> str:
-    """Render Plotly charts inline, or explain why the optional extra is absent."""
+    """Build embedded chart payloads for the bundled browser renderer."""
     try:
         from scope_profiler.plotting_scripts import (
             plot_durations,
@@ -491,6 +495,7 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
             plot_gantt,
             plot_rank_heatmap,
         )
+        from plotly.offline import get_plotlyjs
     except ImportError:
         return (
             '<section><h2>Charts</h2><p class="muted">Charts require '
@@ -498,113 +503,91 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
             "above remain available without it.</p></section>"
         )
 
-    charts: list[tuple[str, object]] = []
+    charts: list[tuple[str, dict]] = []
     failures: list[str] = []
-    for run in runs:
+
+    def collect(title, plotter, path: Path, *args, **kwargs) -> None:
         try:
-            charts.append(
-                (
-                    f"Timeline: {run.display_label} (rank 0)",
-                    plot_gantt(
-                        run,
-                        include=include,
-                        exclude=exclude,
-                        ranks=[0],
-                        show=False,
-                        verbose=False,
-                        backend="plotly",
-                        return_fig=True,
-                    ),
-                )
+            plotter(
+                *args,
+                data_filepath=path,
+                data_format="json",
+                show=False,
+                verbose=False,
+                # Plot functions prepare their export payload before handing
+                # the Canvas to a renderer. This private sentinel reaches the
+                # no-output path and avoids materializing an unused Python
+                # figure; the browser package owns rendering for reports.
+                backend="data-only",
+                **kwargs,
             )
         except (ImportError, ValueError) as exc:
-            failures.append(f"Timeline for {run.display_label}: {exc}")
+            failures.append(f"{title}: {exc}")
+            return
+        charts.append((title, json.loads(path.read_text(encoding="utf-8"))))
 
-    try:
-        charts.append(
-            (
-                "Region durations",
-                plot_durations(
-                    runs,
-                    include=include,
-                    exclude=exclude,
-                    ranks=ranks,
-                    sort_by="total",
-                    stack_children=True,
-                    show=False,
-                    verbose=False,
-                    backend="plotly",
-                    return_fig=True,
-                ),
+    with tempfile.TemporaryDirectory(prefix="scope-profiler-report-") as directory:
+        payload_dir = Path(directory)
+        for index, run in enumerate(runs):
+            collect(
+                f"Timeline: {run.display_label} (rank 0)",
+                plot_gantt,
+                payload_dir / f"gantt-{index}.json",
+                run,
+                include=include,
+                exclude=exclude,
+                ranks=[0],
             )
+
+        collect(
+            "Region durations",
+            plot_durations,
+            payload_dir / "durations.json",
+            runs,
+            include=include,
+            exclude=exclude,
+            ranks=ranks,
+            sort_by="total",
+            # The browser builder compares runs as grouped bars, or decomposes
+            # one run into stacked child segments. Combining both encodings in
+            # one Cartesian axis would merge equal segment names across runs.
+            stack_children=len(runs) == 1,
         )
-    except (ImportError, ValueError) as exc:
-        failures.append(f"Region durations: {exc}")
-
-    try:
-        charts.append(
-            (
-                "Rank heatmap",
-                plot_rank_heatmap(
-                    runs,
-                    include=include,
-                    exclude=exclude,
-                    ranks=ranks,
-                    exclusive=True,
-                    show=False,
-                    verbose=False,
-                    backend="plotly",
-                    return_fig=True,
-                ),
-            )
+        collect(
+            "Rank heatmap",
+            plot_rank_heatmap,
+            payload_dir / "rank-heatmap.json",
+            runs,
+            include=include,
+            exclude=exclude,
+            ranks=ranks,
+            exclusive=True,
         )
-    except (ImportError, ValueError) as exc:
-        failures.append(f"Rank heatmap: {exc}")
 
-    for run in runs:
-        try:
-            charts.append(
-                (
-                    f"Flame chart: {run.display_label}",
-                    plot_flame(
-                        run,
-                        include=include,
-                        exclude=exclude,
-                        ranks=ranks,
-                        show=False,
-                        verbose=False,
-                        backend="plotly",
-                        return_fig=True,
-                    ),
-                )
+        for index, run in enumerate(runs):
+            collect(
+                f"Flame chart: {run.display_label}",
+                plot_flame,
+                payload_dir / f"flame-chart-{index}.json",
+                run,
+                include=include,
+                exclude=exclude,
+                ranks=ranks,
             )
-        except (ImportError, ValueError) as exc:
-            failures.append(f"Flame for {run.display_label}: {exc}")
-
-        try:
-            charts.append(
-                (
-                    f"Flame graph: {run.display_label}",
-                    plot_flame_graph(
-                        run,
-                        include=include,
-                        exclude=exclude,
-                        ranks=ranks,
-                        show=False,
-                        verbose=False,
-                        backend="plotly",
-                        return_fig=True,
-                    ),
-                )
+            collect(
+                f"Flame graph: {run.display_label}",
+                plot_flame_graph,
+                payload_dir / f"flame-graph-{index}.json",
+                run,
+                include=include,
+                exclude=exclude,
+                ranks=ranks,
             )
-        except (ImportError, ValueError) as exc:
-            failures.append(f"Flame graph for {run.display_label}: {exc}")
 
     fragments = []
-    include_plotlyjs = True
-    for title, figure in charts:
-        if figure is None:
-            continue
+    chart_documents = []
+    for index, (title, payload) in enumerate(charts):
+        chart_id = f"scope-profiler-chart-{index}"
         explanation = ""
         if title == "Rank heatmap":
             explanation = (
@@ -614,19 +597,47 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
                 "session region from dominating the heatmap.</p>"
             )
         fragments.append(
-            f'<h3>{_text(title)}</h3>{explanation}<div class="chart">'
-            f"{figure.to_html(full_html=False, include_plotlyjs=include_plotlyjs)}</div>"
+            f"<h3>{_text(title)}</h3>{explanation}"
+            f'<div class="chart" id="{chart_id}"></div>'
         )
-        include_plotlyjs = False
+        chart_documents.append({"id": chart_id, "payload": payload})
+
     if failures:
         fragments.append(
             '<p class="muted">Unavailable chart(s): '
             + _text("; ".join(failures))
             + "</p>"
         )
-    if not fragments:
+    if not charts:
         fragments.append('<p class="muted">No charts could be rendered.</p>')
-    return "<section><h2>Charts</h2>" + "".join(fragments) + "</section>"
+        return "<section><h2>Charts</h2>" + "".join(fragments) + "</section>"
+
+    # Escape '<' so profile labels such as '</script>' cannot terminate the
+    # inline module. The bundled code and runtime make the document durable
+    # and usable without a network connection.
+    documents_json = json.dumps(chart_documents, ensure_ascii=False).replace(
+        "<", "\\u003c"
+    )
+    plotly_builders = (
+        files("scope_profiler._assets")
+        .joinpath("scope-profiler-plotly-0.2.0.js")
+        .read_text(encoding="utf-8")
+    )
+    script = (
+        "<script>"
+        + get_plotlyjs()
+        + '</script><script type="module">'
+        + plotly_builders
+        + "\nconst scopeProfilerCharts = "
+        + documents_json
+        + ";\nfor (const chart of scopeProfilerCharts) {\n"
+        + "  const target = document.getElementById(chart.id);\n"
+        + "  try { await renderFigure(globalThis.Plotly, target, buildFigure(chart.payload)); }\n"
+        + "  catch (error) { target.classList.add('chart-error'); "
+        + "target.textContent = `Could not render chart: ${error.message}`; }\n"
+        + "}\n</script>"
+    )
+    return "<section><h2>Charts</h2>" + "".join(fragments) + script + "</section>"
 
 
 def create_html_report(

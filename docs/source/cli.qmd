@@ -249,6 +249,9 @@ meaning as `scope-profiler inspect` and control the region-statistics table.
 Metadata is always retained in the report. With `scope-profiler[pproc]`
 installed, reports also embed interactive Plotly timelines and duration charts;
 pass `--no-charts` for the compact table-only version.
+The charts are built by the same versioned `@scope-profiler/plotly` code used
+for `export plot-data` on the web. Both that builder and Plotly itself are
+embedded in the report, so opening the file never requires a network connection.
 
 Each run's section opens with a short auto-generated overview -- the
 region that dominates the recorded time, a load-imbalance callout when one

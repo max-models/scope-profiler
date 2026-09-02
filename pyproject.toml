@@ -150,6 +150,9 @@ scope_profiler = [
   "c/*.c",
   "c/*.h",
   "c/Makefile",
+  # Browser figure builders bundled at an exact npm-package version for
+  # self-contained HTML reports.
+  "_assets/*.js",
   # PEP 561: the annotations on the public result and configuration objects
   # are only visible to a downstream type checker if this marker ships too.
   "py.typed",
@@ -231,7 +234,7 @@ skip_covered = true
 #
 # The CI job reaches the LIKWID and parallel-HDF5 paths a developer laptop
 # cannot, so its total is at or above what `coverage report` prints locally.
-fail_under = 86
+fail_under = 87
 exclude_also = [
   # Typing-only constructs that never execute.
   "if TYPE_CHECKING:",

@@ -1,7 +1,9 @@
 import csv
 import json
+import re
 import sys
 import types
+from pathlib import Path
 
 import h5py
 import numpy as np
@@ -39,7 +41,7 @@ from scope_profiler.plotting_scripts import (
     plot_timeline_density,
     plot_weak_scaling,
 )
-from scope_profiler.post_processing import export_main, main
+from scope_profiler.post_processing import _PLOT_CATALOG, export_main, main
 from scope_profiler.profile_manager import RankPayload
 from scope_profiler.results import ProfilingResults
 
@@ -1694,6 +1696,72 @@ def test_every_plot_data_document_carries_the_format_envelope(tmp_path):
         "scaling_efficiency",
         "region_statistics",
     } <= kinds
+
+
+def test_the_plotly_package_has_a_builder_for_every_exported_kind(tmp_path):
+    """The JS package must keep up with the kinds the exporter can write.
+
+    A new plot kind is otherwise only discovered to be unrenderable by whoever
+    fetches its JSON in a browser. Reads the builder table out of the package
+    source rather than running node, so the check costs nothing in CI.
+    """
+    package = (
+        Path(__file__).resolve().parents[3] / "packages" / "plotly" / "src" / "index.js"
+    )
+    if not package.exists():  # pragma: no cover - an installed wheel has no packages/
+        pytest.skip("the npm package is not part of an installed distribution")
+
+    source = package.read_text(encoding="utf-8")
+    table = re.search(r"PLOT_BUILDERS = \{(.*?)\n\};", source, re.DOTALL)
+    assert table, "could not find PLOT_BUILDERS in the package source"
+    builders = set(re.findall(r"^\s*(\w+):", table.group(1), re.MULTILINE))
+
+    def nested(rank_count, scale):
+        # Disjoint calls rather than _sample_file_data's overlapping pair: the
+        # flame kinds reconstruct a call stack and reject improper nesting.
+        return {
+            rank: {
+                "setup": ([0], [100 * scale]),
+                "solve": ([200], [200 + 300 * scale]),
+            }
+            for rank in range(rank_count)
+        }
+
+    file_one = tmp_path / "run_1.h5"
+    file_two = tmp_path / "run_2.h5"
+    output_dir = tmp_path / "figures"
+    _write_sample_h5(file_one, nested(2, 2))
+    _write_sample_h5(file_two, nested(4, 1))
+
+    # Every kind the export supports: `perf_events` is rejected outright and
+    # `likwid` needs counters this run does not have.
+    kinds = [
+        name
+        for name in _PLOT_CATALOG
+        if name not in {"perf_events", "likwid", "callgraph"}
+    ]
+    export_main(
+        [
+            "plot-data",
+            str(file_one),
+            str(file_two),
+            "-o",
+            str(output_dir),
+            "--format",
+            "json",
+            "--plots",
+            *kinds,
+        ]
+    )
+
+    written = {
+        json.loads(path.read_text(encoding="utf-8"))["plot"]
+        for path in output_dir.glob("*.json")
+    }
+    assert written, "the export wrote nothing"
+    assert written <= builders, (
+        f"@scope-profiler/plotly has no builder for {sorted(written - builders)}"
+    )
 
 
 def test_scaling_exports_share_their_axis_options(tmp_path):

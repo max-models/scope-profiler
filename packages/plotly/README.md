@@ -48,3 +48,13 @@ inferred from the payload shape, and `{ plot: "gantt" }` settles it by hand.
 Common options: `colors` (region or series name to color), `filterRegion(name,
 row)` to drop rows, `layout` to merge into the generated layout, and `metric`
 where a payload carries several.
+
+## More than one run in a payload
+
+`export plot-data` accepts several profiles at once, and the payload then
+carries a `file` column. Builders keep those runs apart: the gantt, density and
+rank heatmap give each run its own lane, and the histogram, imbalance and
+duration time series give each run its own trace, labelled `run / region`. The
+region keeps its colour across runs, so a run is told apart by marker symbol
+(lines) or bar pattern (bars). A single-run payload is unchanged -- series are
+named by region alone.

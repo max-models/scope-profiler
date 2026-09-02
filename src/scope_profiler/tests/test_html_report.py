@@ -1,6 +1,11 @@
 """Tests for standalone HTML profiling reports."""
 
+import json
+from pathlib import Path
+
 from scope_profiler.__main__ import main as cli_main
+from scope_profiler.h5reader import read_h5
+from scope_profiler.html_report import create_html_report
 
 from .test_post_processing import _sample_file_data, _write_sample_h5
 
@@ -96,25 +101,28 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
     report = tmp_path / "report.html"
     _write_sample_h5(profile, _sample_file_data(1, 10, 20))
 
-    class Figure:
-        def to_html(self, *, full_html, include_plotlyjs):
-            assert full_html is False
-            return f"<div data-plotlyjs={include_plotlyjs!r}>chart</div>"
+    def fake_plot(*args, data_filepath, data_format, backend, **kwargs):
+        assert data_format == "json"
+        assert backend == "data-only"
+        Path(data_filepath).write_text(
+            json.dumps(
+                {
+                    "format": "scope-profiler-plot-data",
+                    "format_version": 1,
+                    "plot": "gantt",
+                    "intervals": [],
+                }
+            ),
+            encoding="utf-8",
+        )
 
     from scope_profiler import plotting_scripts
 
-    monkeypatch.setattr(
-        plotting_scripts, "plot_gantt", lambda *args, **kwargs: Figure()
-    )
-    monkeypatch.setattr(
-        plotting_scripts, "plot_durations", lambda *args, **kwargs: Figure()
-    )
-    monkeypatch.setattr(
-        plotting_scripts, "plot_rank_heatmap", lambda *args, **kwargs: Figure()
-    )
-    monkeypatch.setattr(
-        plotting_scripts, "plot_flame", lambda *args, **kwargs: Figure()
-    )
+    monkeypatch.setattr(plotting_scripts, "plot_gantt", fake_plot)
+    monkeypatch.setattr(plotting_scripts, "plot_durations", fake_plot)
+    monkeypatch.setattr(plotting_scripts, "plot_rank_heatmap", fake_plot)
+    monkeypatch.setattr(plotting_scripts, "plot_flame", fake_plot)
+    monkeypatch.setattr(plotting_scripts, "plot_flame_graph", fake_plot)
 
     cli_main(["report", str(profile), "-o", str(report)])
 
@@ -124,8 +132,12 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
     assert "Rank heatmap" in document
     assert "Flame chart: profile" in document
     assert "Flame graph: profile" in document
-    assert "data-plotlyjs=True" in document
-    assert "data-plotlyjs=False" in document
+    assert 'id="scope-profiler-chart-0"' in document
+    assert "const scopeProfilerCharts = " in document
+    assert "buildFigure(chart.payload)" in document
+    assert "plotly.js" in document
+    assert "<script src=" not in document
+    assert 'import("https://' not in document
 
 
 def test_report_limits_gantt_and_uses_exclusive_rank_heatmap(tmp_path, monkeypatch):
@@ -137,23 +149,27 @@ def test_report_limits_gantt_and_uses_exclusive_rank_heatmap(tmp_path, monkeypat
 
     captured = {}
 
-    class Figure:
-        def to_html(self, *, full_html, include_plotlyjs):
-            return "chart"
+    def write_payload(data_filepath):
+        Path(data_filepath).write_text(
+            json.dumps({"plot": "gantt", "intervals": []}), encoding="utf-8"
+        )
 
-    def fake_gantt(*args, **kwargs):
+    def fake_gantt(*args, data_filepath, **kwargs):
         captured["gantt"] = kwargs
+        write_payload(data_filepath)
 
-    def fake_heatmap(*args, **kwargs):
+    def fake_heatmap(*args, data_filepath, **kwargs):
         captured["heatmap"] = kwargs
-        return Figure()
+        write_payload(data_filepath)
+
+    def fake_plot(*args, data_filepath, **kwargs):
+        write_payload(data_filepath)
 
     monkeypatch.setattr(plotting_scripts, "plot_gantt", fake_gantt)
-    monkeypatch.setattr(
-        plotting_scripts, "plot_durations", lambda *args, **kwargs: None
-    )
+    monkeypatch.setattr(plotting_scripts, "plot_durations", fake_plot)
     monkeypatch.setattr(plotting_scripts, "plot_rank_heatmap", fake_heatmap)
-    monkeypatch.setattr(plotting_scripts, "plot_flame", lambda *args, **kwargs: None)
+    monkeypatch.setattr(plotting_scripts, "plot_flame", fake_plot)
+    monkeypatch.setattr(plotting_scripts, "plot_flame_graph", fake_plot)
 
     cli_main(["report", str(profile), "-o", str(report)])
 
@@ -171,20 +187,133 @@ def test_region_durations_chart_is_stacked_and_sorted_by_total(tmp_path, monkeyp
 
     captured = {}
 
-    def fake_plot_durations(*args, **kwargs):
+    def fake_plot_durations(*args, data_filepath, **kwargs):
         captured.update(kwargs)
+        Path(data_filepath).write_text(
+            json.dumps({"plot": "gantt", "intervals": []}), encoding="utf-8"
+        )
 
-    monkeypatch.setattr(plotting_scripts, "plot_gantt", lambda *args, **kwargs: None)
+    def fake_plot(*args, data_filepath, **kwargs):
+        Path(data_filepath).write_text(
+            json.dumps({"plot": "gantt", "intervals": []}), encoding="utf-8"
+        )
+
+    monkeypatch.setattr(plotting_scripts, "plot_gantt", fake_plot)
     monkeypatch.setattr(plotting_scripts, "plot_durations", fake_plot_durations)
-    monkeypatch.setattr(
-        plotting_scripts, "plot_rank_heatmap", lambda *args, **kwargs: None
-    )
-    monkeypatch.setattr(plotting_scripts, "plot_flame", lambda *args, **kwargs: None)
+    monkeypatch.setattr(plotting_scripts, "plot_rank_heatmap", fake_plot)
+    monkeypatch.setattr(plotting_scripts, "plot_flame", fake_plot)
+    monkeypatch.setattr(plotting_scripts, "plot_flame_graph", fake_plot)
 
     cli_main(["report", str(profile), "-o", str(report)])
 
     assert captured["sort_by"] == "total"
     assert captured["stack_children"] is True
+
+
+def test_region_durations_compare_multiple_runs_without_stacking(tmp_path, monkeypatch):
+    profiles = [tmp_path / "one.h5", tmp_path / "two.h5"]
+    report = tmp_path / "report.html"
+    for profile in profiles:
+        _write_sample_h5(profile, _sample_file_data(1, 10, 20))
+
+    from scope_profiler import plotting_scripts
+
+    captured = {}
+
+    def fake_plot(*args, data_filepath, **kwargs):
+        if kwargs.get("sort_by") == "total":
+            captured.update(kwargs)
+        Path(data_filepath).write_text(
+            json.dumps({"plot": "gantt", "intervals": []}), encoding="utf-8"
+        )
+
+    monkeypatch.setattr(plotting_scripts, "plot_gantt", fake_plot)
+    monkeypatch.setattr(plotting_scripts, "plot_durations", fake_plot)
+    monkeypatch.setattr(plotting_scripts, "plot_rank_heatmap", fake_plot)
+    monkeypatch.setattr(plotting_scripts, "plot_flame", fake_plot)
+    monkeypatch.setattr(plotting_scripts, "plot_flame_graph", fake_plot)
+
+    create_html_report(profiles, report)
+
+    assert captured["stack_children"] is False
+
+
+def test_report_escapes_profile_text_inside_embedded_chart_json(tmp_path):
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    _write_sample_h5(profile, _sample_file_data(1, 10, 20))
+
+    run = read_h5(profile)
+    run.label = "</script><script>bad()</script>"
+    create_html_report(run, report)
+
+    document = report.read_text(encoding="utf-8")
+    assert "\\u003c/script>\\u003cscript>bad()\\u003c/script>" in document
+    assert "</script><script>bad()" not in document
+
+
+def test_report_keeps_tables_when_all_chart_payloads_fail(tmp_path, monkeypatch):
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    _write_sample_h5(profile, _sample_file_data(1, 10, 20))
+
+    from scope_profiler import plotting_scripts
+
+    def fail(*args, **kwargs):
+        raise ValueError("no plottable calls")
+
+    monkeypatch.setattr(plotting_scripts, "plot_gantt", fail)
+    monkeypatch.setattr(plotting_scripts, "plot_durations", fail)
+    monkeypatch.setattr(plotting_scripts, "plot_rank_heatmap", fail)
+    monkeypatch.setattr(plotting_scripts, "plot_flame", fail)
+    monkeypatch.setattr(plotting_scripts, "plot_flame_graph", fail)
+
+    create_html_report(profile, report)
+
+    document = report.read_text(encoding="utf-8")
+    assert "Region statistics" in document
+    assert "No charts could be rendered." in document
+    assert "Unavailable chart(s):" in document
+    assert "no plottable calls" in document
+    assert "const scopeProfilerCharts" not in document
+
+
+def test_report_keeps_tables_when_plotly_is_not_installed(tmp_path, monkeypatch):
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    _write_sample_h5(profile, _sample_file_data(1, 10, 20))
+
+    import builtins
+
+    real_import = builtins.__import__
+
+    def without_plotly(name, *args, **kwargs):
+        if name == "plotly.offline":
+            raise ImportError("plotly unavailable")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", without_plotly)
+
+    create_html_report(profile, report)
+
+    document = report.read_text(encoding="utf-8")
+    assert "Region statistics" in document
+    assert "Charts require" in document
+    assert "scope-profiler[pproc]" in document
+
+
+def test_bundled_plotly_builders_match_the_npm_package_source():
+    repository = Path(__file__).parents[3]
+    npm_source = repository / "packages" / "plotly" / "src" / "index.js"
+    bundled = (
+        repository
+        / "src"
+        / "scope_profiler"
+        / "_assets"
+        / "scope-profiler-plotly-0.2.0.js"
+    )
+
+    assert bundled.read_bytes() == npm_source.read_bytes()
 
 
 def test_report_region_table_headers_are_sortable_and_show_a_trend_column(tmp_path):

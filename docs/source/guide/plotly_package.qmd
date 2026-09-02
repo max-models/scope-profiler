@@ -203,3 +203,15 @@ instead; pass `{ plot: "gantt" }` to settle the case by hand.
 
 Use `renderFigure(Plotly, element, figure)` as a convenience, or pass
 `figure.data` and `figure.layout` to `Plotly.newPlot` directly.
+
+## Payloads with more than one run
+
+`export plot-data` accepts several profiles at once, and every row of the
+resulting payload names the run it came from. The builders keep those runs
+apart rather than pooling them: the gantt, density and rank-heatmap charts give
+each run its own lane, while the histogram, imbalance and duration time series
+give each run its own trace, named `run / region`. A region keeps its colour
+across runs -- what changes between runs is the marker symbol on a line, or the
+bar pattern on a histogram -- so the same region stays recognisable while the
+runs stay distinguishable. Single-run payloads are unaffected: series are named
+by region alone, as before.
