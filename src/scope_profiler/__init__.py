@@ -36,6 +36,7 @@ except PackageNotFoundError:
 # plotting/reporting dependencies at runtime.  Dynamic module attributes are
 # otherwise invisible to hover, completion, and static type checkers.
 if TYPE_CHECKING:
+    from scope_profiler.chrome_trace_export import export_chrome_trace
     from scope_profiler.html_report import create_html_report
     from scope_profiler.inspection import collect_file_metadata, inspect_file
     from scope_profiler.plotting_scripts import (
@@ -78,6 +79,7 @@ __all__ = [
     "collect_region_statistics",
     "create_html_report",
     "export_json",
+    "export_chrome_trace",
     "export_prof",
     "export_speedscope",
     "inspect_file",
@@ -127,6 +129,10 @@ def __getattr__(name: str) -> Any:
         from scope_profiler.prof_export import export_prof
 
         return export_prof
+    if name == "export_chrome_trace":
+        from scope_profiler.chrome_trace_export import export_chrome_trace
+
+        return export_chrome_trace
     if name == "export_speedscope":
         from scope_profiler.speedscope_export import export_speedscope
 

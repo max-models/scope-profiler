@@ -19,7 +19,8 @@ The subcommands:
   output and renders Gantt/flame/duration/speedup charts. See
   ``scope_profiler.post_processing`` for its full set of options.
 - ``scope-profiler export <kind> file.h5 [...]`` -- writes plot data,
-  cProfile/pstats files, speedscope JSON, or the whole run as a JSON profile,
+  cProfile/pstats files, speedscope or Chrome Trace JSON, or the whole run as
+  a JSON profile,
   without rendering charts.
 - ``scope-profiler inspect file.h5 [...]`` -- prints the run metadata and a
   per-region statistics table (including LIKWID hardware counters, when the

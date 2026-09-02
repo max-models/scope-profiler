@@ -29,6 +29,7 @@ from scope_profiler.plotting_scripts import (
 )
 from scope_profiler.prof_export import export_prof
 from scope_profiler.profile_io import read_profile
+from scope_profiler.chrome_trace_export import export_chrome_trace
 from scope_profiler.speedscope_export import export_speedscope
 
 # Single source of truth for --plots: name -> (one-line description, is a
@@ -469,6 +470,7 @@ def build_export_parser() -> argparse.ArgumentParser:
     for kind, description in {
         "prof": "Export cProfile/pstats files.",
         "speedscope": "Export speedscope JSON files.",
+        "chrome-trace": "Export Chrome Trace Event JSON files for Perfetto.",
         "json": "Export the whole run as a JSON profile.",
     }.items():
         export_parser = subparsers.add_parser(kind, help=description)
@@ -1205,6 +1207,16 @@ def export_main(argv: list[str] | None = None):
             verbose=False,
         )
         saved.extend(str(path) for path in speedscope_paths)
+    elif args.export_kind == "chrome-trace":
+        trace_paths = export_chrome_trace(
+            profiling_data=runs,
+            filepath=os.path.join(args.output, "profile.trace.json"),
+            ranks=args.ranks,
+            include=args.include,
+            exclude=args.exclude,
+            verbose=False,
+        )
+        saved.extend(str(path) for path in trace_paths)
     elif args.export_kind == "json":
         from scope_profiler.json_export import export_json
 
@@ -1264,6 +1276,8 @@ def export_main(argv: list[str] | None = None):
             f"\nView {saved[0]} at https://www.speedscope.app "
             "(or: npx speedscope <file>)"
         )
+    if args.export_kind == "chrome-trace" and saved:
+        print(f"\nOpen {saved[0]} with https://ui.perfetto.dev or chrome://tracing")
 
 
 if __name__ == "__main__":
