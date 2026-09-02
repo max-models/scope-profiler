@@ -236,7 +236,9 @@ def plot_likwid(
                 label: _to_hex(color) for label, color in zip(series_labels, colors)
             }
             _write_json(
-                data_filepath, {"metric": metric, "bars": bars, "colors": colors_map}
+                data_filepath,
+                {"metric": metric, "bars": bars, "colors": colors_map},
+                plot="likwid",
             )
         else:
             _write_csv(data_filepath, ["series", "region", "value"], data_rows)

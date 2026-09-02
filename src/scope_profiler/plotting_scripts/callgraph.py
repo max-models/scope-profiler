@@ -301,6 +301,7 @@ def plot_callgraph(
                             for parent, child in edges
                         ],
                     },
+                    plot="callgraph",
                 )
             else:
                 _write_csv(data_filepath, ["parent", "child"], edges)
@@ -318,6 +319,7 @@ def plot_callgraph(
                             for row in rows
                         ]
                     },
+                    plot="callgraph",
                 )
             else:
                 _write_csv(

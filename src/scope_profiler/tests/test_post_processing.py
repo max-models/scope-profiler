@@ -1636,6 +1636,103 @@ def test_post_processing_cli_export_plot_data_without_images(tmp_path):
     assert list(output_dir.glob("*.png")) == []
 
 
+def test_every_plot_data_document_carries_the_format_envelope(tmp_path):
+    """The envelope is what lets a consumer dispatch on the file itself.
+
+    It is stamped centrally in `_write_json`, so this covers every kind the
+    export can write rather than the handful that once stamped it by hand.
+    """
+    file_one = tmp_path / "run_1.h5"
+    file_two = tmp_path / "run_2.h5"
+    output_dir = tmp_path / "figures"
+
+    _write_sample_h5(file_one, _sample_file_data(2, 100, 200))
+    _write_sample_h5(file_two, _sample_file_data(4, 50, 100))
+
+    export_main(
+        [
+            "plot-data",
+            str(file_one),
+            str(file_two),
+            "-o",
+            str(output_dir),
+            "--format",
+            "json",
+            "--plots",
+            "gantt",
+            "density",
+            "durations",
+            "timeseries",
+            "histogram",
+            "imbalance",
+            "rank_heatmap",
+            "speedup",
+            "weak_scaling",
+            "scaling_efficiency",
+        ]
+    )
+
+    written = sorted(output_dir.glob("*.json"))
+    assert len(written) >= 11
+    kinds = set()
+    for path in written:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        assert payload["format"] == "scope-profiler-plot-data", path.name
+        assert payload["format_version"] == 1, path.name
+        kinds.add(payload["plot"])
+
+    assert {
+        "gantt",
+        "density",
+        "durations",
+        "timeseries",
+        "histogram",
+        "imbalance",
+        "rank_heatmap",
+        "speedup",
+        "weak_scaling",
+        "scaling_efficiency",
+        "region_statistics",
+    } <= kinds
+
+
+def test_scaling_exports_share_their_axis_options(tmp_path):
+    """All three scaling kinds carry the baseline and label a chart needs."""
+    file_one = tmp_path / "run_1.h5"
+    file_two = tmp_path / "run_2.h5"
+    output_dir = tmp_path / "figures"
+
+    _write_sample_h5(file_one, _sample_file_data(2, 100, 200))
+    _write_sample_h5(file_two, _sample_file_data(4, 50, 100))
+
+    export_main(
+        [
+            "plot-data",
+            str(file_one),
+            str(file_two),
+            "-o",
+            str(output_dir),
+            "--format",
+            "json",
+            "--plots",
+            "speedup",
+            "weak_scaling",
+            "scaling_efficiency",
+        ]
+    )
+
+    for name in ("speedup", "weak_scaling", "scaling_efficiency"):
+        payload = json.loads(
+            (output_dir / f"{name}_data.json").read_text(encoding="utf-8")
+        )
+        assert payload["options"] == {
+            "x_field": "num_ranks",
+            "x_label": "MPI ranks",
+            "baseline": 2,
+        }
+        assert all(color.startswith("#") for color in payload["colors"].values())
+
+
 def test_post_processing_cli_single_plot_can_write_file(tmp_path):
     file_one = tmp_path / "run_1.h5"
     output_file = tmp_path / "duration.png"

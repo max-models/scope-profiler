@@ -120,7 +120,9 @@ def plot_timeline_density(
         ]
         if data_format == "json":
             _write_json(
-                data_filepath, {"points": [dict(zip(header, row)) for row in records]}
+                data_filepath,
+                {"points": [dict(zip(header, row)) for row in records]},
+                plot="density",
             )
         else:
             _write_csv(data_filepath, header, records)

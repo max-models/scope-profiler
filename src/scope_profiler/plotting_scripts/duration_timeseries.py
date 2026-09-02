@@ -177,7 +177,11 @@ def plot_duration_timeseries(
             colors_map = {
                 name: _to_hex(color) for name, color in sorted(color_map.items())
             }
-            _write_json(data_filepath, {"points": points, "colors": colors_map})
+            _write_json(
+                data_filepath,
+                {"points": points, "colors": colors_map},
+                plot="timeseries",
+            )
         else:
             _write_csv(data_filepath, header, records)
 

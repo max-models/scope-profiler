@@ -184,7 +184,11 @@ def plot_duration_histogram(
             colors_map = {
                 name: _to_hex(color) for name, color in sorted(color_map.items())
             }
-            _write_json(data_filepath, {"bins": bins_payload, "colors": colors_map})
+            _write_json(
+                data_filepath,
+                {"bins": bins_payload, "colors": colors_map},
+                plot="histogram",
+            )
         else:
             _write_csv(data_filepath, header, data_rows)
 

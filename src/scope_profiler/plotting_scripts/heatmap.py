@@ -82,6 +82,7 @@ def plot_rank_heatmap(
             _write_json(
                 data_filepath,
                 {"points": [dict(zip(header, record)) for record in all_records]},
+                plot="rank_heatmap",
             )
         else:
             _write_csv(data_filepath, header, all_records)

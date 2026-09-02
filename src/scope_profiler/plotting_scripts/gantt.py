@@ -246,13 +246,8 @@ def plot_gantt(
                             )
             _write_json(
                 data_filepath,
-                {
-                    "format": "scope-profiler-plot-data",
-                    "format_version": 1,
-                    "plot": "gantt",
-                    "intervals": intervals,
-                    "colors": colors,
-                },
+                {"intervals": intervals, "colors": colors},
+                plot="gantt",
             )
         else:
             rows = []

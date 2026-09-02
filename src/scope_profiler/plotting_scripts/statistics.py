@@ -1,6 +1,5 @@
 """Region-duration statistics collection (JSON export, no chart rendering)."""
 
-import json
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -10,6 +9,7 @@ from scope_profiler.plotting_scripts._utils import (
     _as_runs,
     _normalize_ranks,
     _unique_labels,
+    _write_json,
 )
 from scope_profiler.results import ProfilingResults
 
@@ -267,7 +267,5 @@ def write_region_statistics_json(
     if not payload["files"]:
         # Non-root rank (see ProfilingResults.is_root): rank 0 writes the file.
         return payload
-    output_path = Path(filepath)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    _write_json(filepath, payload, plot="region_statistics")
     return payload

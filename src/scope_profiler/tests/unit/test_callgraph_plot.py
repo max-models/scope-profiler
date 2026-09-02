@@ -233,6 +233,64 @@ def test_compact_json_export_writes_edges(results, tmp_path):
     assert len(payload["regions"]) == 4
 
 
+def test_plot_data_export_accepts_the_callgraph_kind(tmp_path):
+    """`callgraph` is a --plots choice for the export, not only for `plot`.
+
+    Its two flags used to be registered on the `plot` parser alone, so the
+    export raised AttributeError before it wrote anything.
+    """
+    from scope_profiler.post_processing import export_main
+
+    @ProfileManager.profile("leaf")
+    def leaf():
+        return 1
+
+    @ProfileManager.profile("root")
+    def root():
+        return leaf() + leaf()
+
+    profile = tmp_path / "run.h5"
+    ProfileManager.setup(file_path=str(profile))
+    root()
+    ProfileManager.finalize(verbose=False)
+
+    output = tmp_path / "figures"
+    export_main(
+        [
+            "plot-data",
+            str(profile),
+            "-o",
+            str(output),
+            "--format",
+            "json",
+            "--plots",
+            "callgraph",
+        ]
+    )
+    payload = json.loads((output / "callgraph_data.json").read_text(encoding="utf-8"))
+    assert payload["plot"] == "callgraph"
+    assert {"root", "leaf"} <= {call["name"] for call in payload["calls"]}
+
+    compact_output = tmp_path / "compact"
+    export_main(
+        [
+            "plot-data",
+            str(profile),
+            "-o",
+            str(compact_output),
+            "--format",
+            "json",
+            "--plots",
+            "callgraph",
+            "--compact-callgraph",
+        ]
+    )
+    compact = json.loads(
+        (compact_output / "callgraph_data.json").read_text(encoding="utf-8")
+    )
+    assert {"parent": "root", "child": "leaf"} in compact["edges"]
+
+
 def test_a_single_element_sequence_is_unwrapped(results):
     assert plot_callgraph([results], verbose=False) is None
 

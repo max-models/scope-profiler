@@ -220,6 +220,15 @@ def _add_plot_output_args(parser: argparse.ArgumentParser) -> None:
         default=DEFAULT_CMAP,
         help=f"Matplotlib colormap used for regions/files (default: {DEFAULT_CMAP!r}).",
     )
+    _add_callgraph_args(parser)
+
+
+def _add_callgraph_args(parser: argparse.ArgumentParser) -> None:
+    """Register the callgraph-only flags.
+
+    Shared by `plot` and `export plot-data`: `callgraph` is a --plots choice
+    for both, and `_render_selected_plots` reads these unconditionally.
+    """
     parser.add_argument(
         "--compact-callgraph",
         action="store_true",
@@ -508,6 +517,7 @@ def build_export_parser() -> argparse.ArgumentParser:
     _add_common_export_args(plot_data)
     _add_timeline_args(plot_data)
     _add_data_export_args(plot_data)
+    _add_callgraph_args(plot_data)
     plot_data.add_argument(
         "--plots",
         "-p",

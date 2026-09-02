@@ -113,13 +113,8 @@ def plot_flame_chart(
                     )
             _write_json(
                 data_filepath,
-                {
-                    "format": "scope-profiler-plot-data",
-                    "format_version": 1,
-                    "plot": "flame",
-                    "calls": call_records,
-                    "colors": colors,
-                },
+                {"calls": call_records, "colors": colors},
+                plot="flame",
             )
         else:
             rows = []
@@ -453,7 +448,7 @@ def plot_flame_graph(
             for call in calls
         ]
         if data_format == "json":
-            _write_json(data_filepath, {"calls": rows})
+            _write_json(data_filepath, {"calls": rows}, plot="flame_graph")
         else:
             headers = [
                 "file",

@@ -4,6 +4,24 @@
 
 ### Added
 
+- Every `export plot-data --format json` document now carries the same
+  envelope -- `format`, `format_version` and the `plot` kind that produced it
+  -- instead of only four of the kinds carrying it. It is stamped centrally
+  when the file is written, so a new plot kind cannot ship without it, and
+  `region_statistics.json` carries it too.
+- `@scope-profiler/plotly` gained `buildFigure(payload)`, which dispatches on
+  that `plot` field, so a page can render whatever the profiler wrote without
+  naming a builder. It rejects a foreign document or a `format_version` newer
+  than the package supports, and falls back to `inferPlotKind(payload)` for
+  JSON written before the envelope covered every kind.
+- `@scope-profiler/plotly` gained builders for the payloads that had none:
+  `buildDensityFigure` (timeline occupancy), `buildCallgraphFigure` (a Sankey
+  of either callgraph shape), `buildRegionSummaryFigure` (the slowest regions
+  in `region_statistics.json`), `buildLikwidFigure`, and
+  `buildWeakScalingFigure` / `buildScalingEfficiencyFigure`.
+- The weak-scaling and scaling-efficiency exports now write the `colors` and
+  `options` blocks their speedup sibling already wrote, so all three plot with
+  the same axis labels and baseline.
 - Added a JSON output format, chosen by the output file's extension the way
   viztracer's is: `scope-profiler run -o profile.json` (or `.json.gz`) writes
   the run as JSON, `-o report.html` writes a rendered HTML report, and
@@ -66,6 +84,14 @@
 
 ### Fixed
 
+- `scope-profiler export plot-data --plots callgraph` no longer fails with
+  `AttributeError: 'Namespace' object has no attribute 'compact_callgraph'`.
+  `callgraph` was a valid `--plots` choice for the export, but its two flags
+  were registered only on `scope-profiler plot`; both commands now share them.
+- `@scope-profiler/plotly`'s flame builder honours the documented
+  `filterRegion` option, which it silently ignored. Calls whose parent the
+  filter removed are re-parented onto their nearest surviving ancestor rather
+  than dropped, so the icicle stays one tree.
 - `%%scope_recursive` reports a failing cell with its source again, on every
   IPython version. The magic sliced its own frame off the traceback and then
   left the renderer's `tb_offset` at its default, which on some versions

@@ -41,11 +41,14 @@ json` writes.
   <div><strong>Histogram — call-duration distribution</strong><div id="scope-plotly-histogram" style="min-height: 380px;"></div></div>
   <div><strong>Rank heatmap — duration by region and rank</strong><div id="scope-plotly-heatmap" style="min-height: 340px;"></div></div>
   <div><strong>Imbalance — per-rank duration</strong><div id="scope-plotly-imbalance" style="min-height: 390px;"></div></div>
+  <div><strong>Density — timeline occupancy per region</strong><div id="scope-plotly-density" style="min-height: 300px;"></div></div>
+  <div><strong>Call graph — who calls whom</strong><div id="scope-plotly-callgraph" style="min-height: 340px;"></div></div>
+  <div><strong>Region summary — the slowest regions in a run</strong><div id="scope-plotly-summary" style="min-height: 320px;"></div></div>
 </div>
 <script src="https://cdn.plot.ly/plotly-3.7.0.min.js"></script>
 <script type="module">
   const packageUrl = "../_static/plotly/index.js";
-  const { buildGanttFigure, buildDurationsFigure, buildFlameFigure, buildSpeedupFigure, buildDurationTimeseriesFigure, buildHistogramFigure, buildRankHeatmapFigure, buildImbalanceFigure, renderFigure } = await import(packageUrl);
+  const { buildGanttFigure, buildDurationsFigure, buildFlameFigure, buildSpeedupFigure, buildDurationTimeseriesFigure, buildHistogramFigure, buildRankHeatmapFigure, buildImbalanceFigure, buildFigure, renderFigure } = await import(packageUrl);
   const render = (id, figure) => renderFigure(window.Plotly, document.getElementById(id), figure);
   await render("scope-plotly-gantt", buildGanttFigure({
     colors: { setup: "#2a78d6", solve: "#eb6834", exchange: "#1baf7a" },
@@ -120,8 +123,63 @@ json` writes.
       { region: "exchange", rank: 0, value_seconds: 0.4, mean_over_ranks_seconds: 0.5 }, { region: "exchange", rank: 1, value_seconds: 0.6, mean_over_ranks_seconds: 0.5 }, { region: "exchange", rank: 2, value_seconds: 0.5, mean_over_ranks_seconds: 0.5 },
     ],
   }));
+  await render("scope-plotly-density", buildFigure({
+    plot: "density",
+    points: [
+      { file: "run", region: "solve", bin_start_seconds: 0, bin_end_seconds: 1, occupied_seconds: 0.35 },
+      { file: "run", region: "solve", bin_start_seconds: 1, bin_end_seconds: 2, occupied_seconds: 0.92 },
+      { file: "run", region: "solve", bin_start_seconds: 2, bin_end_seconds: 3, occupied_seconds: 0.81 },
+      { file: "run", region: "exchange", bin_start_seconds: 0, bin_end_seconds: 1, occupied_seconds: 0.05 },
+      { file: "run", region: "exchange", bin_start_seconds: 1, bin_end_seconds: 2, occupied_seconds: 0.12 },
+      { file: "run", region: "exchange", bin_start_seconds: 2, bin_end_seconds: 3, occupied_seconds: 0.44 },
+    ],
+  }));
+  await render("scope-plotly-callgraph", buildFigure({
+    plot: "callgraph",
+    regions: [
+      { name: "timestep", depth: 0, total_duration: 4.0 },
+      { name: "assemble", depth: 1, total_duration: 0.9 },
+      { name: "solve", depth: 1, total_duration: 2.6 },
+      { name: "precondition", depth: 2, total_duration: 1.1 },
+    ],
+    edges: [
+      { parent: "timestep", child: "assemble" }, { parent: "timestep", child: "solve" },
+      { parent: "solve", child: "precondition" },
+    ],
+  }));
+  await render("scope-plotly-summary", buildFigure({
+    plot: "region_statistics",
+    files: [{ label: "run", region_statistics: {
+      setup: { count: 1, total_duration_seconds: 0.7 },
+      solve: { count: 24, total_duration_seconds: 5.2 },
+      exchange: { count: 24, total_duration_seconds: 1.4 },
+      diagnostics: { count: 6, total_duration_seconds: 0.3 },
+    } }],
+  }, { topN: 4 }));
 </script>
 ```
+
+## One call for any payload
+
+`buildFigure` reads the `plot` kind stamped on every plot-data document and
+picks the builder itself, so a page that renders whatever the profiler wrote
+does not need to know which chart it is getting:
+
+```js
+import Plotly from "plotly.js-dist-min";
+import { buildFigure, renderFigure } from "@scope-profiler/plotly";
+
+for (const name of ["gantt", "durations", "rank_heatmap"]) {
+  const payload = await fetch(`/figures/${name}_data.json`).then((response) => response.json());
+  await renderFigure(Plotly, document.querySelector(`#${name}`), buildFigure(payload));
+}
+```
+
+It throws on a document that is not `scope-profiler-plot-data`, and on one
+whose `format_version` is newer than the installed package understands. For
+JSON written by a scope-profiler old enough to predate the envelope, it falls
+back to `inferPlotKind(payload)`, which reads the shape of the payload
+instead; pass `{ plot: "gantt" }` to settle the case by hand.
 
 ## Builders
 
@@ -130,11 +188,18 @@ json` writes.
 | `buildGanttFigure(payload)` | `gantt_data.json` | Timeline of every call, lane by file and rank |
 | `buildFlameFigure(payload)` | `flame_data.json` | Nested call hierarchy |
 | `buildDurationsFigure(payload, { metric })` | `durations_data.json` | Per-region duration bars |
-| `buildSpeedupFigure(payload)` | `speedup_data.json` | Scaling curves |
+| `buildSpeedupFigure(payload)` | `speedup_data.json` | Speedup curve |
 | `buildDurationTimeseriesFigure(payload)` | `duration_timeseries_data.json` | Duration drift over time |
 | `buildHistogramFigure(payload)` | `histogram_data.json` | Call-duration distribution |
 | `buildRankHeatmapFigure(payload)` | `rank_heatmap_data.json` | Rank × region duration matrix |
 | `buildImbalanceFigure(payload)` | `imbalance_data.json` | Per-rank duration imbalance |
+| `buildDensityFigure(payload)` | `timeline_density_data.json` | Binned timeline occupancy, for traces too large to draw call by call |
+| `buildCallgraphFigure(payload)` | `callgraph_data.json` | Sankey call graph, from either callgraph shape |
+| `buildRegionSummaryFigure(payload, { metric, topN })` | `region_statistics.json` | The slowest regions of a run, ranked |
+| `buildLikwidFigure(payload)` | `likwid_data.json` | One LIKWID hardware-counter metric |
+| `buildWeakScalingFigure(payload)` | `weak_scaling_data.json` | Weak-scaling curve |
+| `buildScalingEfficiencyFigure(payload)` | `scaling_efficiency_data.json` | Parallel-efficiency curve |
+| `buildFigure(payload)` | any of the above | Dispatch on the document's own `plot` kind |
 
 Use `renderFigure(Plotly, element, figure)` as a convenience, or pass
 `figure.data` and `figure.layout` to `Plotly.newPlot` directly.

@@ -134,6 +134,7 @@ def plot_imbalance(
             _write_json(
                 data_filepath,
                 {"metric": metric, "points": points, "colors": colors_map},
+                plot="imbalance",
             )
         else:
             _write_csv(data_filepath, header, records)

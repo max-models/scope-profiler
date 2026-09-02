@@ -58,6 +58,27 @@ def _scaling_hover_texts(
     return texts
 
 
+_X_LABELS = {
+    "num_ranks": "MPI ranks",
+    "omp_num_threads": "OpenMP threads",
+    "total_cores": "MPI ranks × OpenMP threads",
+}
+
+
+def _x_label(x_field: str) -> str:
+    """Human-readable axis label for a scaling x field."""
+    return _X_LABELS.get(x_field, x_field)
+
+
+def _scaling_options(x_field: str, baseline_key) -> dict:
+    """The ``options`` block shared by every scaling plot-data document."""
+    return {
+        "x_field": x_field,
+        "x_label": _x_label(x_field),
+        "baseline": baseline_key,
+    }
+
+
 def plot_speedup(
     profiling_data: ProfilingResults | Sequence[ProfilingResults],
     x_field: str = "num_ranks",
@@ -206,31 +227,16 @@ def plot_speedup(
             _write_json(
                 data_filepath,
                 {
-                    "format": "scope-profiler-plot-data",
-                    "format_version": 1,
-                    "plot": "speedup",
                     "points": points,
                     "colors": colors_map,
-                    "options": {
-                        "x_field": x_field,
-                        "x_label": {
-                            "num_ranks": "MPI ranks",
-                            "omp_num_threads": "OpenMP threads",
-                            "total_cores": "MPI ranks × OpenMP threads",
-                        }.get(x_field, x_field),
-                        "baseline": baseline_key,
-                    },
+                    "options": _scaling_options(x_field, baseline_key),
                 },
+                plot="speedup",
             )
         else:
             _write_csv(data_filepath, ["region", x_field, "speedup"], data_rows)
 
-    x_label_map = {
-        "num_ranks": "MPI ranks",
-        "omp_num_threads": "OpenMP threads",
-        "total_cores": "MPI ranks × OpenMP threads",
-    }
-    x_label = x_label_map.get(x_field, x_field)
+    x_label = _x_label(x_field)
 
     if is_scaling:
         x_line = np.array(x_keys, dtype=float)
@@ -392,18 +398,21 @@ def plot_weak_scaling(
             colors_map = {
                 name: _to_hex(color) for name, color in zip(region_names, colors)
             }
-            _write_json(data_filepath, {"points": points, "colors": colors_map})
+            _write_json(
+                data_filepath,
+                {
+                    "points": points,
+                    "colors": colors_map,
+                    "options": _scaling_options(x_field, baseline_key),
+                },
+                plot="weak_scaling",
+            )
         else:
             _write_csv(
                 data_filepath, ["region", x_field, "normalized_runtime"], data_rows
             )
 
-    x_label_map = {
-        "num_ranks": "MPI ranks",
-        "omp_num_threads": "OpenMP threads",
-        "total_cores": "MPI ranks × OpenMP threads",
-    }
-    x_label = x_label_map.get(x_field, x_field)
+    x_label = _x_label(x_field)
     if is_scaling:
         x_line = np.array(x_keys, dtype=float)
         canvas.set_xticks(x_line)
@@ -527,9 +536,17 @@ def plot_scaling_efficiency(
     if data_filepath:
         header = ["region", x_field, "efficiency"]
         if data_format == "json":
+            colors_map = {
+                name: _to_hex(color) for name, color in zip(region_names, colors)
+            }
             _write_json(
                 data_filepath,
-                {"points": [dict(zip(header, row)) for row in data_rows]},
+                {
+                    "points": [dict(zip(header, row)) for row in data_rows],
+                    "colors": colors_map,
+                    "options": _scaling_options(x_field, baseline_key),
+                },
+                plot="scaling_efficiency",
             )
         else:
             _write_csv(data_filepath, header, data_rows)
@@ -543,11 +560,7 @@ def plot_scaling_efficiency(
         linewidth=1.5,
         label="Ideal efficiency",
     )
-    x_label = {
-        "num_ranks": "MPI ranks",
-        "omp_num_threads": "OpenMP threads",
-        "total_cores": "MPI ranks × OpenMP threads",
-    }[x_field]
+    x_label = _x_label(x_field)
     canvas.set_xlabel(x_label)
     canvas.set_ylabel("Scaling efficiency")
     canvas.set_title(f"Scaling efficiency (baseline: {x_label} = {baseline_key})")
