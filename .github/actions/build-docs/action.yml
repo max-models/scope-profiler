@@ -9,6 +9,10 @@ inputs:
     description: "Treat warnings as errors (-W flag)"
     required: false
     default: "false"
+  use-released-packages:
+    description: "Install the just-published PyPI and npm versions instead of checkout sources."
+    required: false
+    default: "false"
 runs:
   using: "composite"
   steps:
@@ -35,15 +39,42 @@ runs:
       shell: bash
       run: |
         python -m pip install --upgrade pip
-        # Build the docs against exactly what users can install, not the
-        # checkout's source tree. This action runs only after PyPI publishing.
-        pip install "scope-profiler[docs]"
+        if [[ "${{ inputs.use-released-packages }}" != "true" ]]; then
+          pip install ".[docs]"
+          exit 0
+        fi
+        # Build against this commit's PyPI release, not the previously cached
+        # latest release. PyPI can take a short time to expose a new wheel, so
+        # retry the exact version before letting the docs job fail.
+        version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+        for attempt in {1..12}; do
+          if pip install --upgrade --no-cache-dir "scope-profiler[docs]==$version"; then
+            break
+          fi
+          if [[ "$attempt" == "12" ]]; then
+            exit 1
+          fi
+          sleep 10
+        done
+        python -c "from importlib.metadata import version as installed; assert installed('scope-profiler') == '$version'"
 
     - name: Verify the released npm package
+      if: inputs.use-released-packages == 'true'
       shell: bash
       run: |
-        npm install --prefix "$RUNNER_TEMP/scope-profiler-plotly" \
-          --ignore-scripts --no-audit --no-fund @scope-profiler/plotly
+        version="$(node -p 'require("./packages/plotly/package.json").version')"
+        for attempt in {1..12}; do
+          if npm install --prefix "$RUNNER_TEMP/scope-profiler-plotly" \
+            --ignore-scripts --no-audit --no-fund "@scope-profiler/plotly@$version"; then
+            break
+          fi
+          if [[ "$attempt" == "12" ]]; then
+            exit 1
+          fi
+          sleep 10
+        done
+        installed="$(node -p 'require(process.env.RUNNER_TEMP + "/scope-profiler-plotly/node_modules/@scope-profiler/plotly/package.json").version')"
+        [[ "$installed" == "$version" ]]
         mkdir -p docs/source/_static/plotly
         cp "$RUNNER_TEMP/scope-profiler-plotly/node_modules/@scope-profiler/plotly/src/index.js" \
           docs/source/_static/plotly/index.js
@@ -51,7 +82,7 @@ runs:
     - name: Build Sphinx docs
       shell: bash
       env:
-        SCOPE_PROFILER_DOCS_USE_RELEASED_NPM: "1"
+        SCOPE_PROFILER_DOCS_USE_RELEASED_NPM: ${{ inputs.use-released-packages == 'true' && '1' || '' }}
       run: |
         # `html` depends on the separate figures and Markdown generation
         # targets before Sphinx copies the assets and builds the site.
