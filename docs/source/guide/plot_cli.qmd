@@ -312,7 +312,7 @@ npm install @scope-profiler/plotly plotly.js-dist-min
   try {
     const [PlotlyModule, scopeProfilerPlotly] = await Promise.all([
       import("https://cdn.jsdelivr.net/npm/plotly.js-dist-min@3.7.0/+esm"),
-      import("https://cdn.jsdelivr.net/npm/@scope-profiler/plotly@0.1.0/+esm"),
+      import("../_static/plotly/index.js"),
     ]);
     const Plotly = PlotlyModule.default;
     const payload = {

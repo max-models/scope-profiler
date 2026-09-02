@@ -44,7 +44,7 @@ json` writes.
 </div>
 <script src="https://cdn.plot.ly/plotly-3.7.0.min.js"></script>
 <script type="module">
-  const packageUrl = "https://cdn.jsdelivr.net/npm/@scope-profiler/plotly@latest/+esm";
+  const packageUrl = "../_static/plotly/index.js";
   const { buildGanttFigure, buildDurationsFigure, buildFlameFigure, buildSpeedupFigure, buildDurationTimeseriesFigure, buildHistogramFigure, buildRankHeatmapFigure, buildImbalanceFigure, renderFigure } = await import(packageUrl);
   const render = (id, figure) => renderFigure(window.Plotly, document.getElementById(id), figure);
   await render("scope-plotly-gantt", buildGanttFigure({

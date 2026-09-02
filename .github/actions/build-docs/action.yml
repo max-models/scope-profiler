@@ -44,9 +44,14 @@ runs:
       run: |
         npm install --prefix "$RUNNER_TEMP/scope-profiler-plotly" \
           --ignore-scripts --no-audit --no-fund @scope-profiler/plotly
+        mkdir -p docs/source/_static/plotly
+        cp "$RUNNER_TEMP/scope-profiler-plotly/node_modules/@scope-profiler/plotly/src/index.js" \
+          docs/source/_static/plotly/index.js
 
     - name: Build Sphinx docs
       shell: bash
+      env:
+        SCOPE_PROFILER_DOCS_USE_RELEASED_NPM: "1"
       run: |
         # `html` depends on the separate figures and Markdown generation
         # targets before Sphinx copies the assets and builds the site.
