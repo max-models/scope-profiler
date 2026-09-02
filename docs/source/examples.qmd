@@ -15,6 +15,7 @@ repeatable AI optimization workflow.
 - [`ex_perf_event_plots.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_perf_event_plots.py) — compare IPC and cache-miss pressure across regions.
 - [`ex_threads_and_asyncio.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_threads_and_asyncio.py) — profile concurrent threads, and split an asyncio task's wall time into running and awaiting.
 - [`ex_json_export.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_json_export.py) — write the run as JSON instead of HDF5, and read it back into the same results.
+- [`ex_prof_export.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_prof_export.py) — read a run with `pstats`/SnakeViz, in memory or as a `.prof` file.
 - [`benchmark_overhead.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/benchmark_overhead.py) — measure instrumentation overhead.
 
 Run an example with:
