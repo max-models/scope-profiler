@@ -18,6 +18,7 @@ import numpy as np
 from scope_profiler.h5schema import HDF5SchemaError, migrate_schema, read_schema_version
 from scope_profiler.likwid_data import LIKWID_GROUP, LikwidRegionResult
 from scope_profiler.mpi_region import MPIRegion
+from scope_profiler.perf_events import PerfEventTotals
 from scope_profiler.region import Region
 from scope_profiler.results import ProfilingResults
 
@@ -164,6 +165,23 @@ def _read_likwid_group(group) -> dict:
             source=_decode_attribute(attrs.get("source", "")),
         )
     return results
+
+
+def _read_perf_events_group(group) -> dict:
+    """Read aggregated ``perf_event_open`` counts keyed by region name."""
+    return {
+        name: PerfEventTotals(
+            calls=int(region.attrs.get("calls", 0)),
+            values={
+                event: int(value)
+                for event, value in zip(
+                    _decode_attribute(region.attrs.get("event_names", [])),
+                    region["values"][()],
+                )
+            },
+        )
+        for name, region in group.items()
+    }
 
 
 def _read_line_profile_group(group) -> list:
@@ -426,6 +444,7 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
     metadata: dict = {}
     # rank -> {tag: LikwidRegionResult}; empty unless the run used LIKWID.
     likwid: dict[int, dict[str, LikwidRegionResult]] = {}
+    perf_events: dict[int, dict] = {}
     line_profile: dict[int, list] = {}
     # Empty unless the run tracked threads; see _read_lane_tables.
     threads: dict[int, list] = {}
@@ -484,6 +503,8 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
 
             if LIKWID_GROUP in rank_group:
                 likwid[rank] = _read_likwid_group(rank_group[LIKWID_GROUP])
+            if "perf_events" in rank_group:
+                perf_events[rank] = _read_perf_events_group(rank_group["perf_events"])
             if "line_profile" in rank_group:
                 line_profile[rank] = _read_line_profile_group(
                     rank_group["line_profile"]
@@ -547,6 +568,7 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
         "metadata": metadata,
         "num_ranks": num_ranks,
         "likwid": likwid,
+        "perf_events": perf_events,
         "line_profile": line_profile,
         "threads": threads,
         "tasks": tasks,

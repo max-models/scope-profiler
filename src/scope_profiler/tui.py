@@ -235,6 +235,18 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
                     )
                 )
         extra_children.extend(likwid_children)
+        perf_children = []
+        for rank, by_region in sorted(results.get_perf_events().items()):
+            totals = by_region.get(region.name)
+            if totals is not None:
+                perf_children.append(
+                    BrowserNode(
+                        f"Perf events rank {rank}",
+                        "perf_events_rank",
+                        {"rank": rank, "region_name": region.name, "totals": totals},
+                    )
+                )
+        extra_children.extend(perf_children)
         region_children.append(
             BrowserNode(
                 region.name,
@@ -689,6 +701,21 @@ def node_detail_text(node: BrowserNode) -> str:
                 )
             )
         return "\n".join(lines)
+
+    if kind == "perf_events_rank":
+        totals = payload["totals"]
+        return "\n".join(
+            [
+                f"Region: {payload['region_name']}",
+                f"Rank: {payload['rank']}",
+                f"Calls: {totals.calls}",
+                "",
+                _line_table(
+                    ("Event", "Count"),
+                    ((event, f"{value:,}") for event, value in totals.values.items()),
+                ),
+            ]
+        )
 
     if kind == "h5_group":
         attrs = payload.get("attrs", {})

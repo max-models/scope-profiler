@@ -20,6 +20,7 @@ from scope_profiler.json_export import (
 )
 from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.mpi_region import MPIRegion
+from scope_profiler.perf_events import PerfEventError, PerfEventTotals
 from scope_profiler.profile_config import ProfilingOptions
 from scope_profiler.profile_io import read_profile, write_profile
 from scope_profiler.profile_manager import ProfileManager
@@ -45,6 +46,7 @@ if TYPE_CHECKING:
         plot_flame_chart,
         plot_flame_graph,
         plot_gantt,
+        plot_perf_events,
         plot_rank_heatmap,
         plot_scaling_efficiency,
         plot_speedup,
@@ -62,6 +64,8 @@ __all__ = [
     "LikwidRegionResult",
     "MPIRegion",
     "NestingError",
+    "PerfEventError",
+    "PerfEventTotals",
     "ProfileManager",
     "ProfilingOptions",
     "ProfilingResults",
@@ -84,6 +88,7 @@ __all__ = [
     "plot_flame_chart",
     "plot_flame_graph",
     "plot_gantt",
+    "plot_perf_events",
     "plot_rank_heatmap",
     "plot_scaling_efficiency",
     "plot_speedup",
@@ -109,6 +114,7 @@ def __getattr__(name: str) -> Any:
         "plot_flame_graph",
         "plot_gantt",
         "plot_rank_heatmap",
+        "plot_perf_events",
         "plot_scaling_efficiency",
         "plot_speedup",
         "plot_weak_scaling",

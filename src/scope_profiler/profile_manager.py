@@ -35,6 +35,7 @@ from scope_profiler.region_profiler import (
     FullProfileRegion,
     LineProfilerRegion,
     NVTXProfileRegion,
+    PerfEventProfileRegion,
     ThreadedProfileRegion,
     TimeOnlyProfileRegion,
     call_site_source,
@@ -80,6 +81,8 @@ class RankPayload(NamedTuple):
     likwid: dict
 
     likwid_environment: dict
+
+    perf_events: dict | None = None
 
     sources: dict | None = None
 
@@ -221,6 +224,7 @@ class ProfileManager:
             self._per_region: dict[str, dict] = {}
             self._likwid: dict[int, dict] = {}
             self._line_profile: dict[int, list] = {}
+            self._perf_events: dict[int, dict] = {}
             self._exclusive_totals: dict[str, dict] = {}
             self._threads: dict[int, list] = {}
             self._tasks: dict[int, list] = {}
@@ -233,6 +237,8 @@ class ProfileManager:
                 self._likwid[rank] = payload.likwid
             if payload.line_profile:
                 self._line_profile[rank] = payload.line_profile
+            if payload.perf_events:
+                self._perf_events[rank] = payload.perf_events
             if payload.lanes:
                 from scope_profiler.concurrency import lane_tables_from_columns
 
@@ -305,6 +311,7 @@ class ProfileManager:
                 num_ranks=self._config._size,
                 likwid=self._likwid,
                 line_profile=self._line_profile,
+                perf_events=self._perf_events,
                 file_path=self._config.file_path,
                 exclusive_totals=self._exclusive_totals,
                 threads=self._threads,
@@ -483,6 +490,8 @@ class ProfileManager:
             cls._region_cls = LineProfilerRegion
         elif cfg.use_likwid:
             cls._region_cls = FullProfileRegion
+        elif cfg.perf_events:
+            cls._region_cls = PerfEventProfileRegion
         elif cfg.use_nvtx and cfg.use_gpu_timing:
             cls._region_cls = CUDATimingNVTXProfileRegion
         elif cfg.use_gpu_timing:
@@ -1448,6 +1457,15 @@ class ProfileManager:
             likwid_results = config.collect_likwid_results(cls.get_all_regions().keys())
             if likwid_results:
                 likwid_environment = config.likwid_environment()
+        perf_events = (
+            {
+                name: region.perf_event_totals()
+                for name, region in cls.get_all_regions().items()
+                if hasattr(region, "perf_event_totals") and region.num_calls
+            }
+            if config.perf_events
+            else None
+        )
 
         # 3. Fold in the regions a Fortran (or other native) part of this
         # process recorded for itself. Each rank picks up its own trace, so
@@ -1470,6 +1488,7 @@ class ProfileManager:
             regions=snapshot,
             likwid={result.tag: result for result in likwid_results},
             likwid_environment=likwid_environment,
+            perf_events=perf_events,
             sources=sources,
             tags=tags,
             line_profile=line_profile,
@@ -1677,6 +1696,7 @@ class ProfileManager:
         file_path: str | None = None,
         label: str | None = None,
         use_likwid: bool | None = None,
+        perf_events: list[str] | tuple[str, ...] | str | None = None,
         use_line_profiler: bool | None = None,
         deactivate_profiling: bool | None = None,
         use_nvtx: bool | None = None,
@@ -1835,6 +1855,7 @@ class ProfileManager:
             "file_path": "profiling_data.h5",
             "label": None,
             "use_likwid": False,
+            "perf_events": None,
             "use_line_profiler": False,
             "deactivate_profiling": False,
             "use_nvtx": False,
@@ -1860,6 +1881,7 @@ class ProfileManager:
             "file_path": file_path,
             "label": label,
             "use_likwid": use_likwid,
+            "perf_events": perf_events,
             "use_line_profiler": use_line_profiler,
             "deactivate_profiling": deactivate_profiling,
             "use_nvtx": use_nvtx,

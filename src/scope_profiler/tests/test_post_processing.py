@@ -9,7 +9,9 @@ import pytest
 
 from scope_profiler import read_h5
 from scope_profiler.call_stack import build_call_stack
+from scope_profiler.h5writer import ProfilingWriter
 from scope_profiler.likwid_data import LikwidRegionResult
+from scope_profiler.perf_events import PerfEventTotals
 from scope_profiler.plotting_scripts import (
     _aggregate_gantt_intervals,
     _display_matplotlib_figure_in_notebook,
@@ -20,6 +22,7 @@ from scope_profiler.plotting_scripts import (
     _set_xticks,
     _stacked_segments,
     available_likwid_metrics,
+    available_perf_event_metrics,
     collect_region_statistics,
     plot_duration_histogram,
     plot_duration_timeseries,
@@ -29,6 +32,7 @@ from scope_profiler.plotting_scripts import (
     plot_gantt,
     plot_imbalance,
     plot_likwid,
+    plot_perf_events,
     plot_rank_heatmap,
     plot_scaling_efficiency,
     plot_speedup,
@@ -36,6 +40,7 @@ from scope_profiler.plotting_scripts import (
     plot_weak_scaling,
 )
 from scope_profiler.post_processing import export_main, main
+from scope_profiler.profile_manager import RankPayload
 from scope_profiler.results import ProfilingResults
 
 
@@ -1417,6 +1422,65 @@ def test_available_likwid_metrics_lists_metrics_and_events():
     results = _likwid_results({0: 500.0, 1: 550.0})
 
     assert available_likwid_metrics(results) == ["MFlops/s"]
+
+
+def _perf_event_results():
+    return ProfilingResults(
+        regions={},
+        num_ranks=1,
+        perf_events={
+            0: {
+                "compute": PerfEventTotals(
+                    calls=2,
+                    values={"cycles": 100, "instructions": 300, "cache-misses": 2},
+                ),
+                "stream": PerfEventTotals(
+                    calls=1,
+                    values={"cycles": 200, "instructions": 100, "cache-misses": 20},
+                ),
+            }
+        },
+        file_path="synthetic.h5",
+    )
+
+
+def test_perf_event_metrics_and_plots(tmp_path):
+    results = _perf_event_results()
+    assert available_perf_event_metrics(results) == [
+        "ipc",
+        "cache-misses-per-ki",
+        "cache-misses",
+        "cycles",
+        "instructions",
+    ]
+
+    output = tmp_path / "ipc.png"
+    plot_perf_events(results, metric="ipc", filepath=output, show=False, verbose=False)
+    assert output.stat().st_size > 0
+    with pytest.raises(ValueError, match="unavailable"):
+        plot_perf_events(results, metric="not-an-event", show=False, verbose=False)
+    with pytest.raises(ValueError, match="None of the selected"):
+        plot_perf_events(ProfilingResults({}), show=False, verbose=False)
+    with pytest.raises(ValueError, match="No perf-event regions"):
+        plot_perf_events(results, include="does-not-match", show=False, verbose=False)
+
+
+def test_post_processing_cli_plots_perf_events(tmp_path):
+    path = tmp_path / "perf.h5"
+    payload = RankPayload(
+        regions={"work": (np.asarray([0]), np.asarray([10]))},
+        likwid={},
+        likwid_environment={},
+        perf_events={
+            "work": PerfEventTotals(calls=1, values={"cycles": 10, "instructions": 20})
+        },
+    )
+    with ProfilingWriter(path) as writer:
+        writer.write_rank(0, payload)
+
+    output = tmp_path / "ipc.png"
+    main(["perf_events", str(path), "--metric", "ipc", "-o", str(output)])
+    assert output.stat().st_size > 0
 
 
 def test_plot_likwid_export_data_json(tmp_path):

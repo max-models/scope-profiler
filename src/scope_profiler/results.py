@@ -91,6 +91,7 @@ class ProfilingResults:
         metadata: dict | None = None,
         num_ranks: int | None = None,
         likwid: dict[int, dict[str, LikwidRegionResult]] | None = None,
+        perf_events: dict[int, dict] | None = None,
         line_profile: dict[int, list] | None = None,
         file_path: str | Path = "",
         is_root: bool = True,
@@ -138,6 +139,7 @@ class ProfilingResults:
         self._region_dict = dict(regions)
         self._metadata = dict(metadata or {})
         self._likwid = dict(likwid or {})
+        self._perf_events = dict(perf_events or {})
         self._line_profile = dict(line_profile or {})
         self._file_path = Path(file_path)
         self._event_data_available = bool(event_data_available)
@@ -962,6 +964,17 @@ class ProfilingResults:
         if rank is None:
             return dict(self._likwid)
         return self._likwid.get(rank, {})
+
+    @property
+    def has_perf_events(self) -> bool:
+        """Whether this run recorded built-in Linux perf-event counters."""
+        return any(self._perf_events.values())
+
+    def get_perf_events(self, rank: int | None = None) -> dict:
+        """Return aggregated Linux ``perf_event_open`` counts by region."""
+        if rank is None:
+            return dict(self._perf_events)
+        return self._perf_events.get(rank, {})
 
     def get_likwid_region(self, tag: str, rank: int = 0) -> LikwidRegionResult:
         """

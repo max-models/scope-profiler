@@ -12,6 +12,7 @@ import numpy as np
 
 from scope_profiler.concurrency import CPU_SAMPLE_MASK, NO_TASK
 from scope_profiler.gpu_timing import resolve_gpu_timing_backend
+from scope_profiler.perf_events import PerfEventGroup, PerfEventTotals
 from scope_profiler.profile_config import ProfilingConfig
 
 # Parsed module ASTs, memoized by filename. Capturing a region's source only
@@ -652,6 +653,72 @@ class TimeOnlyProfileRegion(BaseProfileRegion):
         if self._paused_contexts.pop():
             return
         self.end_times[self._pop_scope()] = perf_counter_ns()
+
+
+class PerfEventProfileRegion(TimeOnlyProfileRegion):
+    """Timing region which also sums Linux ``perf_event_open`` counters.
+
+    Counters are opened per active invocation. This makes nested and recursive
+    regions correct without sharing a mutable counter state, at the intended
+    cost of an extra kernel round trip per selected event.
+    """
+
+    __slots__ = ("_perf_groups", "_perf_totals")
+
+    def __init__(self, region_name: str, config: ProfilingConfig, tags=()):
+        super().__init__(region_name, config, tags=tags)
+        self._perf_groups = []
+        self._perf_totals = {event: 0 for event in config.perf_events}
+
+    def _start_perf(self) -> None:
+        group = PerfEventGroup(self.config.perf_events)
+        group.start()
+        self._perf_groups.append(group)
+
+    def _stop_perf(self) -> None:
+        values = self._perf_groups.pop().stop()
+        for event, value in values.items():
+            self._perf_totals[event] += value
+
+    def perf_event_totals(self) -> PerfEventTotals:
+        """Counter totals accumulated by completed calls in this region."""
+        return PerfEventTotals(calls=self.num_calls, values=dict(self._perf_totals))
+
+    def wrap(self, func):
+        wrapped = super().wrap(func)
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            if self.config.paused:
+                return func(*args, **kwargs)
+            self._start_perf()
+            try:
+                return wrapped(*args, **kwargs)
+            finally:
+                self._stop_perf()
+
+        return wrapper
+
+    def __enter__(self):
+        if self.config.paused:
+            self._paused_contexts.append(True)
+            return self
+        # TimeOnlyProfileRegion owns the pause stack, so start the counter
+        # first and let its normal enter path create exactly one stack entry.
+        self._start_perf()
+        try:
+            return super().__enter__()
+        except BaseException:
+            self._stop_perf()
+            raise
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        paused = bool(self._paused_contexts) and self._paused_contexts[-1]
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            if not paused:
+                self._stop_perf()
 
 
 class CUDATimingProfileRegion(TimeOnlyProfileRegion):
@@ -1329,13 +1396,6 @@ class ThreadedProfileRegion(BaseProfileRegion):
 
         return wrapper
 
-    def __enter__(self):
-        self._enter()
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self._leave()
-
     # -- collection -----------------------------------------------------
     def snapshot_arrays(self):
         """This run's completed calls, concatenated over every thread.
@@ -1408,3 +1468,10 @@ class ThreadedProfileRegion(BaseProfileRegion):
             lanes = list(self._lanes.values())
         for lane in lanes:
             self._retired += lane.mark_written()
+
+    def __enter__(self):
+        self._enter()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self._leave()
