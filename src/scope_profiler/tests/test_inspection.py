@@ -14,9 +14,7 @@ from scope_profiler.inspection import (
     inspect_file,
 )
 from scope_profiler.inspection import main as inspect_main
-from scope_profiler.inspection import (
-    write_metadata_json,
-)
+from scope_profiler.inspection import write_metadata_json
 from scope_profiler.likwid_data import LikwidRegionResult, write_likwid_results
 from scope_profiler.perf_events import PerfEventTotals
 from scope_profiler.profile_manager import RankPayload
