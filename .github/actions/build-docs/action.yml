@@ -46,7 +46,7 @@ runs:
         # Build against this commit's PyPI release, not the previously cached
         # latest release. PyPI can take a short time to expose a new wheel, so
         # retry the exact version before letting the docs job fail.
-        version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+        version="$(python -c 'import re; print(re.search(r"(?m)^version\s*=\s*\"([^\"]+)\"", open("pyproject.toml").read())[1])')"
         for attempt in {1..12}; do
           if pip install --upgrade --no-cache-dir "scope-profiler[docs]==$version"; then
             break
