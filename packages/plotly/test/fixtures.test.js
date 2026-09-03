@@ -89,12 +89,15 @@ test("the histogram and time series keep every row of both runs", () => {
   assert.equal(plotted(buildFigure(series)), series.points.length);
 });
 
-test("the gantt gives every run and rank its own lane", () => {
+test("the gantt gives every run, rank and region its own lane", () => {
   const payload = load("gantt_data.json");
   const figure = buildFigure(payload);
   assert.equal(plotted(figure), payload.intervals.length);
+  // One lane per rank would stack a nested profile onto a single row, where
+  // the outermost region hides everything inside it.
   assert.equal(
     new Set(figure.layout.yaxis.categoryarray).size,
-    new Set(payload.intervals.map((row) => `${row.file}/${row.rank}`)).size,
+    new Set(payload.intervals.map((row) => `${row.file}/${row.rank}/${row.region}`)).size,
   );
+  for (const lane of figure.layout.yaxis.categoryarray) assert.match(lane, /\(rank \d+\)$/);
 });

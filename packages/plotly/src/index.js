@@ -79,22 +79,41 @@ function runAware(rows) {
 const FILE_SYMBOLS = ["circle", "square", "diamond", "triangle-up", "cross"];
 const FILE_PATTERNS = ["", "/", "\\", "x", "-"];
 
-/** Build a multi-run, multi-rank timeline. Regions are colored; file/rank are lanes. */
+/** Build a multi-run, multi-rank timeline: a lane per region and rank.
+ *
+ * A lane per rank alone cannot show a nested profile: every region of a rank
+ * lands on one row, and the outermost region -- the session, typically -- is
+ * drawn over everything inside it. One lane per region and rank is also what
+ * `scope-profiler plot gantt` draws, so the two agree. Pass
+ * `{ laneBy: "rank" }` for the compact one-row-per-rank view, which suits a
+ * flat profile compared across many ranks.
+ */
 export function buildGanttFigure(payload, options = {}) {
   const intervals = filtered(values(payload, "intervals"), options);
   const byRegion = groupBy(intervals, (row) => row.region);
   const colors = colorMap(byRegion.keys(), options.colors ?? payload.colors);
-  const lanes = [...new Set(intervals.map((row) => `${row.file ?? "run"} / rank ${row.rank ?? 0}`))];
+  const multi = new Set(intervals.map((row) => row.file ?? "run")).size > 1;
+  const rankLane = (row) => `${row.file ?? "run"} / rank ${row.rank ?? 0}`;
+  // Matching `plot gantt`'s own lane label, extended by the run only when the
+  // payload holds more than one.
+  const regionLane = (row) => `${multi ? `${row.file ?? "run"} / ` : ""}${row.region} (rank ${row.rank ?? 0})`;
+  const laneOf = options.laneBy === "rank" ? rankLane : regionLane;
+  const lanes = [...new Set(intervals.map(laneOf))];
   const data = [...byRegion].map(([region, rows]) => {
     return { type: "bar", orientation: "h", name: region,
-      y: rows.map((row) => `${row.file ?? "run"} / rank ${row.rank ?? 0}`),
+      y: rows.map(laneOf),
       x: rows.map((row) => row.end_seconds - row.start_seconds), base: rows.map((row) => row.start_seconds),
       marker: { color: colors.get(region), line: { color: "rgba(0, 0, 0, 0.28)", width: 0.5 } },
-      customdata: rows.map((row) => [row.file, row.rank]),
+      customdata: rows.map((row) => [row.file ?? "run", row.rank ?? 0]),
       hovertemplate: `<b>${region}</b><br>%{customdata[0]} / rank %{customdata[1]}<br>start: %{base:.6g} s<br>duration: %{x:.6g} s<extra></extra>`,
     };
   });
-  const layout = baseLayout({ barmode: "overlay", height: Math.max(280, 48 * lanes.length + 150), showlegend: byRegion.size > 1, xaxis: axis({ title: "Time (s)" }), yaxis: axis({ categoryorder: "array", categoryarray: lanes, autorange: "reversed", showgrid: false }), ...options.layout });
+  const byRank = options.laneBy === "rank";
+  const perLane = byRank ? 48 : 26;
+  // Region lanes read bottom-up, so the first region -- the enclosing one --
+  // sits at the bottom, as `scope-profiler plot gantt` draws it. Rank lanes
+  // keep rank 0 on top, like the rank heatmap.
+  const layout = baseLayout({ barmode: "overlay", height: Math.max(280, perLane * lanes.length + 150), showlegend: byRegion.size > 1, xaxis: axis({ title: "Time (s)" }), yaxis: axis({ categoryorder: "array", categoryarray: lanes, ...(byRank ? { autorange: "reversed" } : {}), showgrid: false }), ...options.layout });
   return { data, layout: withEmptyState(layout, intervals.length > 0) };
 }
 

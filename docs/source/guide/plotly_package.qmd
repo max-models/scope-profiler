@@ -33,7 +33,7 @@ json` writes.
 
 ```{=html}
 <div style="display: grid; gap: 1.5rem; margin: 1rem 0;">
-  <div><strong>Gantt — calls across two MPI ranks</strong><div id="scope-plotly-gantt" style="min-height: 290px;"></div></div>
+  <div><strong>Gantt — a lane per region and rank</strong><div id="scope-plotly-gantt" style="min-height: 290px;"></div></div>
   <div><strong>Durations — compare regions between runs</strong><div id="scope-plotly-durations" style="min-height: 350px;"></div></div>
   <div><strong>Flame — nested calls</strong><div id="scope-plotly-flame" style="min-height: 440px;"></div></div>
   <div><strong>Speedup — region scaling</strong><div id="scope-plotly-speedup" style="min-height: 390px;"></div></div>
@@ -185,7 +185,7 @@ instead; pass `{ plot: "gantt" }` to settle the case by hand.
 
 | Builder | Input payload | Use case |
 | --- | --- | --- |
-| `buildGanttFigure(payload)` | `gantt_data.json` | Timeline of every call, lane by file and rank |
+| `buildGanttFigure(payload, { laneBy })` | `gantt_data.json` | Timeline of every call, a lane per region and rank (`laneBy: "rank"` for one row per rank) |
 | `buildFlameFigure(payload)` | `flame_data.json` | Nested call hierarchy |
 | `buildDurationsFigure(payload, { metric })` | `durations_data.json` | Per-region duration bars |
 | `buildSpeedupFigure(payload)` | `speedup_data.json` | Speedup curve |
@@ -209,7 +209,7 @@ Use `renderFigure(Plotly, element, figure)` as a convenience, or pass
 `export plot-data` accepts several profiles at once, and every row of the
 resulting payload names the run it came from. The builders keep those runs
 apart rather than pooling them: the gantt, density and rank-heatmap charts give
-each run its own lane, while the histogram, imbalance and duration time series
+each run its own lanes, while the histogram, imbalance and duration time series
 give each run its own trace, named `run / region`. A region keeps its colour
 across runs -- what changes between runs is the marker symbol on a line, or the
 bar pattern on a histogram -- so the same region stays recognisable while the

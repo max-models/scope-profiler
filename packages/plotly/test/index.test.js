@@ -2,13 +2,41 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildCallgraphFigure, buildDensityFigure, buildDurationTimeseriesFigure, buildDurationsFigure, buildFigure, buildFlameFigure, buildGanttFigure, buildHistogramFigure, buildImbalanceFigure, buildLikwidFigure, buildRankHeatmapFigure, buildRegionSummaryFigure, buildScalingEfficiencyFigure, buildSpeedupFigure, buildWeakScalingFigure, inferPlotKind } from "../src/index.js";
 
-test("gantt keeps separate file/rank lanes and supplied colors", () => {
+test("gantt gives each region and rank a lane, and honours supplied colors", () => {
   const figure = buildGanttFigure({ colors: { solve: "#123456" }, intervals: [
     { file: "one", rank: 0, region: "solve", start_seconds: 0, end_seconds: 2 },
     { file: "one", rank: 1, region: "solve", start_seconds: 0, end_seconds: 1 },
   ] });
-  assert.deepEqual(figure.data[0].y, ["one / rank 0", "one / rank 1"]);
+  assert.deepEqual(figure.data[0].y, ["solve (rank 0)", "solve (rank 1)"]);
   assert.equal(figure.data[0].marker.color, "#123456");
+});
+
+test("gantt keeps a nested profile legible instead of stacking it on one row", () => {
+  // Every region of a rank on one lane means the session bar covers the rest.
+  const payload = { intervals: [
+    { file: "one", rank: 0, region: "session", start_seconds: 0, end_seconds: 10 },
+    { file: "one", rank: 0, region: "setup", start_seconds: 1, end_seconds: 3 },
+    { file: "one", rank: 0, region: "solve", start_seconds: 4, end_seconds: 9 },
+  ] };
+  const figure = buildGanttFigure(payload);
+  // A categorical y axis counts up from the bottom, so leaving it un-reversed
+  // puts the first (enclosing) region on the bottom lane -- the order
+  // `scope-profiler plot gantt` draws.
+  assert.deepEqual(figure.layout.yaxis.categoryarray, ["session (rank 0)", "setup (rank 0)", "solve (rank 0)"]);
+  assert.equal(figure.layout.yaxis.autorange, undefined);
+  assert.equal(new Set(figure.data.flatMap((trace) => trace.y)).size, 3);
+  // The opt-out keeps the compact one-row-per-rank view.
+  const compact = buildGanttFigure(payload, { laneBy: "rank" });
+  assert.deepEqual(compact.layout.yaxis.categoryarray, ["one / rank 0"]);
+  assert.equal(compact.layout.yaxis.autorange, "reversed");
+});
+
+test("gantt names a lane by its run only when the payload holds several", () => {
+  const figure = buildGanttFigure({ intervals: [
+    { file: "one", rank: 0, region: "solve", start_seconds: 0, end_seconds: 2 },
+    { file: "two", rank: 0, region: "solve", start_seconds: 0, end_seconds: 1 },
+  ] });
+  assert.deepEqual(figure.data[0].y, ["one / solve (rank 0)", "two / solve (rank 0)"]);
 });
 
 test("flame uses parent_call_id rather than matching region names", () => {

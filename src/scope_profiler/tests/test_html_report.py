@@ -104,13 +104,14 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
     def fake_plot(*args, data_filepath, data_format, backend, **kwargs):
         assert data_format == "json"
         assert backend == "data-only"
+        is_durations = "durations" in Path(data_filepath).name
         Path(data_filepath).write_text(
             json.dumps(
                 {
                     "format": "scope-profiler-plot-data",
                     "format_version": 1,
-                    "plot": "gantt",
-                    "intervals": [],
+                    "plot": "durations" if is_durations else "gantt",
+                    "bars" if is_durations else "intervals": [],
                 }
             ),
             encoding="utf-8",
@@ -134,7 +135,9 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
     assert "Flame graph: profile" in document
     assert 'id="scope-profiler-chart-0"' in document
     assert "const scopeProfilerCharts = " in document
-    assert "buildFigure(chart.payload)" in document
+    assert "buildFigure(chart.payload, chart.options)" in document
+    assert 'class="chart chart-duration"' in document
+    assert '"options": {"layout": {"height": 320}}' in document
     assert "plotly.js" in document
     assert "<script src=" not in document
     assert 'import("https://' not in document

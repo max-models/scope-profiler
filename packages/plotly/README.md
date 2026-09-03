@@ -53,7 +53,7 @@ where a payload carries several.
 
 `export plot-data` accepts several profiles at once, and the payload then
 carries a `file` column. Builders keep those runs apart: the gantt, density and
-rank heatmap give each run its own lane, and the histogram, imbalance and
+rank heatmap give each run its own lanes, and the histogram, imbalance and
 duration time series give each run its own trace, labelled `run / region`. The
 region keeps its colour across runs, so a run is told apart by marker symbol
 (lines) or bar pattern (bars). A single-run payload is unchanged -- series are

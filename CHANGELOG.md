@@ -111,6 +111,14 @@
 - `@scope-profiler/plotly` builds large figures in one grouping pass instead of
   filtering the whole row array once per series. Building a 200k-interval,
   400-region gantt went from 770 ms to 58 ms.
+- The HTML report's "Timeline" chart is a Gantt chart again. The browser
+  builder gave each rank one lane and drew every region of that rank onto it,
+  so a nested profile collapsed into a single striped row in which the
+  outermost region covered everything inside it -- for a single-rank run, one
+  bar. It now draws a lane per region and rank, bottom-up so the enclosing
+  region is the bottom lane -- the same layout `scope-profiler plot gantt` has
+  always drawn -- with `{ laneBy: "rank" }` for the old one-row-per-rank view
+  of a flat profile.
 - `%%scope_recursive` reports a failing cell with its source again, on every
   IPython version. The magic sliced its own frame off the traceback and then
   left the renderer's `tb_offset` at its default, which on some versions
