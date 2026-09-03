@@ -757,9 +757,7 @@ def _hardware_sections(runs, include, exclude, ranks) -> str:
     """Render counter tables only for runs that recorded hardware metrics."""
     fragments = []
     for run in runs:
-        for table in likwid_tables(
-            run, include=include, exclude=exclude, ranks=ranks
-        ):
+        for table in likwid_tables(run, include=include, exclude=exclude, ranks=ranks):
             sections = []
             for heading, rows in table["sections"]:
                 if not rows:
@@ -787,9 +785,7 @@ def _hardware_sections(runs, include, exclude, ranks) -> str:
                 '<details class="counter-panel">'
                 f"<summary>Linux perf events: {_text(run.display_label)}, "
                 f"rank {_text(table['rank'])}</summary>"
-                + _counter_table(
-                    ("region", "calls", *table["events"]), table["rows"]
-                )
+                + _counter_table(("region", "calls", *table["events"]), table["rows"])
                 + "</details>"
             )
 
@@ -1065,7 +1061,9 @@ def _chart_sections(runs, include, exclude, ranks, charts_cdn: bool = False) -> 
         )
     if not charts:
         fragments.append('<p class="muted">No charts could be rendered.</p>')
-        return '<section id="charts"><h2>Charts</h2>' + "".join(fragments) + "</section>"
+        return (
+            '<section id="charts"><h2>Charts</h2>' + "".join(fragments) + "</section>"
+        )
 
     # Escape '<' so profile labels such as '</script>' cannot terminate the
     # inline module. The bundled builders and the payloads make the document

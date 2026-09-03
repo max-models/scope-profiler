@@ -121,7 +121,10 @@ def test_report_cross_highlights_regions_between_tables_and_charts(tmp_path):
     assert "window.scopeProfilerSelectRegion = select" in document
     assert "window.scopeProfilerOnRegionSelect" in document
     assert 'target.on("plotly_click"' in document
-    assert "highlightFigure(chart, buildFigure(chart.payload, options), selectedRegion)" in document
+    assert (
+        "highlightFigure(chart, buildFigure(chart.payload, options), selectedRegion)"
+        in document
+    )
     assert "region-selected" in document
     assert 'id="region-selection"' in document
     assert 'id="clear-region-selection"' in document

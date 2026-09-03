@@ -367,6 +367,15 @@ class ProfilingConfig:
     MPI call of its own, so ``setup()`` does not have to be collective.
     """
 
+    def _memray_path(self, configured_path: str | None) -> Path:
+        """Return this rank's unique Memray capture path."""
+        path = Path(configured_path) if configured_path else Path(self._file_path)
+        if configured_path is None:
+            path = path.with_suffix(".memray.bin")
+        if self._size > 1:
+            path = path.with_name(f"{path.stem}.rank{self._rank}{path.suffix}")
+        return path
+
     def __init__(
         self,
         file_path: str = "profiling_data.h5",
@@ -656,15 +665,6 @@ class ProfilingConfig:
         """Initialize LIKWID markers if LIKWID is enabled."""
         if self._pylikwid is not None:
             self._pylikwid.markerinit()
-
-    def _memray_path(self, configured_path: str | None) -> Path:
-        """Return this rank's unique Memray capture path."""
-        path = Path(configured_path) if configured_path else Path(self._file_path)
-        if configured_path is None:
-            path = path.with_suffix(".memray.bin")
-        if self._size > 1:
-            path = path.with_name(f"{path.stem}.rank{self._rank}{path.suffix}")
-        return path
 
     def stop_memory_profiling(self) -> None:
         """Finish Memray's process-wide allocation capture, if enabled."""

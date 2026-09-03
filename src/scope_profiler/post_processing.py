@@ -190,6 +190,24 @@ def _add_selection_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_callgraph_args(parser: argparse.ArgumentParser) -> None:
+    """Register the callgraph-only flags.
+
+    Shared by `plot` and `export plot-data`: `callgraph` is a --plots choice
+    for both, and `_render_selected_plots` reads these unconditionally.
+    """
+    parser.add_argument(
+        "--compact-callgraph",
+        action="store_true",
+        help="Collapse repeated callgraph invocations into one node per region.",
+    )
+    parser.add_argument(
+        "--fluid-callgraph",
+        action="store_true",
+        help="Use an interactive force-directed layout for the compact callgraph.",
+    )
+
+
 def _add_plot_output_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-o",
@@ -221,24 +239,6 @@ def _add_plot_output_args(parser: argparse.ArgumentParser) -> None:
         help=f"Matplotlib colormap used for regions/files (default: {DEFAULT_CMAP!r}).",
     )
     _add_callgraph_args(parser)
-
-
-def _add_callgraph_args(parser: argparse.ArgumentParser) -> None:
-    """Register the callgraph-only flags.
-
-    Shared by `plot` and `export plot-data`: `callgraph` is a --plots choice
-    for both, and `_render_selected_plots` reads these unconditionally.
-    """
-    parser.add_argument(
-        "--compact-callgraph",
-        action="store_true",
-        help="Collapse repeated callgraph invocations into one node per region.",
-    )
-    parser.add_argument(
-        "--fluid-callgraph",
-        action="store_true",
-        help="Use an interactive force-directed layout for the compact callgraph.",
-    )
 
 
 def _add_timeline_args(parser: argparse.ArgumentParser) -> None:
