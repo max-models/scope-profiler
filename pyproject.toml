@@ -149,6 +149,7 @@ scope_profiler = [
   "fortran/Makefile",
   "c/*.c",
   "c/*.h",
+  "c/*.hpp",
   "c/Makefile",
   # Browser figure builders bundled at an exact npm-package version for
   # self-contained HTML reports.
@@ -234,7 +235,7 @@ skip_covered = true
 #
 # The CI job reaches the LIKWID and parallel-HDF5 paths a developer laptop
 # cannot, so its total is at or above what `coverage report` prints locally.
-fail_under = 80
+fail_under = 85
 exclude_also = [
   # Typing-only constructs that never execute.
   "if TYPE_CHECKING:",

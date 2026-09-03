@@ -4,6 +4,36 @@
 
 ### Added
 
+- The C API gained an explicit-context form for library code that must not
+  interfere with a caller's own profiling (or with another instance of
+  itself): `sp_create()`/`sp_destroy()` plus `sp_profiler_region()`,
+  `sp_profiler_begin()`/`sp_profiler_end()`, `sp_profiler_finalize()` and the
+  rest, each taking an `sp_profiler *`. The existing `sp_init()`/`sp_region()`/
+  `sp_begin()`/`sp_end()`/`sp_finalize()` globals are unchanged and now
+  delegate to a hidden default context, so no existing call site needs to
+  change.
+- `sp_profiler_scope_begin()`/`sp_scope_end()` return a checked token for one
+  exact call rather than identifying it by region alone, so an incorrectly
+  ordered end is refused (rather than silently mistiming the wrong call, to be
+  caught later on import) and a moved-from token is naturally inert.
+  `sp_profiler_end_last()` ends whichever call, in any region, was opened most
+  recently.
+- `sp_profiler_reset()` discards recorded calls and per-region statistics
+  while keeping every region handle valid, for periodic reporting followed by
+  a fresh measurement window; `sp_profiler_get_region_stats()` reads a
+  region's call count and total/min/max duration; `sp_profiler_flush()` writes
+  what has been recorded so far without stopping profiling.
+- `sp_region_at()` / `sp_profiler_region_at()` record where a region is
+  defined (source file and line) alongside its name, using the same shape the
+  Python API's own source navigation and exports already understand. The
+  native trace format gained a version 2 to carry it; version 1 (written by
+  the Fortran API) keeps reading exactly as before, so a mixed C/Fortran run
+  still merges into one profile.
+- Structured status codes (`sp_status`, `sp_error_string()`) and introspection
+  (`sp_profiler_last_error()`, `sp_profiler_output_path()`,
+  `sp_profiler_is_active()`, `sp_profiler_num_regions()`,
+  `sp_profiler_region_name()`) replace the previous single `SP_INVALID_REGION`
+  sentinel for the explicit-context API.
 - Standalone HTML reports now embed the version-matched
   `@scope-profiler/plotly` builders and render the report's plot-data JSON with
   them. The Plotly runtime remains embedded too, so reports share the web

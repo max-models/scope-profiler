@@ -574,6 +574,483 @@ def test_makefile_builds_the_example(tmp_path):
     assert (tmp_path / "example").exists()
 
 
+def test_explicit_contexts_are_independent(tmp_path):
+    program = """
+#include "scope_profiler.h"
+#include <stdio.h>
+
+int main(void)
+{
+    sp_profiler *a = sp_create("a", 0);
+    sp_profiler *b = sp_create("b", 1);
+    int ra = sp_profiler_region(a, "solve");
+    int rb = sp_profiler_region(b, "solve");
+    sp_region_stats stats;
+
+    sp_profiler_begin(a, ra);
+    sp_profiler_begin(b, rb);
+    sp_profiler_end(b, rb);
+    sp_profiler_begin(b, rb);
+    sp_profiler_end(b, rb);
+    sp_profiler_end(a, ra);
+
+    sp_profiler_get_region_stats(a, ra, &stats);
+    printf("a calls: %lld\\n", (long long)stats.calls);
+    sp_profiler_get_region_stats(b, rb, &stats);
+    printf("b calls: %lld\\n", (long long)stats.calls);
+
+    sp_profiler_finalize(a);
+    sp_profiler_finalize(b);
+    sp_destroy(a);
+    sp_destroy(b);
+    return 0;
+}
+"""
+    executable = build(tmp_path, program, name="contexts")
+    output = run(executable, tmp_path).stdout
+
+    assert "a calls: 1" in output
+    assert "b calls: 2" in output
+
+    _, a_regions = read_trace(tmp_path / "a_rank00000.spt")
+    _, b_regions = read_trace(tmp_path / "b_rank00001.spt")
+    assert len(a_regions["solve"][0]) == 1
+    assert len(b_regions["solve"][0]) == 2
+
+
+def test_region_at_records_source_location(tmp_path):
+    program = """
+#include "scope_profiler.h"
+
+int main(void)
+{
+    sp_profiler *p = sp_create("src", 0);
+    int solve = sp_profiler_region_at(p, "solve", "solver.c", 42);
+    /* a second registration for the same name must not overwrite the source */
+    int again = sp_profiler_region_at(p, "solve", "elsewhere.c", 99);
+
+    sp_profiler_begin(p, solve);
+    sp_profiler_end(p, again);
+    sp_profiler_finalize(p);
+    sp_destroy(p);
+    return 0;
+}
+"""
+    executable = build(tmp_path, program, name="region_at")
+    run(executable, tmp_path)
+
+    _, regions = read_trace(tmp_path / "src_rank00000.spt")
+    assert regions["solve"].source_file == "solver.c"
+    assert regions["solve"].source_lineno == 42
+
+    results = load_traces(tmp_path)
+    assert results["solve"].source_file == "solver.c"
+    assert results["solve"].source_lineno == 42
+
+
+def test_region_at_backfills_source_onto_a_plain_handle(tmp_path):
+    program = """
+#include "scope_profiler.h"
+
+int main(void)
+{
+    sp_profiler *p = sp_create("backfill", 0);
+    int first = sp_profiler_region(p, "solve");            /* no source yet */
+    int backfilled = sp_profiler_region_at(p, "solve", "solver.c", 7);
+    int again = sp_profiler_region(p, "solve");             /* unaffected */
+
+    sp_profiler_begin(p, first);
+    sp_profiler_end(p, backfilled);
+    sp_profiler_begin(p, again);
+    sp_profiler_end(p, again);
+
+    sp_profiler_finalize(p);
+    sp_destroy(p);
+    return first == backfilled && backfilled == again ? 0 : 1;
+}
+"""
+    executable = build(tmp_path, program, name="backfill")
+    run(executable, tmp_path)
+
+    _, regions = read_trace(tmp_path / "backfill_rank00000.spt")
+    assert regions["solve"].source_file == "solver.c"
+    assert regions["solve"].source_lineno == 7
+    assert len(regions["solve"][0]) == 2
+
+
+def test_region_at_macros_capture_the_call_site(tmp_path):
+    program = """
+#include "scope_profiler.h"
+
+int main(void)
+{
+    sp_profiler *p = sp_create("macro", 0);
+    int ctx = SP_PROFILER_REGION_AT(p, "ctx_region");
+    sp_profiler_begin(p, ctx);
+    sp_profiler_end(p, ctx);
+    sp_profiler_finalize(p);
+    sp_destroy(p);
+
+    sp_init("macro_default", 0);
+    {
+        int def = SP_REGION_AT("default_region");
+        sp_begin(def);
+        sp_end(def);
+    }
+    sp_finalize();
+    return 0;
+}
+"""
+    executable = build(tmp_path, program, name="region_at_macro")
+    run(executable, tmp_path)
+
+    _, ctx_regions = read_trace(tmp_path / "macro_rank00000.spt")
+    assert ctx_regions["ctx_region"].source_file.endswith("region_at_macro.c")
+    assert ctx_regions["ctx_region"].source_lineno > 0
+
+    _, default_regions = read_trace(tmp_path / "macro_default_rank00000.spt")
+    assert default_regions["default_region"].source_file.endswith("region_at_macro.c")
+    assert default_regions["default_region"].source_lineno > 0
+
+
+CXX_COMPILERS = ("c++", "g++", "clang++")
+
+
+def find_cxx_compiler() -> str | None:
+    for name in CXX_COMPILERS:
+        path = shutil.which(name)
+        if path:
+            return path
+    return None
+
+
+CXX_COMPILER = find_cxx_compiler()
+
+
+def build_cxx(tmp_path: Path, program: str, name: str = "prog") -> Path:
+    """Compile ``program`` (C++) against scope_profiler.hpp/.c."""
+    source = tmp_path / f"{name}.cpp"
+    source.write_text(program)
+    object_file = tmp_path / "scope_profiler.o"
+    executable = tmp_path / name
+
+    subprocess.run(
+        [
+            COMPILER,
+            "-std=c99",
+            "-O1",
+            f"-I{c_include_dir()}",
+            "-c",
+            str(SOURCE),
+            "-o",
+            str(object_file),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=300,
+    )
+    result = subprocess.run(
+        [
+            CXX_COMPILER,
+            "-std=c++11",
+            "-Wall",
+            "-Wextra",
+            "-O1",
+            f"-I{c_include_dir()}",
+            str(source),
+            str(object_file),
+            "-o",
+            str(executable),
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    assert result.returncode == 0, (
+        f"compilation failed\n--- stdout ---\n{result.stdout}\n"
+        f"--- stderr ---\n{result.stderr}"
+    )
+    return executable
+
+
+@pytest.mark.skipif(CXX_COMPILER is None, reason="no C++ compiler on PATH")
+def test_cxx_scope_raii_wrapper(tmp_path):
+    program = """
+#include "scope_profiler.hpp"
+#include <cstdio>
+#include <stdexcept>
+#include <utility>
+
+static void throws_inside_scope(sp_profiler *p, int region)
+{
+    sp::Scope s(p, region);
+    throw std::runtime_error("boom");
+}
+
+int main()
+{
+    sp_profiler *p = sp_create("cxx", 0);
+    int solve = sp_profiler_region(p, "solve");
+
+    { sp::Scope s(p, solve); }                 // normal exit
+
+    try {                                       // exception unwind
+        throws_inside_scope(p, solve);
+    } catch (const std::runtime_error &) {
+    }
+
+    {                                            // move construction
+        sp::Scope a(p, solve);
+        sp::Scope b(std::move(a));
+    }
+
+    sp_region_stats stats;
+    sp_profiler_get_region_stats(p, solve, &stats);
+    std::printf("calls: %lld\\n", (long long)stats.calls);
+
+    sp_profiler_finalize(p);
+    sp_destroy(p);
+    return 0;
+}
+"""
+    executable = build_cxx(tmp_path, program, name="cxx_scope")
+    output = run(executable, tmp_path).stdout
+
+    assert "calls: 3" in output
+
+
+def test_scope_token_checked_ordering(tmp_path):
+    program = """
+#include "scope_profiler.h"
+#include <stdio.h>
+
+int main(void)
+{
+    sp_profiler *p = sp_create("scope", 0);
+    int solve = sp_profiler_region(p, "solve");
+    sp_scope outer, inner;
+
+    outer = sp_profiler_scope_begin(p, solve);
+    inner = sp_profiler_scope_begin(p, solve); /* recursive re-entry */
+
+    printf("end outer while inner open: %d\\n", sp_scope_end(&outer));
+    printf("end inner: %d\\n", sp_scope_end(&inner));
+    printf("end outer now on top: %d\\n", sp_scope_end(&outer));
+    printf("end outer again: %d\\n", sp_scope_end(&outer));
+
+    sp_profiler_finalize(p);
+    sp_destroy(p);
+    return 0;
+}
+"""
+    executable = build(tmp_path, program, name="scope_token")
+    output = run(executable, tmp_path).stdout
+
+    assert "end outer while inner open: 5" in output  # SP_ERR_UNMATCHED_END
+    assert "end inner: 0" in output  # SP_OK
+    assert "end outer now on top: 0" in output  # SP_OK -- retry after inner closed
+    assert "end outer again: 5" in output  # inert now
+
+
+def test_end_last_ends_the_most_recently_opened_call(tmp_path):
+    program = """
+#include "scope_profiler.h"
+#include <stdio.h>
+
+int main(void)
+{
+    sp_profiler *p = sp_create("last", 0);
+    int outer = sp_profiler_region(p, "outer");
+    int inner = sp_profiler_region(p, "inner");
+    sp_region_stats stats;
+
+    sp_profiler_begin(p, outer);
+    sp_profiler_begin(p, inner);
+    printf("end_last (should close inner): %d\\n", sp_profiler_end_last(p));
+
+    sp_profiler_get_region_stats(p, inner, &stats);
+    printf("inner calls: %lld\\n", (long long)stats.calls);
+    sp_profiler_get_region_stats(p, outer, &stats);
+    printf("outer calls (still open): %lld\\n", (long long)stats.calls);
+
+    printf("end_last (should close outer): %d\\n", sp_profiler_end_last(p));
+    printf("end_last with nothing open: %d\\n", sp_profiler_end_last(p));
+
+    sp_profiler_finalize(p);
+    sp_destroy(p);
+    return 0;
+}
+"""
+    executable = build(tmp_path, program, name="end_last")
+    output = run(executable, tmp_path).stdout
+
+    assert "end_last (should close inner): 0" in output
+    assert "inner calls: 1" in output
+    assert "outer calls (still open): 1" in output
+    assert "end_last (should close outer): 0" in output
+    assert "end_last with nothing open: 5" in output  # SP_ERR_UNMATCHED_END
+
+
+def test_reset_discards_calls_but_keeps_regions(tmp_path):
+    program = """
+#include "scope_profiler.h"
+#include <stdio.h>
+
+int main(void)
+{
+    sp_profiler *p = sp_create("reset", 0);
+    int solve = sp_profiler_region(p, "solve");
+    sp_region_stats stats;
+
+    sp_profiler_begin(p, solve);
+    printf("reset while open: %d\\n", sp_profiler_reset(p));
+    sp_profiler_end(p, solve);
+
+    printf("reset once closed: %d\\n", sp_profiler_reset(p));
+    printf("regions after reset: %d\\n", sp_profiler_num_regions(p));
+
+    sp_profiler_get_region_stats(p, solve, &stats);
+    printf("calls after reset: %lld\\n", (long long)stats.calls);
+
+    /* the handle is still valid after reset */
+    sp_profiler_begin(p, solve);
+    sp_profiler_end(p, solve);
+    sp_profiler_get_region_stats(p, solve, &stats);
+    printf("calls after reuse: %lld\\n", (long long)stats.calls);
+
+    sp_profiler_finalize(p);
+    sp_destroy(p);
+    return 0;
+}
+"""
+    executable = build(tmp_path, program, name="reset")
+    output = run(executable, tmp_path).stdout
+
+    assert "reset while open: 6" in output  # SP_ERR_OPEN_SCOPES
+    assert "reset once closed: 0" in output  # SP_OK
+    assert "regions after reset: 1" in output
+    assert "calls after reset: 0" in output
+    assert "calls after reuse: 1" in output
+
+
+def test_stats_track_total_min_and_max(tmp_path):
+    program = """
+#include "scope_profiler.h"
+#include <stdio.h>
+#include <time.h>
+
+static void sleep_ns(long ns)
+{
+    struct timespec ts;
+    ts.tv_sec = 0;
+    ts.tv_nsec = ns;
+    nanosleep(&ts, NULL);
+}
+
+int main(void)
+{
+    sp_profiler *p = sp_create("stats", 0);
+    int solve = sp_profiler_region(p, "solve");
+    sp_region_stats stats;
+
+    sp_profiler_begin(p, solve);
+    sleep_ns(1000000); /* ~1ms: the short call */
+    sp_profiler_end(p, solve);
+
+    sp_profiler_begin(p, solve);
+    sleep_ns(5000000); /* ~5ms: the long call */
+    sp_profiler_end(p, solve);
+
+    sp_profiler_get_region_stats(p, solve, &stats);
+    printf("calls=%lld total>0:%d min<=max:%d min>0:%d\\n",
+           (long long)stats.calls,
+           stats.total_ns > 0,
+           stats.min_ns <= stats.max_ns,
+           stats.min_ns > 0);
+
+    sp_profiler_finalize(p);
+    sp_destroy(p);
+    return 0;
+}
+"""
+    executable = build(tmp_path, program, name="stats")
+    output = run(executable, tmp_path).stdout
+
+    assert "calls=2 total>0:1 min<=max:1 min>0:1" in output
+
+
+def test_flush_writes_without_stopping_profiling(tmp_path):
+    program = """
+#include "scope_profiler.h"
+#include <stdio.h>
+
+int main(void)
+{
+    sp_profiler *p = sp_create("flush", 0);
+    int solve = sp_profiler_region(p, "solve");
+
+    sp_profiler_begin(p, solve);
+    sp_profiler_end(p, solve);
+    printf("flush 1: %d\\n", sp_profiler_flush(p));
+    printf("active after flush: %d\\n", sp_profiler_is_active(p));
+
+    sp_profiler_begin(p, solve); /* left open on purpose */
+    printf("flush 2 (one call open): %d\\n", sp_profiler_flush(p));
+    sp_profiler_end(p, solve);
+
+    printf("finalize: %d\\n", sp_profiler_finalize(p));
+    sp_destroy(p);
+    return 0;
+}
+"""
+    executable = build(tmp_path, program, name="flush")
+    output = run(executable, tmp_path).stdout
+
+    assert "flush 1: 0" in output
+    assert "active after flush: 1" in output
+    assert "flush 2 (one call open): 0" in output
+    assert "finalize: 0" in output
+
+    _, regions = read_trace(tmp_path / "flush_rank00000.spt")
+    assert len(regions["solve"][0]) == 2
+
+
+def test_error_introspection_and_output_path(tmp_path):
+    program = """
+#include "scope_profiler.h"
+#include <stdio.h>
+
+int main(void)
+{
+    sp_profiler *p = sp_create("errors", 3);
+    int solve = sp_profiler_region(p, "solve");
+
+    printf("path: %s\\n", sp_profiler_output_path(p));
+
+    sp_profiler_end(p, solve); /* no matching begin */
+    printf("last error: %s\\n", sp_error_string(sp_profiler_last_error(p)));
+
+    printf("null profiler active: %d\\n", sp_profiler_is_active(NULL));
+    printf("null profiler region: %d\\n", sp_profiler_region(NULL, "x"));
+    printf("null profiler error: %s\\n", sp_error_string(sp_profiler_last_error(NULL)));
+
+    sp_profiler_finalize(p);
+    sp_destroy(p);
+    return 0;
+}
+"""
+    executable = build(tmp_path, program, name="errors")
+    output = run(executable, tmp_path).stdout
+
+    assert "path: errors_rank00003.spt" in output
+    assert "last error: no open call to end" in output
+    assert "null profiler active: 0" in output
+    assert "null profiler region: -1" in output
+    assert "null profiler error: ok" in output
+
+
 def test_reader_rejects_a_truncated_c_trace(tmp_path):
     executable = build(tmp_path, BASIC_PROGRAM)
     run(executable, tmp_path)

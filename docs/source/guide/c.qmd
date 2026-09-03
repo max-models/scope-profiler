@@ -67,19 +67,143 @@ chart and the exclusive times that cannot be derived.
 
 ## The API
 
+The default-context convenience functions:
+
 | Call | Purpose |
 | --- | --- |
 | `int sp_init(const char *prefix, int rank)` | Start profiling. Returns non-zero if no monotonic clock is available. |
 | `int sp_region(const char *name)` | Handle for a region name, created on first use. |
+| `int sp_region_at(const char *name, const char *file, int line)` | Like `sp_region()`, also recording where it is defined. |
 | `void sp_begin(int region)` / `void sp_end(int region)` | Enter and leave a region. |
 | `int64_t sp_num_calls(int region)` | How often a region was entered; readable after `sp_finalize()`. |
-| `int64_t sp_now_ns(void)` | The raw clock, in nanoseconds. |
+| `int64_t sp_now_ns(void)` | The raw clock, in nanoseconds. Shared by every profiler. |
 | `int sp_is_active(void)` | Whether profiling is running. |
 | `int sp_finalize(void)` | Write `<prefix>_rank<NNNNN>.spt` and stop. Returns non-zero on write failure. |
 
 Calls made before `sp_init()` are harmless: `sp_region()` returns
 `SP_INVALID_REGION` and `sp_begin`/`sp_end` ignore it. Instrumentation can stay
 in a build that never profiles, with no `#ifdef` at the call sites.
+
+The explicit-context API, each taking an `sp_profiler *` from `sp_create()`:
+
+| Call | Purpose |
+| --- | --- |
+| `sp_profiler *sp_create(const char *prefix, int rank)` / `void sp_destroy(sp_profiler *)` | Create and release a profiler instance. |
+| `int sp_profiler_region(sp_profiler *, const char *name)` | Handle for a region name, created on first use. |
+| `int sp_profiler_region_at(sp_profiler *, const char *name, const char *file, int line)` | Like above, also recording where it is defined. |
+| `void sp_profiler_begin(sp_profiler *, int region)` / `void sp_profiler_end(sp_profiler *, int region)` | Enter and leave a region. |
+| `int sp_profiler_end_last(sp_profiler *)` | End whichever call, in any region, was opened most recently. |
+| `sp_scope sp_profiler_scope_begin(sp_profiler *, int region)` / `int sp_scope_end(sp_scope *)` | A checked token for one exact call. |
+| `int sp_profiler_reset(sp_profiler *)` | Discard recorded calls and statistics; keep region handles valid. |
+| `int sp_profiler_get_region_stats(const sp_profiler *, int region, sp_region_stats *)` | Call count, total/min/max duration. |
+| `int sp_profiler_num_regions(const sp_profiler *)` / `const char *sp_profiler_region_name(const sp_profiler *, int)` | Enumerate registered regions. |
+| `int sp_profiler_flush(sp_profiler *)` | Write what has been recorded so far, without stopping profiling. |
+| `int sp_profiler_finalize(sp_profiler *)` | Write the trace and stop. |
+| `int sp_profiler_is_active(const sp_profiler *)` / `const char *sp_profiler_output_path(const sp_profiler *)` | Introspection. |
+| `sp_status sp_profiler_last_error(const sp_profiler *)` / `const char *sp_error_string(sp_status)` | What went wrong, if anything. |
+
+Every one of these accepts a `NULL` or inactive profiler harmlessly, the same
+way the default-context functions tolerate calls before `sp_init()`.
+
+## Multiple profilers: explicit contexts
+
+`sp_init()`/`sp_region()`/`sp_begin()`/`sp_end()`/`sp_finalize()` all operate
+on one hidden default profiler per process. Library code that must not
+interfere with a caller's own profiling -- or with another instance of
+itself -- creates its own instead:
+
+```c
+sp_profiler *p = sp_create("solver", rank);
+
+int solve = sp_profiler_region(p, "solve");
+sp_profiler_begin(p, solve);
+solve_system();
+sp_profiler_end(p, solve);
+
+sp_profiler_finalize(p);   /* writes solver_rank00000.spt */
+sp_destroy(p);
+```
+
+Every `sp_create()`d instance owns its own regions, buffers and open calls;
+nothing about one can corrupt another. `sp_create()` never returns `NULL`
+except on outright allocation failure -- if no clock is available, it hands
+back a profiler that is simply inactive (every call against it a harmless
+no-op, same as the default context before `sp_init()`), so check
+`sp_profiler_is_active()` or `sp_profiler_last_error()` rather than a `NULL`
+return.
+
+## A checked call token
+
+`sp_begin()`/`sp_end()` identify a call only by region, so an incorrectly
+ordered `sp_end()` is caught only later, on import. `sp_profiler_scope_begin()`
+returns a token for the exact call instead:
+
+```c
+sp_scope call = sp_profiler_scope_begin(p, solve);
+solve_system();
+sp_scope_end(&call);
+```
+
+Ending a token whose call is not the innermost one open in its region is
+refused (`SP_ERR_UNMATCHED_END`) rather than mistiming whichever call
+actually is -- the token stays valid, so ending it again later, once it is on
+top, succeeds normally. Ending it twice is harmless: the second call finds
+nothing left to end. This is what a C++ RAII wrapper should store per scope,
+since a moved-from token is naturally inert.
+
+For code that tracks "the currently open section" itself instead of naming a
+region to close it, `sp_profiler_end_last(p)` ends whichever call -- in any region --
+was opened most recently and not yet closed.
+
+## Source-aware registration
+
+`sp_region_at()` records where a region is defined alongside its name, using
+the same `(source_file, source_line)` shape `scope-profiler`'s own source
+navigation and exports already understand:
+
+```c
+int solve = sp_profiler_region_at(p, "solve", __FILE__, __LINE__);
+```
+
+It exists on both the default context (`sp_region_at`) and explicit ones
+(`sp_profiler_region_at`). The location is recorded once, the first time a
+name is registered; a later call for the same name just returns its existing
+handle.
+
+## Reset, statistics and flushing
+
+`sp_profiler_reset()` discards every recorded call and each region's
+statistics but keeps every region name and handle valid, so a long-running
+application can report periodically without re-resolving anything:
+
+```c
+sp_region_stats stats;
+sp_profiler_get_region_stats(p, solve, &stats);
+printf("solve: %lld calls, %lld ns total\n",
+       (long long)stats.calls, (long long)stats.total_ns);
+
+sp_profiler_reset(p);   /* refuses with SP_ERR_OPEN_SCOPES if solve is still open */
+```
+
+`sp_profiler_flush(p)` writes everything recorded so far to the trace file
+without stopping profiling -- a call still open is simply left out until a
+later flush or `sp_profiler_finalize()` includes it.
+
+## Errors
+
+Every explicit-context function accepts a `NULL` or inactive profiler
+harmlessly, and records what went wrong on the profiler itself:
+
+```c
+if (sp_profiler_last_error(p) != SP_OK) {
+    fprintf(stderr, "scope_profiler: %s\n",
+            sp_error_string(sp_profiler_last_error(p)));
+}
+```
+
+`sp_profiler_output_path(p)` returns the path `sp_profiler_finalize()` /
+`sp_profiler_flush()` write (or wrote), so callers do not need to reconstruct
+`<prefix>_rank<NNNNN>.spt` themselves.
 
 ## Under MPI
 
@@ -172,8 +296,13 @@ implementation therefore defines `_DARWIN_C_SOURCE` on Apple platforms and
 
 ## The trace format
 
-Identical to the Fortran API's; see {doc}`fortran` for the layout. 16 bytes per
-recorded call, the same as the Python side.
+Compatible with the Fortran API's; see {doc}`fortran` for the shared layout.
+16 bytes per recorded call, the same as the Python side. The C API writes
+format version 2, adding an optional source file and line per region (empty
+when a region was registered with `sp_region()` rather than
+`sp_region_at()`); the Fortran API still writes version 1, with no source
+field at all. Both versions are readable from the same trace directory, so a
+mixed C/Fortran run still merges into one profile.
 
 ## Limitations
 
