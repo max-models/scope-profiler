@@ -1,4 +1,4 @@
-name: Publish packages and deploy docs
+name: Publish Plotly
 
 on:
   push:
@@ -9,22 +9,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  publish-python:
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/project/scope-profiler/
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-      - run: python -m pip install --upgrade pip build twine
-      - run: python -m build
-      - uses: pypa/gh-action-pypi-publish@release/v1
-
   publish-plotly:
     runs-on: ubuntu-latest
     permissions:
@@ -39,39 +23,19 @@ jobs:
       - name: Test package
         working-directory: packages/plotly
         run: npm test
+      - name: Check if version already published
+        id: version-check
+        working-directory: packages/plotly
+        run: |
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "$PKG_NAME@$PKG_VERSION already published, skipping"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Publish to npm with trusted publishing
+        if: steps.version-check.outputs.skip != 'true'
         working-directory: packages/plotly
         run: npm publish
-
-  build-docs:
-    runs-on: ubuntu-latest
-    needs: [publish-python, publish-plotly]
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build documentation from released packages
-        uses: ./.github/actions/build-docs
-        with:
-          python-version: "3.10"
-          treat-warnings-as-errors: "false"
-          use-released-packages: "true"
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs/build/html/
-
-  deploy-docs:
-    runs-on: ubuntu-latest
-    needs: build-docs
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/deploy-pages@v4
-        id: deployment
