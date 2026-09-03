@@ -639,6 +639,27 @@ def test_plot_gantt_combined(tmp_path):
     assert out_file.stat().st_size > 0
 
 
+def test_plot_durations_renders_a_long_native_region_name(tmp_path):
+    file_path = tmp_path / "native.h5"
+    # Demangled C++ signatures can easily exceed 500 characters.  The label
+    # margin must not cross Matplotlib's top boundary as the figure grows.
+    region_name = "bool solve(" + "const SomeTemplate<Argument> &, " * 20 + ")"
+    _write_sample_h5(file_path, {0: {region_name: ([0], [100])}})
+
+    figure, _ = plot_durations(
+        read_h5(file_path),
+        return_fig=True,
+        show=False,
+        verbose=False,
+    )
+
+    assert figure.subplotpars.bottom < figure.subplotpars.top
+
+    import matplotlib.pyplot as plt
+
+    plt.close(figure)
+
+
 def test_plot_gantt_puts_every_call_of_a_region_on_one_lane(tmp_path, monkeypatch):
     """Repeated calls of a region share one row per rank, not a row each."""
     h5_path = tmp_path / "run.h5"

@@ -109,6 +109,69 @@ def test_report_navigation_links_to_runs_regions_and_chart_controls(tmp_path):
     assert 'href="#top">Back to top</a>' in document
 
 
+def test_report_cross_highlights_regions_between_tables_and_charts(tmp_path):
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    _write_sample_h5(profile, _sample_file_data(1, 10, 20))
+
+    cli_main(["report", str(profile), "-o", str(report)])
+
+    document = report.read_text(encoding="utf-8")
+    assert 'data-region="solve" data-run="profile"' in document
+    assert "window.scopeProfilerSelectRegion = select" in document
+    assert "window.scopeProfilerOnRegionSelect" in document
+    assert 'target.on("plotly_click"' in document
+    assert "highlightFigure(chart, buildFigure(chart.payload, options), selectedRegion)" in document
+    assert "region-selected" in document
+    assert 'id="region-selection"' in document
+    assert 'id="clear-region-selection"' in document
+    assert 'scrollIntoView({ behavior: "smooth", block: "center" })' in document
+
+
+def test_report_overview_flags_frequent_short_calls(tmp_path):
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    starts = np.arange(1001, dtype=np.int64) * 2
+    _write_sample_h5(profile, {0: {"tiny": (starts, starts + 1)}})
+
+    create_html_report(profile, report, include_charts=False)
+
+    document = report.read_text(encoding="utf-8")
+    assert "1001 times" in document
+    assert "timer overhead itself measurable" in document
+
+
+def test_report_explains_regions_missing_from_the_selected_ranks(tmp_path):
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    _write_sample_h5(
+        profile,
+        {0: {"solve": ([0], [10])}, 1: {"rank-one-only": ([0], [10])}},
+    )
+
+    create_html_report(profile, report, ranks=[0], include_charts=False)
+
+    document = report.read_text(encoding="utf-8")
+    assert "1 region(s) recorded no calls on the selected ranks" in document
+
+
+def test_report_handles_an_out_of_range_rank_selection(tmp_path):
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    _write_sample_h5(profile, {0: {"solve": ([0], [10])}})
+
+    create_html_report(profile, report, ranks=[9], include_charts=False)
+
+    document = report.read_text(encoding="utf-8")
+    assert "No timed regions to summarize" in document
+    assert "Call tree unavailable: no data for the selected ranks" in document
+
+
+def test_report_rejects_an_empty_run_list(tmp_path):
+    with pytest.raises(ValueError, match="At least one profiling result"):
+        create_html_report([], tmp_path / "report.html")
+
+
 def test_report_includes_recorded_hardware_counter_tables(tmp_path):
     report = tmp_path / "report.html"
     likwid = LikwidRegionResult(
@@ -507,6 +570,51 @@ def test_report_region_table_headers_are_sortable_and_show_a_trend_column(tmp_pa
     assert '<th data-key="total">' in document
     assert 'data-total="' in document
     assert '<svg class="spark"' in document
+
+
+def test_report_overview_names_the_hot_spot_not_its_enclosing_region(tmp_path):
+    """Rank the hot spot by exclusive time.
+
+    An enclosing region's total is mostly its children's, so ranking by the
+    inclusive total just names whatever sits nearest the top of the call tree
+    -- a wrapper that does no work of its own.
+    """
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    _write_sample_h5(
+        profile,
+        {
+            0: {
+                # wrapper spans the whole run but does 20 ms of its own work;
+                # kernel, nested inside it, does 80 ms.
+                "wrapper": ([0], [100_000_000]),
+                "kernel": ([10_000_000], [90_000_000]),
+            }
+        },
+    )
+
+    cli_main(["report", str(profile), "-o", str(report), "--no-charts"])
+
+    document = report.read_text(encoding="utf-8")
+    assert "<code>kernel</code></a> dominates the recorded time" in document
+    assert "in the region itself, excluding nested regions" in document
+    assert "<code>wrapper</code></a> dominates" not in document
+    # ...and say why the region at the top of the table is not the one named.
+    assert "<code>wrapper</code></a> has the largest total" in document
+    assert "is spent in the regions nested inside it" in document
+
+
+def test_report_overview_omits_the_nesting_note_for_a_flat_profile(tmp_path):
+    """One region cannot be both the hot spot and a misleading wrapper."""
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    _write_sample_h5(profile, {0: {"solve": ([0], [10_000_000])}})
+
+    cli_main(["report", str(profile), "-o", str(report), "--no-charts"])
+
+    document = report.read_text(encoding="utf-8")
+    assert "<code>solve</code></a> dominates the recorded time" in document
+    assert "has the largest total" not in document
 
 
 def test_report_charts_cdn_links_the_runtime_instead_of_embedding_it(tmp_path):

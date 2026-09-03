@@ -48,6 +48,8 @@ details { margin: .75rem 0; } summary { cursor: pointer; font-weight: 600; }
 .muted { color: #6b7280; } code { overflow-wrap: anywhere; }
 .region-row { cursor: pointer; }
 .region-row:hover { background: #f3f4f6; }
+.region-row.region-selected { background: #fef3c7; box-shadow: inset 4px 0 #d97706; }
+.region-row.region-selected:hover { background: #fde68a; }
 .region-row td:first-child { display: flex; align-items: center; gap: .4rem; }
 .toggle-icon { display: inline-block; width: .9em; color: #6b7280; }
 .bar-cell { position: relative; }
@@ -73,6 +75,10 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
                  border: 1px solid #d1d5db; border-radius: .4rem; }
 .region-filter:focus { border-color: #2563eb; outline: 2px solid #bfdbfe; }
 .filter-count { color: #6b7280; font-size: .9em; white-space: nowrap; }
+.selection-status { color: #92400e; font-size: .9em; white-space: nowrap; }
+.clear-selection { background: transparent; border: 0; color: #2563eb; cursor: pointer;
+                   font: inherit; padding: .2rem; text-decoration: underline; }
+.clear-selection[hidden] { display: none; }
 .empty-state { color: #6b7280; text-align: center; font-style: italic; }
 .toc { background: #f9fafb; border: 1px solid #d1d5db; border-radius: .5rem;
        padding: .75rem 1rem; margin: 1rem 0 1.5rem; }
@@ -105,16 +111,57 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
 """
 
 _SCRIPT = """
-document.querySelectorAll(".region-row").forEach(function (row) {
-  row.addEventListener("click", function () {
-    var detail = row.nextElementSibling;
-    if (!detail || !detail.classList.contains("region-detail")) return;
-    var opening = detail.hidden;
-    detail.hidden = !opening;
-    var icon = row.querySelector(".toggle-icon");
-    if (icon) icon.textContent = opening ? "\\u25be" : "\\u25b8";
+(function () {
+  var listeners = [];
+  var selectedRegion = null;
+  var status = document.getElementById("region-selection");
+  var clear = document.getElementById("clear-region-selection");
+
+  function select(region, run, shouldScroll) {
+    selectedRegion = region || null;
+    var target = null;
+    document.querySelectorAll("tbody[data-region]").forEach(function (body) {
+      var match = selectedRegion !== null && body.dataset.region === selectedRegion;
+      var row = body.querySelector(".region-row");
+      if (row) row.classList.toggle("region-selected", match);
+      if (match && !target && (!run || body.dataset.run === run)) target = row;
+    });
+    if (status) status.textContent = selectedRegion ? "Highlighted: " + selectedRegion : "";
+    if (clear) clear.hidden = !selectedRegion;
+    listeners.forEach(function (listener) {
+      try { listener(selectedRegion); } catch (error) { /* keep other views responsive */ }
+    });
+    if (target && shouldScroll !== false) {
+      var detail = target.nextElementSibling;
+      if (detail && detail.classList.contains("region-detail")) {
+        detail.hidden = false;
+        var icon = target.querySelector(".toggle-icon");
+        if (icon) icon.textContent = "\\u25be";
+      }
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
+
+  window.scopeProfilerSelectRegion = select;
+  window.scopeProfilerOnRegionSelect = function (listener) {
+    listeners.push(listener);
+    listener(selectedRegion);
+  };
+  if (clear) clear.addEventListener("click", function () { select(null); });
+
+  document.querySelectorAll(".region-row").forEach(function (row) {
+    row.addEventListener("click", function () {
+      var detail = row.nextElementSibling;
+      if (!detail || !detail.classList.contains("region-detail")) return;
+      var opening = detail.hidden;
+      detail.hidden = !opening;
+      var icon = row.querySelector(".toggle-icon");
+      if (icon) icon.textContent = opening ? "\\u25be" : "\\u25b8";
+      var body = row.closest("tbody[data-region]");
+      if (body) select(body.dataset.region, body.dataset.run, false);
+    });
   });
-});
+})();
 
 // Region filtering, in the same comma-separated syntax the profiling-data
 // site uses: each term is a case-insensitive substring of the region name, "^"
@@ -263,6 +310,9 @@ _FILTER_BAR = (
     ' Prefix a term with ^ to anchor it to the start of the region name."'
     ' aria-label="Filter regions">'
     '<span class="filter-count" id="region-filter-count" aria-live="polite"></span>'
+    '<span class="selection-status" id="region-selection" aria-live="polite"></span>'
+    '<button class="clear-selection" id="clear-region-selection" type="button" hidden>'
+    "Clear highlight</button>"
     "</div>"
 )
 
@@ -307,14 +357,45 @@ def _overview_html(results, rows, region_ids=None) -> str:
         )
     ]
 
-    total_sum = sum(row["total"] for row in timed)
-    hottest = max(timed, key=lambda row: row["total"])
-    pct = 100.0 * hottest["total"] / total_sum if total_sum else 0.0
+    # Exclusive time, not inclusive: an enclosing region's total is mostly its
+    # children's, so ranking by it just names whatever sits nearest the top of
+    # the call tree. Exclusive time sums to the time actually attributed to
+    # regions, so the percentage is a share of a whole rather than of a total
+    # that counts nested time once per level.
+    #
+    # A region reached under two different parents gets one display row per
+    # path, all carrying the same figures, so rank over one row per name.
+    by_name = {}
+    for row in timed:
+        by_name.setdefault(row["name"], row)
+    unique = list(by_name.values())
+
+    def own_time(row):
+        # Legacy profiles whose call tree cannot be rebuilt have no exclusive
+        # figure; inclusive is the only thing left to rank them by.
+        return row["total"] if row["exclusive"] is None else row["exclusive"]
+
+    exclusive_sum = sum(own_time(row) for row in unique)
+    hottest = max(unique, key=own_time)
+    pct = 100.0 * own_time(hottest) / exclusive_sum if exclusive_sum else 0.0
     points.append(
         f"{region_link(hottest['name'])} dominates the recorded time: "
-        f"{_seconds(hottest['total'])} over {_text(hottest['calls'])} call(s), "
-        f"{pct:.1f}% of the summed region time."
+        f"{_seconds(own_time(hottest))} in the region itself, excluding nested "
+        f"regions, over {_text(hottest['calls'])} call(s) -- "
+        f"{pct:.1f}% of the time attributed to regions."
     )
+
+    # Naming the largest inclusive total too, when it is a different region,
+    # answers the obvious next question: why is the region at the top of the
+    # table not the one called out above?
+    widest = max(unique, key=lambda row: row["total"])
+    if widest["name"] != hottest["name"]:
+        points.append(
+            f"{region_link(widest['name'])} has the largest total, "
+            f"{_seconds(widest['total'])}, but "
+            f"{_seconds(widest['total'] - own_time(widest))} of that is spent "
+            "in the regions nested inside it."
+        )
 
     if results.num_ranks > 1:
         imbalanced = [row for row in timed if row["imbalance"] and row["total"] > 0]
@@ -509,10 +590,11 @@ def _region_table(results, rows, ranks, columns, region_ids=None) -> str:
         # The sort keys follow the chosen columns, so the filter gets a hook of
         # its own rather than depending on "name" being one of them.
         region_attr = _text(row["name"])
+        run_attr = _text(results.display_label)
         row_id = region_ids.get(row["name"])
         id_attr = f' id="{_text(row_id)}"' if row_id else ""
         body_groups.append(
-            f'<tbody data-region="{region_attr}" {data_attrs}>'
+            f'<tbody data-region="{region_attr}" data-run="{run_attr}" {data_attrs}>'
             f'<tr class="region-row"{id_attr}>{cells}</tr>'
             '<tr class="region-detail" hidden>'
             f'<td colspan="{len(keys) + 1}">{_region_detail_html(region, ranks)}</td>'
@@ -1006,6 +1088,126 @@ def _chart_sections(runs, include, exclude, ranks, charts_cdn: bool = False) -> 
         )
     else:
         runtime = "<script>" + get_plotlyjs() + "</script>"
+    interactions = r"""
+const payloadRegions = (payload) => {
+  const rows = [
+    ...(payload.intervals ?? []), ...(payload.bars ?? []),
+    ...(payload.points ?? []), ...(payload.calls ?? []),
+    ...(payload.regions ?? []),
+  ];
+  return new Set(rows.map((row) => row.region ?? row.name).filter(Boolean));
+};
+
+const traceMatchesRegion = (trace, region) => {
+  const name = String(trace.name ?? "");
+  return name === region || name.endsWith(` / ${region}`) ||
+    name === `${region} mean` || name.endsWith(` / ${region} mean`);
+};
+
+const highlightFigure = (chart, figure, region) => {
+  if (!region || !payloadRegions(chart.payload).has(region)) return figure;
+  const kind = chart.payload.plot;
+  for (const trace of figure.data) {
+    if (trace.type === "sankey") {
+      const labels = trace.node?.label ?? [];
+      const original = Array.isArray(trace.node?.color) ? trace.node.color : [];
+      trace.node.color = labels.map((label, index) =>
+        label === region ? (original[index] ?? "#d97706") : "rgba(156,163,175,0.22)");
+      const sources = trace.link?.source ?? [], targets = trace.link?.target ?? [];
+      trace.link.color = sources.map((source, index) =>
+        labels[source] === region || labels[targets[index]] === region
+          ? "rgba(217,119,6,0.72)" : "rgba(156,163,175,0.12)");
+    } else if (trace.type === "icicle") {
+      const labels = trace.labels ?? [];
+      const original = Array.isArray(trace.marker?.colors) ? trace.marker.colors : [];
+      trace.marker.colors = labels.map((label, index) =>
+        label === region ? (original[index] ?? "#d97706") : "rgba(156,163,175,0.22)");
+    } else if (trace.type === "heatmap") {
+      figure.layout.shapes = [...(figure.layout.shapes ?? []), {
+        type: "rect", xref: "x", yref: "paper", x0: region, x1: region,
+        x0shift: -0.5, x1shift: 0.5, y0: 0, y1: 1,
+        fillcolor: "rgba(245,158,11,0.16)", line: { color: "#d97706", width: 3 },
+      }];
+    } else if (trace.type === "bar" && trace.orientation === "h") {
+      trace.opacity = traceMatchesRegion(trace, region) ? 1 : 0.16;
+    } else if (trace.type === "bar") {
+      trace.marker.opacity = (trace.x ?? []).map((value) => value === region ? 1 : 0.16);
+      trace.marker.line = { ...(trace.marker.line ?? {}),
+        color: (trace.x ?? []).map((value) => value === region ? "#92400e" : "rgba(0,0,0,0.12)"),
+        width: (trace.x ?? []).map((value) => value === region ? 2 : 0.5) };
+    } else if (trace.type === "scatter") {
+      trace.opacity = traceMatchesRegion(trace, region) ? 1 : 0.14;
+    }
+  }
+  return figure;
+};
+
+const regionFromPoint = (chart, point) => {
+  const regions = payloadRegions(chart.payload);
+  const candidates = [point.label, point.x, point.y, point.data?.name,
+    point.source?.label, point.target?.label];
+  for (const candidate of candidates) {
+    if (regions.has(candidate)) return candidate;
+  }
+  const traceName = String(point.data?.name ?? "");
+  for (const region of regions) {
+    if (traceName === `${region} mean` || traceName.endsWith(` / ${region}`) ||
+        traceName.endsWith(` / ${region} mean`)) return region;
+  }
+  return null;
+};
+
+const runFromPoint = (chart, point, region) => {
+  if (Array.isArray(point.customdata) && typeof point.customdata[0] === "string") {
+    return point.customdata[0];
+  }
+  const name = String(point.data?.name ?? "");
+  return region && name.endsWith(` / ${region}`) ? name.slice(0, -region.length - 3) : null;
+};
+
+let activeTerms = [];
+let selectedRegion = null;
+const draw = (chart) => {
+  const target = document.getElementById(chart.id);
+  const options = activeTerms.length
+    ? { ...chart.options, filterRegion: (region) => activeTerms.some((term) =>
+        term.startsWith('^')
+          ? String(region).toLowerCase().startsWith(term.slice(1))
+          : String(region).toLowerCase().includes(term)) }
+    : chart.options;
+  try {
+    const figure = highlightFigure(chart, buildFigure(chart.payload, options), selectedRegion);
+    target.classList.remove('chart-error');
+    const rendered = globalThis.Plotly.react(target, figure.data, figure.layout,
+      { responsive: true, displaylogo: false });
+    if (!target.dataset.regionClickBound) {
+      target.dataset.regionClickBound = "true";
+      Promise.resolve(rendered).then(() => target.on("plotly_click", (event) => {
+        const point = event.points?.[0];
+        if (!point) return;
+        const region = regionFromPoint(chart, point);
+        if (region && typeof globalThis.scopeProfilerSelectRegion === "function") {
+          globalThis.scopeProfilerSelectRegion(region, runFromPoint(chart, point, region));
+        }
+      }));
+    }
+    return rendered;
+  } catch (error) {
+    target.classList.add('chart-error');
+    target.textContent = `Could not render chart: ${error.message}`;
+  }
+};
+
+const redraw = () => { for (const chart of scopeProfilerCharts) draw(chart); };
+if (typeof globalThis.scopeProfilerOnRegionFilter === "function") {
+  globalThis.scopeProfilerOnRegionFilter((terms) => { activeTerms = terms; redraw(); });
+}
+if (typeof globalThis.scopeProfilerOnRegionSelect === "function") {
+  globalThis.scopeProfilerOnRegionSelect((region) => { selectedRegion = region; redraw(); });
+}
+if (typeof globalThis.scopeProfilerOnRegionFilter !== "function" &&
+    typeof globalThis.scopeProfilerOnRegionSelect !== "function") redraw();
+"""
     script = (
         runtime
         + '<script type="module">'
@@ -1030,31 +1232,8 @@ def _chart_sections(runs, include, exclude, ranks, charts_cdn: bool = False) -> 
         + "without --charts-cdn to embed it.';\n"
         + "  }\n"
         + "} else {\n"
-        + "const draw = (chart, terms) => {\n"
-        + "  const target = document.getElementById(chart.id);\n"
-        + "  const options = terms.length\n"
-        + "    ? { ...chart.options, filterRegion: (region) => terms.some((term) =>\n"
-        + "        term.startsWith('^')\n"
-        + "          ? String(region).toLowerCase().startsWith(term.slice(1))\n"
-        + "          : String(region).toLowerCase().includes(term)) }\n"
-        + "    : chart.options;\n"
-        + "  try {\n"
-        + "    const figure = buildFigure(chart.payload, options);\n"
-        + "    target.classList.remove('chart-error');\n"
-        + "    return globalThis.Plotly.react(target, figure.data, figure.layout,\n"
-        + "      { responsive: true, displaylogo: false });\n"
-        + "  } catch (error) {\n"
-        + "    target.classList.add('chart-error');\n"
-        + "    target.textContent = `Could not render chart: ${error.message}`;\n"
-        + "  }\n"
-        + "};\n"
-        + "if (typeof globalThis.scopeProfilerOnRegionFilter === 'function') {\n"
-        + "  globalThis.scopeProfilerOnRegionFilter((terms) => {\n"
-        + "    for (const chart of scopeProfilerCharts) draw(chart, terms);\n"
-        + "  });\n"
-        + "} else {\n"
-        + "  for (const chart of scopeProfilerCharts) draw(chart, []);\n"
-        + "}\n}\n</script>"
+        + interactions
+        + "}\n</script>"
     )
     controls = (
         '<div class="chart-controls" aria-label="Chart display controls">'
@@ -1099,7 +1278,15 @@ def create_html_report(
     run_links = []
     for run_index, results in enumerate(runs):
         rows = region_rows(
-            results, include=include, exclude=exclude, ranks=ranks, sort=sort
+            results,
+            include=include,
+            exclude=exclude,
+            ranks=ranks,
+            sort=sort,
+            # Populates each row's "exclusive" time. The table's own % column
+            # is computed from the inclusive total either way; the overview
+            # needs exclusive time to name a hot spot rather than a parent.
+            percentage_mode="exclusive",
         )
         section_id = f"run-{run_index}"
         region_ids = {

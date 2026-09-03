@@ -463,6 +463,13 @@ def plot_durations(
     label_space = max(0.8, 0.06 * max(map(len, region_names), default=0) + 0.25)
     fig_height = max(4.5, 2.5 + 0.35 * num_readers, 3.0 + label_space)
     bottom_margin = (label_space + 0.25) / fig_height
+    # Matplotlib's default top=0.88 is a fraction of the full figure.  As the
+    # figure grows to accommodate very long native/C++ region names, that
+    # fixed fraction eventually falls below the label-driven bottom margin.
+    # Express the top padding in physical units as well: fig_height always
+    # leaves at least three inches beyond label_space, so this also guarantees
+    # a non-empty plotting area for labels of any length.
+    top_margin = 1.0 - 0.5 / fig_height
     width = min(0.8 / max(num_readers, 1), 0.35)
     # Bars are drawn narrower than their spacing only when stacking: runs
     # then share their segment colors, so touching bars would read as one
@@ -520,7 +527,7 @@ def plot_durations(
 
         canvas = Canvas(
             figsize=(fig_width, fig_height),
-            gridspec_kw={"bottom": bottom_margin},
+            gridspec_kw={"bottom": bottom_margin, "top": top_margin},
         )
 
         # Create grouped bar chart

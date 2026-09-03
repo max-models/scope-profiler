@@ -254,6 +254,9 @@ call graph for each run. If a profile contains LIKWID or built-in Linux perf
 events, the report adds hardware-counter tables automatically and plots the
 first available LIKWID metric. A contents bar, region search, overview links,
 and expand/collapse controls keep larger reports navigable.
+Clicking a region in a statistics table or any chart highlights that region
+throughout the report. Chart selections also open and scroll to the matching
+statistics detail; use **Clear highlight** beside the search box to reset it.
 The charts are built by the same versioned `@scope-profiler/plotly` code used
 for `export plot-data` on the web. Both that builder and Plotly itself are
 embedded in the report, so opening the file never requires a network connection.

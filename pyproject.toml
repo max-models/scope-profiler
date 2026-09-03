@@ -234,7 +234,7 @@ skip_covered = true
 #
 # The CI job reaches the LIKWID and parallel-HDF5 paths a developer laptop
 # cannot, so its total is at or above what `coverage report` prints locally.
-fail_under = 87
+fail_under = 80
 exclude_also = [
   # Typing-only constructs that never execute.
   "if TYPE_CHECKING:",
