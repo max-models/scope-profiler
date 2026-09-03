@@ -326,6 +326,11 @@ def plot_callgraph(
                     data_filepath, ["call_id", "parent_id", "name", "depth"], rows
                 )
 
+    # HTML reports only need the portable plot-data payload.  Avoid creating
+    # a second, unused Python figure after that payload has been written.
+    if backend == "data-only":
+        return None
+
     if backend == "plotly":
         try:
             import plotly.graph_objects as go

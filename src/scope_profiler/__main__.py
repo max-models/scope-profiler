@@ -275,6 +275,14 @@ def _report(argv):
         help="Omit embedded interactive charts",
     )
     parser.add_argument(
+        "--charts-cdn",
+        action="store_true",
+        help=(
+            "Load Plotly from https://cdn.plot.ly instead of embedding it: "
+            "~4.7 MB smaller, but the charts then need a network connection"
+        ),
+    )
+    parser.add_argument(
         "--show",
         action="store_true",
         help="Open the generated report in the default browser",
@@ -292,6 +300,7 @@ def _report(argv):
         sort=args.sort,
         columns=args.columns,
         include_charts=not args.no_charts,
+        charts_cdn=args.charts_cdn,
     )
     print(f"Report written to: {output}")
     if args.show:

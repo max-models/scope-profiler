@@ -20,8 +20,11 @@ from scope_profiler.inspection import _json_safe
 from scope_profiler.profile_io import read_profile
 from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import (
+    _format_counter,
     _region_durations,
+    likwid_tables,
     normalize_region_table_columns,
+    perf_event_tables,
     region_rows,
 )
 
@@ -71,6 +74,19 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
 .region-filter:focus { border-color: #2563eb; outline: 2px solid #bfdbfe; }
 .filter-count { color: #6b7280; font-size: .9em; white-space: nowrap; }
 .empty-state { color: #6b7280; text-align: center; font-style: italic; }
+.toc { background: #f9fafb; border: 1px solid #d1d5db; border-radius: .5rem;
+       padding: .75rem 1rem; margin: 1rem 0 1.5rem; }
+.toc strong { margin-right: .75rem; }
+.toc a { display: inline-block; margin: .2rem .75rem .2rem 0; }
+.overview a { color: inherit; }
+.chart-controls { display: flex; gap: .5rem; margin: .75rem 0; }
+.chart-controls button { background: #fff; border: 1px solid #9ca3af; border-radius: .35rem;
+                         color: #374151; cursor: pointer; font: inherit; padding: .35rem .65rem; }
+.chart-controls button:hover { background: #f3f4f6; }
+.chart-panel { border: 1px solid #e5e7eb; border-radius: .5rem; padding: .25rem 1rem; }
+.chart-heading { color: #111827; font-size: 1.17em; font-weight: 700; }
+.table-scroll { overflow-x: auto; }
+.back-to-top { text-align: right; }
 .call-tree, .call-tree ul { list-style: none; margin: 0; padding-left: 1.1rem; }
 .call-tree { padding-left: 0; }
 .call-tree > li { margin: .2rem 0; }
@@ -79,7 +95,7 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
 
 @media print {
   body { max-width: 100%; }
-  .filter-bar { display: none; }
+  .filter-bar, .chart-controls, .back-to-top, .toc { display: none; }
   .region-row { cursor: default; }
   tr.region-detail[hidden] { display: table-row !important; }
   details:not([open]) > *:not(summary) { display: block !important; }
@@ -198,7 +214,44 @@ document.querySelectorAll("table.region-stats").forEach(function (table) {
     });
   });
 });
+
+document.querySelectorAll("[data-chart-action]").forEach(function (button) {
+  button.addEventListener("click", function () {
+    var open = button.dataset.chartAction === "expand";
+    document.querySelectorAll("details.chart-panel").forEach(function (panel) {
+      panel.open = open;
+    });
+    if (open && window.Plotly) {
+      document.querySelectorAll("details.chart-panel .chart").forEach(function (chart) {
+        if (chart.data) window.Plotly.Plots.resize(chart);
+      });
+    }
+  });
+});
+
+document.querySelectorAll("details.chart-panel").forEach(function (panel) {
+  panel.addEventListener("toggle", function () {
+    var chart = panel.querySelector(".chart");
+    if (panel.open && chart && chart.data && window.Plotly) {
+      window.Plotly.Plots.resize(chart);
+    }
+  });
+});
 """
+
+
+def _plotlyjs_version() -> str:
+    """The plotly.js version the installed plotly would have inlined.
+
+    Pinned rather than "latest" so a report keeps rendering the way it did
+    when it was written, and so the CDN and inline modes agree.
+    """
+    try:
+        from plotly.offline._plotlyjs_version import __plotlyjs_version__
+
+        return str(__plotlyjs_version__)
+    except ImportError:  # pragma: no cover - plotly is checked by the caller
+        return "3.7.0"
 
 
 _FILTER_BAR = (
@@ -233,8 +286,15 @@ _HOT_CALL_THRESHOLD = 1000
 _HOT_CALL_AVG_SECONDS = 1e-5
 
 
-def _overview_html(results, rows) -> str:
+def _overview_html(results, rows, region_ids=None) -> str:
     """A few sentences summarizing what stands out in this run's regions."""
+    region_ids = {} if region_ids is None else region_ids
+
+    def region_link(name: str) -> str:
+        label = f"<code>{_text(name)}</code>"
+        target = region_ids.get(name)
+        return f'<a href="#{_text(target)}">{label}</a>' if target else label
+
     timed = [row for row in rows if row["total"] is not None]
     if not timed:
         return '<p class="muted">No timed regions to summarize.</p>'
@@ -251,7 +311,7 @@ def _overview_html(results, rows) -> str:
     hottest = max(timed, key=lambda row: row["total"])
     pct = 100.0 * hottest["total"] / total_sum if total_sum else 0.0
     points.append(
-        f"<code>{_text(hottest['name'])}</code> dominates the recorded time: "
+        f"{region_link(hottest['name'])} dominates the recorded time: "
         f"{_seconds(hottest['total'])} over {_text(hottest['calls'])} call(s), "
         f"{pct:.1f}% of the summed region time."
     )
@@ -262,8 +322,8 @@ def _overview_html(results, rows) -> str:
             worst = max(imbalanced, key=lambda row: row["imbalance"])
             if worst["imbalance"] >= _IMBALANCE_FLAG_PCT:
                 points.append(
-                    '<span class="flag">⚠</span> <code>'
-                    f"{_text(worst['name'])}</code> is unevenly distributed across "
+                    '<span class="flag">⚠</span> '
+                    f"{region_link(worst['name'])} is unevenly distributed across "
                     f"ranks: the slowest rank spends {worst['imbalance']:.0f}% more "
                     "time than the per-rank average, which may be worth "
                     "investigating for load balancing."
@@ -279,7 +339,7 @@ def _overview_html(results, rows) -> str:
     if chatty:
         worst = max(chatty, key=lambda row: row["calls"])
         points.append(
-            f"<code>{_text(worst['name'])}</code> was called "
+            f"{region_link(worst['name'])} was called "
             f"{_text(worst['calls'])} times at ~{worst['avg'] * 1e6:.1f} µs on "
             "average; frequent short calls like this can make timer overhead "
             "itself measurable."
@@ -385,7 +445,8 @@ def _sparkline_svg(durations, width: int = 90, height: int = 22) -> str:
     )
 
 
-def _region_table(results, rows, ranks, columns) -> str:
+def _region_table(results, rows, ranks, columns, region_ids=None) -> str:
+    region_ids = {} if region_ids is None else region_ids
     selected_columns = normalize_region_table_columns(columns)
     headers = "".join(
         f'<th data-key="{key}">{_text(header)}</th>' for key, header in selected_columns
@@ -447,12 +508,12 @@ def _region_table(results, rows, ranks, columns) -> str:
         )
         # The sort keys follow the chosen columns, so the filter gets a hook of
         # its own rather than depending on "name" being one of them.
-        # The sort keys follow the chosen columns, so the filter gets a hook
-        # of its own rather than depending on "name" being one of them.
         region_attr = _text(row["name"])
+        row_id = region_ids.get(row["name"])
+        id_attr = f' id="{_text(row_id)}"' if row_id else ""
         body_groups.append(
             f'<tbody data-region="{region_attr}" {data_attrs}>'
-            f'<tr class="region-row">{cells}</tr>'
+            f'<tr class="region-row"{id_attr}>{cells}</tr>'
             '<tr class="region-detail" hidden>'
             f'<td colspan="{len(keys) + 1}">{_region_detail_html(region, ranks)}</td>'
             "</tr></tbody>"
@@ -589,6 +650,79 @@ def _line_profile_html(results, ranks) -> str:
     return "".join(sections)
 
 
+def _counter_table(headers, rows) -> str:
+    """Render a horizontally scrollable hardware-counter table."""
+    heading = "".join(f"<th>{_text(value)}</th>" for value in headers)
+    body = "".join(
+        "<tr>"
+        + "".join(
+            f"<td>{_text(value) if index == 0 else _text(_format_counter(value))}</td>"
+            for index, value in enumerate(row)
+        )
+        + "</tr>"
+        for row in rows
+    )
+    return (
+        '<div class="table-scroll"><table class="rank-table"><thead><tr>'
+        + heading
+        + "</tr></thead><tbody>"
+        + body
+        + "</tbody></table></div>"
+    )
+
+
+def _hardware_sections(runs, include, exclude, ranks) -> str:
+    """Render counter tables only for runs that recorded hardware metrics."""
+    fragments = []
+    for run in runs:
+        for table in likwid_tables(
+            run, include=include, exclude=exclude, ranks=ranks
+        ):
+            sections = []
+            for heading, rows in table["sections"]:
+                if not rows:
+                    continue
+                section_heading = f"<h4>{_text(heading)}</h4>" if heading else ""
+                sections.append(
+                    section_heading
+                    + _counter_table(
+                        ("counter", *table["columns"]),
+                        ((name, *values) for name, values in rows),
+                    )
+                )
+            fragments.append(
+                '<details class="counter-panel">'
+                f"<summary>LIKWID: {_text(run.display_label)}, rank "
+                f"{_text(table['rank'])}, group {_text(table['group'])}</summary>"
+                + "".join(sections)
+                + "</details>"
+            )
+
+        for table in perf_event_tables(
+            run, include=include, exclude=exclude, ranks=ranks
+        ):
+            fragments.append(
+                '<details class="counter-panel">'
+                f"<summary>Linux perf events: {_text(run.display_label)}, "
+                f"rank {_text(table['rank'])}</summary>"
+                + _counter_table(
+                    ("region", "calls", *table["events"]), table["rows"]
+                )
+                + "</details>"
+            )
+
+    if not fragments:
+        return ""
+    return (
+        '<section id="hardware-counters"><h2>Hardware counters</h2>'
+        '<p class="muted">Counters are shown only for runs and ranks that recorded '
+        "them. LIKWID groups include their raw events and derived metrics; Linux "
+        "perf-event values are totals across each region's calls.</p>"
+        + "".join(fragments)
+        + '<p class="back-to-top"><a href="#top">Back to top</a></p></section>'
+    )
+
+
 def _chart_description(title: str, payload: dict) -> str:
     """Explain how to read one chart in the report."""
     if title.startswith("Timeline:"):
@@ -616,6 +750,27 @@ def _chart_description(title: str, payload: dict) -> str:
             "regions; this prevents the enclosing session region from dominating "
             "the heatmap."
         )
+    elif title == "Duration over time":
+        text = (
+            "Each line follows a region's mean call duration over elapsed run time. "
+            "The shaded range spans the fastest to slowest selected rank, so widening "
+            "bands reveal changing rank imbalance."
+        )
+    elif title == "Rank imbalance":
+        text = (
+            "Each line compares a region's total duration by rank; its dashed line "
+            "marks the mean across ranks. Points far from the mean identify stragglers."
+        )
+    elif title.startswith("Call graph:"):
+        text = (
+            "Nodes are regions and links show caller-to-callee relationships on the "
+            "selected rank. Repeated invocations are combined into one node per region."
+        )
+    elif title.startswith("LIKWID:"):
+        text = (
+            "Bars compare the selected LIKWID metric across regions and ranks. "
+            "The hardware-counter tables above retain every recorded event and metric."
+        )
     elif title.startswith("Flame chart:"):
         text = (
             "Each frame is one recorded call on the selected ranks. Frame nesting "
@@ -633,21 +788,26 @@ def _chart_description(title: str, payload: dict) -> str:
     return f'<p class="muted">{text}</p>'
 
 
-def _chart_sections(runs, include, exclude, ranks) -> str:
+def _chart_sections(runs, include, exclude, ranks, charts_cdn: bool = False) -> str:
     """Build embedded chart payloads for the bundled browser renderer."""
     try:
         from plotly.offline import get_plotlyjs
 
         from scope_profiler.plotting_scripts import (
+            available_likwid_metrics,
+            plot_callgraph,
+            plot_duration_timeseries,
             plot_durations,
             plot_flame,
             plot_flame_graph,
             plot_gantt,
+            plot_imbalance,
+            plot_likwid,
             plot_rank_heatmap,
         )
     except ImportError:
         return (
-            '<section><h2>Charts</h2><p class="muted">Charts require '
+            '<section id="charts"><h2>Charts</h2><p class="muted">Charts require '
             "<code>scope-profiler[pproc]</code>; the statistics and metadata "
             "above remain available without it.</p></section>"
         )
@@ -703,6 +863,36 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
             stack_children=len(runs) == 1,
         )
         collect(
+            "Duration over time",
+            plot_duration_timeseries,
+            payload_dir / "duration-timeseries.json",
+            runs,
+            include=include,
+            exclude=exclude,
+            ranks=ranks,
+        )
+        selected_rank_counts = [
+            len(
+                [
+                    rank
+                    for rank in (range(run.num_ranks) if ranks is None else ranks)
+                    if 0 <= rank < run.num_ranks
+                ]
+            )
+            for run in runs
+        ]
+        if any(count > 1 for count in selected_rank_counts):
+            collect(
+                "Rank imbalance",
+                plot_imbalance,
+                payload_dir / "rank-imbalance.json",
+                runs,
+                metric="total",
+                include=include,
+                exclude=exclude,
+                ranks=ranks,
+            )
+        collect(
             "Rank heatmap",
             plot_rank_heatmap,
             payload_dir / "rank-heatmap.json",
@@ -714,6 +904,23 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
         )
 
         for index, run in enumerate(runs):
+            selected_ranks = [
+                rank
+                for rank in (range(run.num_ranks) if ranks is None else ranks)
+                if 0 <= rank < run.num_ranks
+            ]
+            if selected_ranks:
+                callgraph_rank = selected_ranks[0]
+                collect(
+                    f"Call graph: {run.display_label} (rank {callgraph_rank})",
+                    plot_callgraph,
+                    payload_dir / f"callgraph-{index}.json",
+                    run,
+                    rank=callgraph_rank,
+                    include=include,
+                    exclude=exclude,
+                    compact=True,
+                )
             collect(
                 f"Flame chart: {run.display_label}",
                 plot_flame,
@@ -733,6 +940,20 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
                 ranks=ranks,
             )
 
+        likwid_metrics = available_likwid_metrics(runs)
+        if likwid_metrics:
+            metric = likwid_metrics[0]
+            collect(
+                f"LIKWID: {metric}",
+                plot_likwid,
+                payload_dir / "likwid.json",
+                runs,
+                metric=metric,
+                include=include,
+                exclude=exclude,
+                ranks=ranks,
+            )
+
     fragments = []
     chart_documents = []
     for index, (title, payload) in enumerate(charts):
@@ -741,8 +962,10 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
         chart_class = "chart chart-duration" if is_duration_chart else "chart"
         explanation = _chart_description(title, payload)
         fragments.append(
-            f"<h3>{_text(title)}</h3>{explanation}"
-            f'<div class="{chart_class}" id="{chart_id}"></div>'
+            '<details class="chart-panel" open>'
+            '<summary><span class="chart-heading" role="heading" aria-level="3">'
+            f"{_text(title)}</span></summary>{explanation}"
+            f'<div class="{chart_class}" id="{chart_id}"></div></details>'
         )
         chart_documents.append(
             {
@@ -760,11 +983,12 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
         )
     if not charts:
         fragments.append('<p class="muted">No charts could be rendered.</p>')
-        return "<section><h2>Charts</h2>" + "".join(fragments) + "</section>"
+        return '<section id="charts"><h2>Charts</h2>' + "".join(fragments) + "</section>"
 
     # Escape '<' so profile labels such as '</script>' cannot terminate the
-    # inline module. The bundled code and runtime make the document durable
-    # and usable without a network connection.
+    # inline module. The bundled builders and the payloads make the document
+    # durable; whether the Plotly runtime travels with it is the caller's
+    # choice, since inlining it costs ~4.7 MB in every report.
     documents_json = json.dumps(chart_documents, ensure_ascii=False).replace(
         "<", "\\u003c"
     )
@@ -773,10 +997,18 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
         .joinpath("scope-profiler-plotly-0.2.0.js")
         .read_text(encoding="utf-8")
     )
+    if charts_cdn:
+        # The exact version this plotly would have inlined, so a report served
+        # from the CDN draws with the same runtime as one carrying it.
+        runtime = (
+            f'<script src="https://cdn.plot.ly/plotly-{_text(_plotlyjs_version())}'
+            '.min.js" crossorigin="anonymous"></script>'
+        )
+    else:
+        runtime = "<script>" + get_plotlyjs() + "</script>"
     script = (
-        "<script>"
-        + get_plotlyjs()
-        + '</script><script type="module">'
+        runtime
+        + '<script type="module">'
         + plotly_builders
         + "\nconst scopeProfilerCharts = "
         + documents_json
@@ -787,6 +1019,17 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
         # already drawn, so typing does not tear each chart down and rebuild
         # it. The hook is installed by the report's classic script, which runs
         # before this deferred module.
+        # A blocked or offline CDN leaves Plotly undefined. Say that once,
+        # rather than letting every chart report its own confusing TypeError.
+        + "if (!globalThis.Plotly) {\n"
+        + "  for (const chart of scopeProfilerCharts) {\n"
+        + "    const target = document.getElementById(chart.id);\n"
+        + "    target.classList.add('chart-error');\n"
+        + "    target.textContent = 'Charts need Plotly, which this report "
+        + "loads from https://cdn.plot.ly and could not reach. Rebuild "
+        + "without --charts-cdn to embed it.';\n"
+        + "  }\n"
+        + "} else {\n"
         + "const draw = (chart, terms) => {\n"
         + "  const target = document.getElementById(chart.id);\n"
         + "  const options = terms.length\n"
@@ -811,9 +1054,21 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
         + "  });\n"
         + "} else {\n"
         + "  for (const chart of scopeProfilerCharts) draw(chart, []);\n"
-        + "}\n</script>"
+        + "}\n}\n</script>"
     )
-    return "<section><h2>Charts</h2>" + "".join(fragments) + script + "</section>"
+    controls = (
+        '<div class="chart-controls" aria-label="Chart display controls">'
+        '<button type="button" data-chart-action="expand">Expand all charts</button>'
+        '<button type="button" data-chart-action="collapse">Collapse all charts</button>'
+        "</div>"
+    )
+    return (
+        '<section id="charts"><h2>Charts</h2>'
+        + controls
+        + "".join(fragments)
+        + script
+        + '<p class="back-to-top"><a href="#top">Back to top</a></p></section>'
+    )
 
 
 def create_html_report(
@@ -827,6 +1082,7 @@ def create_html_report(
     ranks: list[int] | None = None,
     sort: str = "total",
     columns=None,
+    charts_cdn: bool = False,
     include_charts: bool = True,
 ) -> Path:
     """Write a standalone HTML summary for one or more profiling results."""
@@ -840,10 +1096,17 @@ def create_html_report(
         raise ValueError("At least one profiling result is required.")
 
     sections = []
-    for results in runs:
+    run_links = []
+    for run_index, results in enumerate(runs):
         rows = region_rows(
             results, include=include, exclude=exclude, ranks=ranks, sort=sort
         )
+        section_id = f"run-{run_index}"
+        region_ids = {
+            row["name"]: f"{section_id}-region-{row_index}"
+            for row_index, row in enumerate(rows)
+        }
+        run_links.append((section_id, results.display_label))
         facts = [
             ("File", str(Path(results.file_path).resolve())),
             ("Ranks", results.num_ranks),
@@ -862,24 +1125,47 @@ def create_html_report(
             else ""
         )
         sections.append(
-            f'<section><h2>{_text(results.display_label)}</h2><div class="facts">{facts_html}</div>'
-            f'<div class="overview">{_overview_html(results, rows)}</div>'
-            f"<h3>Region statistics</h3>{_region_table(results, rows, ranks, columns)}"
+            f'<section id="{section_id}"><h2>{_text(results.display_label)}</h2>'
+            f'<div class="facts">{facts_html}</div>'
+            f'<div class="overview">{_overview_html(results, rows, region_ids)}</div>'
+            f"<h3>Region statistics</h3>"
+            f"{_region_table(results, rows, ranks, columns, region_ids)}"
             f"<details><summary>Call tree</summary>"
             f"{_call_tree_html(results, rows, include, exclude, ranks)}</details>"
             f"{line_profile_html}"
-            f"<details><summary>Metadata</summary>{_metadata_table(results.metadata)}</details></section>"
+            f"<details><summary>Metadata</summary>{_metadata_table(results.metadata)}</details>"
+            f'<p class="back-to-top"><a href="#top">Back to top</a></p></section>'
         )
 
-    charts = _chart_sections(runs, include, exclude, ranks) if include_charts else ""
+    hardware = _hardware_sections(runs, include, exclude, ranks)
+    charts = (
+        _chart_sections(runs, include, exclude, ranks, charts_cdn=charts_cdn)
+        if include_charts
+        else ""
+    )
+    navigation_links = [
+        f'<a href="#{_text(section_id)}">{_text(label)}</a>'
+        for section_id, label in run_links
+    ]
+    if hardware:
+        navigation_links.append('<a href="#hardware-counters">Hardware counters</a>')
+    if charts:
+        navigation_links.append('<a href="#charts">Charts</a>')
+    navigation = (
+        '<nav class="toc" aria-label="Report contents"><strong>Contents</strong>'
+        + "".join(navigation_links)
+        + "</nav>"
+    )
     document = (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         "<title>scope-profiler report</title><style>"
         + _STYLE
-        + "</style></head><body><h1>scope-profiler report</h1>"
+        + '</style></head><body><h1 id="top">scope-profiler report</h1>'
+        + navigation
         + _FILTER_BAR
         + "".join(sections)
+        + hardware
         + charts
         + "<script>"
         + _SCRIPT
