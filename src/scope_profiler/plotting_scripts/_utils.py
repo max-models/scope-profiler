@@ -15,7 +15,6 @@ import numpy as np
 from scope_profiler.call_stack import NestingError
 from scope_profiler.results import ProfilingResults
 
-
 PLOT_DATA_FORMAT = "scope-profiler-plot-data"
 PLOT_DATA_FORMAT_VERSION = 1
 

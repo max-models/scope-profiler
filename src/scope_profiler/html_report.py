@@ -636,6 +636,8 @@ def _chart_description(title: str, payload: dict) -> str:
 def _chart_sections(runs, include, exclude, ranks) -> str:
     """Build embedded chart payloads for the bundled browser renderer."""
     try:
+        from plotly.offline import get_plotlyjs
+
         from scope_profiler.plotting_scripts import (
             plot_durations,
             plot_flame,
@@ -643,7 +645,6 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
             plot_gantt,
             plot_rank_heatmap,
         )
-        from plotly.offline import get_plotlyjs
     except ImportError:
         return (
             '<section><h2>Charts</h2><p class="muted">Charts require '

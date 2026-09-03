@@ -1759,9 +1759,9 @@ def test_the_plotly_package_has_a_builder_for_every_exported_kind(tmp_path):
         for path in output_dir.glob("*.json")
     }
     assert written, "the export wrote nothing"
-    assert written <= builders, (
-        f"@scope-profiler/plotly has no builder for {sorted(written - builders)}"
-    )
+    assert (
+        written <= builders
+    ), f"@scope-profiler/plotly has no builder for {sorted(written - builders)}"
 
 
 def test_scaling_exports_share_their_axis_options(tmp_path):
