@@ -253,6 +253,15 @@ The charts are built by the same versioned `@scope-profiler/plotly` code used
 for `export plot-data` on the web. Both that builder and Plotly itself are
 embedded in the report, so opening the file never requires a network connection.
 
+A search box at the top of the report filters which regions are shown, in both
+the statistics tables and the charts at once. It takes a comma-separated list
+of terms, each matched case-insensitively against any part of a region name --
+`solve, exchange` keeps both -- and a term prefixed with `^` is anchored to the
+start, so `^field` keeps `field_energy` but not `apply_field_boundary`. An
+empty box shows everything. This is the same syntax the profiling-data site
+uses, and the charts are refiltered by the builder that drew them rather than
+by a second implementation.
+
 Each run's section opens with a short auto-generated overview -- the
 region that dominates the recorded time, a load-imbalance callout when one
 region's slowest rank is well above the per-rank average, and a note about

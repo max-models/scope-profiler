@@ -64,6 +64,13 @@ th[data-key]::after { content: ""; display: inline-block; width: .6em; }
 th[data-sort-dir="asc"]::after { content: "\\25b4"; }
 th[data-sort-dir="desc"]::after { content: "\\25be"; }
 .spark { display: block; }
+.filter-bar { display: flex; align-items: center; gap: .6rem; margin: 1rem 0 1.5rem; }
+.filter-bar label { font-weight: 600; }
+.region-filter { flex: 1; max-width: 34rem; font: inherit; padding: .4rem .6rem;
+                 border: 1px solid #d1d5db; border-radius: .4rem; }
+.region-filter:focus { border-color: #2563eb; outline: 2px solid #bfdbfe; }
+.filter-count { color: #6b7280; font-size: .9em; white-space: nowrap; }
+.empty-state { color: #6b7280; text-align: center; font-style: italic; }
 .call-tree, .call-tree ul { list-style: none; margin: 0; padding-left: 1.1rem; }
 .call-tree { padding-left: 0; }
 .call-tree > li { margin: .2rem 0; }
@@ -72,6 +79,7 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
 
 @media print {
   body { max-width: 100%; }
+  .filter-bar { display: none; }
   .region-row { cursor: default; }
   tr.region-detail[hidden] { display: table-row !important; }
   details:not([open]) > *:not(summary) { display: block !important; }
@@ -91,6 +99,77 @@ document.querySelectorAll(".region-row").forEach(function (row) {
     if (icon) icon.textContent = opening ? "\\u25be" : "\\u25b8";
   });
 });
+
+// Region filtering, in the same comma-separated syntax the profiling-data
+// site uses: each term is a case-insensitive substring of the region name, "^"
+// anchors a term to the start, and an empty box shows every region. The charts
+// are drawn by a deferred module, which registers through the hook below --
+// classic scripts run first, so the hook is in place by the time it does.
+(function () {
+  var input = document.getElementById("region-filter");
+  var count = document.getElementById("region-filter-count");
+  if (!input) return;
+  var listeners = [];
+
+  function terms() {
+    return input.value
+      .split(",")
+      .map(function (term) { return term.trim().toLowerCase(); })
+      .filter(Boolean);
+  }
+
+  function matches(name, active) {
+    var lowered = String(name == null ? "" : name).toLowerCase();
+    return active.some(function (term) {
+      return term.charAt(0) === "^"
+        ? lowered.indexOf(term.slice(1)) === 0
+        : lowered.indexOf(term) !== -1;
+    });
+  }
+
+  function apply() {
+    var active = terms();
+    var shown = 0;
+    var total = 0;
+    document.querySelectorAll("table.region-stats").forEach(function (table) {
+      var visible = 0;
+      var filterable = 0;
+      Array.prototype.forEach.call(table.tBodies, function (tbody) {
+        var region = tbody.dataset.region;
+        if (region === undefined) return;
+        filterable += 1;
+        var match = !active.length || matches(region, active);
+        tbody.hidden = !match;
+        if (match) visible += 1;
+      });
+      var empty = table.querySelector("tbody.region-empty");
+      if (empty) empty.hidden = !filterable || visible > 0;
+      shown += visible;
+      total += filterable;
+    });
+    if (count) {
+      count.textContent = !active.length || !total
+        ? ""
+        : shown + " of " + total + " region" + (total === 1 ? "" : "s");
+    }
+    listeners.forEach(function (listener) {
+      try { listener(active.slice()); } catch (error) { /* one chart must not stop the rest */ }
+    });
+  }
+
+  // Charts register here to redraw themselves when the filter changes.
+  window.scopeProfilerOnRegionFilter = function (listener) {
+    listeners.push(listener);
+    listener(terms());
+  };
+
+  var timer = null;
+  input.addEventListener("input", function () {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(apply, 150);
+  });
+  apply();
+})();
 
 document.querySelectorAll("table.region-stats").forEach(function (table) {
   var headerRow = table.tHead.rows[0];
@@ -120,6 +199,19 @@ document.querySelectorAll("table.region-stats").forEach(function (table) {
   });
 });
 """
+
+
+_FILTER_BAR = (
+    '<div class="filter-bar">'
+    '<label for="region-filter">Filter regions</label>'
+    '<input id="region-filter" class="region-filter" type="search" autocomplete="off"'
+    ' placeholder="e.g. solve, ^prop:"'
+    ' title="Comma-separated, case-insensitive substring match.'
+    ' Prefix a term with ^ to anchor it to the start of the region name."'
+    ' aria-label="Filter regions">'
+    '<span class="filter-count" id="region-filter-count" aria-live="polite"></span>'
+    "</div>"
+)
 
 
 def _text(value) -> str:
@@ -353,15 +445,26 @@ def _region_table(results, rows, ranks, columns) -> str:
         data_attrs = " ".join(
             f'data-{key}="{_text(sort_value(row, key))}"' for key in keys
         )
+        # The sort keys follow the chosen columns, so the filter gets a hook of
+        # its own rather than depending on "name" being one of them.
+        # The sort keys follow the chosen columns, so the filter gets a hook
+        # of its own rather than depending on "name" being one of them.
+        region_attr = _text(row["name"])
         body_groups.append(
-            f"<tbody {data_attrs}>"
+            f'<tbody data-region="{region_attr}" {data_attrs}>'
             f'<tr class="region-row">{cells}</tr>'
             '<tr class="region-detail" hidden>'
             f'<td colspan="{len(keys) + 1}">{_region_detail_html(region, ranks)}</td>'
             "</tr></tbody>"
         )
     body = "".join(body_groups)
-    if not rows:
+    if rows:
+        body += (
+            '<tbody class="region-empty" hidden><tr>'
+            f'<td colspan="{len(keys) + 1}" class="empty-state">'
+            "No regions match the filter.</td></tr></tbody>"
+        )
+    else:
         body = f'<tbody><tr><td colspan="{len(keys) + 1}">No regions recorded.</td></tr></tbody>'
     return (
         '<table class="region-stats"><thead><tr>'
@@ -486,6 +589,50 @@ def _line_profile_html(results, ranks) -> str:
     return "".join(sections)
 
 
+def _chart_description(title: str, payload: dict) -> str:
+    """Explain how to read one chart in the report."""
+    if title.startswith("Timeline:"):
+        text = (
+            "Each bar is one recorded region call on rank 0. Its position and "
+            "width show when the call started and how long it ran; colors "
+            "identify regions."
+        )
+    elif title == "Region durations":
+        if payload.get("options", {}).get("stack_children"):
+            text = (
+                "Each bar shows a region's total recorded duration. The stacked "
+                "segments divide that time between the region itself and its "
+                "direct child regions."
+            )
+        else:
+            text = (
+                "Grouped bars compare each region's total recorded duration "
+                "across the profiled runs."
+            )
+    elif title == "Rank heatmap":
+        text = (
+            "This heatmap uses exclusive timings. Exclusive duration is the time "
+            "spent in a region itself, excluding time spent in nested child "
+            "regions; this prevents the enclosing session region from dominating "
+            "the heatmap."
+        )
+    elif title.startswith("Flame chart:"):
+        text = (
+            "Each frame is one recorded call on the selected ranks. Frame nesting "
+            "shows parent-child relationships, and width represents inclusive "
+            "duration."
+        )
+    elif title.startswith("Flame graph:"):
+        text = (
+            "Repeated calls with the same call path are combined. Frame nesting "
+            "shows the aggregated call hierarchy, and width represents total "
+            "inclusive duration."
+        )
+    else:
+        return ""
+    return f'<p class="muted">{text}</p>'
+
+
 def _chart_sections(runs, include, exclude, ranks) -> str:
     """Build embedded chart payloads for the bundled browser renderer."""
     try:
@@ -591,14 +738,7 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
         chart_id = f"scope-profiler-chart-{index}"
         is_duration_chart = payload.get("plot") == "durations"
         chart_class = "chart chart-duration" if is_duration_chart else "chart"
-        explanation = ""
-        if title == "Rank heatmap":
-            explanation = (
-                '<p class="muted">This heatmap uses exclusive timings. Exclusive '
-                "duration is the time spent in a region itself, excluding time "
-                "spent in nested child regions; this prevents the enclosing "
-                "session region from dominating the heatmap.</p>"
-            )
+        explanation = _chart_description(title, payload)
         fragments.append(
             f"<h3>{_text(title)}</h3>{explanation}"
             f'<div class="{chart_class}" id="{chart_id}"></div>'
@@ -639,12 +779,37 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
         + plotly_builders
         + "\nconst scopeProfilerCharts = "
         + documents_json
-        + ";\nfor (const chart of scopeProfilerCharts) {\n"
+        + ";\n"
+        # Redraw on every filter change rather than only once: the region
+        # filter is handed to the builders, which decide what a filtered chart
+        # means for their own payload. Plotly.react diffs against what is
+        # already drawn, so typing does not tear each chart down and rebuild
+        # it. The hook is installed by the report's classic script, which runs
+        # before this deferred module.
+        + "const draw = (chart, terms) => {\n"
         + "  const target = document.getElementById(chart.id);\n"
-        + "  try { await renderFigure(globalThis.Plotly, target, "
-        + "buildFigure(chart.payload, chart.options)); }\n"
-        + "  catch (error) { target.classList.add('chart-error'); "
-        + "target.textContent = `Could not render chart: ${error.message}`; }\n"
+        + "  const options = terms.length\n"
+        + "    ? { ...chart.options, filterRegion: (region) => terms.some((term) =>\n"
+        + "        term.startsWith('^')\n"
+        + "          ? String(region).toLowerCase().startsWith(term.slice(1))\n"
+        + "          : String(region).toLowerCase().includes(term)) }\n"
+        + "    : chart.options;\n"
+        + "  try {\n"
+        + "    const figure = buildFigure(chart.payload, options);\n"
+        + "    target.classList.remove('chart-error');\n"
+        + "    return globalThis.Plotly.react(target, figure.data, figure.layout,\n"
+        + "      { responsive: true, displaylogo: false });\n"
+        + "  } catch (error) {\n"
+        + "    target.classList.add('chart-error');\n"
+        + "    target.textContent = `Could not render chart: ${error.message}`;\n"
+        + "  }\n"
+        + "};\n"
+        + "if (typeof globalThis.scopeProfilerOnRegionFilter === 'function') {\n"
+        + "  globalThis.scopeProfilerOnRegionFilter((terms) => {\n"
+        + "    for (const chart of scopeProfilerCharts) draw(chart, terms);\n"
+        + "  });\n"
+        + "} else {\n"
+        + "  for (const chart of scopeProfilerCharts) draw(chart, []);\n"
         + "}\n</script>"
     )
     return "<section><h2>Charts</h2>" + "".join(fragments) + script + "</section>"
@@ -712,6 +877,7 @@ def create_html_report(
         "<title>scope-profiler report</title><style>"
         + _STYLE
         + "</style></head><body><h1>scope-profiler report</h1>"
+        + _FILTER_BAR
         + "".join(sections)
         + charts
         + "<script>"

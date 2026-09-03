@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from scope_profiler.__main__ import main as cli_main
 from scope_profiler.h5reader import read_h5
 from scope_profiler.html_report import create_html_report
@@ -112,6 +114,7 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
                     "format_version": 1,
                     "plot": "durations" if is_durations else "gantt",
                     "bars" if is_durations else "intervals": [],
+                    **({"options": {"stack_children": True}} if is_durations else {}),
                 }
             ),
             encoding="utf-8",
@@ -135,9 +138,17 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
     assert "Flame graph: profile" in document
     assert 'id="scope-profiler-chart-0"' in document
     assert "const scopeProfilerCharts = " in document
-    assert "buildFigure(chart.payload, chart.options)" in document
+    # The per-chart options reach the builder, now by way of the object the
+    # region filter extends with its predicate.
+    assert "buildFigure(chart.payload, options)" in document
+    assert "...chart.options" in document
     assert 'class="chart chart-duration"' in document
     assert '"options": {"layout": {"height": 680}}' in document
+    assert "Each bar is one recorded region call on rank 0." in document
+    assert "Each bar shows a region's total recorded duration." in document
+    assert "This heatmap uses exclusive timings." in document
+    assert "Each frame is one recorded call on the selected ranks." in document
+    assert "Repeated calls with the same call path are combined." in document
     assert "plotly.js" in document
     assert "<script src=" not in document
     assert 'import("https://' not in document
@@ -226,8 +237,20 @@ def test_region_durations_compare_multiple_runs_without_stacking(tmp_path, monke
     def fake_plot(*args, data_filepath, **kwargs):
         if kwargs.get("sort_by") == "total":
             captured.update(kwargs)
+        is_durations = "durations" in Path(data_filepath).name
         Path(data_filepath).write_text(
-            json.dumps({"plot": "gantt", "intervals": []}), encoding="utf-8"
+            json.dumps(
+                {
+                    "plot": "durations" if is_durations else "gantt",
+                    "bars" if is_durations else "intervals": [],
+                    **(
+                        {"options": {"stack_children": kwargs.get("stack_children")}}
+                        if is_durations
+                        else {}
+                    ),
+                }
+            ),
+            encoding="utf-8",
         )
 
     monkeypatch.setattr(plotting_scripts, "plot_gantt", fake_plot)
@@ -239,6 +262,9 @@ def test_region_durations_compare_multiple_runs_without_stacking(tmp_path, monke
     create_html_report(profiles, report)
 
     assert captured["stack_children"] is False
+    assert "Grouped bars compare each region's total recorded duration" in (
+        report.read_text(encoding="utf-8")
+    )
 
 
 def test_report_escapes_profile_text_inside_embedded_chart_json(tmp_path):
@@ -334,6 +360,72 @@ def test_report_region_table_headers_are_sortable_and_show_a_trend_column(tmp_pa
     assert '<th data-key="total">' in document
     assert 'data-total="' in document
     assert '<svg class="spark"' in document
+
+
+def test_report_region_filter_targets_every_region_row(tmp_path):
+    """The filter hangs off `data-region`, not the chosen sort columns.
+
+    `--columns` decides which `data-<key>` attributes a row carries, so the
+    filter would stop working for anyone who drops the name column.
+    """
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    _write_sample_h5(
+        profile,
+        {0: {"solve": ([0, 5], [1, 7]), "setup": ([10], [12])}},
+    )
+
+    cli_main(
+        [
+            "report",
+            str(profile),
+            "-o",
+            str(report),
+            "--no-charts",
+            "--columns",
+            "total",
+        ]
+    )
+
+    document = report.read_text(encoding="utf-8")
+    assert 'id="region-filter"' in document
+    assert 'data-region="solve"' in document
+    assert 'data-region="setup"' in document
+    assert 'data-name="' not in document
+    # A filter that matches nothing needs something to say so.
+    assert 'class="region-empty"' in document
+    assert "No regions match the filter." in document
+    assert "scopeProfilerOnRegionFilter" in document
+
+
+def test_report_region_filter_drives_the_charts_too(tmp_path):
+    """The chart module redraws through the same box the tables listen to."""
+    pytest.importorskip("plotly")
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    _write_sample_h5(profile, {0: {"solve": ([0, 5], [1, 7])}})
+
+    cli_main(["report", str(profile), "-o", str(report)])
+
+    document = report.read_text(encoding="utf-8")
+    # Registered against the hook, redrawing with the package's own option
+    # rather than a second filtering implementation.
+    assert "globalThis.scopeProfilerOnRegionFilter" in document
+    assert "filterRegion:" in document
+    # react(), not newPlot(): typing must not tear every chart down.
+    assert "Plotly.react(" in document
+
+
+def test_report_escapes_a_region_name_in_the_filter_hook(tmp_path):
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    _write_sample_h5(profile, {0: {'sol"><script>ve': ([0], [1])}})
+
+    cli_main(["report", str(profile), "-o", str(report), "--no-charts"])
+
+    document = report.read_text(encoding="utf-8")
+    assert "<script>ve" not in document
+    assert 'data-region="sol&quot;&gt;&lt;script&gt;ve"' in document
 
 
 def test_report_call_tree_shows_region_nesting(tmp_path):
