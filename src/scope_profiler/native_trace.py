@@ -3,8 +3,8 @@
 The C and Fortran modules shipped in ``scope_profiler/c/`` and
 ``scope_profiler/fortran/`` record regions with no HDF5 and no Python
 involved, and dump one small binary file per rank at ``sp_finalize()``. Both
-write the *same* format, so a program built from either -- or both -- lands in
-one profile. This module turns those files into the same
+write a *compatible* format, so a program built from either -- or both --
+lands in one profile. This module turns those files into the same
 :class:`~scope_profiler.results.ProfilingResults` -- and the same HDF5 layout
 -- a Python run produces, so a Fortran run gets the whole post-processing
 stack (summaries, plots, exporters, ``plot``) for free.
@@ -12,15 +12,25 @@ stack (summaries, plots, exporters, ``plot``) for free.
 Trace layout, little- or big-endian, as written by ``sp_finalize``::
 
     char[8]   "SCOPEPRF"
-    int32     format version (1)
+    int32     format version (1 or 2)
     int32     rank
     int64     number of regions
     per region:
         int32     length of the name in bytes
         char[]    name
+        -- version 2 only --
+        int32     length of the source file path in bytes (0 if unknown)
+        char[]    source file path
+        int32     source line (-1 if unknown)
+        -- end version 2 only --
         int64     number of calls
         int64[]   start timestamps, nanoseconds
         int64[]   end timestamps, nanoseconds
+
+Version 1 is what the Fortran API writes, and what older C releases wrote: no
+per-region source location. Version 2 is the current C API, which can attach
+one via ``sp_region_at()``. Both are readable, per file, so a mixed C/Fortran
+run merges normally.
 
 The timestamps come from the same clock as :func:`time.perf_counter_ns`, so
 Fortran and Python regions from one process tree share a timeline.
@@ -86,8 +96,14 @@ def c_include_dir() -> Path:
 MAGIC = b"SCOPEPRF"
 """First eight bytes of every trace file."""
 
-FORMAT_VERSION = 1
-"""Layout this module reads; ``sp_finalize`` writes the same number."""
+FORMAT_VERSION = 2
+"""Newest layout this module writes metadata for; ``sp_finalize`` writes the
+same number. Version 1 (written by the Fortran API, and by older C releases)
+has no per-region source location; version 2 (the C API) adds one. Both are
+readable -- see :func:`read_trace`."""
+
+KNOWN_FORMAT_VERSIONS = (1, 2)
+"""Trace format versions this reader accepts."""
 
 TRACE_SUFFIX = ".spt"
 """Extension ``sp_finalize`` gives its output."""
@@ -99,21 +115,52 @@ class TraceFormatError(ValueError):
     """A file is not a scope-profiler Fortran trace, or is truncated."""
 
 
-def _byte_order(buffer: bytes, path) -> str:
-    """Return ``"<"`` or ``">"`` for the endianness the file was written with.
+class _RegionTrace:
+    """Unpacks as ``(start_times, end_times)``, with the region's source
+    location (if any) attached as extra attributes -- so existing
+    ``starts, ends = regions[name]`` call sites keep working unchanged
+    whether or not the trace carried source information.
+    """
+
+    __slots__ = ("end_times", "source_file", "source_lineno", "start_times")
+
+    def __init__(
+        self,
+        start_times: np.ndarray,
+        end_times: np.ndarray,
+        source_file: str | None = None,
+        source_lineno: int | None = None,
+    ):
+        self.start_times = start_times
+        self.end_times = end_times
+        self.source_file = source_file
+        self.source_lineno = source_lineno
+
+    def __iter__(self):
+        return iter((self.start_times, self.end_times))
+
+    def __len__(self) -> int:
+        return 2
+
+    def __getitem__(self, index):
+        return (self.start_times, self.end_times)[index]
+
+
+def _byte_order(buffer: bytes, path) -> tuple[str, int]:
+    """Return ``("<" or ">", version)`` for the file's endianness and format.
 
     The magic is byte-order agnostic, so the version field decides: exactly
-    one interpretation of it is the version we know.
+    one interpretation of it is a version we know.
     """
     for order in ("<", ">"):
         (version,) = np.frombuffer(buffer, dtype=f"{order}i4", count=1, offset=8)
-        if version == FORMAT_VERSION:
-            return order
+        if int(version) in KNOWN_FORMAT_VERSIONS:
+            return order, int(version)
 
     (little,) = np.frombuffer(buffer, dtype="<i4", count=1, offset=8)
     raise TraceFormatError(
         f"{path}: unsupported trace format version {int(little)} "
-        f"(this scope-profiler reads version {FORMAT_VERSION})",
+        f"(this scope-profiler reads versions {KNOWN_FORMAT_VERSIONS})",
     )
 
 
@@ -131,6 +178,9 @@ def read_trace(path) -> tuple:
         ``(rank, regions)``, where ``regions`` maps a region name to
         ``(start_times, end_times)`` int64 arrays in nanoseconds -- exactly the
         shape :class:`~scope_profiler.profile_manager.RankPayload` carries.
+        Each value also carries ``.source_file`` / ``.source_lineno``
+        attributes (both None on a version-1 trace, or a region registered
+        without ``sp_region_at()``), without changing how it unpacks.
 
     Raises
     ------
@@ -149,7 +199,7 @@ def read_trace(path) -> tuple:
             f"(expected {MAGIC!r}, found {buffer[:8]!r})",
         )
 
-    order = _byte_order(buffer, path)
+    order, version = _byte_order(buffer, path)
     i4 = np.dtype(f"{order}i4")
     i8 = np.dtype(f"{order}i8")
 
@@ -165,6 +215,22 @@ def read_trace(path) -> tuple:
             offset += 4
             name = buffer[offset : offset + int(name_len)].decode("utf-8")
             offset += int(name_len)
+
+            source_file = None
+            source_lineno = None
+            if version >= 2:
+                (source_len,) = np.frombuffer(buffer, dtype=i4, count=1, offset=offset)
+                offset += 4
+                if int(source_len):
+                    source_file = buffer[offset : offset + int(source_len)].decode(
+                        "utf-8"
+                    )
+                offset += int(source_len)
+                (source_line,) = np.frombuffer(buffer, dtype=i4, count=1, offset=offset)
+                offset += 4
+                if int(source_line) >= 0:
+                    source_lineno = int(source_line)
+
             (num_calls,) = np.frombuffer(buffer, dtype=i8, count=1, offset=offset)
             offset += 8
             count = int(num_calls)
@@ -177,9 +243,11 @@ def read_trace(path) -> tuple:
 
         # Copy out of the read-only buffer, and normalize to native int64 so
         # everything downstream sees the same dtype a Python run produces.
-        regions[name] = (
+        regions[name] = _RegionTrace(
             np.ascontiguousarray(starts, dtype=np.int64),
             np.ascontiguousarray(ends, dtype=np.int64),
+            source_file=source_file,
+            source_lineno=source_lineno,
         )
 
     if offset != len(buffer):
@@ -265,8 +333,14 @@ def load_traces(inputs, label: str | None = None):
                 f"pass the MPI rank to sp_init() so each rank writes its own",
             )
         seen_ranks[rank] = path
-        for name, (starts, ends) in regions.items():
-            per_region.setdefault(name, {})[rank] = Region(starts, ends)
+        for name, region_trace in regions.items():
+            starts, ends = region_trace
+            per_region.setdefault(name, {})[rank] = Region(
+                starts,
+                ends,
+                source_file=region_trace.source_file,
+                source_lineno=region_trace.source_lineno,
+            )
             if starts.size:
                 first = int(starts[0])
                 earliest = first if earliest is None else min(earliest, first)
