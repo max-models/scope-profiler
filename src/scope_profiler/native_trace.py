@@ -222,7 +222,9 @@ def read_trace(path) -> tuple:
                 (source_len,) = np.frombuffer(buffer, dtype=i4, count=1, offset=offset)
                 offset += 4
                 if int(source_len):
-                    source_file = buffer[offset : offset + int(source_len)].decode("utf-8")
+                    source_file = buffer[offset : offset + int(source_len)].decode(
+                        "utf-8"
+                    )
                 offset += int(source_len)
                 (source_line,) = np.frombuffer(buffer, dtype=i4, count=1, offset=offset)
                 offset += 4
