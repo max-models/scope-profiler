@@ -137,7 +137,7 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
     assert "const scopeProfilerCharts = " in document
     assert "buildFigure(chart.payload, chart.options)" in document
     assert 'class="chart chart-duration"' in document
-    assert '"options": {"layout": {"height": 320}}' in document
+    assert '"options": {"layout": {"height": 680}}' in document
     assert "plotly.js" in document
     assert "<script src=" not in document
     assert 'import("https://' not in document

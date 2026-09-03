@@ -30,7 +30,7 @@ body { color: #1f2937; font: 15px/1.45 system-ui, sans-serif; margin: 2rem auto;
        max-width: 1100px; padding: 0 1rem; }
 h1, h2, h3 { color: #111827; } section { margin: 2rem 0; }
 .chart { min-height: 360px; margin: 1rem 0 2rem; }
-.chart-duration { min-height: 320px; }
+.chart-duration { min-height: 680px; }
 .chart-error { color: #b91c1c; padding: 1rem; }
 .facts { display: flex; flex-wrap: wrap; gap: .75rem; }
 .fact { background: #f3f4f6; border-radius: .4rem; padding: .5rem .75rem; }
@@ -607,7 +607,7 @@ def _chart_sections(runs, include, exclude, ranks) -> str:
             {
                 "id": chart_id,
                 "payload": payload,
-                "options": {"layout": {"height": 320}} if is_duration_chart else {},
+                "options": {"layout": {"height": 680}} if is_duration_chart else {},
             }
         )
 
