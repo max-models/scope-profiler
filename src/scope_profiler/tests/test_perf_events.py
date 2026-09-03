@@ -42,10 +42,14 @@ def test_direct_group_opens_reads_and_closes_counters(monkeypatch):
     closed = []
     monkeypatch.setattr(perf, "_open_event", lambda *args: next(opened))
     monkeypatch.setattr(
-        perf, "_ioctl", lambda fd, request: ioctls.append((fd, request))
+        perf,
+        "_ioctl",
+        lambda fd, request: ioctls.append((fd, request)),
     )
     monkeypatch.setattr(
-        perf.os, "read", lambda fd, size: (fd * 10).to_bytes(8, "little")
+        perf.os,
+        "read",
+        lambda fd, size: (fd * 10).to_bytes(8, "little"),
     )
     monkeypatch.setattr(perf.os, "close", closed.append)
 
@@ -66,7 +70,9 @@ def test_optional_group_reports_partial_read_and_disables():
 
         def read(self):
             return SimpleNamespace(
-                measurements=[10, 20], time_enabled_ns=10, time_running_ns=5
+                measurements=[10, 20],
+                time_enabled_ns=10,
+                time_running_ns=5,
             )
 
         def disable(self):
@@ -87,7 +93,9 @@ def test_optional_group_returns_complete_read(monkeypatch):
 
         def read(self):
             return SimpleNamespace(
-                measurements=[10, 20], time_enabled_ns=5, time_running_ns=5
+                measurements=[10, 20],
+                time_enabled_ns=5,
+                time_running_ns=5,
             )
 
         def disable(self):
@@ -103,7 +111,9 @@ def test_group_cleans_up_if_direct_open_or_optional_enable_fails(monkeypatch):
     monkeypatch.setattr(perf, "_make_py_perf_measure", lambda events: None)
     monkeypatch.setattr(perf, "_open_event", lambda *args: 10)
     monkeypatch.setattr(
-        perf, "_ioctl", lambda *args: (_ for _ in ()).throw(OSError("bad"))
+        perf,
+        "_ioctl",
+        lambda *args: (_ for _ in ()).throw(OSError("bad")),
     )
     closed = []
     monkeypatch.setattr(perf.os, "close", closed.append)
@@ -195,7 +205,8 @@ def test_open_success_and_close_optional_measure(monkeypatch):
 
 def test_optional_permission_error_has_kernel_policy_hint():
     error = perf._py_perf_error(
-        "create", RuntimeError("Permission denied (os error 13)")
+        "create",
+        RuntimeError("Permission denied (os error 13)"),
     )
     assert "perf_event_paranoid" in str(error)
 
@@ -237,7 +248,7 @@ def test_perf_event_summary_tables_filter_and_format_counts():
             0: {
                 "keep": perf.PerfEventTotals(2, {"cycles": 1234, "instructions": 9}),
                 "skip": perf.PerfEventTotals(1, {"cycles": 8}),
-            }
+            },
         },
     )
     tables = perf_event_tables(results, include="keep")

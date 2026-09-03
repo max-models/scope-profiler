@@ -177,7 +177,7 @@ def test_the_header_is_usable_from_cxx(tmp_path):
         "    sp_begin(id);\n"
         "    sp_end(id);\n"
         "    return sp_finalize();\n"
-        "}\n"
+        "}\n",
     )
     object_file = tmp_path / "sp.o"
     subprocess.run(
@@ -546,7 +546,7 @@ def test_the_shipped_example_builds_and_runs(tmp_path):
     run(executable, tmp_path)
     results = load_traces(tmp_path)
     assert {"solve", "assemble", "checkpoint", "fibonacci", "fib_call"} <= set(
-        results.region_names
+        results.region_names,
     )
     assert results["solve"].num_calls == 20
 
@@ -597,7 +597,7 @@ def test_the_examples_directory_still_builds_and_runs(tmp_path):
         **os.environ,
         "MAKEFLAGS": "",
         "PYTHONPATH": os.pathsep.join(
-            [source_root, os.environ.get("PYTHONPATH", "")]
+            [source_root, os.environ.get("PYTHONPATH", "")],
         ).strip(os.pathsep),
     }
     result = subprocess.run(

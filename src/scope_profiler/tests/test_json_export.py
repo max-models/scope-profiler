@@ -53,7 +53,8 @@ def _assert_same_run(expected, actual):
             assert np.array_equal(other.start_times_ns, region.start_times_ns)
             assert np.array_equal(other.end_times_ns, region.end_times_ns)
             assert np.array_equal(
-                other.exclusive_durations_ns, region.exclusive_durations_ns
+                other.exclusive_durations_ns,
+                region.exclusive_durations_ns,
             )
             assert other.source_file == region.source_file
             assert other.source_lineno == region.source_lineno
@@ -205,8 +206,8 @@ def _likwid_results(tmp_path, metrics):
                     metric_names=["Runtime (RDTSC) [s]", "CPI"],
                     metrics=np.asarray(metrics, dtype=float),
                     source="full_api",
-                )
-            }
+                ),
+            },
         },
         line_profile={
             0: [
@@ -219,8 +220,8 @@ def _likwid_results(tmp_path, metrics):
                     "hits": np.array([1, 5]),
                     "times": np.array([1.5, 2.5]),
                     "unit": 1e-06,
-                }
-            ]
+                },
+            ],
         },
         file_path=tmp_path / "likwid.h5",
     )
@@ -406,7 +407,7 @@ def test_export_json_subcommand_can_gzip_and_indent(tmp_path):
             "--gzip",
             "--indent",
             "2",
-        ]
+        ],
     )
 
     written = tmp_path / "out" / "profile.json.gz"
@@ -489,7 +490,7 @@ def test_rank_filter_reaches_every_per_rank_table(tmp_path):
     per_rank._line_profile[1] = per_rank._line_profile[0] = []
 
     document = json.loads(
-        write_json(per_rank, tmp_path / "p.json", ranks=[0]).read_text()
+        write_json(per_rank, tmp_path / "p.json", ranks=[0]).read_text(),
     )
 
     assert {row["rank"] for row in document["regions"]} == {0}
@@ -513,8 +514,8 @@ def test_empty_counter_matrices_round_trip(tmp_path):
                     source="marker_file",
                     events=np.zeros(0),
                     metrics=np.zeros(0),
-                )
-            }
+                ),
+            },
         },
         file_path=tmp_path / "likwid.h5",
     )

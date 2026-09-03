@@ -109,17 +109,12 @@ def plot_flame_chart(
                             "end_seconds": call["end"],
                             "inclusive_duration_seconds": call["inclusive_duration"],
                             "exclusive_duration_seconds": call["exclusive_duration"],
-                        }
+                        },
                     )
             _write_json(
                 data_filepath,
-                {
-                    "format": "scope-profiler-plot-data",
-                    "format_version": 1,
-                    "plot": "flame",
-                    "calls": call_records,
-                    "colors": colors,
-                },
+                {"calls": call_records, "colors": colors},
+                plot="flame",
             )
         else:
             rows = []
@@ -140,7 +135,7 @@ def plot_flame_chart(
                             call["end"],
                             call["inclusive_duration"],
                             call["exclusive_duration"],
-                        ]
+                        ],
                     )
             _write_csv(
                 data_filepath,
@@ -167,7 +162,7 @@ def plot_flame_chart(
             "Plotting flame chart for: "
             + ", ".join(
                 f"{run.display_label} (rank {rank})" for run, rank, _ in prepared
-            )
+            ),
         )
     _print_interactive_backend_hint(backend, verbose)
 
@@ -241,7 +236,7 @@ def plot_flame_chart(
                         run.get_region(call["name"])[rank],
                         title=f"{call['name']} (rank {rank})",
                         extra=extra,
-                    )
+                    ),
                 )
 
         canvas.flame_chart(
@@ -303,7 +298,7 @@ def plot_flame_chart(
                     name=name,
                     showlegend=True,
                     hoverinfo="skip",
-                )
+                ),
             )
         fig.update_layout(
             bargap=0,
@@ -384,7 +379,7 @@ def _aggregate_flame_calls(calls: list[dict]) -> list[dict]:
                 "source_file": node["source_file"],
                 "source_lineno": node["source_lineno"],
                 "color": node["color"],
-            }
+            },
         )
     return aggregated
 
@@ -453,7 +448,7 @@ def plot_flame_graph(
             for call in calls
         ]
         if data_format == "json":
-            _write_json(data_filepath, {"calls": rows})
+            _write_json(data_filepath, {"calls": rows}, plot="flame_graph")
         else:
             headers = [
                 "file",
@@ -469,14 +464,16 @@ def plot_flame_graph(
                 "exclusive_duration_seconds",
             ]
             _write_csv(
-                data_filepath, headers, [[row[key] for key in headers] for row in rows]
+                data_filepath,
+                headers,
+                [[row[key] for key in headers] for row in rows],
             )
     if verbose:
         print(
             "Plotting flame graph for: "
             + ", ".join(
                 f"{run.display_label} (rank {rank})" for run, rank, _ in prepared
-            )
+            ),
         )
     _print_interactive_backend_hint(backend, verbose)
 

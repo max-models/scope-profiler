@@ -144,7 +144,7 @@ def _report(label, measured_ns, budget_ns):
     headroom = budget_ns / measured_ns if measured_ns > 0 else math.inf
     print(
         f"  {label:<34s} {measured_ns:8.0f} ns   "
-        f"(budget {budget_ns:>6d} ns, {headroom:5.1f}x headroom)"
+        f"(budget {budget_ns:>6d} ns, {headroom:5.1f}x headroom)",
     )
 
 
@@ -161,7 +161,7 @@ def overhead_summary():
         headroom = measured_ns and budget_ns / measured_ns
         print(
             f"{label:<{width}s}  {measured_ns:8.0f} ns   "
-            f"budget {budget_ns:>6d} ns   {headroom:5.1f}x headroom"
+            f"budget {budget_ns:>6d} ns   {headroom:5.1f}x headroom",
         )
     print("-" * (width + 46))
 
@@ -302,7 +302,9 @@ def test_source_capture_is_a_one_time_per_name_cost(configure):
     # other repeated call.
     overhead = _overhead_ns(create_regions, _empty_loop, iterations=names, repeats=1)
     _report(
-        "region creation + source capture [time]", overhead, SOURCE_CAPTURE_BUDGET_NS
+        "region creation + source capture [time]",
+        overhead,
+        SOURCE_CAPTURE_BUDGET_NS,
     )
 
     assert overhead < SOURCE_CAPTURE_BUDGET_NS, (
@@ -317,7 +319,9 @@ def test_source_capture_is_a_one_time_per_name_cost(configure):
     # nothing in the region-resolution path re-touches the source.
     repeat_overhead = _overhead_ns(create_regions, _empty_loop)
     _report(
-        "repeated calls after source capture [time]", repeat_overhead, BUDGET_NS["time"]
+        "repeated calls after source capture [time]",
+        repeat_overhead,
+        BUDGET_NS["time"],
     )
     assert repeat_overhead < BUDGET_NS["time"]
 
@@ -395,7 +399,7 @@ def test_recording_is_two_int64_per_call(configure):
         f"  {'memory for ' + str(calls) + ' calls':<34s} "
         f"{recorded_bytes / 1024:8.1f} KiB  "
         f"({recorded_bytes / calls:.0f} B/call allocated, "
-        f"{BYTES_PER_EVENT} B/call recorded)"
+        f"{BYTES_PER_EVENT} B/call recorded)",
     )
     # Capacity doubles, so the buffers hold at most twice the recorded calls.
     assert recorded_bytes <= 2 * calls * BYTES_PER_EVENT
@@ -454,8 +458,8 @@ def test_measured_duration_matches_wall_clock(configure):
         recorded = int(
             np.sum(
                 region.end_times[start_ptr : start_ptr + calls]
-                - region.start_times[start_ptr : start_ptr + calls]
-            )
+                - region.start_times[start_ptr : start_ptr + calls],
+            ),
         )
         wall = outer_end - outer_start
         # Recorded time can never exceed the wall clock it happened in.

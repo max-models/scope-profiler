@@ -28,10 +28,12 @@ def _write_sample_h5(path, rank_regions, label=None):
                 region_group = regions_group.create_group(region_name)
                 starts, ends = payload
                 region_group.create_dataset(
-                    "start_times", data=np.asarray(starts, dtype=np.int64)
+                    "start_times",
+                    data=np.asarray(starts, dtype=np.int64),
                 )
                 region_group.create_dataset(
-                    "end_times", data=np.asarray(ends, dtype=np.int64)
+                    "end_times",
+                    data=np.asarray(ends, dtype=np.int64),
                 )
 
 
@@ -61,7 +63,7 @@ def file_b(tmp_path):
                 "setup": ([0], [1 * NS]),
                 "solve": ([1 * NS, 5 * NS], [4 * NS, 8 * NS]),
                 "teardown": ([0], [2 * NS]),
-            }
+            },
         },
         label="candidate",
     )
@@ -181,7 +183,9 @@ def test_diff_files_prints_table(file_a, file_b, capsys):
 
 
 def test_diff_files_uses_summary_reader_for_scalar_metrics(
-    tmp_path, monkeypatch, capsys
+    tmp_path,
+    monkeypatch,
+    capsys,
 ):
     from scope_profiler.h5writer import ProfilingWriter
     from scope_profiler.profile_manager import RankPayload
@@ -194,7 +198,7 @@ def test_diff_files_uses_summary_reader_for_scalar_metrics(
                 "solve": (
                     np.asarray([0], dtype=np.int64),
                     np.asarray([duration], dtype=np.int64),
-                )
+                ),
             },
             likwid={},
             likwid_environment={},

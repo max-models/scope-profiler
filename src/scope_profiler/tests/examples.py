@@ -23,7 +23,8 @@ def fibonacci_context_manager(n, region_name="fibonacci_ctx"):
         if n < 2:
             return n
         return fibonacci_context_manager(
-            n - 1, region_name
+            n - 1,
+            region_name,
         ) + fibonacci_context_manager(n - 2, region_name)
 
 

@@ -151,7 +151,10 @@ def _spawn_worker(path):
     """Body of a spawned worker; importable by name, as spawn requires."""
     manager = ProfileManager()
     with manager.session(
-        track_threads=True, verbose=False, file_path=path, return_results=True
+        track_threads=True,
+        verbose=False,
+        file_path=path,
+        return_results=True,
     ) as run:
 
         def work():

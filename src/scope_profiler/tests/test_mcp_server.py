@@ -44,10 +44,12 @@ def _write_sample_h5(path, rank_regions, metadata=None):
                 region_group = regions_group.create_group(region_name)
                 starts, ends = payload
                 region_group.create_dataset(
-                    "start_times", data=np.asarray(starts, dtype=np.int64)
+                    "start_times",
+                    data=np.asarray(starts, dtype=np.int64),
                 )
                 region_group.create_dataset(
-                    "end_times", data=np.asarray(ends, dtype=np.int64)
+                    "end_times",
+                    data=np.asarray(ends, dtype=np.int64),
                 )
 
 
@@ -135,7 +137,7 @@ class TestInspectProfileTool:
         server = create_server()
 
         result = _run(
-            server.call_tool("inspect_profile", {"file_path": str(sample_file)})
+            server.call_tool("inspect_profile", {"file_path": str(sample_file)}),
         )
         payload = _tool_json(result)
 
@@ -149,8 +151,9 @@ class TestInspectProfileTool:
         with pytest.raises(Exception, match="not found"):
             _run(
                 server.call_tool(
-                    "inspect_profile", {"file_path": str(tmp_path / "missing.h5")}
-                )
+                    "inspect_profile",
+                    {"file_path": str(tmp_path / "missing.h5")},
+                ),
             )
 
 
@@ -163,7 +166,7 @@ class TestCompareProfilesTool:
                 0: {
                     "setup": ([0], [1 * NS]),
                     "solve": ([1 * NS, 2 * NS], [2 * NS, 3 * NS]),
-                }
+                },
             },
             metadata={"start_time_ns": 0, "finalize_time_ns": 3 * NS},
         )
@@ -173,7 +176,7 @@ class TestCompareProfilesTool:
             server.call_tool(
                 "compare_profiles",
                 {"baseline_path": str(sample_file), "candidate_path": str(candidate)},
-            )
+            ),
         )
         payload = _tool_json(result)
 

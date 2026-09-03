@@ -1,0 +1,512 @@
+{
+  "format": "scope-profiler-plot-data",
+  "format_version": 1,
+  "plot": "timeseries",
+  "points": [
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "call_index": 0,
+      "time_seconds": 0.0,
+      "mean_duration_seconds": 0.0044800000000000005,
+      "min_duration_seconds": 0.004,
+      "max_duration_seconds": 0.00496,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "call_index": 0,
+      "time_seconds": 0.00548,
+      "mean_duration_seconds": 0.01008,
+      "min_duration_seconds": 0.009,
+      "max_duration_seconds": 0.01116,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "call_index": 1,
+      "time_seconds": 0.016560000000000002,
+      "mean_duration_seconds": 0.01035,
+      "min_duration_seconds": 0.00927,
+      "max_duration_seconds": 0.01143,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "call_index": 2,
+      "time_seconds": 0.02791,
+      "mean_duration_seconds": 0.01062,
+      "min_duration_seconds": 0.00954,
+      "max_duration_seconds": 0.0117,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "call_index": 3,
+      "time_seconds": 0.03953,
+      "mean_duration_seconds": 0.010889999999999999,
+      "min_duration_seconds": 0.00981,
+      "max_duration_seconds": 0.01197,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "call_index": 4,
+      "time_seconds": 0.05142,
+      "mean_duration_seconds": 0.011159999666666668,
+      "min_duration_seconds": 0.01008,
+      "max_duration_seconds": 0.012239999,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "call_index": 5,
+      "time_seconds": 0.06357999966666666,
+      "mean_duration_seconds": 0.011430000000000001,
+      "min_duration_seconds": 0.01035,
+      "max_duration_seconds": 0.01251,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "call_index": 6,
+      "time_seconds": 0.07600999966666666,
+      "mean_duration_seconds": 0.0117,
+      "min_duration_seconds": 0.01062,
+      "max_duration_seconds": 0.01278,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "call_index": 7,
+      "time_seconds": 0.08870999966666666,
+      "mean_duration_seconds": 0.01197,
+      "min_duration_seconds": 0.01089,
+      "max_duration_seconds": 0.01305,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "call_index": 8,
+      "time_seconds": 0.10167999966666667,
+      "mean_duration_seconds": 0.01224,
+      "min_duration_seconds": 0.01116,
+      "max_duration_seconds": 0.01332,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "call_index": 9,
+      "time_seconds": 0.11491999966666666,
+      "mean_duration_seconds": 0.01251,
+      "min_duration_seconds": 0.01143,
+      "max_duration_seconds": 0.01359,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "call_index": 10,
+      "time_seconds": 0.12842999966666666,
+      "mean_duration_seconds": 0.01278,
+      "min_duration_seconds": 0.0117,
+      "max_duration_seconds": 0.01386,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "call_index": 11,
+      "time_seconds": 0.14220999966666667,
+      "mean_duration_seconds": 0.013049999666666668,
+      "min_duration_seconds": 0.01197,
+      "max_duration_seconds": 0.014129999,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "call_index": 0,
+      "time_seconds": 0.15625999933333334,
+      "mean_duration_seconds": 0.0028,
+      "min_duration_seconds": 0.0025,
+      "max_duration_seconds": 0.0031,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "call_index": 1,
+      "time_seconds": 0.16005999933333334,
+      "mean_duration_seconds": 0.0028750000000000004,
+      "min_duration_seconds": 0.002575,
+      "max_duration_seconds": 0.003175,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "call_index": 2,
+      "time_seconds": 0.16393499933333333,
+      "mean_duration_seconds": 0.00295,
+      "min_duration_seconds": 0.00265,
+      "max_duration_seconds": 0.00325,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "call_index": 3,
+      "time_seconds": 0.16788499933333334,
+      "mean_duration_seconds": 0.003025,
+      "min_duration_seconds": 0.002725,
+      "max_duration_seconds": 0.003325,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "call_index": 4,
+      "time_seconds": 0.17190999933333337,
+      "mean_duration_seconds": 0.0030999996666666667,
+      "min_duration_seconds": 0.0028,
+      "max_duration_seconds": 0.003399999,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "call_index": 5,
+      "time_seconds": 0.176009999,
+      "mean_duration_seconds": 0.0031749996666666663,
+      "min_duration_seconds": 0.002875,
+      "max_duration_seconds": 0.003474999,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "call_index": 6,
+      "time_seconds": 0.18018499866666668,
+      "mean_duration_seconds": 0.00325,
+      "min_duration_seconds": 0.00295,
+      "max_duration_seconds": 0.00355,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "call_index": 7,
+      "time_seconds": 0.18443499866666666,
+      "mean_duration_seconds": 0.003325,
+      "min_duration_seconds": 0.003025,
+      "max_duration_seconds": 0.003625,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "call_index": 8,
+      "time_seconds": 0.18875999866666668,
+      "mean_duration_seconds": 0.0034000000000000002,
+      "min_duration_seconds": 0.0031,
+      "max_duration_seconds": 0.0037,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "call_index": 9,
+      "time_seconds": 0.19315999866666667,
+      "mean_duration_seconds": 0.0034750000000000002,
+      "min_duration_seconds": 0.003175,
+      "max_duration_seconds": 0.003775,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "call_index": 10,
+      "time_seconds": 0.19763499866666667,
+      "mean_duration_seconds": 0.0035499999999999998,
+      "min_duration_seconds": 0.00325,
+      "max_duration_seconds": 0.00385,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "call_index": 11,
+      "time_seconds": 0.2021849986666667,
+      "mean_duration_seconds": 0.0036249996666666666,
+      "min_duration_seconds": 0.003325,
+      "max_duration_seconds": 0.003924999,
+      "num_ranks": 3
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "call_index": 0,
+      "time_seconds": 0.0,
+      "mean_duration_seconds": 0.002859999833333333,
+      "min_duration_seconds": 0.0022,
+      "max_duration_seconds": 0.00352,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "call_index": 0,
+      "time_seconds": 0.0038599998333333336,
+      "mean_duration_seconds": 0.006434999833333333,
+      "min_duration_seconds": 0.00495,
+      "max_duration_seconds": 0.00792,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "call_index": 1,
+      "time_seconds": 0.011294999666666666,
+      "mean_duration_seconds": 0.006583499833333333,
+      "min_duration_seconds": 0.0050985,
+      "max_duration_seconds": 0.0080685,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "call_index": 2,
+      "time_seconds": 0.0188784995,
+      "mean_duration_seconds": 0.006732000000000001,
+      "min_duration_seconds": 0.005247,
+      "max_duration_seconds": 0.008217,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "call_index": 3,
+      "time_seconds": 0.0266104995,
+      "mean_duration_seconds": 0.006880499999999999,
+      "min_duration_seconds": 0.0053955,
+      "max_duration_seconds": 0.0083655,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "call_index": 4,
+      "time_seconds": 0.0344909995,
+      "mean_duration_seconds": 0.007028999833333333,
+      "min_duration_seconds": 0.005544,
+      "max_duration_seconds": 0.008514,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "call_index": 5,
+      "time_seconds": 0.042519999333333336,
+      "mean_duration_seconds": 0.007177499500000001,
+      "min_duration_seconds": 0.0056925,
+      "max_duration_seconds": 0.0086625,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "call_index": 6,
+      "time_seconds": 0.05069749883333333,
+      "mean_duration_seconds": 0.0073259998333333335,
+      "min_duration_seconds": 0.005841,
+      "max_duration_seconds": 0.008811,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "call_index": 7,
+      "time_seconds": 0.05902349866666667,
+      "mean_duration_seconds": 0.0074744998333333345,
+      "min_duration_seconds": 0.0059895,
+      "max_duration_seconds": 0.0089595,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "call_index": 8,
+      "time_seconds": 0.0674979985,
+      "mean_duration_seconds": 0.007622999833333332,
+      "min_duration_seconds": 0.006138,
+      "max_duration_seconds": 0.009108,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "call_index": 9,
+      "time_seconds": 0.07612099833333333,
+      "mean_duration_seconds": 0.007771499833333334,
+      "min_duration_seconds": 0.0062865,
+      "max_duration_seconds": 0.0092565,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "call_index": 10,
+      "time_seconds": 0.08489249816666666,
+      "mean_duration_seconds": 0.007920000000000002,
+      "min_duration_seconds": 0.006435,
+      "max_duration_seconds": 0.009405,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "call_index": 11,
+      "time_seconds": 0.09381249816666666,
+      "mean_duration_seconds": 0.008068499833333334,
+      "min_duration_seconds": 0.0065835,
+      "max_duration_seconds": 0.0095535,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "call_index": 0,
+      "time_seconds": 0.102880998,
+      "mean_duration_seconds": 0.0017874998333333334,
+      "min_duration_seconds": 0.001375,
+      "max_duration_seconds": 0.0022,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "call_index": 1,
+      "time_seconds": 0.10566849783333333,
+      "mean_duration_seconds": 0.0018287498333333333,
+      "min_duration_seconds": 0.00141625,
+      "max_duration_seconds": 0.00224125,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "call_index": 2,
+      "time_seconds": 0.10849724766666667,
+      "mean_duration_seconds": 0.0018700000000000001,
+      "min_duration_seconds": 0.0014575,
+      "max_duration_seconds": 0.0022825,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "call_index": 3,
+      "time_seconds": 0.11136724766666667,
+      "mean_duration_seconds": 0.00191125,
+      "min_duration_seconds": 0.00149875,
+      "max_duration_seconds": 0.00232375,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "call_index": 4,
+      "time_seconds": 0.11427849766666665,
+      "mean_duration_seconds": 0.0019524998333333334,
+      "min_duration_seconds": 0.00154,
+      "max_duration_seconds": 0.002365,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "call_index": 5,
+      "time_seconds": 0.11723099749999999,
+      "mean_duration_seconds": 0.0019937495,
+      "min_duration_seconds": 0.001581249,
+      "max_duration_seconds": 0.00240625,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "call_index": 6,
+      "time_seconds": 0.120224747,
+      "mean_duration_seconds": 0.0020349998333333333,
+      "min_duration_seconds": 0.0016225,
+      "max_duration_seconds": 0.0024475,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "call_index": 7,
+      "time_seconds": 0.12325974683333334,
+      "mean_duration_seconds": 0.00207625,
+      "min_duration_seconds": 0.00166375,
+      "max_duration_seconds": 0.00248875,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "call_index": 8,
+      "time_seconds": 0.12633599683333332,
+      "mean_duration_seconds": 0.0021175,
+      "min_duration_seconds": 0.001705,
+      "max_duration_seconds": 0.00253,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "call_index": 9,
+      "time_seconds": 0.12945349683333332,
+      "mean_duration_seconds": 0.00215875,
+      "min_duration_seconds": 0.00174625,
+      "max_duration_seconds": 0.00257125,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "call_index": 10,
+      "time_seconds": 0.1326122468333333,
+      "mean_duration_seconds": 0.0022,
+      "min_duration_seconds": 0.0017875,
+      "max_duration_seconds": 0.0026125,
+      "num_ranks": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "call_index": 11,
+      "time_seconds": 0.13581224683333334,
+      "mean_duration_seconds": 0.0022412499999999998,
+      "min_duration_seconds": 0.00182875,
+      "max_duration_seconds": 0.00265375,
+      "num_ranks": 6
+    }
+  ],
+  "colors": {
+    "exchange": "#1f77b4",
+    "setup": "#8c564b",
+    "solve": "#9edae5"
+  }
+}

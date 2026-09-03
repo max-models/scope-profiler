@@ -209,7 +209,7 @@ class Region:
         if not self._event_data_available:
             raise EventDataUnavailableError(
                 "per-call events are unavailable on summary-only results; "
-                "load the profile with read_h5()"
+                "load the profile with read_h5()",
             )
         starts = self.start_times - origin
         ends = self.end_times - origin
@@ -232,7 +232,7 @@ class Region:
             if self._task_ids is not None and self._await_times is not None:
                 event["task"] = int(self._task_ids[index])
                 event["await_duration"] = float(
-                    self._await_times[index] / NS_PER_SECOND
+                    self._await_times[index] / NS_PER_SECOND,
                 )
             events.append(event)
         return events
@@ -301,7 +301,7 @@ class Region:
         """
         if self._thread_ids is None:
             raise ValueError(
-                "this run did not record thread ids; profile with track_threads=True"
+                "this run did not record thread ids; profile with track_threads=True",
             )
         mask = self._thread_ids == int(thread_index)
 

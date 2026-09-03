@@ -1,0 +1,85 @@
+{
+  "format": "scope-profiler-plot-data",
+  "format_version": 1,
+  "plot": "flame_graph",
+  "calls": [
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "call_id": 0,
+      "parent_call_id": null,
+      "region": "setup",
+      "call_path": "setup",
+      "depth": 0,
+      "start_seconds": 0.0,
+      "end_seconds": 0.004,
+      "inclusive_duration_seconds": 0.004,
+      "exclusive_duration_seconds": 0.004
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "call_id": 1,
+      "parent_call_id": null,
+      "region": "solve",
+      "call_path": "solve",
+      "depth": 0,
+      "start_seconds": 0.004,
+      "end_seconds": 0.12982,
+      "inclusive_duration_seconds": 0.12582,
+      "exclusive_duration_seconds": 0.12582
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "call_id": 2,
+      "parent_call_id": null,
+      "region": "exchange",
+      "call_path": "exchange",
+      "depth": 0,
+      "start_seconds": 0.12982,
+      "end_seconds": 0.16477,
+      "inclusive_duration_seconds": 0.03495,
+      "exclusive_duration_seconds": 0.03495
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "call_id": 0,
+      "parent_call_id": null,
+      "region": "setup",
+      "call_path": "setup",
+      "depth": 0,
+      "start_seconds": 0.0,
+      "end_seconds": 0.0022,
+      "inclusive_duration_seconds": 0.0022,
+      "exclusive_duration_seconds": 0.0022
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "call_id": 1,
+      "parent_call_id": null,
+      "region": "solve",
+      "call_path": "solve",
+      "depth": 0,
+      "start_seconds": 0.0022,
+      "end_seconds": 0.07140099999999999,
+      "inclusive_duration_seconds": 0.069201,
+      "exclusive_duration_seconds": 0.069201
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "call_id": 2,
+      "parent_call_id": null,
+      "region": "exchange",
+      "call_path": "exchange",
+      "depth": 0,
+      "start_seconds": 0.07140099999999999,
+      "end_seconds": 0.090623499,
+      "inclusive_duration_seconds": 0.019222499,
+      "exclusive_duration_seconds": 0.019222499
+    }
+  ]
+}

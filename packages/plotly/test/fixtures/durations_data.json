@@ -1,0 +1,53 @@
+{
+  "format": "scope-profiler-plot-data",
+  "format_version": 1,
+  "plot": "durations",
+  "bars": [
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "metric": "total",
+      "value_seconds": 0.01344
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "metric": "total",
+      "value_seconds": 0.416339998
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "metric": "total",
+      "value_seconds": 0.11564999699999999
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "metric": "total",
+      "value_seconds": 0.017159999
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "metric": "total",
+      "value_seconds": 0.5221259890000001
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "metric": "total",
+      "value_seconds": 0.145034993
+    }
+  ],
+  "colors": {
+    "run_3ranks": "#1f77b4",
+    "run_6ranks": "#9edae5"
+  },
+  "metrics": [
+    "total"
+  ],
+  "options": {
+    "stack_children": false
+  }
+}

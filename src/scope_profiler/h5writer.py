@@ -52,7 +52,7 @@ _SUMMARY_DTYPE = np.dtype(
         ("gpu_total", np.int64),
         ("mean", np.float64),
         ("m2", np.float64),
-    ]
+    ],
 )
 
 
@@ -190,7 +190,7 @@ def dataset_storage_options(
         except ImportError as exc:
             raise ImportError(
                 "Zstandard HDF5 compression requires hdf5plugin; install "
-                "scope-profiler[compression]."
+                "scope-profiler[compression].",
             ) from exc
         options.update(hdf5plugin.Zstd(clevel=compression_level or 3))
     if compression is not None:
@@ -225,7 +225,10 @@ def initialize_columnar_layout(
     ):
         index.create_dataset(name, shape=(0,), maxshape=(None,), dtype=dtype)
     index.create_dataset(
-        "summary_statistics", shape=(0,), maxshape=(None,), dtype=_SUMMARY_DTYPE
+        "summary_statistics",
+        shape=(0,),
+        maxshape=(None,),
+        dtype=_SUMMARY_DTYPE,
     )
     for name in ("source_files", "source_texts", "tags"):
         index.create_dataset(name, shape=(0,), maxshape=(None,), dtype=_STRING_DTYPE)
@@ -282,7 +285,12 @@ _TASK_TABLE_STRINGS = ("kind", "name", "coro_name")
 
 
 def _append_lane_table(
-    h5file, group_name: str, rank: int, columns: dict, numeric: dict, strings
+    h5file,
+    group_name: str,
+    rank: int,
+    columns: dict,
+    numeric: dict,
+    strings,
 ) -> None:
     """Append one rank's rows to a lane table, creating it on first use."""
     if not len(columns.get("index", ())):
@@ -294,7 +302,10 @@ def _append_lane_table(
             group.create_dataset(name, shape=(0,), maxshape=(None,), dtype=dtype)
         for name in strings:
             group.create_dataset(
-                name, shape=(0,), maxshape=(None,), dtype=_STRING_DTYPE
+                name,
+                shape=(0,),
+                maxshape=(None,),
+                dtype=_STRING_DTYPE,
             )
     group = h5file[group_name]
     rows = len(columns["index"])
@@ -381,7 +392,7 @@ def _concatenate(regions: dict, names: list, position: int) -> np.ndarray:
             )
             for name in names
         ]
-        or [np.empty(0, dtype=np.int64)]
+        or [np.empty(0, dtype=np.int64)],
     )
 
 
@@ -438,7 +449,10 @@ def append_columnar_rank(
             dtype=np.int64,
             fillvalue=_NO_GPU_DURATION,
             **dataset_storage_options(
-                total_before, compression, compression_level, chunk_size
+                total_before,
+                compression,
+                compression_level,
+                chunk_size,
             ),
         )
 
@@ -469,7 +483,10 @@ def append_columnar_rank(
                 dtype=np.int64,
                 fillvalue=missing,
                 **dataset_storage_options(
-                    total_before, compression, compression_level, chunk_size
+                    total_before,
+                    compression,
+                    compression_level,
+                    chunk_size,
                 ),
             )
         _append(
@@ -484,7 +501,7 @@ def append_columnar_rank(
                     )
                     for name, count in zip(names, counts)
                 ]
-                or [np.empty(0, dtype=np.int64)]
+                or [np.empty(0, dtype=np.int64)],
             ),
         )
     write_lane_tables(h5file, rank, getattr(payload, "lanes", None))
@@ -501,7 +518,7 @@ def append_columnar_rank(
                     )
                     for name, count in zip(names, counts)
                 ]
-                or [np.empty(0, dtype=np.int64)]
+                or [np.empty(0, dtype=np.int64)],
             ),
         )
 
@@ -728,7 +745,9 @@ def write_parallel_payload(
 
         region_table = h5file.create_group("region_table")
         region_table.create_dataset(
-            "names", shape=(len(region_names),), dtype=names_dtype
+            "names",
+            shape=(len(region_names),),
+            dtype=names_dtype,
         )
         pair_index = h5file.create_group("rank_region_index")
         for name, dtype in (
@@ -741,7 +760,9 @@ def write_parallel_payload(
         ):
             pair_index.create_dataset(name, shape=(len(pairs),), dtype=dtype)
         pair_index.create_dataset(
-            "summary_statistics", shape=(len(pairs),), dtype=_SUMMARY_DTYPE
+            "summary_statistics",
+            shape=(len(pairs),),
+            dtype=_SUMMARY_DTYPE,
         )
         for name, dtype in (
             ("source_files", source_files_dtype),
@@ -757,7 +778,10 @@ def write_parallel_payload(
                 shape=(event_offset,),
                 dtype=np.int64,
                 **dataset_storage_options(
-                    event_offset, compression, compression_level, chunk_size
+                    event_offset,
+                    compression,
+                    compression_level,
+                    chunk_size,
                 ),
             )
         if any_gpu:
@@ -767,7 +791,10 @@ def write_parallel_payload(
                 dtype=np.int64,
                 fillvalue=_NO_GPU_DURATION,
                 **dataset_storage_options(
-                    event_offset, compression, compression_level, chunk_size
+                    event_offset,
+                    compression,
+                    compression_level,
+                    chunk_size,
                 ),
             )
 
@@ -791,7 +818,7 @@ def write_parallel_payload(
                 for *_, description in pairs
             ]
             pair_index["summary_statistics"][:] = _summary_records(
-                [description["summary"] for *_, description in pairs]
+                [description["summary"] for *_, description in pairs],
             )
         comm.Barrier()
 
@@ -804,7 +831,7 @@ def write_parallel_payload(
                 [
                     np.asarray(arrays[0], dtype=np.int64)
                     for arrays in payload.regions.values()
-                ]
+                ],
             )
             if payload.regions
             else np.empty(0, dtype=np.int64)
@@ -814,7 +841,7 @@ def write_parallel_payload(
                 [
                     np.asarray(arrays[1], dtype=np.int64)
                     for arrays in payload.regions.values()
-                ]
+                ],
             )
             if payload.regions
             else np.empty(0, dtype=np.int64)
@@ -829,7 +856,7 @@ def write_parallel_payload(
                     [
                         np.asarray(arrays[column], dtype=np.int64)
                         for arrays in payload.regions.values()
-                    ]
+                    ],
                 )
                 if payload.regions
                 else np.empty(0, dtype=np.int64)
@@ -844,11 +871,13 @@ def write_parallel_payload(
                             np.asarray(arrays[2], dtype=np.int64)
                             if len(arrays) > 2 and arrays[2] is not None
                             else np.full(
-                                len(arrays[0]), _NO_GPU_DURATION, dtype=np.int64
+                                len(arrays[0]),
+                                _NO_GPU_DURATION,
+                                dtype=np.int64,
                             )
                         )
                         for arrays in payload.regions.values()
-                    ]
+                    ],
                 )
                 if payload.regions
                 else np.empty(0, dtype=np.int64)
@@ -886,7 +915,8 @@ def write_parallel_payload(
         for index, record in enumerate(payload.line_profile or []):
             function_group = h5file[f"{rank_group_name(rank)}/line_profile/{index}"]
             function_group["line_numbers"][:] = np.asarray(
-                record["line_numbers"], dtype=np.int64
+                record["line_numbers"],
+                dtype=np.int64,
             )
             function_group["hits"][:] = np.asarray(record["hits"], dtype=np.int64)
             function_group["times"][:] = np.asarray(record["times"], dtype=np.float64)
@@ -931,14 +961,20 @@ def write_regions(
             "start_times",
             data=np.asarray(start_times, dtype=np.int64),
             **dataset_storage_options(
-                len(start_times), compression, compression_level, chunk_size
+                len(start_times),
+                compression,
+                compression_level,
+                chunk_size,
             ),
         )
         region_grp.create_dataset(
             "end_times",
             data=np.asarray(end_times, dtype=np.int64),
             **dataset_storage_options(
-                len(end_times), compression, compression_level, chunk_size
+                len(end_times),
+                compression,
+                compression_level,
+                chunk_size,
             ),
         )
         if len(arrays) > 2 and arrays[2] is not None:
@@ -946,7 +982,10 @@ def write_regions(
                 "gpu_durations",
                 data=np.asarray(arrays[2], dtype=np.int64),
                 **dataset_storage_options(
-                    len(arrays[2]), compression, compression_level, chunk_size
+                    len(arrays[2]),
+                    compression,
+                    compression_level,
+                    chunk_size,
                 ),
             )
         if len(arrays) > 4:
@@ -958,7 +997,10 @@ def write_regions(
                     field,
                     data=np.asarray(values, dtype=np.int64),
                     **dataset_storage_options(
-                        len(values), compression, compression_level, chunk_size
+                        len(values),
+                        compression,
+                        compression_level,
+                        chunk_size,
                     ),
                 )
         source = sources.get(name)
@@ -994,7 +1036,10 @@ def write_line_profile(
                 key,
                 data=record[key],
                 **dataset_storage_options(
-                    len(record[key]), compression, compression_level, chunk_size
+                    len(record[key]),
+                    compression,
+                    compression_level,
+                    chunk_size,
                 ),
             )
 
@@ -1083,7 +1128,8 @@ def write_rank_payload(
             region.attrs["calls"] = totals.calls
             region.attrs["event_names"] = list(totals.values)
             region.create_dataset(
-                "values", data=np.asarray(list(totals.values.values()), dtype=np.uint64)
+                "values",
+                data=np.asarray(list(totals.values.values()), dtype=np.uint64),
             )
     write_line_profile(
         group,
@@ -1253,5 +1299,5 @@ class ProfilingWriter:
         except Exception as close_error:
             if exc_value is not None and hasattr(exc_value, "add_note"):
                 exc_value.add_note(
-                    f"also failed to discard profiling output: {close_error}"
+                    f"also failed to discard profiling output: {close_error}",
                 )

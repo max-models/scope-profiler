@@ -50,7 +50,8 @@ COMPILER = find_compiler()
 pytestmark = [
     pytest.mark.skipif(COMPILER is None, reason="no Fortran compiler on PATH"),
     pytest.mark.skipif(
-        not MODULE_SOURCE.exists(), reason=f"{MODULE_SOURCE} not found (installed?)"
+        not MODULE_SOURCE.exists(),
+        reason=f"{MODULE_SOURCE} not found (installed?)",
     ),
 ]
 
@@ -308,7 +309,10 @@ def test_ranks_merge_into_one_result_set(tmp_path):
     executable = build(tmp_path, MULTI_RANK_PROGRAM, name="multi")
     for rank in range(4):
         subprocess.run(
-            [str(executable), str(rank)], cwd=tmp_path, check=True, timeout=300
+            [str(executable), str(rank)],
+            cwd=tmp_path,
+            check=True,
+            timeout=300,
         )
 
     assert len(find_traces(tmp_path)) == 4
@@ -329,7 +333,10 @@ def test_converted_file_is_a_normal_profiling_file(tmp_path):
     executable = build(tmp_path, MULTI_RANK_PROGRAM, name="multi")
     for rank in range(2):
         subprocess.run(
-            [str(executable), str(rank)], cwd=tmp_path, check=True, timeout=300
+            [str(executable), str(rank)],
+            cwd=tmp_path,
+            check=True,
+            timeout=300,
         )
 
     output = convert_traces(tmp_path, tmp_path / "converted.h5", label="fortran")
@@ -515,7 +522,7 @@ def test_the_shipped_example_builds_and_runs(tmp_path):
     run(executable, tmp_path)
     results = load_traces(tmp_path)
     assert {"solve", "assemble", "checkpoint", "fibonacci", "fib_call"} <= set(
-        results.region_names
+        results.region_names,
     )
     assert results["solve"].num_calls == 20
 
@@ -538,7 +545,7 @@ def test_the_examples_directory_still_builds_and_runs(tmp_path):
         **os.environ,
         "MAKEFLAGS": "",
         "PYTHONPATH": os.pathsep.join(
-            [source_root, os.environ.get("PYTHONPATH", "")]
+            [source_root, os.environ.get("PYTHONPATH", "")],
         ).strip(os.pathsep),
     }
     result = subprocess.run(

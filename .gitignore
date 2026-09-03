@@ -184,6 +184,10 @@ report.html
 *_plot.html
 *_plot.txt
 *_data.json
+# ...but the plot-data fixtures the npm package's tests read are checked in;
+# without this only region_statistics.json survives, and a fresh clone cannot
+# run `npm test`.
+!packages/plotly/test/fixtures/*_data.json
 flame_matplotlib.png
 flame_plotly.html
 gantt_matplotlib.png

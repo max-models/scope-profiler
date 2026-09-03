@@ -1,0 +1,1452 @@
+{
+  "format": "scope-profiler-plot-data",
+  "format_version": 1,
+  "plot": "histogram",
+  "bins": [
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.0025,
+      "bin_high_seconds": 0.0028876666333333334,
+      "bin_center_seconds": 0.0026938333166666665,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.0028876666333333334,
+      "bin_high_seconds": 0.0032753332666666667,
+      "bin_center_seconds": 0.0030814999500000002,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.0032753332666666667,
+      "bin_high_seconds": 0.0036629999,
+      "bin_center_seconds": 0.003469166583333333,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.0036629999,
+      "bin_high_seconds": 0.004050666533333334,
+      "bin_center_seconds": 0.003856833216666667,
+      "count": 1
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.004050666533333334,
+      "bin_high_seconds": 0.004438333166666667,
+      "bin_center_seconds": 0.00424449985,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.004438333166666667,
+      "bin_high_seconds": 0.0048259998,
+      "bin_center_seconds": 0.0046321664833333335,
+      "count": 1
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.0048259998,
+      "bin_high_seconds": 0.005213666433333333,
+      "bin_center_seconds": 0.005019833116666667,
+      "count": 1
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.005213666433333333,
+      "bin_high_seconds": 0.005601333066666667,
+      "bin_center_seconds": 0.00540749975,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.005601333066666667,
+      "bin_high_seconds": 0.005988999700000001,
+      "bin_center_seconds": 0.005795166383333334,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.005988999700000001,
+      "bin_high_seconds": 0.006376666333333334,
+      "bin_center_seconds": 0.006182833016666667,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.006376666333333334,
+      "bin_high_seconds": 0.0067643329666666665,
+      "bin_center_seconds": 0.0065704996500000005,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.0067643329666666665,
+      "bin_high_seconds": 0.0071519996,
+      "bin_center_seconds": 0.006958166283333333,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.0071519996,
+      "bin_high_seconds": 0.007539666233333334,
+      "bin_center_seconds": 0.007345832916666667,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.007539666233333334,
+      "bin_high_seconds": 0.007927332866666668,
+      "bin_center_seconds": 0.007733499550000001,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.007927332866666668,
+      "bin_high_seconds": 0.0083149995,
+      "bin_center_seconds": 0.008121166183333334,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.0083149995,
+      "bin_high_seconds": 0.008702666133333333,
+      "bin_center_seconds": 0.008508832816666666,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.008702666133333333,
+      "bin_high_seconds": 0.009090332766666667,
+      "bin_center_seconds": 0.008896499450000001,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.009090332766666667,
+      "bin_high_seconds": 0.009477999400000001,
+      "bin_center_seconds": 0.009284166083333333,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.009477999400000001,
+      "bin_high_seconds": 0.009865666033333335,
+      "bin_center_seconds": 0.009671832716666669,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.009865666033333335,
+      "bin_high_seconds": 0.010253332666666667,
+      "bin_center_seconds": 0.01005949935,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.010253332666666667,
+      "bin_high_seconds": 0.0106409993,
+      "bin_center_seconds": 0.010447165983333333,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.0106409993,
+      "bin_high_seconds": 0.011028665933333334,
+      "bin_center_seconds": 0.010834832616666668,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.011028665933333334,
+      "bin_high_seconds": 0.011416332566666668,
+      "bin_center_seconds": 0.01122249925,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.011416332566666668,
+      "bin_high_seconds": 0.011803999200000002,
+      "bin_center_seconds": 0.011610165883333336,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.011803999200000002,
+      "bin_high_seconds": 0.012191665833333335,
+      "bin_center_seconds": 0.011997832516666668,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.012191665833333335,
+      "bin_high_seconds": 0.012579332466666667,
+      "bin_center_seconds": 0.012385499150000001,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.012579332466666667,
+      "bin_high_seconds": 0.012966999100000001,
+      "bin_center_seconds": 0.012773165783333335,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.012966999100000001,
+      "bin_high_seconds": 0.013354665733333335,
+      "bin_center_seconds": 0.013160832416666667,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.013354665733333335,
+      "bin_high_seconds": 0.013742332366666669,
+      "bin_center_seconds": 0.013548499050000003,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.013742332366666669,
+      "bin_high_seconds": 0.014129999,
+      "bin_center_seconds": 0.013936165683333335,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.0025,
+      "bin_high_seconds": 0.0028876666333333334,
+      "bin_center_seconds": 0.0026938333166666665,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.0028876666333333334,
+      "bin_high_seconds": 0.0032753332666666667,
+      "bin_center_seconds": 0.0030814999500000002,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.0032753332666666667,
+      "bin_high_seconds": 0.0036629999,
+      "bin_center_seconds": 0.003469166583333333,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.0036629999,
+      "bin_high_seconds": 0.004050666533333334,
+      "bin_center_seconds": 0.003856833216666667,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.004050666533333334,
+      "bin_high_seconds": 0.004438333166666667,
+      "bin_center_seconds": 0.00424449985,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.004438333166666667,
+      "bin_high_seconds": 0.0048259998,
+      "bin_center_seconds": 0.0046321664833333335,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.0048259998,
+      "bin_high_seconds": 0.005213666433333333,
+      "bin_center_seconds": 0.005019833116666667,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.005213666433333333,
+      "bin_high_seconds": 0.005601333066666667,
+      "bin_center_seconds": 0.00540749975,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.005601333066666667,
+      "bin_high_seconds": 0.005988999700000001,
+      "bin_center_seconds": 0.005795166383333334,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.005988999700000001,
+      "bin_high_seconds": 0.006376666333333334,
+      "bin_center_seconds": 0.006182833016666667,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.006376666333333334,
+      "bin_high_seconds": 0.0067643329666666665,
+      "bin_center_seconds": 0.0065704996500000005,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.0067643329666666665,
+      "bin_high_seconds": 0.0071519996,
+      "bin_center_seconds": 0.006958166283333333,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.0071519996,
+      "bin_high_seconds": 0.007539666233333334,
+      "bin_center_seconds": 0.007345832916666667,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.007539666233333334,
+      "bin_high_seconds": 0.007927332866666668,
+      "bin_center_seconds": 0.007733499550000001,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.007927332866666668,
+      "bin_high_seconds": 0.0083149995,
+      "bin_center_seconds": 0.008121166183333334,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.0083149995,
+      "bin_high_seconds": 0.008702666133333333,
+      "bin_center_seconds": 0.008508832816666666,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.008702666133333333,
+      "bin_high_seconds": 0.009090332766666667,
+      "bin_center_seconds": 0.008896499450000001,
+      "count": 1
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.009090332766666667,
+      "bin_high_seconds": 0.009477999400000001,
+      "bin_center_seconds": 0.009284166083333333,
+      "count": 1
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.009477999400000001,
+      "bin_high_seconds": 0.009865666033333335,
+      "bin_center_seconds": 0.009671832716666669,
+      "count": 2
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.009865666033333335,
+      "bin_high_seconds": 0.010253332666666667,
+      "bin_center_seconds": 0.01005949935,
+      "count": 2
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.010253332666666667,
+      "bin_high_seconds": 0.0106409993,
+      "bin_center_seconds": 0.010447165983333333,
+      "count": 4
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.0106409993,
+      "bin_high_seconds": 0.011028665933333334,
+      "bin_center_seconds": 0.010834832616666668,
+      "count": 2
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.011028665933333334,
+      "bin_high_seconds": 0.011416332566666668,
+      "bin_center_seconds": 0.01122249925,
+      "count": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.011416332566666668,
+      "bin_high_seconds": 0.011803999200000002,
+      "bin_center_seconds": 0.011610165883333336,
+      "count": 6
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.011803999200000002,
+      "bin_high_seconds": 0.012191665833333335,
+      "bin_center_seconds": 0.011997832516666668,
+      "count": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.012191665833333335,
+      "bin_high_seconds": 0.012579332466666667,
+      "bin_center_seconds": 0.012385499150000001,
+      "count": 4
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.012579332466666667,
+      "bin_high_seconds": 0.012966999100000001,
+      "bin_center_seconds": 0.012773165783333335,
+      "count": 2
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.012966999100000001,
+      "bin_high_seconds": 0.013354665733333335,
+      "bin_center_seconds": 0.013160832416666667,
+      "count": 3
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.013354665733333335,
+      "bin_high_seconds": 0.013742332366666669,
+      "bin_center_seconds": 0.013548499050000003,
+      "count": 1
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.013742332366666669,
+      "bin_high_seconds": 0.014129999,
+      "bin_center_seconds": 0.013936165683333335,
+      "count": 2
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.0025,
+      "bin_high_seconds": 0.0028876666333333334,
+      "bin_center_seconds": 0.0026938333166666665,
+      "count": 8
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.0028876666333333334,
+      "bin_high_seconds": 0.0032753332666666667,
+      "bin_center_seconds": 0.0030814999500000002,
+      "count": 13
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.0032753332666666667,
+      "bin_high_seconds": 0.0036629999,
+      "bin_center_seconds": 0.003469166583333333,
+      "count": 11
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.0036629999,
+      "bin_high_seconds": 0.004050666533333334,
+      "bin_center_seconds": 0.003856833216666667,
+      "count": 4
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.004050666533333334,
+      "bin_high_seconds": 0.004438333166666667,
+      "bin_center_seconds": 0.00424449985,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.004438333166666667,
+      "bin_high_seconds": 0.0048259998,
+      "bin_center_seconds": 0.0046321664833333335,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.0048259998,
+      "bin_high_seconds": 0.005213666433333333,
+      "bin_center_seconds": 0.005019833116666667,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.005213666433333333,
+      "bin_high_seconds": 0.005601333066666667,
+      "bin_center_seconds": 0.00540749975,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.005601333066666667,
+      "bin_high_seconds": 0.005988999700000001,
+      "bin_center_seconds": 0.005795166383333334,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.005988999700000001,
+      "bin_high_seconds": 0.006376666333333334,
+      "bin_center_seconds": 0.006182833016666667,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.006376666333333334,
+      "bin_high_seconds": 0.0067643329666666665,
+      "bin_center_seconds": 0.0065704996500000005,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.0067643329666666665,
+      "bin_high_seconds": 0.0071519996,
+      "bin_center_seconds": 0.006958166283333333,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.0071519996,
+      "bin_high_seconds": 0.007539666233333334,
+      "bin_center_seconds": 0.007345832916666667,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.007539666233333334,
+      "bin_high_seconds": 0.007927332866666668,
+      "bin_center_seconds": 0.007733499550000001,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.007927332866666668,
+      "bin_high_seconds": 0.0083149995,
+      "bin_center_seconds": 0.008121166183333334,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.0083149995,
+      "bin_high_seconds": 0.008702666133333333,
+      "bin_center_seconds": 0.008508832816666666,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.008702666133333333,
+      "bin_high_seconds": 0.009090332766666667,
+      "bin_center_seconds": 0.008896499450000001,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.009090332766666667,
+      "bin_high_seconds": 0.009477999400000001,
+      "bin_center_seconds": 0.009284166083333333,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.009477999400000001,
+      "bin_high_seconds": 0.009865666033333335,
+      "bin_center_seconds": 0.009671832716666669,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.009865666033333335,
+      "bin_high_seconds": 0.010253332666666667,
+      "bin_center_seconds": 0.01005949935,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.010253332666666667,
+      "bin_high_seconds": 0.0106409993,
+      "bin_center_seconds": 0.010447165983333333,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.0106409993,
+      "bin_high_seconds": 0.011028665933333334,
+      "bin_center_seconds": 0.010834832616666668,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.011028665933333334,
+      "bin_high_seconds": 0.011416332566666668,
+      "bin_center_seconds": 0.01122249925,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.011416332566666668,
+      "bin_high_seconds": 0.011803999200000002,
+      "bin_center_seconds": 0.011610165883333336,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.011803999200000002,
+      "bin_high_seconds": 0.012191665833333335,
+      "bin_center_seconds": 0.011997832516666668,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.012191665833333335,
+      "bin_high_seconds": 0.012579332466666667,
+      "bin_center_seconds": 0.012385499150000001,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.012579332466666667,
+      "bin_high_seconds": 0.012966999100000001,
+      "bin_center_seconds": 0.012773165783333335,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.012966999100000001,
+      "bin_high_seconds": 0.013354665733333335,
+      "bin_center_seconds": 0.013160832416666667,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.013354665733333335,
+      "bin_high_seconds": 0.013742332366666669,
+      "bin_center_seconds": 0.013548499050000003,
+      "count": 0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.013742332366666669,
+      "bin_high_seconds": 0.014129999,
+      "bin_center_seconds": 0.013936165683333335,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.001375,
+      "bin_high_seconds": 0.0016476166666666665,
+      "bin_center_seconds": 0.0015113083333333332,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.0016476166666666665,
+      "bin_high_seconds": 0.0019202333333333333,
+      "bin_center_seconds": 0.001783925,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.0019202333333333333,
+      "bin_high_seconds": 0.00219285,
+      "bin_center_seconds": 0.0020565416666666666,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.00219285,
+      "bin_high_seconds": 0.0024654666666666667,
+      "bin_center_seconds": 0.0023291583333333336,
+      "count": 2
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.0024654666666666667,
+      "bin_high_seconds": 0.0027380833333333333,
+      "bin_center_seconds": 0.0026017749999999997,
+      "count": 1
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.0027380833333333333,
+      "bin_high_seconds": 0.0030107,
+      "bin_center_seconds": 0.0028743916666666668,
+      "count": 1
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.0030107,
+      "bin_high_seconds": 0.003283316666666667,
+      "bin_center_seconds": 0.0031470083333333333,
+      "count": 1
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.003283316666666667,
+      "bin_high_seconds": 0.0035559333333333334,
+      "bin_center_seconds": 0.003419625,
+      "count": 1
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.0035559333333333334,
+      "bin_high_seconds": 0.00382855,
+      "bin_center_seconds": 0.003692241666666667,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.00382855,
+      "bin_high_seconds": 0.004101166666666666,
+      "bin_center_seconds": 0.003964858333333333,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.004101166666666666,
+      "bin_high_seconds": 0.004373783333333334,
+      "bin_center_seconds": 0.004237475,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.004373783333333334,
+      "bin_high_seconds": 0.0046464,
+      "bin_center_seconds": 0.004510091666666667,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.0046464,
+      "bin_high_seconds": 0.004919016666666666,
+      "bin_center_seconds": 0.004782708333333333,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.004919016666666666,
+      "bin_high_seconds": 0.005191633333333334,
+      "bin_center_seconds": 0.005055325,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.005191633333333334,
+      "bin_high_seconds": 0.00546425,
+      "bin_center_seconds": 0.005327941666666667,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.00546425,
+      "bin_high_seconds": 0.0057368666666666665,
+      "bin_center_seconds": 0.005600558333333333,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.0057368666666666665,
+      "bin_high_seconds": 0.006009483333333334,
+      "bin_center_seconds": 0.0058731750000000004,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.006009483333333334,
+      "bin_high_seconds": 0.0062821000000000005,
+      "bin_center_seconds": 0.0061457916666666675,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.0062821000000000005,
+      "bin_high_seconds": 0.006554716666666667,
+      "bin_center_seconds": 0.006418408333333334,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.006554716666666667,
+      "bin_high_seconds": 0.006827333333333333,
+      "bin_center_seconds": 0.006691025,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.006827333333333333,
+      "bin_high_seconds": 0.007099950000000001,
+      "bin_center_seconds": 0.006963641666666667,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.007099950000000001,
+      "bin_high_seconds": 0.007372566666666667,
+      "bin_center_seconds": 0.007236258333333334,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.007372566666666667,
+      "bin_high_seconds": 0.007645183333333333,
+      "bin_center_seconds": 0.007508875,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.007645183333333333,
+      "bin_high_seconds": 0.007917800000000001,
+      "bin_center_seconds": 0.007781491666666667,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.007917800000000001,
+      "bin_high_seconds": 0.008190416666666667,
+      "bin_center_seconds": 0.008054108333333334,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.008190416666666667,
+      "bin_high_seconds": 0.008463033333333333,
+      "bin_center_seconds": 0.008326725,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.008463033333333333,
+      "bin_high_seconds": 0.008735650000000001,
+      "bin_center_seconds": 0.008599341666666666,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.008735650000000001,
+      "bin_high_seconds": 0.009008266666666667,
+      "bin_center_seconds": 0.008871958333333334,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.009008266666666667,
+      "bin_high_seconds": 0.009280883333333333,
+      "bin_center_seconds": 0.009144575,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_low_seconds": 0.009280883333333333,
+      "bin_high_seconds": 0.0095535,
+      "bin_center_seconds": 0.009417191666666666,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.001375,
+      "bin_high_seconds": 0.0016476166666666665,
+      "bin_center_seconds": 0.0015113083333333332,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.0016476166666666665,
+      "bin_high_seconds": 0.0019202333333333333,
+      "bin_center_seconds": 0.001783925,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.0019202333333333333,
+      "bin_high_seconds": 0.00219285,
+      "bin_center_seconds": 0.0020565416666666666,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.00219285,
+      "bin_high_seconds": 0.0024654666666666667,
+      "bin_center_seconds": 0.0023291583333333336,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.0024654666666666667,
+      "bin_high_seconds": 0.0027380833333333333,
+      "bin_center_seconds": 0.0026017749999999997,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.0027380833333333333,
+      "bin_high_seconds": 0.0030107,
+      "bin_center_seconds": 0.0028743916666666668,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.0030107,
+      "bin_high_seconds": 0.003283316666666667,
+      "bin_center_seconds": 0.0031470083333333333,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.003283316666666667,
+      "bin_high_seconds": 0.0035559333333333334,
+      "bin_center_seconds": 0.003419625,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.0035559333333333334,
+      "bin_high_seconds": 0.00382855,
+      "bin_center_seconds": 0.003692241666666667,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.00382855,
+      "bin_high_seconds": 0.004101166666666666,
+      "bin_center_seconds": 0.003964858333333333,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.004101166666666666,
+      "bin_high_seconds": 0.004373783333333334,
+      "bin_center_seconds": 0.004237475,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.004373783333333334,
+      "bin_high_seconds": 0.0046464,
+      "bin_center_seconds": 0.004510091666666667,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.0046464,
+      "bin_high_seconds": 0.004919016666666666,
+      "bin_center_seconds": 0.004782708333333333,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.004919016666666666,
+      "bin_high_seconds": 0.005191633333333334,
+      "bin_center_seconds": 0.005055325,
+      "count": 2
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.005191633333333334,
+      "bin_high_seconds": 0.00546425,
+      "bin_center_seconds": 0.005327941666666667,
+      "count": 2
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.00546425,
+      "bin_high_seconds": 0.0057368666666666665,
+      "bin_center_seconds": 0.005600558333333333,
+      "count": 4
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.0057368666666666665,
+      "bin_high_seconds": 0.006009483333333334,
+      "bin_center_seconds": 0.0058731750000000004,
+      "count": 4
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.006009483333333334,
+      "bin_high_seconds": 0.0062821000000000005,
+      "bin_center_seconds": 0.0061457916666666675,
+      "count": 3
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.0062821000000000005,
+      "bin_high_seconds": 0.006554716666666667,
+      "bin_center_seconds": 0.006418408333333334,
+      "count": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.006554716666666667,
+      "bin_high_seconds": 0.006827333333333333,
+      "bin_center_seconds": 0.006691025,
+      "count": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.006827333333333333,
+      "bin_high_seconds": 0.007099950000000001,
+      "bin_center_seconds": 0.006963641666666667,
+      "count": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.007099950000000001,
+      "bin_high_seconds": 0.007372566666666667,
+      "bin_center_seconds": 0.007236258333333334,
+      "count": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.007372566666666667,
+      "bin_high_seconds": 0.007645183333333333,
+      "bin_center_seconds": 0.007508875,
+      "count": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.007645183333333333,
+      "bin_high_seconds": 0.007917800000000001,
+      "bin_center_seconds": 0.007781491666666667,
+      "count": 3
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.007917800000000001,
+      "bin_high_seconds": 0.008190416666666667,
+      "bin_center_seconds": 0.008054108333333334,
+      "count": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.008190416666666667,
+      "bin_high_seconds": 0.008463033333333333,
+      "bin_center_seconds": 0.008326725,
+      "count": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.008463033333333333,
+      "bin_high_seconds": 0.008735650000000001,
+      "bin_center_seconds": 0.008599341666666666,
+      "count": 4
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.008735650000000001,
+      "bin_high_seconds": 0.009008266666666667,
+      "bin_center_seconds": 0.008871958333333334,
+      "count": 4
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.009008266666666667,
+      "bin_high_seconds": 0.009280883333333333,
+      "bin_center_seconds": 0.009144575,
+      "count": 2
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_low_seconds": 0.009280883333333333,
+      "bin_high_seconds": 0.0095535,
+      "bin_center_seconds": 0.009417191666666666,
+      "count": 2
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.001375,
+      "bin_high_seconds": 0.0016476166666666665,
+      "bin_center_seconds": 0.0015113083333333332,
+      "count": 10
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.0016476166666666665,
+      "bin_high_seconds": 0.0019202333333333333,
+      "bin_center_seconds": 0.001783925,
+      "count": 20
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.0019202333333333333,
+      "bin_high_seconds": 0.00219285,
+      "bin_center_seconds": 0.0020565416666666666,
+      "count": 18
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.00219285,
+      "bin_high_seconds": 0.0024654666666666667,
+      "bin_center_seconds": 0.0023291583333333336,
+      "count": 18
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.0024654666666666667,
+      "bin_high_seconds": 0.0027380833333333333,
+      "bin_center_seconds": 0.0026017749999999997,
+      "count": 6
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.0027380833333333333,
+      "bin_high_seconds": 0.0030107,
+      "bin_center_seconds": 0.0028743916666666668,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.0030107,
+      "bin_high_seconds": 0.003283316666666667,
+      "bin_center_seconds": 0.0031470083333333333,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.003283316666666667,
+      "bin_high_seconds": 0.0035559333333333334,
+      "bin_center_seconds": 0.003419625,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.0035559333333333334,
+      "bin_high_seconds": 0.00382855,
+      "bin_center_seconds": 0.003692241666666667,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.00382855,
+      "bin_high_seconds": 0.004101166666666666,
+      "bin_center_seconds": 0.003964858333333333,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.004101166666666666,
+      "bin_high_seconds": 0.004373783333333334,
+      "bin_center_seconds": 0.004237475,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.004373783333333334,
+      "bin_high_seconds": 0.0046464,
+      "bin_center_seconds": 0.004510091666666667,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.0046464,
+      "bin_high_seconds": 0.004919016666666666,
+      "bin_center_seconds": 0.004782708333333333,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.004919016666666666,
+      "bin_high_seconds": 0.005191633333333334,
+      "bin_center_seconds": 0.005055325,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.005191633333333334,
+      "bin_high_seconds": 0.00546425,
+      "bin_center_seconds": 0.005327941666666667,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.00546425,
+      "bin_high_seconds": 0.0057368666666666665,
+      "bin_center_seconds": 0.005600558333333333,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.0057368666666666665,
+      "bin_high_seconds": 0.006009483333333334,
+      "bin_center_seconds": 0.0058731750000000004,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.006009483333333334,
+      "bin_high_seconds": 0.0062821000000000005,
+      "bin_center_seconds": 0.0061457916666666675,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.0062821000000000005,
+      "bin_high_seconds": 0.006554716666666667,
+      "bin_center_seconds": 0.006418408333333334,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.006554716666666667,
+      "bin_high_seconds": 0.006827333333333333,
+      "bin_center_seconds": 0.006691025,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.006827333333333333,
+      "bin_high_seconds": 0.007099950000000001,
+      "bin_center_seconds": 0.006963641666666667,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.007099950000000001,
+      "bin_high_seconds": 0.007372566666666667,
+      "bin_center_seconds": 0.007236258333333334,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.007372566666666667,
+      "bin_high_seconds": 0.007645183333333333,
+      "bin_center_seconds": 0.007508875,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.007645183333333333,
+      "bin_high_seconds": 0.007917800000000001,
+      "bin_center_seconds": 0.007781491666666667,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.007917800000000001,
+      "bin_high_seconds": 0.008190416666666667,
+      "bin_center_seconds": 0.008054108333333334,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.008190416666666667,
+      "bin_high_seconds": 0.008463033333333333,
+      "bin_center_seconds": 0.008326725,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.008463033333333333,
+      "bin_high_seconds": 0.008735650000000001,
+      "bin_center_seconds": 0.008599341666666666,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.008735650000000001,
+      "bin_high_seconds": 0.009008266666666667,
+      "bin_center_seconds": 0.008871958333333334,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.009008266666666667,
+      "bin_high_seconds": 0.009280883333333333,
+      "bin_center_seconds": 0.009144575,
+      "count": 0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_low_seconds": 0.009280883333333333,
+      "bin_high_seconds": 0.0095535,
+      "bin_center_seconds": 0.009417191666666666,
+      "count": 0
+    }
+  ],
+  "colors": {
+    "exchange": "#1f77b4",
+    "setup": "#8c564b",
+    "solve": "#9edae5"
+  }
+}

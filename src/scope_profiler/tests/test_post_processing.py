@@ -1,7 +1,9 @@
 import csv
 import json
+import re
 import sys
 import types
+from pathlib import Path
 
 import h5py
 import numpy as np
@@ -39,7 +41,7 @@ from scope_profiler.plotting_scripts import (
     plot_timeline_density,
     plot_weak_scaling,
 )
-from scope_profiler.post_processing import export_main, main
+from scope_profiler.post_processing import _PLOT_CATALOG, export_main, main
 from scope_profiler.profile_manager import RankPayload
 from scope_profiler.results import ProfilingResults
 
@@ -73,7 +75,11 @@ def _seconds(nanoseconds):
 def test_aggregate_gantt_intervals_filters_windows_and_coalesces():
     intervals = [(0.0, 0.00001), (0.1, 0.2), (0.3, 0.4), (0.5, 0.6)]
     assert _aggregate_gantt_intervals(
-        intervals, min_duration=0.05, start_time=0.15, end_time=0.55, block_size=2
+        intervals,
+        min_duration=0.05,
+        start_time=0.15,
+        end_time=0.55,
+        block_size=2,
     ) == [(0.15, 0.4, 2), (0.5, 0.55, 1)]
 
 
@@ -292,7 +298,12 @@ def _plotly_figure(plot_func, *args, **kwargs):
     """Render one plot to a Plotly figure, hover text included."""
     pytest.importorskip("plotly")
     return plot_func(
-        *args, backend="plotly", return_fig=True, show=False, verbose=False, **kwargs
+        *args,
+        backend="plotly",
+        return_fig=True,
+        show=False,
+        verbose=False,
+        **kwargs,
     )
 
 
@@ -413,7 +424,7 @@ def test_plotly_flame_shows_frame_names_and_tight_depth_rows(tmp_path):
     assert figure.layout.bargap == 0
     assert figure.layout.legend.title.text == "Regions"
     assert {trace.name for trace in figure.data[1:]}.issuperset(
-        {"step", "solve", "assemble"}
+        {"step", "solve", "assemble"},
     )
 
 
@@ -637,6 +648,27 @@ def test_plot_gantt_combined(tmp_path):
     assert out_file.stat().st_size > 0
 
 
+def test_plot_durations_renders_a_long_native_region_name(tmp_path):
+    file_path = tmp_path / "native.h5"
+    # Demangled C++ signatures can easily exceed 500 characters.  The label
+    # margin must not cross Matplotlib's top boundary as the figure grows.
+    region_name = "bool solve(" + "const SomeTemplate<Argument> &, " * 20 + ")"
+    _write_sample_h5(file_path, {0: {region_name: ([0], [100])}})
+
+    figure, _ = plot_durations(
+        read_h5(file_path),
+        return_fig=True,
+        show=False,
+        verbose=False,
+    )
+
+    assert figure.subplotpars.bottom < figure.subplotpars.top
+
+    import matplotlib.pyplot as plt
+
+    plt.close(figure)
+
+
 def test_plot_gantt_puts_every_call_of_a_region_on_one_lane(tmp_path, monkeypatch):
     """Repeated calls of a region share one row per rank, not a row each."""
     h5_path = tmp_path / "run.h5"
@@ -673,7 +705,9 @@ def test_plot_gantt_puts_every_call_of_a_region_on_one_lane(tmp_path, monkeypatc
 
     canvas = _RecordingCanvas()
     monkeypatch.setattr(
-        plotting_scripts, "_get_canvas", lambda: lambda *a, **kw: canvas
+        plotting_scripts,
+        "_get_canvas",
+        lambda: lambda *a, **kw: canvas,
     )
     monkeypatch.setattr(plotting_scripts, "_render", lambda *a, **kw: None)
 
@@ -698,7 +732,7 @@ def test_build_call_stack_reconstructs_nesting(tmp_path):
             "outer": ([0], [100]),
             "inner": ([10, 50], [40, 90]),
             "leaf": ([15, 55], [20, 60]),
-        }
+        },
     }
     file_path = tmp_path / "run.h5"
     _write_sample_h5(file_path, rank_regions)
@@ -724,13 +758,17 @@ def test_plot_flame_reconstructs_recursive_calls(tmp_path):
     rank_regions = {
         0: {
             "fib": ([0, 10, 60], [100, 90, 80]),
-        }
+        },
     }
     _write_sample_h5(file_path, rank_regions)
     results = read_h5(file_path)
 
     fig, _ = plot_flame(
-        results, filepath=out_file, show=False, verbose=False, return_fig=True
+        results,
+        filepath=out_file,
+        show=False,
+        verbose=False,
+        return_fig=True,
     )
 
     assert out_file.exists()
@@ -752,7 +790,11 @@ def test_plot_flame_graph_aggregates_repeated_call_paths(tmp_path):
     )
 
     figure = plot_flame_graph(
-        read_h5(file_path), backend="plotly", show=False, verbose=False, return_fig=True
+        read_h5(file_path),
+        backend="plotly",
+        show=False,
+        verbose=False,
+        return_fig=True,
     )
     frame = figure.data[0]
 
@@ -823,7 +865,11 @@ def test_plot_rank_heatmap(tmp_path):
     results = read_h5(file_path)
 
     fig, axes = plot_rank_heatmap(
-        results, filepath=out_file, return_fig=True, show=False, verbose=False
+        results,
+        filepath=out_file,
+        return_fig=True,
+        show=False,
+        verbose=False,
     )
 
     assert out_file.exists()
@@ -840,7 +886,11 @@ def test_plot_scaling_efficiency(tmp_path):
     data_file = tmp_path / "efficiency.json"
 
     plot_scaling_efficiency(
-        runs, data_filepath=data_file, data_format="json", show=False, verbose=False
+        runs,
+        data_filepath=data_file,
+        data_format="json",
+        show=False,
+        verbose=False,
     )
 
     efficiencies = {
@@ -859,13 +909,19 @@ def test_plot_speedup_x_field_omp_num_threads(tmp_path):
     # Written out of numeric order to confirm the x-axis is sorted
     # numerically rather than following file/CLI order.
     _write_sample_h5(
-        file_4, _sample_file_data(1, 25, 50), metadata={"omp_num_threads": 4}
+        file_4,
+        _sample_file_data(1, 25, 50),
+        metadata={"omp_num_threads": 4},
     )
     _write_sample_h5(
-        file_1, _sample_file_data(1, 100, 200), metadata={"omp_num_threads": 1}
+        file_1,
+        _sample_file_data(1, 100, 200),
+        metadata={"omp_num_threads": 1},
     )
     _write_sample_h5(
-        file_2, _sample_file_data(1, 50, 100), metadata={"omp_num_threads": 2}
+        file_2,
+        _sample_file_data(1, 50, 100),
+        metadata={"omp_num_threads": 2},
     )
     runs = [
         read_h5(file_4),
@@ -923,7 +979,8 @@ def test_plot_speedup_x_field_total_cores(tmp_path):
 
 
 def test_plot_speedup_categorical_field_preserves_cli_order_and_skips_ideal_line(
-    tmp_path, monkeypatch
+    tmp_path,
+    monkeypatch,
 ):
     import matplotlib.pyplot as plt
 
@@ -933,7 +990,9 @@ def test_plot_speedup_categorical_field_preserves_cli_order_and_skips_ideal_line
     # Intentionally not alphabetically ordered on disk, so a value-based sort
     # would reorder them; the CLI order below (b, then a) must be preserved.
     _write_sample_h5(
-        file_b, _sample_file_data(1, 50, 100), metadata={"build_variant": "b_variant"}
+        file_b,
+        _sample_file_data(1, 50, 100),
+        metadata={"build_variant": "b_variant"},
     )
     _write_sample_h5(
         file_a,
@@ -1079,7 +1138,7 @@ def test_plot_flame_export_data_json(tmp_path, monkeypatch):
             "phase_a": ([0], [100]),
             "phase_b": ([200], [300]),
             "work": ([10, 210], [90, 290]),
-        }
+        },
     }
     _write_sample_h5(file_path, rank_regions)
     with h5py.File(file_path, "a") as h5file:
@@ -1235,7 +1294,7 @@ def test_plot_durations_combine_regions_pools_stats(tmp_path):
                 "setup: read_input": ([0], [10 * ns]),
                 "setup: init_grid": ([10 * ns], [15 * ns]),
                 "solve": ([15 * ns], [35 * ns]),
-            }
+            },
         },
     )
     results = read_h5(file_path)
@@ -1302,7 +1361,7 @@ def test_post_processing_cli_combine_regions(tmp_path):
                 "setup: read_input": ([0], [10]),
                 "setup: init_grid": ([10], [15]),
                 "solve": ([15], [35]),
-            }
+            },
         },
     )
 
@@ -1314,7 +1373,7 @@ def test_post_processing_cli_combine_regions(tmp_path):
             str(output_dir),
             "--combine-regions",
             "setup=^setup:.*",
-        ]
+        ],
     )
 
     plot_file = output_dir / "durations_plot.png"
@@ -1406,7 +1465,7 @@ def _likwid_results(rank_values: dict[int, float]) -> ProfilingResults:
                 call_counts=np.array([1]),
                 metric_names=["MFlops/s"],
                 metrics=np.array([[value]]),
-            )
+            ),
         }
         for rank, value in rank_values.items()
     }
@@ -1438,7 +1497,7 @@ def _perf_event_results():
                     calls=1,
                     values={"cycles": 200, "instructions": 100, "cache-misses": 20},
                 ),
-            }
+            },
         },
         file_path="synthetic.h5",
     )
@@ -1472,7 +1531,7 @@ def test_post_processing_cli_plots_perf_events(tmp_path):
         likwid={},
         likwid_environment={},
         perf_events={
-            "work": PerfEventTotals(calls=1, values={"cycles": 10, "instructions": 20})
+            "work": PerfEventTotals(calls=1, values={"cycles": 10, "instructions": 20}),
         },
     )
     with ProfilingWriter(path) as writer:
@@ -1537,7 +1596,7 @@ def test_post_processing_cli_new_plots_and_options(tmp_path):
             "--log-scale",
             "--bins",
             "5",
-        ]
+        ],
     )
     main(["imbalance", str(file_path), "-o", str(output_dir), "--metric", "avg"])
 
@@ -1590,7 +1649,7 @@ def test_post_processing_cli_export_data_format_json(tmp_path):
             "--plots",
             "durations",
             "speedup",
-        ]
+        ],
     )
 
     for name in (
@@ -1623,7 +1682,7 @@ def test_post_processing_cli_export_plot_data_without_images(tmp_path):
             "--plots",
             "durations",
             "speedup",
-        ]
+        ],
     )
 
     for name in (
@@ -1634,6 +1693,169 @@ def test_post_processing_cli_export_plot_data_without_images(tmp_path):
         assert (output_dir / name).exists()
 
     assert list(output_dir.glob("*.png")) == []
+
+
+def test_every_plot_data_document_carries_the_format_envelope(tmp_path):
+    """The envelope is what lets a consumer dispatch on the file itself.
+
+    It is stamped centrally in `_write_json`, so this covers every kind the
+    export can write rather than the handful that once stamped it by hand.
+    """
+    file_one = tmp_path / "run_1.h5"
+    file_two = tmp_path / "run_2.h5"
+    output_dir = tmp_path / "figures"
+
+    _write_sample_h5(file_one, _sample_file_data(2, 100, 200))
+    _write_sample_h5(file_two, _sample_file_data(4, 50, 100))
+
+    export_main(
+        [
+            "plot-data",
+            str(file_one),
+            str(file_two),
+            "-o",
+            str(output_dir),
+            "--format",
+            "json",
+            "--plots",
+            "gantt",
+            "density",
+            "durations",
+            "timeseries",
+            "histogram",
+            "imbalance",
+            "rank_heatmap",
+            "speedup",
+            "weak_scaling",
+            "scaling_efficiency",
+        ],
+    )
+
+    written = sorted(output_dir.glob("*.json"))
+    assert len(written) >= 11
+    kinds = set()
+    for path in written:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        assert payload["format"] == "scope-profiler-plot-data", path.name
+        assert payload["format_version"] == 1, path.name
+        kinds.add(payload["plot"])
+
+    assert {
+        "gantt",
+        "density",
+        "durations",
+        "timeseries",
+        "histogram",
+        "imbalance",
+        "rank_heatmap",
+        "speedup",
+        "weak_scaling",
+        "scaling_efficiency",
+        "region_statistics",
+    } <= kinds
+
+
+def test_the_plotly_package_has_a_builder_for_every_exported_kind(tmp_path):
+    """The JS package must keep up with the kinds the exporter can write.
+
+    A new plot kind is otherwise only discovered to be unrenderable by whoever
+    fetches its JSON in a browser. Reads the builder table out of the package
+    source rather than running node, so the check costs nothing in CI.
+    """
+    package = (
+        Path(__file__).resolve().parents[3] / "packages" / "plotly" / "src" / "index.js"
+    )
+    if not package.exists():  # pragma: no cover - an installed wheel has no packages/
+        pytest.skip("the npm package is not part of an installed distribution")
+
+    source = package.read_text(encoding="utf-8")
+    table = re.search(r"PLOT_BUILDERS = \{(.*?)\n\};", source, re.DOTALL)
+    assert table, "could not find PLOT_BUILDERS in the package source"
+    builders = set(re.findall(r"^\s*(\w+):", table.group(1), re.MULTILINE))
+
+    def nested(rank_count, scale):
+        # Disjoint calls rather than _sample_file_data's overlapping pair: the
+        # flame kinds reconstruct a call stack and reject improper nesting.
+        return {
+            rank: {
+                "setup": ([0], [100 * scale]),
+                "solve": ([200], [200 + 300 * scale]),
+            }
+            for rank in range(rank_count)
+        }
+
+    file_one = tmp_path / "run_1.h5"
+    file_two = tmp_path / "run_2.h5"
+    output_dir = tmp_path / "figures"
+    _write_sample_h5(file_one, nested(2, 2))
+    _write_sample_h5(file_two, nested(4, 1))
+
+    # Every kind the export supports: `perf_events` is rejected outright and
+    # `likwid` needs counters this run does not have.
+    kinds = [
+        name
+        for name in _PLOT_CATALOG
+        if name not in {"perf_events", "likwid", "callgraph"}
+    ]
+    export_main(
+        [
+            "plot-data",
+            str(file_one),
+            str(file_two),
+            "-o",
+            str(output_dir),
+            "--format",
+            "json",
+            "--plots",
+            *kinds,
+        ],
+    )
+
+    written = {
+        json.loads(path.read_text(encoding="utf-8"))["plot"]
+        for path in output_dir.glob("*.json")
+    }
+    assert written, "the export wrote nothing"
+    assert (
+        written <= builders
+    ), f"@scope-profiler/plotly has no builder for {sorted(written - builders)}"
+
+
+def test_scaling_exports_share_their_axis_options(tmp_path):
+    """All three scaling kinds carry the baseline and label a chart needs."""
+    file_one = tmp_path / "run_1.h5"
+    file_two = tmp_path / "run_2.h5"
+    output_dir = tmp_path / "figures"
+
+    _write_sample_h5(file_one, _sample_file_data(2, 100, 200))
+    _write_sample_h5(file_two, _sample_file_data(4, 50, 100))
+
+    export_main(
+        [
+            "plot-data",
+            str(file_one),
+            str(file_two),
+            "-o",
+            str(output_dir),
+            "--format",
+            "json",
+            "--plots",
+            "speedup",
+            "weak_scaling",
+            "scaling_efficiency",
+        ],
+    )
+
+    for name in ("speedup", "weak_scaling", "scaling_efficiency"):
+        payload = json.loads(
+            (output_dir / f"{name}_data.json").read_text(encoding="utf-8"),
+        )
+        assert payload["options"] == {
+            "x_field": "num_ranks",
+            "x_label": "MPI ranks",
+            "baseline": 2,
+        }
+        assert all(color.startswith("#") for color in payload["colors"].values())
 
 
 def test_post_processing_cli_single_plot_can_write_file(tmp_path):

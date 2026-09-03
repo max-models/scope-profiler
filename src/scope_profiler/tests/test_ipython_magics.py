@@ -13,7 +13,8 @@ import sys
 import pytest
 
 IPython = pytest.importorskip(
-    "IPython", reason="the optional 'notebook' extra is not installed"
+    "IPython",
+    reason="the optional 'notebook' extra is not installed",
 )
 
 from IPython.core.error import UsageError
@@ -130,7 +131,8 @@ def test_scope_compare_one_name_raises(shell):
 
 
 line_profiler = pytest.importorskip(
-    "line_profiler", reason="the optional 'line-profiler' extra is not installed"
+    "line_profiler",
+    reason="the optional 'line-profiler' extra is not installed",
 )
 
 
@@ -444,7 +446,12 @@ def test_scope_recursive_failure_traceback_starts_in_the_cell(shell, capsys):
     ],
 )
 def test_recording_magics_write_nothing_to_disk(
-    shell, tmp_path, monkeypatch, magic, line, cell
+    shell,
+    tmp_path,
+    monkeypatch,
+    magic,
+    line,
+    cell,
 ):
     """The magics run with deactivate_file_output=True, by design."""
     monkeypatch.chdir(tmp_path)

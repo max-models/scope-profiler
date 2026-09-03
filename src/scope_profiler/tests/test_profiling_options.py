@@ -70,7 +70,9 @@ def test_session_accepts_options(tmp_path):
 
     with (
         ProfileManager.session(
-            options=options, return_results=True, verbose=False
+            options=options,
+            return_results=True,
+            verbose=False,
         ) as run,
         ProfileManager.profile_region("work"),
     ):
@@ -83,7 +85,9 @@ def test_session_records_a_single_root_around_all_regions():
     options = ProfilingOptions(deactivate_file_output=True)
 
     with ProfileManager.session(
-        options=options, return_results=True, verbose=False
+        options=options,
+        return_results=True,
+        verbose=False,
     ) as run:
         with ProfileManager.profile_region("first"):
             pass

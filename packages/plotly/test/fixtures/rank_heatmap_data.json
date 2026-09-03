@@ -1,0 +1,169 @@
+{
+  "format": "scope-profiler-plot-data",
+  "format_version": 1,
+  "plot": "rank_heatmap",
+  "points": [
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "setup",
+      "total_duration_seconds": 0.004
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "setup",
+      "total_duration_seconds": 0.00448
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "setup",
+      "total_duration_seconds": 0.00496
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "solve",
+      "total_duration_seconds": 0.12582000000000002
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "solve",
+      "total_duration_seconds": 0.13878000000000001
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "solve",
+      "total_duration_seconds": 0.15173999800000001
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "exchange",
+      "total_duration_seconds": 0.03495
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "exchange",
+      "total_duration_seconds": 0.03855
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "exchange",
+      "total_duration_seconds": 0.042149997
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "setup",
+      "total_duration_seconds": 0.0022
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "setup",
+      "total_duration_seconds": 0.002464
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "setup",
+      "total_duration_seconds": 0.002728
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "setup",
+      "total_duration_seconds": 0.002991999
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "setup",
+      "total_duration_seconds": 0.003256
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "setup",
+      "total_duration_seconds": 0.00352
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "solve",
+      "total_duration_seconds": 0.06920100000000001
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "solve",
+      "total_duration_seconds": 0.076329
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "solve",
+      "total_duration_seconds": 0.083456997
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "solve",
+      "total_duration_seconds": 0.090584993
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "solve",
+      "total_duration_seconds": 0.09771299900000001
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "solve",
+      "total_duration_seconds": 0.10484100000000002
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "exchange",
+      "total_duration_seconds": 0.019222499
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "exchange",
+      "total_duration_seconds": 0.0212025
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "exchange",
+      "total_duration_seconds": 0.023182498000000003
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "exchange",
+      "total_duration_seconds": 0.025162496
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "exchange",
+      "total_duration_seconds": 0.027142499999999996
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "exchange",
+      "total_duration_seconds": 0.029122500000000003
+    }
+  ]
+}

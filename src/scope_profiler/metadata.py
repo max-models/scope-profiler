@@ -129,7 +129,7 @@ def _collect_environment_variables() -> dict[str, str]:
             name: value
             for name, value in os.environ.items()
             if name.startswith(_SLURM_PREFIXES) and value
-        }
+        },
     )
     return collected
 

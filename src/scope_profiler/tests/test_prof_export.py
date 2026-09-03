@@ -26,7 +26,7 @@ def _nested_file_data():
             "setup": ([0], [20 * MS]),
             "solve": ([20 * MS], [90 * MS]),
             "assemble": ([30 * MS], [60 * MS]),
-        }
+        },
     }
 
 
@@ -56,7 +56,7 @@ def _calls(*specs):
                 0: Region(
                     np.array([s for s, _ in calls], dtype=np.int64),
                     np.array([e for _, e in calls], dtype=np.int64),
-                )
+                ),
             },
         )
         for name, calls in intervals.items()
@@ -90,7 +90,7 @@ def test_build_pstats_dict_nesting_and_self_time():
     assert child[2] == pytest.approx(0.5)
     assert child[3] == pytest.approx(0.5)
     assert child[4] == {
-        ("~", 0, "main"): (2, 2, pytest.approx(0.5), pytest.approx(0.5))
+        ("~", 0, "main"): (2, 2, pytest.approx(0.5), pytest.approx(0.5)),
     }
 
 
@@ -264,9 +264,9 @@ def test_build_pstats_dict_uses_captured_source_location():
                         np.array([1_000_000_000], dtype=np.int64),
                         source_file="solver.py",
                         source_lineno=42,
-                    )
+                    ),
                 },
-            )
+            ),
         ],
         rank=0,
     )
@@ -297,7 +297,7 @@ def test_export_prof_readable_by_pstats(tmp_path):
     assert stats.stats[("~", 0, "main > solve")][2] == pytest.approx(0.04)
     assert stats.stats[("~", 0, "main > solve > assemble")][3] == pytest.approx(0.03)
     assert stats.stats[("~", 0, "main > solve > assemble")][4].keys() == {
-        ("~", 0, "main > solve")
+        ("~", 0, "main > solve"),
     }
     assert stats.total_calls == 5  # four regions plus the synthetic root
 
@@ -345,7 +345,7 @@ def test_cli_export_prof_without_plots(tmp_path, capsys):
             str(h5_file),
             "-o",
             str(out_dir),
-        ]
+        ],
     )
 
     prof_file = out_dir / "profile_rank0.prof"
@@ -512,7 +512,9 @@ def test_export_prof_names_files_per_run_when_several_are_given(tmp_path):
     _write_sample_h5(second, _nested_file_data())
 
     written = export_prof(
-        [read_h5(first), read_h5(second)], tmp_path / "profile.prof", verbose=False
+        [read_h5(first), read_h5(second)],
+        tmp_path / "profile.prof",
+        verbose=False,
     )
 
     assert written == [
@@ -598,5 +600,5 @@ def test_exported_prof_loads_in_snakeviz(tmp_path):
         "~:0(main > solve > assemble)",
     }
     assert set(tree["~:0(main > solve)"]["children"]) == {
-        "~:0(main > solve > assemble)"
+        "~:0(main > solve > assemble)",
     }

@@ -214,7 +214,9 @@ def inspect_file(
         read_profile(file_path)
         if show_regions
         else read_profile_summary(
-            file_path, include_likwid=False, include_line_profile=False
+            file_path,
+            include_likwid=False,
+            include_line_profile=False,
         )
     )
 
@@ -260,10 +262,18 @@ def inspect_file(
             file_path=path,
         )
         print_likwid_tables(
-            results, include=include, exclude=exclude, ranks=ranks, stream=stream
+            results,
+            include=include,
+            exclude=exclude,
+            ranks=ranks,
+            stream=stream,
         )
         print_perf_event_tables(
-            results, include=include, exclude=exclude, ranks=ranks, stream=stream
+            results,
+            include=include,
+            exclude=exclude,
+            ranks=ranks,
+            stream=stream,
         )
 
     if source:
@@ -314,7 +324,9 @@ def collect_file_metadata(
             item
             if isinstance(item, ProfilingResults)
             else read_profile_summary(
-                item, include_likwid=False, include_line_profile=False
+                item,
+                include_likwid=False,
+                include_line_profile=False,
             )
         )
         files.append(
@@ -324,7 +336,7 @@ def collect_file_metadata(
                 "metadata": {
                     key: _json_safe(value) for key, value in results.metadata.items()
                 },
-            }
+            },
         )
 
     return {"files": files}

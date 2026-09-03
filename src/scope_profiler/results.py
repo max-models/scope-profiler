@@ -65,7 +65,7 @@ class ProfilingResults:
         self._exclusive_populated = True
 
         for rank in sorted(
-            {rank for region in self._region_dict.values() for rank in region.ranks}
+            {rank for region in self._region_dict.values() for rank in region.ranks},
         ):
             # Columns, not one dict per call: this runs over every event in
             # the run, which for a long simulation is tens of millions.
@@ -174,7 +174,7 @@ class ProfilingResults:
                 # Attach first: this drops whatever a previous owner of the
                 # region computed, including its stored total.
                 rank_region._attach_exclusive_resolver(
-                    self._populate_exclusive_durations
+                    self._populate_exclusive_durations,
                 )
                 stored = totals.get(name, {}).get(rank)
                 if stored is not None:
@@ -182,7 +182,9 @@ class ProfilingResults:
 
     @classmethod
     def from_h5(
-        cls, file_path: str | Path, verbose: bool = False
+        cls,
+        file_path: str | Path,
+        verbose: bool = False,
     ) -> "ProfilingResults":
         """
         Load a merged profiling file written by
@@ -241,7 +243,7 @@ class ProfilingResults:
         except KeyError:
             raise KeyError(
                 f"No region named {region_name!r} in {self.file_path}. "
-                f"Available regions: {self.region_names}"
+                f"Available regions: {self.region_names}",
             ) from None
 
     @property
@@ -330,7 +332,7 @@ class ProfilingResults:
         except ImportError as exc:
             raise ImportError(
                 "to_dataframe() requires pandas. Install scope-profiler[pproc] "
-                "or pandas directly."
+                "or pandas directly.",
             ) from exc
 
         regions = self.get_regions(include=include, exclude=exclude)
@@ -350,7 +352,7 @@ class ProfilingResults:
                         "p50_duration": region[rank].p50_duration,
                         "p95_duration": region[rank].p95_duration,
                         "p99_duration": region[rank].p99_duration,
-                    }
+                    },
                 )
         return pd.DataFrame(rows)
 
@@ -359,7 +361,7 @@ class ProfilingResults:
         if not self._event_data_available:
             raise EventDataUnavailableError(
                 f"{operation}() requires per-call events, but this profile was "
-                "loaded with read_h5_summary(); load it with read_h5()"
+                "loaded with read_h5_summary(); load it with read_h5()",
             )
 
     def events(
@@ -452,7 +454,7 @@ class ProfilingResults:
         except ImportError as exc:
             raise ImportError(
                 "to_events_dataframe() requires pandas. Install "
-                "scope-profiler[pproc] or pandas directly."
+                "scope-profiler[pproc] or pandas directly.",
             ) from exc
 
         events = self.events(
@@ -558,7 +560,7 @@ class ProfilingResults:
             data = region.regions[rank]
             keep_region = region.name in retained
             for index, (call_id, parent_id) in enumerate(
-                zip(data.call_ids.tolist(), data.parent_ids.tolist())
+                zip(data.call_ids.tolist(), data.parent_ids.tolist()),
             ):
                 parent_of[call_id] = None if parent_id < 0 else parent_id
                 if keep_region:
@@ -870,7 +872,7 @@ class ProfilingResults:
                 if region_rank != int(rank) or region_data.thread_ids is None:
                     continue
                 for index, count in zip(
-                    *np.unique(region_data.thread_ids, return_counts=True)
+                    *np.unique(region_data.thread_ids, return_counts=True),
                 ):
                     entry = by_thread.setdefault(int(index), [0, 0])
                     entry[0] += int(count)
@@ -1003,7 +1005,7 @@ class ProfilingResults:
         except KeyError:
             raise KeyError(
                 f"No LIKWID region {tag!r} for rank {rank} in {self.file_path}. "
-                f"Available regions: {sorted(regions)}"
+                f"Available regions: {sorted(regions)}",
             ) from None
 
     def likwid_to_dataframe(self):
@@ -1030,7 +1032,7 @@ class ProfilingResults:
         except ImportError as exc:
             raise ImportError(
                 "likwid_to_dataframe() requires pandas. Install "
-                "scope-profiler[pproc] or pandas directly."
+                "scope-profiler[pproc] or pandas directly.",
             ) from exc
 
         rows = []
@@ -1082,13 +1084,13 @@ class ProfilingResults:
                 for thread, cpu in enumerate(result.cpus or range(len(result.times))):
                     print_(
                         f"  cpu {cpu}: {result.call_counts[thread]} call(s), "
-                        f"{result.times[thread]:.6f} s"
+                        f"{result.times[thread]:.6f} s",
                     )
                     # Labels rather than raw names, so repeated events show
                     # which counter (memory channel, ...) they came from.
                     width = max(
                         [len(n) for n in result.event_labels + result.metric_names]
-                        + [30]
+                        + [30],
                     )
                     for name, values in zip(result.event_labels, result.events):
                         print_(f"    {name:<{width}s} {values[thread]:>18.4f}")
@@ -1283,7 +1285,7 @@ class ProfilingResults:
 
         # Sort regions based on first start time across all ranks
         regions.sort(
-            key=lambda r: min(region.first_start_time for region in r.regions.values())
+            key=lambda r: min(region.first_start_time for region in r.regions.values()),
         )
 
         return regions
@@ -1370,7 +1372,7 @@ def merge_results(*result_sets, label: str | None = None, file_path=None):
                 raise ValueError(
                     f"region {name!r} appears in more than one result set; "
                     f"merging them would double-count it. Give the regions "
-                    f"distinct names (a 'fortran:' prefix, say) before merging."
+                    f"distinct names (a 'fortran:' prefix, say) before merging.",
                 )
             seen[name] = index
 

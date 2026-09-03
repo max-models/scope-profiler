@@ -32,10 +32,12 @@ def _write_sample_h5(path, rank_regions, metadata=None):
                 region_group = regions_group.create_group(region_name)
                 starts, ends = payload
                 region_group.create_dataset(
-                    "start_times", data=np.asarray(starts, dtype=np.int64)
+                    "start_times",
+                    data=np.asarray(starts, dtype=np.int64),
                 )
                 region_group.create_dataset(
-                    "end_times", data=np.asarray(ends, dtype=np.int64)
+                    "end_times",
+                    data=np.asarray(ends, dtype=np.int64),
                 )
 
 
@@ -69,7 +71,7 @@ def candidate_file(tmp_path):
             0: {
                 "setup": ([0], [1 * NS]),
                 "solve": ([1 * NS, 2 * NS], [2 * NS, 3 * NS]),
-            }
+            },
         },
         metadata={"start_time_ns": 0, "finalize_time_ns": 3 * NS},
     )
@@ -96,7 +98,8 @@ class TestInspectProfile:
         assert metadata["parallelism"] == {"mpi_size": 1, "omp_num_threads": 4}
         assert metadata["slurm"] == {"SLURM_JOB_ID": "1234567"}
         assert isinstance(
-            metadata["parallelism"]["mpi_size"], int
+            metadata["parallelism"]["mpi_size"],
+            int,
         )  # not a numpy scalar
 
     def test_top_n_limits_regions_but_reports_the_true_total(self, baseline_file):
@@ -163,17 +166,23 @@ class TestCompareProfiles:
         assert by_name["setup"]["delta"] == pytest.approx(0.0)
 
     def test_improvements_and_regressions_split_by_threshold(
-        self, baseline_file, candidate_file
+        self,
+        baseline_file,
+        candidate_file,
     ):
         payload = compare_profiles(
-            str(baseline_file), str(candidate_file), threshold_pct=5.0
+            str(baseline_file),
+            str(candidate_file),
+            threshold_pct=5.0,
         )
 
         assert [row["name"] for row in payload["improvements"]] == ["solve"]
         assert payload["regressions"] == []
 
     def test_a_slower_candidate_is_reported_as_a_regression(
-        self, tmp_path, baseline_file
+        self,
+        tmp_path,
+        baseline_file,
     ):
         slower = tmp_path / "slower.h5"
         _write_sample_h5(
@@ -182,7 +191,7 @@ class TestCompareProfiles:
                 0: {
                     "setup": ([0], [1 * NS]),
                     "solve": ([1 * NS, 4 * NS], [3 * NS, 9 * NS]),
-                }
+                },
             },
             metadata={"start_time_ns": 0, "finalize_time_ns": 9 * NS},
         )
@@ -209,7 +218,7 @@ class TestRunProfile:
             "import time\n"
             "from scope_profiler import ProfileManager\n"
             "with ProfileManager.profile_region('work'):\n"
-            "    time.sleep(0.001)\n"
+            "    time.sleep(0.001)\n",
         )
 
         payload = run_profile(str(script), output_path=str(tmp_path / "out.h5"))
@@ -244,7 +253,7 @@ class TestRunProfile:
             "from scope_profiler import ProfileManager\n"
             "with ProfileManager.profile_region('args'):\n"
             "    pass\n"
-            "assert sys.argv[1:] == ['hello world', '$(rm -rf /)']\n"
+            "assert sys.argv[1:] == ['hello world', '$(rm -rf /)']\n",
         )
 
         # A shell metacharacter-laden argument must reach the script literally,
@@ -256,7 +265,9 @@ class TestRunProfile:
 class TestPlotProfile:
     def test_renders_a_gantt_chart_and_returns_its_path(self, baseline_file, tmp_path):
         payload = plot_profile(
-            str(baseline_file), plot_type="gantt", output_dir=str(tmp_path / "figs")
+            str(baseline_file),
+            plot_type="gantt",
+            output_dir=str(tmp_path / "figs"),
         )
 
         assert payload["plot_type"] == "gantt"
@@ -277,6 +288,8 @@ class TestPlotProfile:
 
     def test_accepts_a_single_path_as_a_string(self, baseline_file, tmp_path):
         payload = plot_profile(
-            str(baseline_file), plot_type="durations", output_dir=str(tmp_path / "figs")
+            str(baseline_file),
+            plot_type="durations",
+            output_dir=str(tmp_path / "figs"),
         )
         assert payload["paths"]

@@ -59,7 +59,8 @@ def test_rank_group_holds_the_recorded_timestamps(tmp_path):
 
 
 def test_summary_reader_matches_eager_scalar_statistics_without_reading_events(
-    tmp_path, monkeypatch
+    tmp_path,
+    monkeypatch,
 ):
     path = tmp_path / "summary.h5"
     with ProfilingWriter(path, {"mpi_size": 2}) as writer:
@@ -71,7 +72,7 @@ def test_summary_reader_matches_eager_scalar_statistics_without_reading_events(
                         [0, 10 * NS, 20 * NS],
                         [2 * NS, 14 * NS, 26 * NS],
                         [7, 11, 13],
-                    )
+                    ),
                 },
                 exclusive_totals={"solve": 9 * NS},
             ),
@@ -134,7 +135,8 @@ def test_summary_reader_filters_regions_and_ranks(tmp_path):
     with ProfilingWriter(path, {"mpi_size": 2}) as writer:
         writer.write_rank(0, payload({"solve": ([0], [NS]), "other": ([0], [2 * NS])}))
         writer.write_rank(
-            1, payload({"solve": ([0], [2 * NS]), "other": ([0], [3 * NS])})
+            1,
+            payload({"solve": ([0], [2 * NS]), "other": ([0], [3 * NS])}),
         )
 
     loaded = read_h5_summary(
@@ -160,7 +162,8 @@ def test_summary_reader_validates_fixed_index_structure(tmp_path):
         data = summary[()]
         del handle["rank_region_index/summary_statistics"]
         handle["rank_region_index"].create_dataset(
-            "summary_statistics", data=np.zeros(len(data), dtype=[("total", "i8")])
+            "summary_statistics",
+            data=np.zeros(len(data), dtype=[("total", "i8")]),
         )
     with pytest.raises(HDF5SchemaError, match="missing field"):
         read_h5_summary(path, fallback=False)
@@ -185,7 +188,8 @@ def test_summary_reader_can_skip_auxiliary_data(tmp_path, monkeypatch):
 
 
 @pytest.mark.skipif(
-    not Path("/proc/self/statm").exists(), reason="Linux RSS unavailable"
+    not Path("/proc/self/statm").exists(),
+    reason="Linux RSS unavailable",
 )
 def test_summary_reader_rss_does_not_scale_with_event_count(tmp_path):
     path = tmp_path / "rss.h5"
@@ -464,7 +468,7 @@ def test_regions_not_duplicated_across_ranks(tmp_path):
                         "main": ([0], [10 * NS]),
                         "setup": ([0], [2 * NS]),
                         "solve": ([2 * NS], [9 * NS]),
-                    }
+                    },
                 ),
             )
 
@@ -502,7 +506,7 @@ def test_prof_export_no_split_timeline(tmp_path):
                         "setup": ([0], [20 * NS]),
                         "solve": ([20 * NS], [90 * NS]),
                         "assemble": ([30 * NS], [60 * NS]),
-                    }
+                    },
                 ),
             )
 
@@ -528,7 +532,7 @@ def test_prof_export_no_split_timeline(tmp_path):
     # Verify no duplicate entries in pstats
     stat_keys = list(stats.keys())
     assert len(stat_keys) == len(
-        {key[2] for key in stat_keys}
+        {key[2] for key in stat_keys},
     ), "Duplicate regions in pstats"
 
     # Verify each region appears exactly once
@@ -552,11 +556,18 @@ def test_writer_carries_the_index_across_ranks_without_rereading_the_file(tmp_pa
         del writer._file["region_table/names"]
         del writer._file["rank_region_index/ranks"]
         writer._file["region_table"].create_dataset(
-            "names", shape=(1,), maxshape=(None,), dtype=h5py.string_dtype("utf-8")
+            "names",
+            shape=(1,),
+            maxshape=(None,),
+            dtype=h5py.string_dtype("utf-8"),
         )
         writer._file["region_table/names"][0] = "solve"
         writer._file["rank_region_index"].create_dataset(
-            "ranks", shape=(1,), maxshape=(None,), dtype=np.uint32, data=[0]
+            "ranks",
+            shape=(1,),
+            maxshape=(None,),
+            dtype=np.uint32,
+            data=[0],
         )
 
         writer.write_rank(1, payload({"assemble": ([0], [2 * NS])}))
@@ -579,7 +590,8 @@ def test_index_state_can_be_handed_to_the_next_writer(tmp_path):
 
     assert state == {"names": ["solve"], "ranks": [0]}
     with ProfilingWriter.open_existing(
-        path, index_state=ColumnarIndex(**state)
+        path,
+        index_state=ColumnarIndex(**state),
     ) as more:
         more.write_rank(1, payload({"solve": ([0], [3 * NS]), "io": ([0], [NS])}))
         with pytest.raises(ValueError):
@@ -640,7 +652,8 @@ def test_a_file_without_stored_totals_still_reports_exclusive_time(tmp_path):
 
     with ProfilingWriter.open_existing(path) as writer:
         writer.write_rank(
-            1, payload(NESTED, exclusive_totals={"outer": 150, "inner": 50})
+            1,
+            payload(NESTED, exclusive_totals={"outer": 150, "inner": 50}),
         )
 
     with h5py.File(path, "r") as handle:

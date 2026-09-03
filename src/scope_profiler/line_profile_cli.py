@@ -109,7 +109,7 @@ def print_line_profile(
                         f"{per_hit:.6g}" if per_hit is not None else "",
                         f"{percent:.2f}" if percent is not None else "",
                         source,
-                    ]
+                    ],
                 )
             for table_line in tabulate(
                 table_rows,
@@ -158,7 +158,8 @@ def main(argv=None):
         help="Region names to exclude (regex patterns).",
     )
     parser.add_argument(
-        "--function", help="regular expression selecting function names"
+        "--function",
+        help="regular expression selecting function names",
     )
     parser.add_argument("--region", help="regular expression selecting region names")
     args = parser.parse_args(argv)

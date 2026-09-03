@@ -21,7 +21,7 @@ def _nested_file_data():
             "setup": ([0], [20 * MS]),
             "solve": ([20 * MS], [90 * MS]),
             "assemble": ([30 * MS], [60 * MS]),
-        }
+        },
     }
 
 
@@ -51,7 +51,7 @@ def _calls(*specs):
                 0: Region(
                     np.array([s for s, _ in calls], dtype=np.int64),
                     np.array([e for _, e in calls], dtype=np.int64),
-                )
+                ),
             },
         )
         for name, calls in intervals.items()
@@ -179,7 +179,9 @@ def test_export_defaults_to_rank_zero_and_splits_per_file(tmp_path):
 
     runs = [read_h5(file_one), read_h5(file_two)]
     written = export_speedscope(
-        runs, tmp_path / "profile.speedscope.json", verbose=False
+        runs,
+        tmp_path / "profile.speedscope.json",
+        verbose=False,
     )
 
     assert [path.name for path in written] == [
@@ -215,7 +217,7 @@ def test_cli_export_speedscope_without_plots(tmp_path, capsys):
             str(h5_file),
             "-o",
             str(out_dir),
-        ]
+        ],
     )
 
     speedscope_file = out_dir / "profile.speedscope.json"

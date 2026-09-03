@@ -89,7 +89,7 @@ def _read_profile(file_path: str) -> ProfilingResults:
         raise ToolError(str(exc)) from exc
     except Exception as exc:
         raise ToolError(
-            f"Could not read {file_path!r} as a profiling file: {exc}"
+            f"Could not read {file_path!r} as a profiling file: {exc}",
         ) from exc
 
 
@@ -97,13 +97,15 @@ def _read_summary_profile(file_path: str) -> ProfilingResults:
     """Load scalar statistics without touching event columns when available."""
     try:
         return read_profile_summary(
-            file_path, include_likwid=False, include_line_profile=False
+            file_path,
+            include_likwid=False,
+            include_line_profile=False,
         )
     except FileNotFoundError as exc:
         raise ToolError(str(exc)) from exc
     except Exception as exc:
         raise ToolError(
-            f"Could not read {file_path!r} as a profiling file: {exc}"
+            f"Could not read {file_path!r} as a profiling file: {exc}",
         ) from exc
 
 
@@ -146,7 +148,9 @@ def _metadata_payload(results: ProfilingResults, full: bool) -> dict:
 
 
 def _likwid_payload(
-    results: ProfilingResults, ranks=None, top_n: int | None = None
+    results: ProfilingResults,
+    ranks=None,
+    top_n: int | None = None,
 ) -> dict | None:
     """Structured LIKWID summary, or ``None`` when the run recorded none.
 
@@ -176,7 +180,7 @@ def _likwid_payload(
                         name: float(np.mean(values))
                         for name, values in zip(region.metric_names, region.metrics)
                     },
-                }
+                },
             )
     entries.sort(key=lambda entry: (entry["rank"], entry["region"]))
 
@@ -215,7 +219,11 @@ def inspect_profile(
     results = _read_profile(file_path)
 
     rows = region_rows(
-        results, include=include, exclude=exclude, ranks=ranks, sort=sort
+        results,
+        include=include,
+        exclude=exclude,
+        ranks=ranks,
+        sort=sort,
     )
     total_matching = len(rows)
     limited = rows[:top_n] if top_n else rows
@@ -397,17 +405,17 @@ def run_profile(
         )
     except subprocess.TimeoutExpired as exc:
         raise ToolError(
-            f"Profiling run exceeded {timeout_seconds}s and was terminated."
+            f"Profiling run exceeded {timeout_seconds}s and was terminated.",
         ) from exc
 
     if completed.returncode != 0:
         raise ToolError(
             f"Profiling run failed (exit code {completed.returncode}).\n"
-            f"stderr:\n{completed.stderr[-2000:]}"
+            f"stderr:\n{completed.stderr[-2000:]}",
         )
     if not out_path.exists():
         raise ToolError(
-            "Profiling run exited successfully but produced no output file."
+            "Profiling run exited successfully but produced no output file.",
         )
 
     summary = inspect_profile(str(out_path), top_n=top_n)
@@ -439,7 +447,7 @@ def plot_profile(
         raise ToolError("file_paths must contain at least one path")
     if plot_type not in _PLOT_FUNCS:
         raise ToolError(
-            f"plot_type must be one of {sorted(_PLOT_FUNCS)}, got {plot_type!r}"
+            f"plot_type must be one of {sorted(_PLOT_FUNCS)}, got {plot_type!r}",
         )
     if plot_type == "speedup" and len(file_paths) < 2:
         raise ToolError("plot_type='speedup' requires at least 2 file_paths")
@@ -452,7 +460,7 @@ def plot_profile(
         from scope_profiler import plotting_scripts
     except ImportError as exc:
         raise ToolError(
-            "Plotting requires the 'pproc' extra: pip install 'scope-profiler[pproc]'"
+            "Plotting requires the 'pproc' extra: pip install 'scope-profiler[pproc]'",
         ) from exc
 
     plot_func = getattr(plotting_scripts, _PLOT_FUNCS[plot_type])
@@ -482,7 +490,7 @@ def plot_profile(
         )
     except ImportError as exc:
         raise ToolError(
-            "Plotting requires the 'pproc' extra: pip install 'scope-profiler[pproc]'"
+            "Plotting requires the 'pproc' extra: pip install 'scope-profiler[pproc]'",
         ) from exc
 
     # plot_durations() returns the list containing the path it wrote; every

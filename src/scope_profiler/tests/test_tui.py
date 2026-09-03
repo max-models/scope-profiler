@@ -34,7 +34,7 @@ def sample_file(tmp_path):
         },
         metadata={"timestamp": "2026-08-20T12:00:00", "modules": ["gcc", "python"]},
         sources={
-            "solve": ("kernels.py", 7, "with profile_region('solve'):\n    pass\n")
+            "solve": ("kernels.py", 7, "with profile_region('solve'):\n    pass\n"),
         },
     )
     return path
@@ -54,7 +54,8 @@ def line_profile_file(tmp_path):
         "unit": 1e-9,
     }
     (tmp_path / "app.py").write_text(
-        "\n" * 10 + "    if enabled:\n        total = 0\n", encoding="utf-8"
+        "\n" * 10 + "    if enabled:\n        total = 0\n",
+        encoding="utf-8",
     )
     payload = RankPayload(
         regions={"solve": (np.asarray([0]), np.asarray([NS]))},
@@ -106,8 +107,9 @@ def perf_events_file(tmp_path):
         likwid_environment={},
         perf_events={
             "solve": PerfEventTotals(
-                calls=1, values={"cycles": 1234, "instructions": 5678}
-            )
+                calls=1,
+                values={"cycles": 1234, "instructions": 5678},
+            ),
         },
     )
     with ProfilingWriter(path) as writer:
@@ -270,7 +272,9 @@ def test_plot_section_exposes_existing_plot_kinds(sample_file):
 
 
 def test_render_plot_dispatches_to_existing_renderer(
-    sample_file, monkeypatch, tmp_path
+    sample_file,
+    monkeypatch,
+    tmp_path,
 ):
     model = build_browser_model(sample_file)
     plot = _find(model.root, "Durations")
@@ -468,7 +472,7 @@ def test_navigation_pane_scrolls_when_tree_is_tall(tmp_path):
             0: {
                 f"region-{index:02d}": ([index * NS], [(index + 1) * NS])
                 for index in range(40)
-            }
+            },
         },
     )
     app = _build_textual_app_class()(build_browser_model(path))

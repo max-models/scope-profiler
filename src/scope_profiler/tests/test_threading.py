@@ -84,7 +84,8 @@ def test_nesting_is_reconstructed_per_thread(tmp_path):
     # Every inner call sits inside exactly one outer call on its own thread,
     # so outer's exclusive time is what is left after inner.
     assert outer.exclusive_duration == pytest.approx(
-        outer.total_duration - inner.total_duration, rel=1e-9
+        outer.total_duration - inner.total_duration,
+        rel=1e-9,
     )
     arrays = build_call_arrays(results.get_regions(), rank=0)
     # One lane per thread, plus the session region's lane on the main thread.
@@ -192,7 +193,7 @@ def test_for_thread_slices_a_region_to_one_thread(tmp_path):
     per_thread = [outer.for_thread(index) for index in outer.threads]
     assert [region.num_calls for region in per_thread] == [3, 3, 3]
     assert sum(region.total_duration for region in per_thread) == pytest.approx(
-        outer.total_duration
+        outer.total_duration,
     )
     assert per_thread[0].source_file == outer.source_file
 
@@ -200,7 +201,9 @@ def test_for_thread_slices_a_region_to_one_thread(tmp_path):
 def test_for_thread_without_thread_data_explains_itself(tmp_path):
     manager = ProfileManager()
     with manager.session(
-        verbose=False, return_results=True, file_path=str(tmp_path / "plain.h5")
+        verbose=False,
+        return_results=True,
+        file_path=str(tmp_path / "plain.h5"),
     ) as run:
         with manager.profile_region("solve"):
             pass
@@ -216,7 +219,10 @@ def test_thread_data_survives_the_hdf5_round_trip(tmp_path):
     path = tmp_path / "round_trip.h5"
     manager = ProfileManager()
     with manager.session(
-        track_threads=True, verbose=False, return_results=True, file_path=str(path)
+        track_threads=True,
+        verbose=False,
+        return_results=True,
+        file_path=str(path),
     ) as run:
         run_in_threads(nested_worker(manager), 3)
 
@@ -230,7 +236,7 @@ def test_thread_data_survives_the_hdf5_round_trip(tmp_path):
         thread.cpu_time for thread in memory.threads[0]
     ]
     assert stored["outer"][0].exclusive_duration == pytest.approx(
-        memory["outer"][0].exclusive_duration
+        memory["outer"][0].exclusive_duration,
     )
     # The summary reader skips the event columns but still describes the lanes.
     summary = read_h5_summary(path)
@@ -451,12 +457,17 @@ def test_speedscope_export_writes_one_profile_per_lane(tmp_path):
     manager = ProfileManager()
     path = tmp_path / "lanes.h5"
     with manager.session(
-        track_threads=True, verbose=False, return_results=True, file_path=str(path)
+        track_threads=True,
+        verbose=False,
+        return_results=True,
+        file_path=str(path),
     ) as run:
         run_in_threads(nested_worker(manager), 3)
 
     (written,) = export_speedscope(
-        run.results, tmp_path / "profile.speedscope.json", verbose=False
+        run.results,
+        tmp_path / "profile.speedscope.json",
+        verbose=False,
     )
     document = json.loads(written.read_text())
     names = [profile["name"] for profile in document["profiles"]]
@@ -550,7 +561,9 @@ def test_an_untracked_run_builds_no_lane_column(tmp_path):
     """
     manager = ProfileManager()
     with manager.session(
-        verbose=False, return_results=True, file_path=str(tmp_path / "single.h5")
+        verbose=False,
+        return_results=True,
+        file_path=str(tmp_path / "single.h5"),
     ) as run:
         for _ in range(5):
             with manager.profile_region("outer"):

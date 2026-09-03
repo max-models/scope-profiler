@@ -22,20 +22,20 @@ def read_schema_version(h5file) -> int:
     if isinstance(raw_version, bool) or not isinstance(raw_version, Integral):
         raise HDF5SchemaError(
             f"HDF5 schema version attribute {SCHEMA_ATTRIBUTE!r} must be an integer, "
-            f"got {raw_version!r}"
+            f"got {raw_version!r}",
         )
 
     version = int(raw_version)
     if version < 1:
         raise HDF5SchemaError(
             f"Unsupported scope-profiler HDF5 schema version {version}; "
-            "versions must be positive"
+            "versions must be positive",
         )
     if version > CURRENT_SCHEMA_VERSION:
         raise HDF5SchemaError(
             f"Unsupported scope-profiler HDF5 schema version {version}; "
             f"this package supports versions through {CURRENT_SCHEMA_VERSION}. "
-            "Upgrade scope-profiler to read this file."
+            "Upgrade scope-profiler to read this file.",
         )
 
     return version

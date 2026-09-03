@@ -24,7 +24,7 @@ def run_probe(code: str, extra_env: dict) -> str:
 
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(
-        [path for path in sys.path if path] + [env.get("PYTHONPATH", "")]
+        [path for path in sys.path if path] + [env.get("PYTHONPATH", "")],
     ).strip(os.pathsep)
     env.update(extra_env)
     result = subprocess.run(

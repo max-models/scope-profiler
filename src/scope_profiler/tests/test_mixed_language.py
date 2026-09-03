@@ -30,7 +30,8 @@ HAVE_F2PY_BACKEND = all(
 pytestmark = [
     pytest.mark.skipif(COMPILER is None, reason="no Fortran compiler on PATH"),
     pytest.mark.skipif(
-        not MODULE_SOURCE.exists(), reason="Fortran sources not shipped"
+        not MODULE_SOURCE.exists(),
+        reason="Fortran sources not shipped",
     ),
     pytest.mark.skipif(not HAVE_F2PY_BACKEND, reason="f2py needs meson and ninja"),
 ]
@@ -170,7 +171,9 @@ def test_the_two_languages_nest_correctly(kernels, tmp_path):
 
     extension.stop_profiling()
     results = ProfileManager.finalize(
-        verbose=False, return_results=True, native_traces=tmp_path
+        verbose=False,
+        return_results=True,
+        native_traces=tmp_path,
     )
 
     call = results["python:call_fortran"][0]
@@ -201,7 +204,9 @@ def test_a_name_used_by_both_sides_is_refused(kernels, tmp_path):
 
     with pytest.raises(ValueError, match="recorded by both"):
         ProfileManager.finalize(
-            verbose=False, return_results=True, native_traces=tmp_path
+            verbose=False,
+            return_results=True,
+            native_traces=tmp_path,
         )
 
 
@@ -219,7 +224,9 @@ def test_only_this_ranks_trace_is_folded_in(kernels, tmp_path):
         pass
 
     results = ProfileManager.finalize(
-        verbose=False, return_results=True, native_traces=tmp_path
+        verbose=False,
+        return_results=True,
+        native_traces=tmp_path,
     )
 
     assert (tmp_path / "other_rank00007.spt").exists()
@@ -241,7 +248,10 @@ def test_merging_after_the_fact(kernels, tmp_path):
     python_results = ProfileManager.finalize(verbose=False, return_results=True)
 
     combined = merge_results(
-        python_results, load_traces(tmp_path), label="mixed", file_path="combined.h5"
+        python_results,
+        load_traces(tmp_path),
+        label="mixed",
+        file_path="combined.h5",
     )
 
     assert sorted(combined.region_names) == [

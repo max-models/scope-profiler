@@ -113,7 +113,7 @@ def _byte_order(buffer: bytes, path) -> str:
     (little,) = np.frombuffer(buffer, dtype="<i4", count=1, offset=8)
     raise TraceFormatError(
         f"{path}: unsupported trace format version {int(little)} "
-        f"(this scope-profiler reads version {FORMAT_VERSION})"
+        f"(this scope-profiler reads version {FORMAT_VERSION})",
     )
 
 
@@ -146,7 +146,7 @@ def read_trace(path) -> tuple:
     if buffer[:8] != MAGIC:
         raise TraceFormatError(
             f"{path}: not a scope-profiler Fortran trace "
-            f"(expected {MAGIC!r}, found {buffer[:8]!r})"
+            f"(expected {MAGIC!r}, found {buffer[:8]!r})",
         )
 
     order = _byte_order(buffer, path)
@@ -184,7 +184,7 @@ def read_trace(path) -> tuple:
 
     if offset != len(buffer):
         raise TraceFormatError(
-            f"{path}: {len(buffer) - offset} trailing byte(s) after the last region"
+            f"{path}: {len(buffer) - offset} trailing byte(s) after the last region",
         )
     return rank, regions
 
@@ -262,7 +262,7 @@ def load_traces(inputs, label: str | None = None):
         if rank in seen_ranks:
             raise TraceFormatError(
                 f"{path} and {seen_ranks[rank]} both claim rank {rank}; "
-                f"pass the MPI rank to sp_init() so each rank writes its own"
+                f"pass the MPI rank to sp_init() so each rank writes its own",
             )
         seen_ranks[rank] = path
         for name, (starts, ends) in regions.items():
@@ -360,5 +360,6 @@ def convert_traces(inputs, output_path, label: str | None = None):
     """
     output_path = Path(output_path)
     return write_results(
-        load_traces(inputs, label=label or output_path.stem), output_path
+        load_traces(inputs, label=label or output_path.stem),
+        output_path,
     )

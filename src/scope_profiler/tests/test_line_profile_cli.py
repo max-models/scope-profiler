@@ -10,7 +10,7 @@ def test_line_profile_cli_prints_persisted_records(tmp_path, capsys):
     path = tmp_path / "profile.h5"
     source_path = tmp_path / "app.py"
     source_path.write_text(
-        "\n" * 10 + "    if enabled:\n        total = 0\n    done = True\n"
+        "\n" * 10 + "    if enabled:\n        total = 0\n    done = True\n",
     )
     record = {
         "region": "solve",

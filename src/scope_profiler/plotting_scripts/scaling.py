@@ -53,9 +53,30 @@ def _scaling_hover_texts(
                     (value_label, f"{value:.4g}"),
                     ("mean duration", f"{duration:.6g} s"),
                 ],
-            )
+            ),
         )
     return texts
+
+
+_X_LABELS = {
+    "num_ranks": "MPI ranks",
+    "omp_num_threads": "OpenMP threads",
+    "total_cores": "MPI ranks × OpenMP threads",
+}
+
+
+def _x_label(x_field: str) -> str:
+    """Human-readable axis label for a scaling x field."""
+    return _X_LABELS.get(x_field, x_field)
+
+
+def _scaling_options(x_field: str, baseline_key) -> dict:
+    """The ``options`` block shared by every scaling plot-data document."""
+    return {
+        "x_field": x_field,
+        "x_label": _x_label(x_field),
+        "baseline": baseline_key,
+    }
 
 
 def plot_speedup(
@@ -103,7 +124,7 @@ def plot_speedup(
     if verbose:
         print(
             f"Plotting speedup comparison using x_field={x_field!r}, values: "
-            + ", ".join(map(str, x_keys))
+            + ", ".join(map(str, x_keys)),
         )
 
     duration_samples: dict[str, dict] = {
@@ -122,7 +143,8 @@ def plot_speedup(
             if np.isfinite(duration) and duration > 0:
                 duration_samples[region_name][x_value].append(duration)
                 region_at_key[region_name].setdefault(
-                    x_value, run.get_region(region_name)
+                    x_value,
+                    run.get_region(region_name),
                 )
 
     baseline_key = x_keys[0]
@@ -206,31 +228,16 @@ def plot_speedup(
             _write_json(
                 data_filepath,
                 {
-                    "format": "scope-profiler-plot-data",
-                    "format_version": 1,
-                    "plot": "speedup",
                     "points": points,
                     "colors": colors_map,
-                    "options": {
-                        "x_field": x_field,
-                        "x_label": {
-                            "num_ranks": "MPI ranks",
-                            "omp_num_threads": "OpenMP threads",
-                            "total_cores": "MPI ranks × OpenMP threads",
-                        }.get(x_field, x_field),
-                        "baseline": baseline_key,
-                    },
+                    "options": _scaling_options(x_field, baseline_key),
                 },
+                plot="speedup",
             )
         else:
             _write_csv(data_filepath, ["region", x_field, "speedup"], data_rows)
 
-    x_label_map = {
-        "num_ranks": "MPI ranks",
-        "omp_num_threads": "OpenMP threads",
-        "total_cores": "MPI ranks × OpenMP threads",
-    }
-    x_label = x_label_map.get(x_field, x_field)
+    x_label = _x_label(x_field)
 
     if is_scaling:
         x_line = np.array(x_keys, dtype=float)
@@ -299,7 +306,7 @@ def plot_weak_scaling(
     if verbose:
         print(
             f"Plotting weak scaling comparison using x_field={x_field!r}, values: "
-            + ", ".join(map(str, x_keys))
+            + ", ".join(map(str, x_keys)),
         )
 
     duration_samples: dict[str, dict] = {
@@ -309,12 +316,14 @@ def plot_weak_scaling(
     for run, x_value in zip(runs, x_per_reader):
         for region_name in region_names:
             duration = _region_average_duration(
-                run.get_region(region_name), ranks=ranks
+                run.get_region(region_name),
+                ranks=ranks,
             )
             if np.isfinite(duration) and duration > 0:
                 duration_samples[region_name][x_value].append(duration)
                 region_at_key[region_name].setdefault(
-                    x_value, run.get_region(region_name)
+                    x_value,
+                    run.get_region(region_name),
                 )
 
     baseline_key = x_keys[0]
@@ -392,18 +401,23 @@ def plot_weak_scaling(
             colors_map = {
                 name: _to_hex(color) for name, color in zip(region_names, colors)
             }
-            _write_json(data_filepath, {"points": points, "colors": colors_map})
+            _write_json(
+                data_filepath,
+                {
+                    "points": points,
+                    "colors": colors_map,
+                    "options": _scaling_options(x_field, baseline_key),
+                },
+                plot="weak_scaling",
+            )
         else:
             _write_csv(
-                data_filepath, ["region", x_field, "normalized_runtime"], data_rows
+                data_filepath,
+                ["region", x_field, "normalized_runtime"],
+                data_rows,
             )
 
-    x_label_map = {
-        "num_ranks": "MPI ranks",
-        "omp_num_threads": "OpenMP threads",
-        "total_cores": "MPI ranks × OpenMP threads",
-    }
-    x_label = x_label_map.get(x_field, x_field)
+    x_label = _x_label(x_field)
     if is_scaling:
         x_line = np.array(x_keys, dtype=float)
         canvas.set_xticks(x_line)
@@ -452,7 +466,7 @@ def plot_scaling_efficiency(
     if x_field not in _SCALING_X_FIELDS:
         raise ValueError(
             "Scaling efficiency requires x_field to be one of: "
-            + ", ".join(sorted(_SCALING_X_FIELDS))
+            + ", ".join(sorted(_SCALING_X_FIELDS)),
         )
 
     region_names = _common_region_names(runs, include=include, exclude=exclude)
@@ -478,7 +492,7 @@ def plot_scaling_efficiency(
         figsize=(
             max(10, 1.2 * len(x_keys) + 3),
             max(4.5, 2.8 + 0.35 * len(region_names)),
-        )
+        ),
     )
     data_rows = []
     plotted = 0
@@ -527,9 +541,17 @@ def plot_scaling_efficiency(
     if data_filepath:
         header = ["region", x_field, "efficiency"]
         if data_format == "json":
+            colors_map = {
+                name: _to_hex(color) for name, color in zip(region_names, colors)
+            }
             _write_json(
                 data_filepath,
-                {"points": [dict(zip(header, row)) for row in data_rows]},
+                {
+                    "points": [dict(zip(header, row)) for row in data_rows],
+                    "colors": colors_map,
+                    "options": _scaling_options(x_field, baseline_key),
+                },
+                plot="scaling_efficiency",
             )
         else:
             _write_csv(data_filepath, header, data_rows)
@@ -543,11 +565,7 @@ def plot_scaling_efficiency(
         linewidth=1.5,
         label="Ideal efficiency",
     )
-    x_label = {
-        "num_ranks": "MPI ranks",
-        "omp_num_threads": "OpenMP threads",
-        "total_cores": "MPI ranks × OpenMP threads",
-    }[x_field]
+    x_label = _x_label(x_field)
     canvas.set_xlabel(x_label)
     canvas.set_ylabel("Scaling efficiency")
     canvas.set_title(f"Scaling efficiency (baseline: {x_label} = {baseline_key})")

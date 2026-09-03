@@ -77,7 +77,7 @@ def _regions_from(calls, names, rank=0):
                 rank: Region(
                     np.array([s for s, _ in intervals], dtype=np.int64),
                     np.array([e for _, e in intervals], dtype=np.int64),
-                )
+                ),
             },
         )
         for name, intervals in by_name.items()
@@ -132,7 +132,8 @@ def test_depth_and_parent_match_the_generated_tree(calls, name_count):
 @given(calls=call_forest(), name_count=st.integers(min_value=1, max_value=4))
 @SETTINGS
 def test_exclusive_time_is_never_negative_and_never_exceeds_inclusive(
-    calls, name_count
+    calls,
+    name_count,
 ):
     names = _names_for(calls, [f"r{i}" for i in range(name_count)])
     arrays = build_call_arrays(_regions_from(calls, names), rank=0)
@@ -182,7 +183,7 @@ def test_per_region_totals_agree_with_the_per_call_values(calls, name_count):
     from_calls: dict[str, int] = {name: 0 for name in arrays.names}
     for index in range(arrays.start_ns.size):
         from_calls[arrays.names[arrays.region_index[index]]] += int(
-            arrays.exclusive_ns[index]
+            arrays.exclusive_ns[index],
         )
 
     # exclusive_totals_ns consumes the finalize-time snapshot shape:
@@ -200,7 +201,8 @@ def test_per_region_totals_agree_with_the_per_call_values(calls, name_count):
 @given(calls=call_forest(), name_count=st.integers(min_value=1, max_value=4))
 @SETTINGS
 def test_reconstruction_is_independent_of_the_order_regions_are_given_in(
-    calls, name_count
+    calls,
+    name_count,
 ):
     names = _names_for(calls, [f"r{i}" for i in range(name_count)])
     regions = _regions_from(calls, names)
@@ -225,7 +227,8 @@ def test_partially_overlapping_calls_are_always_rejected(start, length, shift):
     second = (start + shift, start + length + shift)
 
     regions = _regions_from(
-        [(first[0], first[1], -1, 0), (second[0], second[1], -1, 0)], ["a", "b"]
+        [(first[0], first[1], -1, 0), (second[0], second[1], -1, 0)],
+        ["a", "b"],
     )
     with pytest.raises(NestingError):
         build_call_arrays(regions, rank=0)
