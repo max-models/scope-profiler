@@ -101,7 +101,7 @@ def test_plot_label_overrides_the_stored_one(tmp_path):
             "128 ranks",
             "--label",
             "256 ranks",
-        ]
+        ],
     )
     export_main(
         [
@@ -114,11 +114,11 @@ def test_plot_label_overrides_the_stored_one(tmp_path):
             "128 ranks",
             "--label",
             "256 ranks",
-        ]
+        ],
     )
 
     payload = json.loads(
-        (output_dir / "region_statistics.json").read_text(encoding="utf-8")
+        (output_dir / "region_statistics.json").read_text(encoding="utf-8"),
     )
     assert [f["label"] for f in payload["files"]] == ["128 ranks", "256 ranks"]
 
@@ -143,7 +143,7 @@ def test_plot_label_count_must_match_the_files(tmp_path):
                 str(tmp_path / "b.h5"),
                 "--label",
                 "only-one",
-            ]
+            ],
         )
 
 

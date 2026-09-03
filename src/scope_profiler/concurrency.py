@@ -665,14 +665,16 @@ class ConcurrencyTracker:
                 "name": [t.name for t in tasks],
                 "coro_name": [t.coro_name for t in tasks],
                 "thread_index": np.array(
-                    [t.thread_index for t in tasks], dtype=np.int64
+                    [t.thread_index for t in tasks],
+                    dtype=np.int64,
                 ),
                 "created_ns": shift([t.created_ns for t in tasks]),
                 "done_ns": shift([t.done_ns for t in tasks]),
                 "steps": np.array([t.steps for t in tasks], dtype=np.int64),
                 "running_ns": np.array([t.running_ns for t in tasks], dtype=np.int64),
                 "suspended_ns": np.array(
-                    [t.suspended_ns for t in tasks], dtype=np.int64
+                    [t.suspended_ns for t in tasks],
+                    dtype=np.int64,
                 ),
             },
         }

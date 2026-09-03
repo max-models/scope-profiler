@@ -60,7 +60,7 @@ _DEFAULT_PLOTS = frozenset(
     name for name, (_, is_default) in _PLOT_CATALOG.items() if is_default
 )
 _QUICK_PLOTS = frozenset(
-    {"durations", "speedup", "weak_scaling", "rank_heatmap", "scaling_efficiency"}
+    {"durations", "speedup", "weak_scaling", "rank_heatmap", "scaling_efficiency"},
 )
 _PLOTEXT_SIMPLE_PLOTS = frozenset(
     {
@@ -71,7 +71,7 @@ _PLOTEXT_SIMPLE_PLOTS = frozenset(
         "scaling_efficiency",
         "histogram",
         "imbalance",
-    }
+    },
 )
 _PYVIS_PLOTS = frozenset({"callgraph"})
 _PLOT_ALIASES = {"flame": "flame_chart"}
@@ -121,7 +121,8 @@ def parse_ranks(spec: str, verbose: bool = False) -> list[int]:
 
 
 def parse_region_groups(
-    specs: list[str] | None, parser: argparse.ArgumentParser
+    specs: list[str] | None,
+    parser: argparse.ArgumentParser,
 ) -> dict[str, list[str]] | None:
     """Parse ``--combine-regions`` specs into a ``{name: [patterns]}`` dict.
 
@@ -136,7 +137,7 @@ def parse_region_groups(
         name, sep, patterns = spec.partition("=")
         if not sep or not name or not patterns:
             parser.error(
-                f"--combine-regions expects 'NAME=PATTERN1,PATTERN2' (got {spec!r})"
+                f"--combine-regions expects 'NAME=PATTERN1,PATTERN2' (got {spec!r})",
             )
         if name in groups:
             parser.error(f"--combine-regions group {name!r} given more than once.")
@@ -358,7 +359,9 @@ def _add_common_export_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _build_plot_kind_parser(
-    subparsers: argparse._SubParsersAction, kind: str, description: str
+    subparsers: argparse._SubParsersAction,
+    kind: str,
+    description: str,
 ) -> argparse.ArgumentParser:
     parser = subparsers.add_parser(kind, help=description, description=description)
     parser.set_defaults(plot_kind=kind)
@@ -381,7 +384,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     for kind in ("default", "all", "quick"):
         preset = _build_plot_kind_parser(
-            subparsers, kind, f"Render the {kind} plot preset."
+            subparsers,
+            kind,
+            f"Render the {kind} plot preset.",
         )
         _add_common_plot_args(preset)
         _add_duration_args(preset)
@@ -552,7 +557,8 @@ def build_export_parser() -> argparse.ArgumentParser:
 
 
 def expand_file_patterns(
-    file_args: list[str], parser: argparse.ArgumentParser
+    file_args: list[str],
+    parser: argparse.ArgumentParser,
 ) -> list[str]:
     """Expand CLI file arguments that contain shell-style wildcard patterns."""
     expanded_files: list[str] = []
@@ -591,7 +597,8 @@ def _print_plot_list() -> None:
 def _normalize_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     args.files = expand_file_patterns(args.files, parser)
     args.combine_regions = parse_region_groups(
-        getattr(args, "combine_regions", None), parser
+        getattr(args, "combine_regions", None),
+        parser,
     )
 
     if args.ranks:
@@ -607,7 +614,7 @@ def _load_runs(args: argparse.Namespace, parser: argparse.ArgumentParser):
         if len(args.label) != len(runs):
             parser.error(
                 f"--label given {len(args.label)} time(s) for "
-                f"{len(runs)} file(s); pass one per file, in order."
+                f"{len(runs)} file(s); pass one per file, in order.",
             )
         for run, label in zip(runs, args.label):
             run.label = label
@@ -647,7 +654,8 @@ def _selected_plots(args: argparse.Namespace) -> set[str]:
 
 
 def _plot_output_targets(
-    args: argparse.Namespace, selected_plots: set[str]
+    args: argparse.Namespace,
+    selected_plots: set[str],
 ) -> OutputTargets:
     if not args.output:
         return OutputTargets(directory=None, single_file=None, statistics_path=None)
@@ -744,7 +752,7 @@ def _render_selected_plots(
         and not _plot_options(args, "likwid")["likwid_metric"]
     ):
         parser.error(
-            "likwid requires --metric for plots or --likwid-metric for plot-data."
+            "likwid requires --metric for plots or --likwid-metric for plot-data.",
         )
     if (
         "perf_events" in selected_plots
@@ -782,10 +790,18 @@ def _render_selected_plots(
         return []
 
     gantt_data_path = _data_path(
-        data_output_dir, selected_plots, "gantt", "gantt_data", data_format
+        data_output_dir,
+        selected_plots,
+        "gantt",
+        "gantt_data",
+        data_format,
     )
     density_data_path = _data_path(
-        data_output_dir, selected_plots, "density", "timeline_density_data", data_format
+        data_output_dir,
+        selected_plots,
+        "density",
+        "timeline_density_data",
+        data_format,
     )
     flame_chart_data_path = _data_path(
         data_output_dir,
@@ -802,10 +818,18 @@ def _render_selected_plots(
         data_format,
     )
     callgraph_data_path = _data_path(
-        data_output_dir, selected_plots, "callgraph", "callgraph_data", data_format
+        data_output_dir,
+        selected_plots,
+        "callgraph",
+        "callgraph_data",
+        data_format,
     )
     durations_data_path = _data_path(
-        data_output_dir, selected_plots, "durations", "durations_data", data_format
+        data_output_dir,
+        selected_plots,
+        "durations",
+        "durations_data",
+        data_format,
     )
     timeseries_data_path = _data_path(
         data_output_dir,
@@ -816,7 +840,11 @@ def _render_selected_plots(
     )
     speedup_data_path = (
         _data_path(
-            data_output_dir, selected_plots, "speedup", "speedup_data", data_format
+            data_output_dir,
+            selected_plots,
+            "speedup",
+            "speedup_data",
+            data_format,
         )
         if len(runs) > 1
         else None
@@ -840,10 +868,18 @@ def _render_selected_plots(
         data_format,
     )
     histogram_data_path = _data_path(
-        data_output_dir, selected_plots, "histogram", "histogram_data", data_format
+        data_output_dir,
+        selected_plots,
+        "histogram",
+        "histogram_data",
+        data_format,
     )
     imbalance_data_path = _data_path(
-        data_output_dir, selected_plots, "imbalance", "imbalance_data", data_format
+        data_output_dir,
+        selected_plots,
+        "imbalance",
+        "imbalance_data",
+        data_format,
     )
     rank_heatmap_data_path = _data_path(
         data_output_dir,
@@ -853,7 +889,11 @@ def _render_selected_plots(
         data_format,
     )
     likwid_data_path = _data_path(
-        data_output_dir, selected_plots, "likwid", "likwid_data", data_format
+        data_output_dir,
+        selected_plots,
+        "likwid",
+        "likwid_data",
+        data_format,
     )
 
     if "gantt" in selected_plots:
@@ -968,7 +1008,7 @@ def _render_selected_plots(
                     data_filepath=durations_data_path,
                     data_format=data_format,
                     backend=args.backend,
-                )
+                ),
             )
         saved.extend(str(path) for path in durations_paths if path)
         if durations_data_path:
@@ -1161,7 +1201,7 @@ def main(argv: list[str] | None = None):
         if unsupported:
             parser.error(
                 "--backend plotext supports simple plots only; unsupported plot(s): "
-                + ", ".join(unsupported)
+                + ", ".join(unsupported),
             )
     elif args.backend == "pyvis":
         unsupported = sorted(selected_plots - _PYVIS_PLOTS)
@@ -1170,7 +1210,7 @@ def main(argv: list[str] | None = None):
                 "--backend pyvis supports the interactive callgraph only; "
                 "unsupported plot(s): "
                 + ", ".join(unsupported)
-                + ". Use --backend matplotlib or plotly for these plots."
+                + ". Use --backend matplotlib or plotly for these plots.",
             )
     output_targets = _plot_output_targets(args, selected_plots)
 
@@ -1259,7 +1299,7 @@ def export_main(argv: list[str] | None = None):
         if "perf_events" in selected_plots:
             parser.error(
                 "plot-data does not yet support perf_events; use "
-                "`scope-profiler plot perf_events --metric ...` instead."
+                "`scope-profiler plot perf_events --metric ...` instead.",
             )
         args.show = False
         args.backend = "matplotlib"
@@ -1274,7 +1314,7 @@ def export_main(argv: list[str] | None = None):
                 data_output_dir=args.output,
                 data_format=args.format,
                 render_images=False,
-            )
+            ),
         )
         statistics_path = os.path.join(args.output, "region_statistics.json")
         write_region_statistics_json(
@@ -1294,7 +1334,7 @@ def export_main(argv: list[str] | None = None):
     if args.export_kind == "speedscope" and saved:
         print(
             f"\nView {saved[0]} at https://www.speedscope.app "
-            "(or: npx speedscope <file>)"
+            "(or: npx speedscope <file>)",
         )
     if args.export_kind == "chrome-trace" and saved:
         print(f"\nOpen {saved[0]} with https://ui.perfetto.dev or chrome://tracing")

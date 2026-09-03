@@ -108,7 +108,7 @@ class ScopeMagics(Magics):
             if not self._order:
                 raise UsageError(
                     "no scope-profiler runs recorded yet; run %%scope or "
-                    "%scope_timeit first"
+                    "%scope_timeit first",
                 )
             name = self._order[-1]
         if name not in self._runs:
@@ -124,7 +124,10 @@ class ScopeMagics(Magics):
         help="name to store the run under (default: 'cell')",
     )
     @argument(
-        "-q", "--quiet", action="store_true", help="don't print the summary table"
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="don't print the summary table",
     )
     @argument(
         "-p",
@@ -133,7 +136,9 @@ class ScopeMagics(Magics):
         help="show a duration bar chart after the summary",
     )
     @argument(
-        "--include", default=None, help="regex selecting which regions to show/plot"
+        "--include",
+        default=None,
+        help="regex selecting which regions to show/plot",
     )
     @cell_magic("scope")
     def scope_cell(self, line, cell):
@@ -142,7 +147,9 @@ class ScopeMagics(Magics):
         name = args.name or "cell"
         with (
             ProfileManager.session(
-                return_results=True, verbose=False, deactivate_file_output=True
+                return_results=True,
+                verbose=False,
+                deactivate_file_output=True,
             ) as run,
             ProfileManager.profile_region(name),
         ):
@@ -167,7 +174,9 @@ class ScopeMagics(Magics):
         number = int(opts.get("n", 7))
         name = "timeit"
         with ProfileManager.session(
-            return_results=True, verbose=False, deactivate_file_output=True
+            return_results=True,
+            verbose=False,
+            deactivate_file_output=True,
         ) as run:
             region = ProfileManager.profile_region(name)
             for _ in range(number):
@@ -247,7 +256,10 @@ class ScopeMagics(Magics):
         help="name to store the run under (default: 'cell')",
     )
     @argument(
-        "-q", "--quiet", action="store_true", help="don't print the summary table"
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="don't print the summary table",
     )
     @argument("--include", default=None, help="regex selecting which regions to show")
     @cell_magic("scope_recursive")
@@ -277,12 +289,16 @@ class ScopeMagics(Magics):
         # than showing up as unavailable dynamically evaluated code.
         source = self.shell.transform_cell(cell)
         filename = self.shell.compile.cache(
-            source, self.shell.execution_count, raw_code=cell
+            source,
+            self.shell.execution_count,
+            raw_code=cell,
         )
         code = compile(source, filename, "exec")
         exc_info = None
         with ProfileManager.session(
-            return_results=True, verbose=False, deactivate_file_output=True
+            return_results=True,
+            verbose=False,
+            deactivate_file_output=True,
         ) as run:
             # Install the tracer directly, as run_script() does for a script,
             # rather than calling a ``@ProfileManager.profile(recursive=True)``
@@ -298,7 +314,8 @@ class ScopeMagics(Magics):
             namespace = self.shell.user_ns
             prev_profiler = sys.getprofile()
             tracer = ProfileManager._get_recursive_tracer(
-                root_frame=sys._getframe(), prev_profiler=prev_profiler
+                root_frame=sys._getframe(),
+                prev_profiler=prev_profiler,
             )
             sys.setprofile(tracer)
             try:
@@ -334,7 +351,9 @@ class ScopeMagics(Magics):
         if not args.quiet:
             print(f"%%scope_recursive {name!r}")
             results.print_summary(
-                include=args.include, sort="total", suppress_notes=True
+                include=args.include,
+                sort="total",
+                suppress_notes=True,
             )
 
     @magic_arguments()
@@ -345,7 +364,10 @@ class ScopeMagics(Magics):
         help="name to store the run under (default: 'cell')",
     )
     @argument(
-        "-q", "--quiet", action="store_true", help="don't print the summary table"
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="don't print the summary table",
     )
     @argument("--include", default=None, help="regex selecting which regions to show")
     @cell_magic("scope_agg")
@@ -391,7 +413,9 @@ class ScopeMagics(Magics):
         help="show a duration bar chart after the summary",
     )
     @argument(
-        "--include", default=None, help="regex selecting which regions to show/plot"
+        "--include",
+        default=None,
+        help="regex selecting which regions to show/plot",
     )
     @line_magic("scope_last")
     def scope_last(self, line):
@@ -413,7 +437,10 @@ class ScopeMagics(Magics):
         help="baseline run (default: second-most-recent)",
     )
     @argument(
-        "name_b", nargs="?", default=None, help="candidate run (default: most recent)"
+        "name_b",
+        nargs="?",
+        default=None,
+        help="candidate run (default: most recent)",
     )
     @argument("--metric", default="total", choices=METRICS, help="statistic to compare")
     @argument("--sort", default="delta", choices=SORT_KEYS, help="row ordering")
@@ -425,14 +452,14 @@ class ScopeMagics(Magics):
             if len(self._order) < 2:
                 raise UsageError(
                     "need two recorded runs to compare; run %%scope/%scope_timeit "
-                    "twice first, or pass two names"
+                    "twice first, or pass two names",
                 )
             name_a, name_b = self._order[-2], self._order[-1]
         elif args.name_a is not None and args.name_b is not None:
             name_a, name_b = args.name_a, args.name_b
         else:
             raise UsageError(
-                "pass either two run names or none (compares the two most recent)"
+                "pass either two run names or none (compares the two most recent)",
             )
         name_a, results_a = self._lookup(name_a)
         name_b, results_b = self._lookup(name_b)
@@ -527,7 +554,10 @@ class ScopeMagics(Magics):
         help="name to store it under (default: the file's stem)",
     )
     @argument(
-        "-q", "--quiet", action="store_true", help="don't print the summary table"
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="don't print the summary table",
     )
     @line_magic("scope_load")
     def scope_load(self, line):
@@ -589,7 +619,8 @@ class ScopeMagics(Magics):
             if args.per_rank:
                 raise UsageError("--per-rank does not apply to --events")
             frame = results.to_events_dataframe(
-                include=args.include, exclude=args.exclude
+                include=args.include,
+                exclude=args.exclude,
             )
             if frame.empty:
                 # An aggregation-mode run keeps per-region statistics but no
@@ -598,11 +629,13 @@ class ScopeMagics(Magics):
                 print(
                     "no events recorded: the run was either filtered down to "
                     "nothing or recorded with %%scope_agg (aggregation mode "
-                    "keeps no per-call timeline)"
+                    "keeps no per-call timeline)",
                 )
             return frame
         return results.to_dataframe(
-            include=args.include, exclude=args.exclude, per_rank=args.per_rank
+            include=args.include,
+            exclude=args.exclude,
+            per_rank=args.per_rank,
         )
 
 

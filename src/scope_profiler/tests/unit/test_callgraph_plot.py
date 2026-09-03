@@ -50,7 +50,8 @@ def results(tmp_path):
     # setup()/finalize() rather than session(), so the graph holds only the
     # user's own regions and not the session's own enclosing region.
     ProfileManager.setup(
-        file_path=str(tmp_path / "profiling_data.h5"), deactivate_file_output=True
+        file_path=str(tmp_path / "profiling_data.h5"),
+        deactivate_file_output=True,
     )
     root()
     return ProfileManager.finalize(verbose=False, return_results=True)
@@ -59,7 +60,10 @@ def results(tmp_path):
 def test_matplotlib_backend_draws_one_marker_per_call(results, tmp_path):
     out = tmp_path / "callgraph.png"
     figure, axis = plot_callgraph(
-        results, filepath=str(out), verbose=False, return_fig=True
+        results,
+        filepath=str(out),
+        verbose=False,
+        return_fig=True,
     )
 
     # One node per recorded call: root, middle, three leaves, sibling, leaf.
@@ -90,7 +94,8 @@ def test_compact_mode_collapses_calls_into_one_node_per_region(results, tmp_path
 
 
 def test_fluid_layout_implies_compact_and_places_nodes_in_the_unit_square(
-    results, tmp_path
+    results,
+    tmp_path,
 ):
     _, axis = plot_callgraph(
         results,
@@ -133,7 +138,11 @@ def test_plotly_backend_builds_traces_for_edges_and_nodes(results, tmp_path):
 
 def test_plotly_backend_in_compact_mode_labels_regions(results):
     figure = plot_callgraph(
-        results, backend="plotly", compact=True, verbose=False, return_fig=True
+        results,
+        backend="plotly",
+        compact=True,
+        verbose=False,
+        return_fig=True,
     )
 
     markers = figure.data[-1]
@@ -153,7 +162,11 @@ pyvis_backend = pytest.mark.skipif(
 def test_pyvis_backend_writes_a_document_with_the_added_controls(results, tmp_path):
     out = tmp_path / "callgraph.html"
     graph = plot_callgraph(
-        results, backend="pyvis", filepath=str(out), verbose=False, return_fig=True
+        results,
+        backend="pyvis",
+        filepath=str(out),
+        verbose=False,
+        return_fig=True,
     )
 
     assert len(graph.nodes) == 7
@@ -265,7 +278,7 @@ def test_plot_data_export_accepts_the_callgraph_kind(tmp_path):
             "json",
             "--plots",
             "callgraph",
-        ]
+        ],
     )
     payload = json.loads((output / "callgraph_data.json").read_text(encoding="utf-8"))
     assert payload["plot"] == "callgraph"
@@ -283,10 +296,10 @@ def test_plot_data_export_accepts_the_callgraph_kind(tmp_path):
             "--plots",
             "callgraph",
             "--compact-callgraph",
-        ]
+        ],
     )
     compact = json.loads(
-        (compact_output / "callgraph_data.json").read_text(encoding="utf-8")
+        (compact_output / "callgraph_data.json").read_text(encoding="utf-8"),
     )
     assert {"parent": "root", "child": "leaf"} in compact["edges"]
 
@@ -307,7 +320,11 @@ def test_a_rank_without_calls_is_rejected(results):
 
 def test_filters_narrow_the_graph(results):
     _, axis = plot_callgraph(
-        results, exclude=["leaf"], compact=True, verbose=False, return_fig=True
+        results,
+        exclude=["leaf"],
+        compact=True,
+        verbose=False,
+        return_fig=True,
     )
 
     labels = {text.get_text() for text in axis.texts}
@@ -323,7 +340,11 @@ def test_pyvis_show_writes_to_a_temporary_file_and_opens_it(results, monkeypatch
     monkeypatch.setattr(webbrowser, "open", opened.append)
 
     graph = plot_callgraph(
-        results, backend="pyvis", show=True, verbose=False, return_fig=True
+        results,
+        backend="pyvis",
+        show=True,
+        verbose=False,
+        return_fig=True,
     )
 
     assert len(graph.nodes) == 7
@@ -343,7 +364,8 @@ def test_pyvis_without_filepath_or_show_writes_nothing(results, tmp_path, monkey
 def test_plotly_show_displays_the_figure(results, monkeypatch):
     shown = []
     monkeypatch.setattr(
-        "plotly.graph_objects.Figure.show", lambda self, *a, **k: shown.append(self)
+        "plotly.graph_objects.Figure.show",
+        lambda self, *a, **k: shown.append(self),
     )
 
     plot_callgraph(results, backend="plotly", show=True, verbose=False)

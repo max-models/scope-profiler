@@ -21,7 +21,7 @@ def _regions(rank=0, **named):
                 rank: Region(
                     np.array([s for s, _ in calls], dtype=np.int64),
                     np.array([e for _, e in calls], dtype=np.int64),
-                )
+                ),
             },
         )
         for name, calls in named.items()
@@ -65,7 +65,8 @@ def test_zero_length_call_nests_inside_its_enclosing_region():
     is the child, and a zero-length one is a child of everything open.
     """
     arrays = build_call_arrays(
-        _regions(outer=[(0, 100)], tick=[(0, 0), (50, 50)]), rank=0
+        _regions(outer=[(0, 100)], tick=[(0, 0), (50, 50)]),
+        rank=0,
     )
 
     assert arrays.depth.tolist() == [0, 1, 1]
@@ -117,7 +118,7 @@ def test_arrays_and_dicts_agree():
         None if parent < 0 else parent for parent in arrays.parent.tolist()
     ]
     assert [call["exclusive_duration"] for call in calls] == pytest.approx(
-        (arrays.exclusive_ns / 1e9).tolist()
+        (arrays.exclusive_ns / 1e9).tolist(),
     )
     assert [call["name"] for call in calls] == [
         arrays.names[row] for row in arrays.region_index.tolist()
@@ -140,7 +141,7 @@ def test_call_stack_carries_a_region_source_location():
                 source_file="solver.py",
                 source_lineno=42,
                 source_text="with ProfileManager.profile_region('solve'):",
-            )
+            ),
         },
     )
 

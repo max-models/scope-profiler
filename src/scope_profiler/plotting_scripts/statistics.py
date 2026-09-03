@@ -144,7 +144,7 @@ def _speedup_x_value(run: ProfilingResults, x_field: str):
         value = run.metadata.get("omp_num_threads")
         if value is None:
             raise ValueError(
-                f"'omp_num_threads' not found in metadata for {run.file_path}"
+                f"'omp_num_threads' not found in metadata for {run.file_path}",
             )
         return int(value)
 
@@ -152,14 +152,14 @@ def _speedup_x_value(run: ProfilingResults, x_field: str):
         value = run.metadata.get("omp_num_threads")
         if value is None:
             raise ValueError(
-                f"'omp_num_threads' not found in metadata for {run.file_path}"
+                f"'omp_num_threads' not found in metadata for {run.file_path}",
             )
         return run.num_ranks * int(value)
 
     if x_field not in run.metadata:
         raise ValueError(
             f"Metadata field {x_field!r} not found for {run.file_path}. "
-            f"Available fields: {sorted(run.metadata)}"
+            f"Available fields: {sorted(run.metadata)}",
         )
     return run.metadata[x_field]
 
@@ -215,7 +215,9 @@ def collect_region_statistics(
                     rank_region.last_duration if rank_region.has_timing else None
                 )
                 per_rank_stats[str(rank)] = _stats_from_values(
-                    rank_values, first=rank_first, last=rank_last
+                    rank_values,
+                    first=rank_first,
+                    last=rank_last,
                 )
             region_payload[region.name] = {
                 **_stats_from_values(values, first=first, last=last),
@@ -229,7 +231,7 @@ def collect_region_statistics(
                 "num_ranks": run.num_ranks,
                 "total_time_seconds": run.total_time,
                 "region_statistics": region_payload,
-            }
+            },
         )
 
     return {

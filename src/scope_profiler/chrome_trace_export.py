@@ -67,7 +67,7 @@ def build_chrome_trace_document(
                 "pid": rank,
                 "tid": 0,
                 "args": {"name": f"rank {rank}"},
-            }
+            },
         )
 
         for lane, tid in lane_ids.items():
@@ -85,7 +85,7 @@ def build_chrome_trace_document(
                                 "native_id": thread.native_id,
                                 "ident": thread.ident,
                                 "cpu_time_s": thread.cpu_time,
-                            }
+                            },
                         )
                         break
             else:
@@ -98,7 +98,7 @@ def build_chrome_trace_document(
                     "pid": rank,
                     "tid": tid,
                     "args": {"name": name, **args},
-                }
+                },
             )
 
         for event in events:
@@ -125,7 +125,7 @@ def build_chrome_trace_document(
                     "pid": rank,
                     "tid": lane_ids[_lane_key(event)],
                     "args": args,
-                }
+                },
             )
 
         perf_events = run.get_perf_events(rank)
@@ -142,7 +142,7 @@ def build_chrome_trace_document(
                     "pid": rank,
                     "tid": 0,
                     "args": values,
-                }
+                },
             )
 
     return {
@@ -184,7 +184,11 @@ def export_chrome_trace(
             parts.append(_filename_slug(label))
         output = base_path.with_name("_".join(parts) + suffix)
         document = build_chrome_trace_document(
-            run, label=label, ranks=ranks, include=include, exclude=exclude
+            run,
+            label=label,
+            ranks=ranks,
+            include=include,
+            exclude=exclude,
         )
         written.append(write_chrome_trace_file(output, document))
         if verbose:

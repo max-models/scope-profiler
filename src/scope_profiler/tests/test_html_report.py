@@ -198,9 +198,10 @@ def test_report_includes_recorded_hardware_counter_tables(tmp_path):
         perf_events={
             0: {
                 "solve": PerfEventTotals(
-                    calls=3, values={"cycles": 100, "instructions": 250}
-                )
-            }
+                    calls=3,
+                    values={"cycles": 100, "instructions": 250},
+                ),
+            },
         },
         file_path="hardware.h5",
     )
@@ -235,7 +236,10 @@ def test_report_plots_the_first_available_likwid_metric(tmp_path, monkeypatch):
         source="full_api",
     )
     results = ProfilingResults(
-        {}, num_ranks=1, likwid={0: {"solve": likwid}}, file_path="hardware.h5"
+        {},
+        num_ranks=1,
+        likwid={0: {"solve": likwid}},
+        file_path="hardware.h5",
     )
 
     from scope_profiler import plotting_scripts
@@ -311,7 +315,7 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
                     "plot": "durations" if is_durations else "gantt",
                     "bars" if is_durations else "intervals": [],
                     **({"options": {"stack_children": True}} if is_durations else {}),
-                }
+                },
             ),
             encoding="utf-8",
         )
@@ -370,7 +374,8 @@ def test_report_limits_gantt_and_uses_exclusive_rank_heatmap(tmp_path, monkeypat
 
     def write_payload(data_filepath):
         Path(data_filepath).write_text(
-            json.dumps({"plot": "gantt", "intervals": []}), encoding="utf-8"
+            json.dumps({"plot": "gantt", "intervals": []}),
+            encoding="utf-8",
         )
 
     def fake_gantt(*args, data_filepath, **kwargs):
@@ -411,12 +416,14 @@ def test_region_durations_chart_is_stacked_and_sorted_by_total(tmp_path, monkeyp
     def fake_plot_durations(*args, data_filepath, **kwargs):
         captured.update(kwargs)
         Path(data_filepath).write_text(
-            json.dumps({"plot": "gantt", "intervals": []}), encoding="utf-8"
+            json.dumps({"plot": "gantt", "intervals": []}),
+            encoding="utf-8",
         )
 
     def fake_plot(*args, data_filepath, **kwargs):
         Path(data_filepath).write_text(
-            json.dumps({"plot": "gantt", "intervals": []}), encoding="utf-8"
+            json.dumps({"plot": "gantt", "intervals": []}),
+            encoding="utf-8",
         )
 
     monkeypatch.setattr(plotting_scripts, "plot_gantt", fake_plot)
@@ -457,7 +464,7 @@ def test_region_durations_compare_multiple_runs_without_stacking(tmp_path, monke
                         if is_durations
                         else {}
                     ),
-                }
+                },
             ),
             encoding="utf-8",
         )
@@ -592,7 +599,7 @@ def test_report_overview_names_the_hot_spot_not_its_enclosing_region(tmp_path):
                 # kernel, nested inside it, does 80 ms.
                 "wrapper": ([0], [100_000_000]),
                 "kernel": ([10_000_000], [90_000_000]),
-            }
+            },
         },
     )
 
@@ -675,7 +682,7 @@ def test_report_region_filter_targets_every_region_row(tmp_path):
             "--no-charts",
             "--columns",
             "total",
-        ]
+        ],
     )
 
     document = report.read_text(encoding="utf-8")

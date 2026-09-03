@@ -126,7 +126,7 @@ def plot_likwid(
     if not any(run.has_likwid for run in runs):
         raise ValueError(
             "None of the selected files recorded LIKWID data. Runs must be "
-            "started under likwid-perfctr/likwid-mpirun with use_likwid=True."
+            "started under likwid-perfctr/likwid-mpirun with use_likwid=True.",
         )
 
     normalized_ranks = _normalize_ranks(ranks)
@@ -158,7 +158,7 @@ def plot_likwid(
     if not series:
         raise ValueError(
             f"No LIKWID data found for metric {metric!r} with the requested "
-            "ranks/files."
+            "ranks/files.",
         )
 
     region_names = sorted(
@@ -167,7 +167,7 @@ def plot_likwid(
             for _, values, _, _ in series
             for tag in values
             if _name_selected(tag, include, exclude)
-        }
+        },
     )
     if not region_names:
         raise ValueError("No regions matched the selected filters.")

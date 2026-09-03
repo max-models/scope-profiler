@@ -354,7 +354,7 @@ def _overview_html(results, rows, region_ids=None) -> str:
             f"Profiled <strong>{_text(len(rows))}</strong> region(s) across "
             f"<strong>{_text(results.num_ranks)}</strong> rank(s), spanning "
             f"{_seconds(results.time_span)} (setup to finalize: {_seconds(results.total_time)})."
-        )
+        ),
     ]
 
     # Exclusive time, not inclusive: an enclosing region's total is mostly its
@@ -382,7 +382,7 @@ def _overview_html(results, rows, region_ids=None) -> str:
         f"{region_link(hottest['name'])} dominates the recorded time: "
         f"{_seconds(own_time(hottest))} in the region itself, excluding nested "
         f"regions, over {_text(hottest['calls'])} call(s) -- "
-        f"{pct:.1f}% of the time attributed to regions."
+        f"{pct:.1f}% of the time attributed to regions.",
     )
 
     # Naming the largest inclusive total too, when it is a different region,
@@ -394,7 +394,7 @@ def _overview_html(results, rows, region_ids=None) -> str:
             f"{region_link(widest['name'])} has the largest total, "
             f"{_seconds(widest['total'])}, but "
             f"{_seconds(widest['total'] - own_time(widest))} of that is spent "
-            "in the regions nested inside it."
+            "in the regions nested inside it.",
         )
 
     if results.num_ranks > 1:
@@ -407,7 +407,7 @@ def _overview_html(results, rows, region_ids=None) -> str:
                     f"{region_link(worst['name'])} is unevenly distributed across "
                     f"ranks: the slowest rank spends {worst['imbalance']:.0f}% more "
                     "time than the per-rank average, which may be worth "
-                    "investigating for load balancing."
+                    "investigating for load balancing.",
                 )
 
     chatty = [
@@ -423,13 +423,13 @@ def _overview_html(results, rows, region_ids=None) -> str:
             f"{region_link(worst['name'])} was called "
             f"{_text(worst['calls'])} times at ~{worst['avg'] * 1e6:.1f} µs on "
             "average; frequent short calls like this can make timer overhead "
-            "itself measurable."
+            "itself measurable.",
         )
 
     untimed = len(rows) - len(timed)
     if untimed:
         points.append(
-            f"{_text(untimed)} region(s) recorded no calls on the selected ranks."
+            f"{_text(untimed)} region(s) recorded no calls on the selected ranks.",
         )
 
     return "<ul>" + "".join(f"<li>{point}</li>" for point in points) + "</ul>"
@@ -448,7 +448,7 @@ def _metadata_table(metadata: dict) -> str:
 def _rank_breakdown_html(region, ranks) -> str:
     """Per-rank calls/total/avg/min/max table for one region's detail row."""
     selected = sorted(
-        region.ranks if ranks is None else [r for r in ranks if r in region.regions]
+        region.ranks if ranks is None else [r for r in ranks if r in region.regions],
     )
     if not selected:
         return ""
@@ -462,7 +462,7 @@ def _rank_breakdown_html(region, ranks) -> str:
             f"<td>{_text(f'{data.average_duration:.6g}') if data.num_calls else '-'}</td>"
             f"<td>{_text(f'{data.min_duration:.6g}') if data.num_calls else '-'}</td>"
             f"<td>{_text(f'{data.max_duration:.6g}') if data.num_calls else '-'}</td>"
-            "</tr>"
+            "</tr>",
         )
     return (
         "<table class='rank-table'><thead><tr>"
@@ -477,20 +477,20 @@ def _region_detail_html(region, ranks) -> str:
     parts = []
     if region.tags:
         parts.append(
-            "".join(f'<span class="tag">{_text(tag)}</span>' for tag in region.tags)
+            "".join(f'<span class="tag">{_text(tag)}</span>' for tag in region.tags),
         )
     if region.has_source:
         parts.append(
-            f"<p class='muted'>{_text(region.source_file)}:{_text(region.source_lineno)}</p>"
+            f"<p class='muted'>{_text(region.source_file)}:{_text(region.source_lineno)}</p>",
         )
         if region.source_text:
             parts.append(
-                f"<pre><code>{_text(region.source_text.rstrip())}</code></pre>"
+                f"<pre><code>{_text(region.source_text.rstrip())}</code></pre>",
             )
     if region.has_gpu_timing:
         parts.append(
             f"<p>GPU total: {_seconds(region.gpu_total_duration)}, "
-            f"GPU average: {_seconds(region.gpu_average_duration)}</p>"
+            f"GPU average: {_seconds(region.gpu_average_duration)}</p>",
         )
     breakdown = _rank_breakdown_html(region, ranks)
     if breakdown:
@@ -598,7 +598,7 @@ def _region_table(results, rows, ranks, columns, region_ids=None) -> str:
             f'<tr class="region-row"{id_attr}>{cells}</tr>'
             '<tr class="region-detail" hidden>'
             f'<td colspan="{len(keys) + 1}">{_region_detail_html(region, ranks)}</td>'
-            "</tr></tbody>"
+            "</tr></tbody>",
         )
     body = "".join(body_groups)
     if rows:
@@ -695,7 +695,7 @@ def _line_profile_html(results, ranks) -> str:
     """Per-line timings from ``line_profiler``, one table per profiled function."""
     available = results.line_profile
     selected_ranks = sorted(
-        available if ranks is None else [rank for rank in ranks if rank in available]
+        available if ranks is None else [rank for rank in ranks if rank in available],
     )
     sections = []
     for rank in selected_ranks:
@@ -704,7 +704,9 @@ def _line_profile_html(results, ranks) -> str:
             total_time = float(np.sum(record["times"])) * unit
             table_rows = []
             for line, hits, elapsed in zip(
-                record["line_numbers"], record["hits"], record["times"]
+                record["line_numbers"],
+                record["hits"],
+                record["times"],
             ):
                 seconds = float(elapsed) * unit
                 per_hit = seconds / int(hits) if hits else 0.0
@@ -717,7 +719,7 @@ def _line_profile_html(results, ranks) -> str:
                     f"<td>{_text(f'{per_hit:.6g}')}</td>"
                     f"<td>{_text(f'{percent:.2f}')}</td>"
                     f"<td><code>{_text(source)}</code></td>"
-                    "</tr>"
+                    "</tr>",
                 )
             sections.append(
                 f"<h4>Rank {rank} · {_text(record['region'])} · "
@@ -725,7 +727,7 @@ def _line_profile_html(results, ranks) -> str:
                 f"{_text(record['first_lineno'])})</h4>"
                 "<table class='rank-table'><thead><tr><th>line</th><th>hits</th>"
                 "<th>time [s]</th><th>per hit [s]</th><th>% time</th><th>source</th>"
-                "</tr></thead><tbody>" + "".join(table_rows) + "</tbody></table>"
+                "</tr></thead><tbody>" + "".join(table_rows) + "</tbody></table>",
             )
     if not sections:
         return '<p class="muted">No line-profile records for the selected ranks.</p>'
@@ -768,25 +770,28 @@ def _hardware_sections(runs, include, exclude, ranks) -> str:
                     + _counter_table(
                         ("counter", *table["columns"]),
                         ((name, *values) for name, values in rows),
-                    )
+                    ),
                 )
             fragments.append(
                 '<details class="counter-panel">'
                 f"<summary>LIKWID: {_text(run.display_label)}, rank "
                 f"{_text(table['rank'])}, group {_text(table['group'])}</summary>"
                 + "".join(sections)
-                + "</details>"
+                + "</details>",
             )
 
         for table in perf_event_tables(
-            run, include=include, exclude=exclude, ranks=ranks
+            run,
+            include=include,
+            exclude=exclude,
+            ranks=ranks,
         ):
             fragments.append(
                 '<details class="counter-panel">'
                 f"<summary>Linux perf events: {_text(run.display_label)}, "
                 f"rank {_text(table['rank'])}</summary>"
                 + _counter_table(("region", "calls", *table["events"]), table["rows"])
-                + "</details>"
+                + "</details>",
             )
 
     if not fragments:
@@ -955,7 +960,7 @@ def _chart_sections(runs, include, exclude, ranks, charts_cdn: bool = False) -> 
                     rank
                     for rank in (range(run.num_ranks) if ranks is None else ranks)
                     if 0 <= rank < run.num_ranks
-                ]
+                ],
             )
             for run in runs
         ]
@@ -1043,21 +1048,21 @@ def _chart_sections(runs, include, exclude, ranks, charts_cdn: bool = False) -> 
             '<details class="chart-panel" open>'
             '<summary><span class="chart-heading" role="heading" aria-level="3">'
             f"{_text(title)}</span></summary>{explanation}"
-            f'<div class="{chart_class}" id="{chart_id}"></div></details>'
+            f'<div class="{chart_class}" id="{chart_id}"></div></details>',
         )
         chart_documents.append(
             {
                 "id": chart_id,
                 "payload": payload,
                 "options": {"layout": {"height": 680}} if is_duration_chart else {},
-            }
+            },
         )
 
     if failures:
         fragments.append(
             '<p class="muted">Unavailable chart(s): '
             + _text("; ".join(failures))
-            + "</p>"
+            + "</p>",
         )
     if not charts:
         fragments.append('<p class="muted">No charts could be rendered.</p>')
@@ -1070,7 +1075,8 @@ def _chart_sections(runs, include, exclude, ranks, charts_cdn: bool = False) -> 
     # durable; whether the Plotly runtime travels with it is the caller's
     # choice, since inlining it costs ~4.7 MB in every report.
     documents_json = json.dumps(chart_documents, ensure_ascii=False).replace(
-        "<", "\\u003c"
+        "<",
+        "\\u003c",
     )
     plotly_builders = (
         files("scope_profiler._assets")
@@ -1319,7 +1325,7 @@ def create_html_report(
             f"{_call_tree_html(results, rows, include, exclude, ranks)}</details>"
             f"{line_profile_html}"
             f"<details><summary>Metadata</summary>{_metadata_table(results.metadata)}</details>"
-            f'<p class="back-to-top"><a href="#top">Back to top</a></p></section>'
+            f'<p class="back-to-top"><a href="#top">Back to top</a></p></section>',
         )
 
     hardware = _hardware_sections(runs, include, exclude, ranks)

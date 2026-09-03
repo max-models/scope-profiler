@@ -75,7 +75,9 @@ def test_rank0_receives_every_other_rank_in_rank_order(configured, tmp_path):
     configured._rank, configured._size = 0, 4
 
     results = ProfileManager._collect_payloads(
-        payload(9 * NS), write_file=True, need_results=True
+        payload(9 * NS),
+        write_file=True,
+        need_results=True,
     )
 
     # Every remote rank is received exactly once, in rank order: pooled
@@ -99,7 +101,9 @@ def test_a_silent_rank_yields_no_group_but_still_sends(configured, tmp_path):
     configured._rank, configured._size = 0, 3
 
     results = ProfileManager._collect_payloads(
-        payload(NS), write_file=True, need_results=True
+        payload(NS),
+        write_file=True,
+        need_results=True,
     )
 
     # Rank 1 was still received -- skipping the receive would deadlock.
@@ -115,7 +119,9 @@ def test_non_root_sends_once_and_gets_empty_results(configured):
     configured._rank, configured._size = 2, 4
 
     results = ProfileManager._collect_payloads(
-        payload(NS), write_file=True, need_results=True
+        payload(NS),
+        write_file=True,
+        need_results=True,
     )
 
     assert [dest for dest, _ in comm.sent] == [0]
@@ -131,7 +137,9 @@ def test_results_without_a_file_still_stream(configured):
     configured._rank, configured._size = 0, 2
 
     results = ProfileManager._collect_payloads(
-        payload(NS), write_file=False, need_results=True
+        payload(NS),
+        write_file=False,
+        need_results=True,
     )
 
     assert comm.recv_order == [1]
@@ -157,7 +165,9 @@ def test_the_output_file_is_closed_even_on_error(configured, monkeypatch):
 
     with pytest.raises(OSError):
         ProfileManager._collect_payloads(
-            payload(NS), write_file=True, need_results=False
+            payload(NS),
+            write_file=True,
+            need_results=False,
         )
     # The destination still contains the complete previous run, not a partial
     # metadata-only replacement from the failed write.
@@ -190,7 +200,9 @@ def test_no_collective_is_used_for_the_transport(configured):
     configured._rank, configured._size = 0, 2
 
     results = ProfileManager._collect_payloads(
-        payload(NS), write_file=True, need_results=True
+        payload(NS),
+        write_file=True,
+        need_results=True,
     )
     assert results["solve"].num_calls == 2
 
@@ -214,7 +226,7 @@ def test_direct_writer_appends_a_rank_after_receiving_the_token(configured, tmp_
     # The token this rank passes on carries the index it just extended, so the
     # next rank appends without reading the growing columns back.
     assert comm.sent == [
-        (0, (True, "", {"names": ["solve", "remote"], "ranks": [0, 1]}))
+        (0, (True, "", {"names": ["solve", "remote"], "ranks": [0, 1]})),
     ]
     with h5py.File(temp_path, "r") as handle:
         assert handle["region_table/names"][()].tolist() == [b"solve", b"remote"]

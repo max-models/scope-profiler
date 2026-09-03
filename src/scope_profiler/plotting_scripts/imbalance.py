@@ -61,7 +61,7 @@ def plot_imbalance(
 
     if metric not in _DURATION_METRICS:
         raise ValueError(
-            f"Unknown metric {metric!r}. Valid options are: {list(_DURATION_METRICS)}"
+            f"Unknown metric {metric!r}. Valid options are: {list(_DURATION_METRICS)}",
         )
     stat_key, metric_label = _DURATION_METRICS[metric]
 
@@ -106,7 +106,7 @@ def plot_imbalance(
                         region.name,
                         np.asarray(rank_list, dtype=int),
                         np.asarray(value_list, dtype=float),
-                    )
+                    ),
                 )
         if series:
             prepared.append((run, series))
@@ -123,7 +123,7 @@ def plot_imbalance(
                 mean_value = float(np.mean(values))
                 for rank, value in zip(region_ranks, values):
                     records.append(
-                        [label, region_name, int(rank), float(value), mean_value]
+                        [label, region_name, int(rank), float(value), mean_value],
                     )
         header = ["file", "region", "rank", "value_seconds", "mean_over_ranks_seconds"]
         if data_format == "json":

@@ -60,14 +60,14 @@ def validate_events(events) -> tuple[str, ...]:
             "Unknown perf event(s): "
             + ", ".join(unknown)
             + ". Supported events: "
-            + ", ".join(EVENTS)
+            + ", ".join(EVENTS),
         )
     if platform.system() != "Linux":
         raise PerfEventError("perf_events is supported only on Linux")
     if platform.machine().lower() not in _SYS_PERF_EVENT_OPEN:
         raise PerfEventError(
             f"perf_events is not implemented for {platform.machine()!r}; "
-            "use LIKWID or run on x86_64/aarch64 Linux"
+            "use LIKWID or run on x86_64/aarch64 Linux",
         )
     return normalized
 
@@ -101,7 +101,7 @@ def _make_py_perf_measure(events: tuple[str, ...]):
         return None
     try:
         return Measure(
-            [getattr(Hardware, _PY_PERF_EVENT_HARDWARE[event]) for event in events]
+            [getattr(Hardware, _PY_PERF_EVENT_HARDWARE[event]) for event in events],
         )
     except Exception as exc:
         raise _py_perf_error("create", exc) from exc
@@ -182,7 +182,7 @@ class PerfEventGroup:
                     raise PerfEventError(
                         "perf counters were multiplexed (enabled for "
                         f"{read.time_enabled_ns} ns but running for "
-                        f"{read.time_running_ns} ns); reduce perf_events"
+                        f"{read.time_running_ns} ns); reduce perf_events",
                     )
                 return dict(zip(self.events, map(int, read.measurements)))
             except PerfEventError:

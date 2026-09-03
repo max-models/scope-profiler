@@ -36,7 +36,8 @@ def _reset():
 @pytest.fixture
 def manager(tmp_path):
     ProfileManager.setup(
-        file_path=str(tmp_path / "profiling_data.h5"), deactivate_file_output=True
+        file_path=str(tmp_path / "profiling_data.h5"),
+        deactivate_file_output=True,
     )
     return ProfileManager
 
@@ -212,7 +213,9 @@ def test_library_frames_are_skipped_when_only_user_code_is_asked_for(manager):
         f_code = FakeCode()
 
     tracer = manager._get_recursive_tracer(
-        root_frame=None, prev_profiler=None, only_user_code=True
+        root_frame=None,
+        prev_profiler=None,
+        only_user_code=True,
     )
     _run_tracer(tracer, FakeFrame())
 
@@ -230,7 +233,9 @@ def test_library_frames_are_traced_when_user_code_is_not_required(manager):
         f_code = FakeCode()
 
     tracer = manager._get_recursive_tracer(
-        root_frame=None, prev_profiler=None, only_user_code=False
+        root_frame=None,
+        prev_profiler=None,
+        only_user_code=False,
     )
     _run_tracer(tracer, FakeFrame())
 
@@ -250,7 +255,8 @@ def test_the_previous_profiler_still_sees_every_event(manager):
     """Installing the tracer must not silently displace another profiler."""
     seen = []
     tracer = manager._get_recursive_tracer(
-        root_frame=None, prev_profiler=lambda f, e, a: seen.append(e)
+        root_frame=None,
+        prev_profiler=lambda f, e, a: seen.append(e),
     )
 
     _run_tracer(tracer, _frame())
@@ -324,7 +330,9 @@ def test_active_calls_can_be_shared_with_the_caller(manager):
     active: dict = {}
     frame = _frame()
     tracer = manager._get_recursive_tracer(
-        root_frame=None, prev_profiler=None, active_calls=active
+        root_frame=None,
+        prev_profiler=None,
+        active_calls=active,
     )
 
     tracer(frame, "call", None)

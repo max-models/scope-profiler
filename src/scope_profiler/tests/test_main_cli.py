@@ -73,10 +73,12 @@ def test_run_line_profile_flag_is_passed_to_setup(tmp_path, monkeypatch):
 
     monkeypatch.setattr("scope_profiler.__main__.ProfileManager.setup", fake_setup)
     monkeypatch.setattr(
-        "scope_profiler.__main__.ProfileManager.run_script", fake_run_script
+        "scope_profiler.__main__.ProfileManager.run_script",
+        fake_run_script,
     )
     monkeypatch.setattr(
-        "scope_profiler.__main__.ProfileManager.finalize", fake_finalize
+        "scope_profiler.__main__.ProfileManager.finalize",
+        fake_finalize,
     )
 
     cli_main(
@@ -89,7 +91,7 @@ def test_run_line_profile_flag_is_passed_to_setup(tmp_path, monkeypatch):
             str(script),
             "--",
             "arg",
-        ]
+        ],
     )
 
     assert calls["setup"]["use_line_profiler"] is True
@@ -163,7 +165,8 @@ def test_top_level_command_help_does_not_crash(command, capsys):
 
 
 @pytest.mark.parametrize(
-    "plot_kind", ["list", "default", "all", "quick", *_PLOT_CATALOG]
+    "plot_kind",
+    ["list", "default", "all", "quick", *_PLOT_CATALOG],
 )
 def test_plot_kind_help_does_not_crash(plot_kind, capsys):
     with pytest.raises(SystemExit) as exc_info:

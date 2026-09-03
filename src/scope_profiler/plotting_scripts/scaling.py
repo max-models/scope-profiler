@@ -53,7 +53,7 @@ def _scaling_hover_texts(
                     (value_label, f"{value:.4g}"),
                     ("mean duration", f"{duration:.6g} s"),
                 ],
-            )
+            ),
         )
     return texts
 
@@ -124,7 +124,7 @@ def plot_speedup(
     if verbose:
         print(
             f"Plotting speedup comparison using x_field={x_field!r}, values: "
-            + ", ".join(map(str, x_keys))
+            + ", ".join(map(str, x_keys)),
         )
 
     duration_samples: dict[str, dict] = {
@@ -143,7 +143,8 @@ def plot_speedup(
             if np.isfinite(duration) and duration > 0:
                 duration_samples[region_name][x_value].append(duration)
                 region_at_key[region_name].setdefault(
-                    x_value, run.get_region(region_name)
+                    x_value,
+                    run.get_region(region_name),
                 )
 
     baseline_key = x_keys[0]
@@ -305,7 +306,7 @@ def plot_weak_scaling(
     if verbose:
         print(
             f"Plotting weak scaling comparison using x_field={x_field!r}, values: "
-            + ", ".join(map(str, x_keys))
+            + ", ".join(map(str, x_keys)),
         )
 
     duration_samples: dict[str, dict] = {
@@ -315,12 +316,14 @@ def plot_weak_scaling(
     for run, x_value in zip(runs, x_per_reader):
         for region_name in region_names:
             duration = _region_average_duration(
-                run.get_region(region_name), ranks=ranks
+                run.get_region(region_name),
+                ranks=ranks,
             )
             if np.isfinite(duration) and duration > 0:
                 duration_samples[region_name][x_value].append(duration)
                 region_at_key[region_name].setdefault(
-                    x_value, run.get_region(region_name)
+                    x_value,
+                    run.get_region(region_name),
                 )
 
     baseline_key = x_keys[0]
@@ -409,7 +412,9 @@ def plot_weak_scaling(
             )
         else:
             _write_csv(
-                data_filepath, ["region", x_field, "normalized_runtime"], data_rows
+                data_filepath,
+                ["region", x_field, "normalized_runtime"],
+                data_rows,
             )
 
     x_label = _x_label(x_field)
@@ -461,7 +466,7 @@ def plot_scaling_efficiency(
     if x_field not in _SCALING_X_FIELDS:
         raise ValueError(
             "Scaling efficiency requires x_field to be one of: "
-            + ", ".join(sorted(_SCALING_X_FIELDS))
+            + ", ".join(sorted(_SCALING_X_FIELDS)),
         )
 
     region_names = _common_region_names(runs, include=include, exclude=exclude)
@@ -487,7 +492,7 @@ def plot_scaling_efficiency(
         figsize=(
             max(10, 1.2 * len(x_keys) + 3),
             max(4.5, 2.8 + 0.35 * len(region_names)),
-        )
+        ),
     )
     data_rows = []
     plotted = 0

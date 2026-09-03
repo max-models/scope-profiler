@@ -209,10 +209,14 @@ def diff_files(
     stream = sys.stdout if stream is None else stream
     if metric in _SUMMARY_METRICS:
         results_a = read_profile_summary(
-            file_a, include_likwid=False, include_line_profile=False
+            file_a,
+            include_likwid=False,
+            include_line_profile=False,
         )
         results_b = read_profile_summary(
-            file_b, include_likwid=False, include_line_profile=False
+            file_b,
+            include_likwid=False,
+            include_line_profile=False,
         )
     else:
         results_a = read_profile(file_a)
@@ -285,10 +289,14 @@ def check_files(
     stream = sys.stdout if stream is None else stream
     if metric in _SUMMARY_METRICS:
         results_a = read_profile_summary(
-            file_a, include_likwid=False, include_line_profile=False
+            file_a,
+            include_likwid=False,
+            include_line_profile=False,
         )
         results_b = read_profile_summary(
-            file_b, include_likwid=False, include_line_profile=False
+            file_b,
+            include_likwid=False,
+            include_line_profile=False,
         )
     else:
         results_a, results_b = read_profile(file_a), read_profile(file_b)

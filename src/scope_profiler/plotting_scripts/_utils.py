@@ -20,7 +20,9 @@ PLOT_DATA_FORMAT_VERSION = 1
 
 
 def _write_csv(
-    filepath: str | Path, header: Sequence[str], rows: Sequence[Sequence]
+    filepath: str | Path,
+    header: Sequence[str],
+    rows: Sequence[Sequence],
 ) -> None:
     """Write rows of plotting data to a plain-text CSV file."""
     output_path = Path(filepath)
@@ -115,7 +117,7 @@ def _get_canvas():
         raise ImportError(
             "maxplotlib is required for plotting. Install scope-profiler[pproc] "
             "or maxplotlibx (>= 0.1.9, for its gantt/flame charts and native "
-            "hover support)."
+            "hover support).",
         ) from exc
     return Canvas
 
@@ -239,7 +241,7 @@ def _hover_summary(
             continue
         lines.append(
             f"{_HOVER_LABELS.get(key, key.replace('_', ' '))}: "
-            f"{_hover_value(key, value)}"
+            f"{_hover_value(key, value)}",
         )
     return "<br>".join(lines)
 
@@ -337,7 +339,7 @@ def _render(
                     raise RuntimeError(
                         "Plotly image export failed. For PNG/PDF/SVG export, "
                         "install kaleido (e.g. `pip install -U kaleido`), or "
-                        "export to an .html filepath instead."
+                        "export to an .html filepath instead.",
                     ) from exc
         if show:
             fig.show()
@@ -382,7 +384,10 @@ def _render(
 
 
 def _panel_gridspec(
-    fig_width: float, fig_height: float, label_chars: int, multi_panel: bool
+    fig_width: float,
+    fig_height: float,
+    label_chars: int,
+    multi_panel: bool,
 ) -> dict:
     """Reserve figure margins for tick labels, axis labels and titles.
 

@@ -27,11 +27,11 @@ class TorchCUDATimingBackend:
             import torch
         except ImportError as exc:
             raise ImportError(
-                "PyTorch CUDA timing requested but torch is not installed."
+                "PyTorch CUDA timing requested but torch is not installed.",
             ) from exc
         if not torch.cuda.is_available():
             raise RuntimeError(
-                "PyTorch CUDA timing requested but CUDA is not available."
+                "PyTorch CUDA timing requested but CUDA is not available.",
             )
         self._torch = torch
 
@@ -55,13 +55,13 @@ class CuPyCUDATimingBackend:
             import cupy
         except ImportError as exc:
             raise ImportError(
-                "CuPy CUDA timing requested but cupy is not installed."
+                "CuPy CUDA timing requested but cupy is not installed.",
             ) from exc
         try:
             device_count = cupy.cuda.runtime.getDeviceCount()
         except Exception as exc:
             raise RuntimeError(
-                "CuPy CUDA timing requested but CUDA is not available."
+                "CuPy CUDA timing requested but CUDA is not available.",
             ) from exc
         if device_count <= 0:
             raise RuntimeError("CuPy CUDA timing requested but CUDA is not available.")
@@ -91,7 +91,7 @@ def resolve_gpu_timing_backend(backend="auto") -> GPUTimingBackend:
             if not callable(getattr(backend, attr, None)):
                 raise TypeError(
                     "gpu_timing_backend objects must provide record_event() and "
-                    "elapsed_time_ns(start_event, end_event)."
+                    "elapsed_time_ns(start_event, end_event).",
                 )
         return cast("GPUTimingBackend", backend)
 
@@ -112,11 +112,11 @@ def resolve_gpu_timing_backend(backend="auto") -> GPUTimingBackend:
         raise RuntimeError(
             "CUDA-event timing requested but no supported GPU backend is available. "
             "Install PyTorch or CuPy with CUDA support, or pass a custom "
-            f"gpu_timing_backend. Tried: {joined}"
+            f"gpu_timing_backend. Tried: {joined}",
         )
     if normalized not in choices:
         raise ValueError(
             "Unknown gpu_timing_backend "
-            f"{backend!r}; expected 'auto', 'torch', 'pytorch', 'cupy', or a backend object."
+            f"{backend!r}; expected 'auto', 'torch', 'pytorch', 'cupy', or a backend object.",
         )
     return cast("GPUTimingBackend", choices[normalized]())

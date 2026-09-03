@@ -143,7 +143,7 @@ def _group_regions(
         if not matches:
             raise ValueError(
                 f"combine_regions group {group_name!r} matched no regions "
-                f"(patterns: {patterns})."
+                f"(patterns: {patterns}).",
             )
         for name in matches:
             claimed[name] = group_name
@@ -163,7 +163,7 @@ def _group_regions(
     if duplicates:
         raise ValueError(
             f"combine_regions group name(s) {sorted(duplicates)} collide with "
-            "an existing region name or another group; pick different names."
+            "an existing region name or another group; pick different names.",
         )
 
     return display_names, members
@@ -201,7 +201,7 @@ def _sort_and_limit_region_names(
         if sort_by not in _DURATION_METRICS:
             raise ValueError(
                 f"Unknown sort_by {sort_by!r}. Valid options are: "
-                f"{['name', *_DURATION_METRICS]}"
+                f"{['name', *_DURATION_METRICS]}",
             )
         stat_key, _ = _DURATION_METRICS[sort_by]
 
@@ -259,16 +259,18 @@ def _stacked_segments(
             continue
 
         bar_names = list(
-            dict.fromkeys(bar_of_region.get(name, name) for name in calls.names)
+            dict.fromkeys(bar_of_region.get(name, name) for name in calls.names),
         )
         index_of = {name: index for index, name in enumerate(bar_names)}
         row_bar = np.array(
-            [index_of[bar_of_region.get(name, name)] for name in calls.names]
+            [index_of[bar_of_region.get(name, name)] for name in calls.names],
         )
         call_bar = row_bar[calls.region_index]
 
         self_ns = np.bincount(
-            call_bar, weights=calls.exclusive_ns, minlength=len(bar_names)
+            call_bar,
+            weights=calls.exclusive_ns,
+            minlength=len(bar_names),
         )
         for index, name in enumerate(bar_names):
             totals[name]["self"] += float(self_ns[index])
@@ -318,7 +320,8 @@ def _stacked_bar_values(
                 if label != "self":
                     pooled[label] += value
     segment_labels = ["self"] + sorted(
-        pooled, key=lambda label: (-pooled[label], label)
+        pooled,
+        key=lambda label: (-pooled[label], label),
     )
 
     values: list[dict[str, np.ndarray]] = []
@@ -342,7 +345,7 @@ def _stacked_bar_values(
                         else float("nan")
                     )
                     for name, scale in zip(region_names, scales)
-                ]
+                ],
             )
             run_values[label] = heights
         values.append(run_values)
@@ -417,7 +420,7 @@ def plot_durations(
     if unknown_metrics:
         raise ValueError(
             f"Unknown metric(s) {unknown_metrics}. "
-            f"Valid options are: {list(_DURATION_METRICS)}"
+            f"Valid options are: {list(_DURATION_METRICS)}",
         )
 
     if stack_children:
@@ -428,7 +431,7 @@ def plot_durations(
             raise ValueError(
                 f"stack_children does not apply to metric(s) {unstackable}: "
                 f"only {sorted(_STACKABLE_METRICS)} decompose into "
-                "self time plus children."
+                "self time plus children.",
             )
 
     if labels is None:
@@ -444,13 +447,18 @@ def plot_durations(
         raise ValueError("No regions matched the selected filters.")
     region_names, region_members = _group_regions(region_names, combine_regions)
     region_names = _sort_and_limit_region_names(
-        region_names, runs, ranks, sort_by, top_n, members=region_members
+        region_names,
+        runs,
+        ranks,
+        sort_by,
+        top_n,
+        members=region_members,
     )
 
     if verbose:
         print(
             f"Plotting duration comparison ({', '.join(metric_keys)}) "
-            f"for files: {', '.join(labels)}"
+            f"for files: {', '.join(labels)}",
         )
 
     num_readers = len(runs)
@@ -487,10 +495,14 @@ def plot_durations(
         stacked_values: list[dict[str, np.ndarray]] = []
         if stack_children:
             segment_labels, stacked_values = _stacked_bar_values(
-                runs, region_names, region_members, ranks, metric_key
+                runs,
+                region_names,
+                region_members,
+                ranks,
+                metric_key,
             )
             segment_colors = dict(
-                zip(segment_labels, _get_cmap_colors(cmap, len(segment_labels)))
+                zip(segment_labels, _get_cmap_colors(cmap, len(segment_labels))),
             )
             values = [
                 [
@@ -503,7 +515,10 @@ def plot_durations(
             values = [
                 [
                     _pooled_metric_value(
-                        run, region_members[region_name], stat_key, ranks=ranks
+                        run,
+                        region_members[region_name],
+                        stat_key,
+                        ranks=ranks,
                     )
                     for region_name in region_names
                 ]
@@ -515,10 +530,11 @@ def plot_durations(
                 for label, run_values in zip(labels, stacked_values):
                     for segment in segment_labels:
                         for region_name, value in zip(
-                            region_names, run_values[segment]
+                            region_names,
+                            run_values[segment],
                         ):
                             data_rows.append(
-                                [label, region_name, metric_key, segment, float(value)]
+                                [label, region_name, metric_key, segment, float(value)],
                             )
             else:
                 for label, file_values in zip(labels, values):
@@ -593,7 +609,7 @@ def plot_durations(
                                 (
                                     f"{region_name} / {segment}",
                                     f"{run_values[segment][index]:.6g} s",
-                                )
+                                ),
                             ],
                             run_label=run_label,
                         )
@@ -630,7 +646,9 @@ def plot_durations(
         metric_filepath = None
         if filepath:
             metric_filepath = _metric_filepath(
-                filepath, metric_key, single_metric=len(metric_keys) == 1
+                filepath,
+                metric_key,
+                single_metric=len(metric_keys) == 1,
             )
             saved_paths.append(metric_filepath)
 
@@ -664,7 +682,8 @@ def plot_durations(
                 colors_map = {
                     segment: _to_hex(color)
                     for segment, color in zip(
-                        segment_labels, _get_cmap_colors(cmap, len(segment_labels))
+                        segment_labels,
+                        _get_cmap_colors(cmap, len(segment_labels)),
                     )
                 }
             else:

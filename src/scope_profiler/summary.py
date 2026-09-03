@@ -111,7 +111,7 @@ def normalize_region_table_columns(columns=None) -> tuple[tuple[str, str], ...]:
     if unknown:
         choices = ", ".join(REGION_TABLE_COLUMNS)
         raise ValueError(
-            f"Unknown region summary column(s): {unknown}. Choices: {choices}"
+            f"Unknown region summary column(s): {unknown}. Choices: {choices}",
         )
     if not normalized:
         raise ValueError("At least one region summary column must be selected.")
@@ -264,7 +264,7 @@ def region_row(region, ranks=None, *, include_exclusive: bool = False) -> dict:
 
         try:
             exclusive = float(
-                sum(data.exclusive_duration for data in per_rank.values())
+                sum(data.exclusive_duration for data in per_rank.values()),
             )
         except (NestingError, EventDataUnavailableError):
             # Legacy profiles may contain overlapping events, for which an
@@ -617,7 +617,7 @@ def print_region_table(
                 "Compare runs:",
                 "  Diff:    scope-profiler diff BASE.h5 CANDIDATE.h5",
                 "  Check:   scope-profiler check BASE.h5 CANDIDATE.h5",
-            )
+            ),
         )
         notes.append("")
     notes.append("Durations are in seconds.")
@@ -625,20 +625,22 @@ def print_region_table(
         # Nested regions are counted in both the inner and the outer row, so
         # the summed total legitimately exceeds the run's wall-clock time.
         notes.append(
-            "Regions may nest, so the summed total can exceed the wall-clock time."
+            "Regions may nest, so the summed total can exceed the wall-clock time.",
         )
     if any(row.get("recursive") for row in rows):
         notes.append("↻ Recursive rows aggregate all invocations of that region.")
     if session_total is not None:
         notes.append(
-            "% session uses wall-clock coverage; overlapping recursive calls "
-            "count once."
-            if percentage_mode == "coverage"
-            else "% session uses exclusive time for each region."
+            (
+                "% session uses wall-clock coverage; overlapping recursive calls "
+                "count once."
+                if percentage_mode == "coverage"
+                else "% session uses exclusive time for each region."
+            ),
         )
     if any(row["total"] is None for row in rows):
         notes.append(
-            "Regions shown without timing recorded no calls on the selected ranks."
+            "Regions shown without timing recorded no calls on the selected ranks.",
         )
     if not suppress_notes and notes:
         width = max(len(note) for note in notes)
@@ -734,7 +736,7 @@ def likwid_tables(results, include=None, exclude=None, ranks=None) -> list:
             key=lambda item: (
                 -float(np.max(item[1].times)) if len(item[1].times) else 0.0,
                 item[0],
-            )
+            ),
         )
 
     tables = {}
@@ -764,7 +766,10 @@ def likwid_tables(results, include=None, exclude=None, ranks=None) -> list:
                 column = len(table["columns"]) - 1
 
                 _set_cell(
-                    table["info"], "call count", column, result.call_counts[thread]
+                    table["info"],
+                    "call count",
+                    column,
+                    result.call_counts[thread],
                 )
                 _set_cell(table["info"], "runtime [s]", column, result.times[thread])
                 # event_labels, not event_names: groups such as MEM_DP program
@@ -787,7 +792,7 @@ def likwid_tables(results, include=None, exclude=None, ranks=None) -> list:
                     ("Events", _dense(table["events"], width)),
                     ("Metrics", _dense(table["metrics"], width)),
                 ],
-            }
+            },
         )
     return built
 
@@ -863,7 +868,7 @@ def perf_event_tables(results, include=None, exclude=None, ranks=None) -> list:
             continue
         selected.sort(key=lambda item: item[0])
         event_names = sorted(
-            {event for _, totals in selected for event in totals.values}
+            {event for _, totals in selected for event in totals.values},
         )
         tables.append(
             {
@@ -877,18 +882,25 @@ def perf_event_tables(results, include=None, exclude=None, ranks=None) -> list:
                     )
                     for name, totals in selected
                 ],
-            }
+            },
         )
     return tables
 
 
 def print_perf_event_tables(
-    results, include=None, exclude=None, ranks=None, stream=None
+    results,
+    include=None,
+    exclude=None,
+    ranks=None,
+    stream=None,
 ):
     """Print every built-in Linux perf-event counter table in ``results``."""
     stream = sys.stdout if stream is None else stream
     for table in perf_event_tables(
-        results, include=include, exclude=exclude, ranks=ranks
+        results,
+        include=include,
+        exclude=exclude,
+        ranks=ranks,
     ):
         _print_heading(f"Perf events (rank {table['rank']})", stream)
         _print_table(

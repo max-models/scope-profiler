@@ -63,7 +63,7 @@ def pytest_sessionstart(session) -> None:
     if config.getoption("numprocesses", default=0):
         raise pytest.UsageError(
             "--scope-profile does not support pytest-xdist yet; "
-            "run without -n so exactly one process writes the HDF5 profile"
+            "run without -n so exactly one process writes the HDF5 profile",
         )
 
     manager = ProfileManager()
@@ -119,5 +119,5 @@ def pytest_sessionfinish(session, exitstatus) -> None:
     terminal = config.pluginmanager.get_plugin("terminalreporter")
     if terminal is not None:
         terminal.write_line(
-            "scope-profiler: wrote " + config.getoption("--scope-profile-out")
+            "scope-profiler: wrote " + config.getoption("--scope-profile-out"),
         )

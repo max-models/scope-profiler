@@ -19,7 +19,7 @@ def _profile(tmp_path):
             0: {
                 "main": ([0], [100 * 1_000_000]),
                 "solve": ([20 * 1_000_000], [80 * 1_000_000]),
-            }
+            },
         },
     )
     return read_h5(path)

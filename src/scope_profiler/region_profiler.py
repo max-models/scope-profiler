@@ -115,7 +115,7 @@ def _import_line_profiler():
         raise ImportError(
             "Line-by-line profiling requested but line_profiler is not "
             "installed. Install scope-profiler[line-profiler], or "
-            "line_profiler directly."
+            "line_profiler directly.",
         ) from exc
 
     return LineProfiler
@@ -159,7 +159,7 @@ def _import_nvtx():
     except ImportError as exc:
         raise ImportError(
             "NVTX annotations requested but nvtx is not installed. Install "
-            "scope-profiler[nvtx], or nvtx directly."
+            "scope-profiler[nvtx], or nvtx directly.",
         ) from exc
     return nvtx
 
@@ -1092,7 +1092,7 @@ class LineProfilerRegion(BaseProfileRegion):
         """Return manually traced line timings in the persisted record shape."""
         records = []
         for (filename, first_lineno, function), by_line in sorted(
-            self._manual_line_timings.items()
+            self._manual_line_timings.items(),
         ):
             line_numbers = np.asarray(sorted(by_line), dtype=np.int64)
             hits = np.asarray([by_line[int(line)][0] for line in line_numbers])
@@ -1106,7 +1106,7 @@ class LineProfilerRegion(BaseProfileRegion):
                     "hits": hits,
                     "times": times,
                     "unit": unit,
-                }
+                },
             )
         return records
 

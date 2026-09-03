@@ -43,7 +43,9 @@ NS_PER_SECOND = 1e9
 
 
 def _key(
-    name: str, source_file: str | None = None, source_lineno: int | None = None
+    name: str,
+    source_file: str | None = None,
+    source_lineno: int | None = None,
 ) -> tuple[str, int, str]:
     """Build a pstats key, using the captured source location when present."""
     if source_file and source_lineno is not None:
@@ -102,7 +104,7 @@ def _call_path_ids(
             identities[identity] = path_id
             name = calls.names[int(region_row)]
             path_names.append(
-                name if parent_path < 0 else f"{path_names[parent_path]} > {name}"
+                name if parent_path < 0 else f"{path_names[parent_path]} > {name}",
             )
             path_parents.append(parent_path)
             path_region_rows.append(int(region_row))
@@ -117,7 +119,8 @@ def _call_path_ids(
 
 
 def _build_call_path_pstats_dict(
-    calls: CallArrays, root_name: str | None
+    calls: CallArrays,
+    root_name: str | None,
 ) -> dict[tuple[str, int, str], tuple]:
     """Build a pstats tree whose nodes are reconstructed call paths."""
     path_ids, path_names, path_parents, path_region_rows = _call_path_ids(calls)
@@ -285,7 +288,8 @@ def build_pstats_dict(
 
 
 def write_prof_file(
-    filepath: str | Path, stats: dict[tuple[str, int, str], tuple]
+    filepath: str | Path,
+    stats: dict[tuple[str, int, str], tuple],
 ) -> Path:
     """Marshal a pstats dict to ``filepath``, as ``cProfile`` would."""
     output_path = Path(filepath)
@@ -419,7 +423,9 @@ def to_pstats(
     prepared, _multiple_files = _prepare_calls(profiling_data, ranks, include, exclude)
     return {
         (label, rank): build_pstats(
-            calls, root_name=f"<{label} rank {rank}>", call_paths=call_paths
+            calls,
+            root_name=f"<{label} rank {rank}>",
+            call_paths=call_paths,
         )
         for label, rank, calls in prepared
     }
@@ -477,7 +483,9 @@ def export_prof(
         parts.append(f"rank{rank}")
         out_path = base_path.with_name("_".join(parts) + suffix)
         stats = build_pstats_dict(
-            calls, root_name=f"<{label} rank {rank}>", call_paths=call_paths
+            calls,
+            root_name=f"<{label} rank {rank}>",
+            call_paths=call_paths,
         )
         written.append(write_prof_file(out_path, stats))
         if verbose:
