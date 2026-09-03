@@ -28,7 +28,17 @@
   Python API's own source navigation and exports already understand. The
   native trace format gained a version 2 to carry it; version 1 (written by
   the Fortran API) keeps reading exactly as before, so a mixed C/Fortran run
-  still merges into one profile.
+  still merges into one profile. A name first registered without a location
+  (via `sp_region()`) can pick one up on a later `sp_region_at()` call for the
+  same name -- the location backfills onto the existing handle rather than
+  being dropped -- and `SP_REGION_AT()`/`SP_PROFILER_REGION_AT()` macros fill
+  in `__FILE__`/`__LINE__` automatically.
+- `scope_profiler.hpp`, a header-only C++11 addition next to the C API, wraps
+  the checked scope token in a move-only RAII class (`sp::Scope`) so a region
+  is left however its scope exits -- return, break, or an exception -- via
+  `sp_profiler_scope_begin()`/`sp_scope_end()` under the hood, against either
+  an explicit `sp_profiler *` or (via `sp_default_profiler()`, also new) the
+  default context.
 - Structured status codes (`sp_status`, `sp_error_string()`) and introspection
   (`sp_profiler_last_error()`, `sp_profiler_output_path()`,
   `sp_profiler_is_active()`, `sp_profiler_num_regions()`,

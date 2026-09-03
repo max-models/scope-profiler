@@ -45,6 +45,21 @@ def find_compiler() -> str | None:
 
 COMPILER = find_compiler()
 
+#: c++ first: it is whatever the platform considers the system compiler.
+CXX_COMPILERS = ("c++", "g++", "clang++")
+
+
+def find_cxx_compiler() -> str | None:
+    """Return a C++ compiler from PATH, or None."""
+    for name in CXX_COMPILERS:
+        path = shutil.which(name)
+        if path:
+            return path
+    return None
+
+
+CXX_COMPILER = find_cxx_compiler()
+
 pytestmark = [
     pytest.mark.skipif(COMPILER is None, reason="no C compiler on PATH"),
     pytest.mark.skipif(not SOURCE.exists(), reason=f"{SOURCE} not found (installed?)"),
@@ -574,6 +589,31 @@ def test_makefile_builds_the_example(tmp_path):
     assert (tmp_path / "example").exists()
 
 
+@pytest.mark.skipif(CXX_COMPILER is None, reason="no C++ compiler on PATH")
+def test_makefile_hpp_check_target(tmp_path):
+    if not (C_DIR / "Makefile").exists() or shutil.which("make") is None:
+        pytest.skip("no Makefile or make available")
+
+    result = subprocess.run(
+        [
+            "make",
+            "-f",
+            str(C_DIR / "Makefile"),
+            "hpp-check",
+            f"BUILD_DIR={tmp_path}",
+            f"CXX={CXX_COMPILER}",
+        ],
+        cwd=C_DIR,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env={**os.environ, "MAKEFLAGS": ""},
+        check=False,
+    )
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    assert (tmp_path / "hpp_check.o").exists()
+
+
 def test_explicit_contexts_are_independent(tmp_path):
     program = """
 #include "scope_profiler.h"
@@ -711,20 +751,6 @@ int main(void)
     _, default_regions = read_trace(tmp_path / "macro_default_rank00000.spt")
     assert default_regions["default_region"].source_file.endswith("region_at_macro.c")
     assert default_regions["default_region"].source_lineno > 0
-
-
-CXX_COMPILERS = ("c++", "g++", "clang++")
-
-
-def find_cxx_compiler() -> str | None:
-    for name in CXX_COMPILERS:
-        path = shutil.which(name)
-        if path:
-            return path
-    return None
-
-
-CXX_COMPILER = find_cxx_compiler()
 
 
 def build_cxx(tmp_path: Path, program: str, name: str = "prog") -> Path:

@@ -8,7 +8,8 @@ Python one.
 
 It is one C99 file plus a header: no dependencies beyond libc, no HDF5, no MPI,
 nothing to link. The header is `extern "C"`, so C++ codes can include it
-directly.
+directly -- or reach for the optional `scope_profiler.hpp` RAII wrapper
+described below.
 
 The trace format is shared with {doc}`the Fortran API <fortran>`, so a program
 built from both lands in a single profile.
@@ -166,9 +167,54 @@ int solve = sp_profiler_region_at(p, "solve", __FILE__, __LINE__);
 ```
 
 It exists on both the default context (`sp_region_at`) and explicit ones
-(`sp_profiler_region_at`). The location is recorded once, the first time a
-name is registered; a later call for the same name just returns its existing
-handle.
+(`sp_profiler_region_at`). A name registered without a source location (via
+`sp_region()`, or `sp_region_at()` called with `NULL`) can still pick one up
+later -- the next `sp_region_at()` call for that name backfills it onto the
+existing handle -- but once a handle has a location, later calls never
+overwrite it.
+
+`SP_REGION_AT(name)` / `SP_PROFILER_REGION_AT(profiler, name)` are macros
+that fill in `__FILE__`/`__LINE__` for you:
+
+```c
+int solve = SP_REGION_AT("solve");                    /* default context */
+int solve = SP_PROFILER_REGION_AT(p, "solve");         /* explicit context */
+```
+
+## C++: RAII scopes
+
+`scope_profiler.hpp`, next to the C header, wraps a checked scope token in a
+move-only C++11 class so a region is left however its scope exits --
+`return`, `break`, or an exception -- instead of a hand-written
+`sp_begin`/`sp_end` pair (or a hand-written wrapper of one's own):
+
+```cpp
+#include "scope_profiler.hpp"
+
+sp_profiler *p = sp_create("solver", rank);
+int solve = sp_profiler_region(p, "solve");
+
+void step()
+{
+    sp::Scope timed(p, solve);
+    solve_system();   // sp_scope_end() runs on every exit path, throw included
+}
+```
+
+Against the default context instead of an explicit one, drop the profiler
+argument:
+
+```cpp
+sp_init("profile", rank);
+int solve = sp_region("solve");
+...
+sp::Scope timed(solve);
+```
+
+It is header-only and pulls in nothing beyond `scope_profiler.h`, so it never
+needs to be compiled or linked on its own -- only included from C++
+translation units. `make hpp-check` (in `src/scope_profiler/c/`) compile-checks
+it in CI.
 
 ## Reset, statistics and flushing
 
