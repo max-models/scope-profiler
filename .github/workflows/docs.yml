@@ -1,0 +1,75 @@
+name: Deploy Docs
+
+on:
+  workflow_run:
+    workflows: ["Publish PyPI", "Publish Plotly"]
+    types: [completed]
+
+jobs:
+  gate:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      proceed: ${{ steps.check.outputs.proceed }}
+    steps:
+      # workflow_run only reports on the workflow that triggered it, so check
+      # whether the sibling publish workflow has also succeeded for this
+      # commit before building docs from "released" packages.
+      - name: Check sibling publish workflow succeeded for this commit
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          TRIGGERED_WORKFLOW: ${{ github.event.workflow_run.name }}
+        run: |
+          if [ "$TRIGGERED_WORKFLOW" = "Publish PyPI" ]; then
+            OTHER="publish-plotly.yml"
+          else
+            OTHER="publish-pypi.yml"
+          fi
+          CONCLUSION=$(gh api "repos/${{ github.repository }}/actions/workflows/$OTHER/runs?head_sha=$SHA" \
+            --jq '.workflow_runs[0].conclusion // "pending"')
+          echo "sibling workflow ($OTHER) conclusion: $CONCLUSION"
+          if [ "$CONCLUSION" = "success" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-docs:
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Build documentation from released packages
+        uses: ./.github/actions/build-docs
+        with:
+          python-version: "3.10"
+          treat-warnings-as-errors: "false"
+          use-released-packages: "true"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/build/html/
+
+  deploy-docs:
+    needs: build-docs
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment
