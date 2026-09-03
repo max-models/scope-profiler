@@ -963,6 +963,7 @@ int main(void)
 
 def test_stats_track_total_min_and_max(tmp_path):
     program = """
+#define _POSIX_C_SOURCE 200809L /* struct timespec/nanosleep under -std=c99 on glibc */
 #include "scope_profiler.h"
 #include <stdio.h>
 #include <time.h>
