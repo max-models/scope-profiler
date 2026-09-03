@@ -93,7 +93,8 @@ def plot_timeline_density(
             right = min(bins - 1, int(np.searchsorted(edges, end, side="left")))
             for index in range(left, right + 1):
                 matrix[name_index[name], index] += max(
-                    0.0, min(end, edges[index + 1]) - max(start, edges[index])
+                    0.0,
+                    min(end, edges[index + 1]) - max(start, edges[index]),
                 )
         prepared.append((run, names, edges, matrix))
         for row, name in enumerate(names):
@@ -105,7 +106,7 @@ def plot_timeline_density(
                         float(edges[col]),
                         float(edges[col + 1]),
                         float(matrix[row, col]),
-                    ]
+                    ],
                 )
 
     if verbose:
@@ -120,7 +121,9 @@ def plot_timeline_density(
         ]
         if data_format == "json":
             _write_json(
-                data_filepath, {"points": [dict(zip(header, row)) for row in records]}
+                data_filepath,
+                {"points": [dict(zip(header, row)) for row in records]},
+                plot="density",
             )
         else:
             _write_csv(data_filepath, header, records)
@@ -137,7 +140,11 @@ def plot_timeline_density(
         tick_count = min(10, len(edges))
         ticks = np.linspace(0, len(edges) - 1, tick_count, dtype=int)
         _set_xticks(
-            canvas, ticks, labels=[f"{edges[t]:.3g}" for t in ticks], row=row, col=col
+            canvas,
+            ticks,
+            labels=[f"{edges[t]:.3g}" for t in ticks],
+            row=row,
+            col=col,
         )
         canvas.set_yticks(list(range(len(names))), labels=names, row=row, col=col)
         canvas.set_xlabel("Time (seconds)", row=row, col=col)

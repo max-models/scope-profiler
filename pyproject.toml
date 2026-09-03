@@ -5,7 +5,7 @@ requires = [ "setuptools", "wheel" ]
 
 [project]
 name = "scope-profiler"
-version = "0.5.1"
+version = "0.5.2"
 description = "Profile code regions in python, optionally with LIKWID markers."
 readme = "README.md"
 keywords = [ "python" ]
@@ -149,7 +149,11 @@ scope_profiler = [
   "fortran/Makefile",
   "c/*.c",
   "c/*.h",
+  "c/*.hpp",
   "c/Makefile",
+  # Browser figure builders bundled at an exact npm-package version for
+  # self-contained HTML reports.
+  "_assets/*.js",
   # PEP 561: the annotations on the public result and configuration objects
   # are only visible to a downstream type checker if this marker ships too.
   "py.typed",
@@ -231,7 +235,7 @@ skip_covered = true
 #
 # The CI job reaches the LIKWID and parallel-HDF5 paths a developer laptop
 # cannot, so its total is at or above what `coverage report` prints locally.
-fail_under = 80
+fail_under = 85
 exclude_also = [
   # Typing-only constructs that never execute.
   "if TYPE_CHECKING:",

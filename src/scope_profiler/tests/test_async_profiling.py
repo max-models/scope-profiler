@@ -206,7 +206,10 @@ def test_async_data_survives_the_hdf5_round_trip(tmp_path):
         await asyncio.gather(job(), job())
 
     with manager.session(
-        track_async=True, verbose=False, return_results=True, file_path=str(path)
+        track_async=True,
+        verbose=False,
+        return_results=True,
+        file_path=str(path),
     ) as run:
         asyncio.run(main())
 
@@ -214,7 +217,8 @@ def test_async_data_survives_the_hdf5_round_trip(tmp_path):
     stored = read_h5(path)
     assert np.array_equal(memory["job"][0].task_ids, stored["job"][0].task_ids)
     assert np.array_equal(
-        memory["job"][0].await_times_ns, stored["job"][0].await_times_ns
+        memory["job"][0].await_times_ns,
+        stored["job"][0].await_times_ns,
     )
     assert [task.name for task in stored.tasks[0]] == [
         task.name for task in memory.tasks[0]
@@ -444,7 +448,9 @@ def test_speedscope_export_gives_each_task_its_own_profile(tmp_path):
         asyncio.run(main())
 
     (written,) = export_speedscope(
-        run.results, tmp_path / "profile.speedscope.json", verbose=False
+        run.results,
+        tmp_path / "profile.speedscope.json",
+        verbose=False,
     )
     document = json.loads(written.read_text())
     names = [profile["name"] for profile in document["profiles"]]

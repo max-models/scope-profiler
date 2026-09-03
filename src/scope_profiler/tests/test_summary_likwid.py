@@ -35,10 +35,12 @@ def _write(path, results_by_rank, with_regions=True):
                 for result in results:
                     rgrp = grp.create_group(f"regions/{result.tag}")
                     rgrp.create_dataset(
-                        "start_times", data=np.array([0], dtype=np.int64)
+                        "start_times",
+                        data=np.array([0], dtype=np.int64),
                     )
                     rgrp.create_dataset(
-                        "end_times", data=np.array([10**9], dtype=np.int64)
+                        "end_times",
+                        data=np.array([10**9], dtype=np.int64),
                     )
             write_likwid_results(grp, results)
     return path

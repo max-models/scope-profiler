@@ -17,7 +17,9 @@ def test_setup_loads_profiling_toml_and_direct_values_override(tmp_path):
     )
 
     ProfileManager.setup(
-        config_path=config_path, buffer_limit=4096, use_gpu_timing=False
+        config_path=config_path,
+        buffer_limit=4096,
+        use_gpu_timing=False,
     )
     config = ProfileManager.get_config()
 

@@ -118,7 +118,9 @@ def test_open_region_does_not_hide_its_completed_calls(tmp_path):
 def test_session_finalizes_and_returns_results(tmp_path):
     out = tmp_path / "session.h5"
     with ProfileManager.session(
-        file_path=str(out), verbose=False, return_results=True
+        file_path=str(out),
+        verbose=False,
+        return_results=True,
     ) as run:
         _run("step", 2)
 

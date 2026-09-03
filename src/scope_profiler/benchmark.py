@@ -51,7 +51,7 @@ def load_config(path: str | os.PathLike[str]) -> BenchmarkConfig:
             raw = tomllib.load(stream)
     except OSError as exc:
         raise BenchmarkError(
-            f"Could not read benchmark config {path!r}: {exc}"
+            f"Could not read benchmark config {path!r}: {exc}",
         ) from exc
     except tomllib.TOMLDecodeError as exc:
         raise BenchmarkError(f"Invalid benchmark TOML {path!r}: {exc}") from exc
@@ -77,7 +77,7 @@ def load_config(path: str | os.PathLike[str]) -> BenchmarkConfig:
         timeout_seconds=float(bench.get("timeout_seconds", 300.0)),
         only_user_code=bool(bench.get("only_user_code", True)),
         output_dir=str(
-            (config_path.parent / bench.get("output_dir", ".scope-profiler")).resolve()
+            (config_path.parent / bench.get("output_dir", ".scope-profiler")).resolve(),
         ),
         correctness_command=tuple(str(x) for x in command),
         correctness_timeout_seconds=float(correctness.get("timeout_seconds", 300.0)),
@@ -87,7 +87,7 @@ def load_config(path: str | os.PathLike[str]) -> BenchmarkConfig:
         raise BenchmarkError("benchmark.runs must be at least 2")
     if config.warmups < 0 or config.timeout_seconds <= 0:
         raise BenchmarkError(
-            "warmups must be non-negative and timeout_seconds positive"
+            "warmups must be non-negative and timeout_seconds positive",
         )
     if not 0 <= config.threshold_pct:
         raise BenchmarkError("benchmark.threshold_pct must be non-negative")
@@ -110,17 +110,19 @@ def _profile_once(config: BenchmarkConfig, path: Path) -> dict:
         )
     except subprocess.TimeoutExpired as exc:
         raise BenchmarkError(
-            f"Benchmark run exceeded {config.timeout_seconds}s"
+            f"Benchmark run exceeded {config.timeout_seconds}s",
         ) from exc
     if completed.returncode != 0:
         raise BenchmarkError(
             f"Benchmark run failed with exit code {completed.returncode}: "
-            f"{completed.stderr[-2000:]}"
+            f"{completed.stderr[-2000:]}",
         )
     if not path.exists():
         raise BenchmarkError(f"Benchmark run produced no profile: {path}")
     results = read_profile_summary(
-        path, include_likwid=False, include_line_profile=False
+        path,
+        include_likwid=False,
+        include_line_profile=False,
     )
     total = results.total_time
     if total is None or not math.isfinite(total):

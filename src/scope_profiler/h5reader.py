@@ -45,7 +45,7 @@ def _open_h5(file_path):
         raise CorruptProfileError(
             f"{file_path} is not a readable HDF5 profiling file. A run that was "
             "interrupted while writing leaves a truncated file behind; the "
-            f"underlying error was: {exc}"
+            f"underlying error was: {exc}",
         ) from exc
 
 
@@ -63,7 +63,7 @@ _SUMMARY_FIELDS = frozenset(
         "gpu_total",
         "mean",
         "m2",
-    }
+    },
 )
 _SUMMARY_ROW_DATASETS = (
     "region_ids",
@@ -82,7 +82,7 @@ def _validate_summary_index(index, num_region_names: int) -> int:
     missing = [name for name in _SUMMARY_ROW_DATASETS if name not in index]
     if missing:
         raise HDF5SchemaError(
-            "schema-2 summary index is missing dataset(s): " + ", ".join(missing)
+            "schema-2 summary index is missing dataset(s): " + ", ".join(missing),
         )
     row_count = len(index["region_ids"])
     for name in _SUMMARY_ROW_DATASETS:
@@ -90,14 +90,14 @@ def _validate_summary_index(index, num_region_names: int) -> int:
         if dataset.ndim != 1 or len(dataset) != row_count:
             raise HDF5SchemaError(
                 f"rank_region_index/{name} must be one-dimensional with "
-                f"{row_count} rows, got shape {dataset.shape}"
+                f"{row_count} rows, got shape {dataset.shape}",
             )
 
     fields = index[_SUMMARY_DATASET].dtype.names
     missing_fields = sorted(_SUMMARY_FIELDS - set(fields or ()))
     if missing_fields:
         raise HDF5SchemaError(
-            "summary_statistics is missing field(s): " + ", ".join(missing_fields)
+            "summary_statistics is missing field(s): " + ", ".join(missing_fields),
         )
 
     region_ids = index["region_ids"][()]
@@ -199,7 +199,7 @@ def _read_line_profile_group(group) -> list:
                 "hits": function_grp["hits"][()],
                 "times": function_grp["times"][()],
                 "unit": float(attrs.get("unit", 1.0)),
-            }
+            },
         )
     return records
 
@@ -222,14 +222,14 @@ def _validate_event_index(offsets, counts, num_events: int, file_path: str) -> N
     if ends.max() > num_events:
         raise CorruptProfileError(
             f"{file_path} claims {int(ends.max())} recorded events but its event "
-            f"columns hold {num_events}. The file is truncated or damaged."
+            f"columns hold {num_events}. The file is truncated or damaged.",
         )
     order = np.argsort(starts, kind="stable")
     ordered_starts, ordered_ends = starts[order], ends[order]
     if np.any(ordered_starts[1:] < ordered_ends[:-1]):
         raise CorruptProfileError(
             f"{file_path} has overlapping region rows in its event index. "
-            "The file is damaged."
+            "The file is damaged.",
         )
 
 
@@ -497,7 +497,7 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
             if schema_version == 1:
                 num_ranks += 1
             if verbose:
-                print(f"{rank_group_name = }")
+                print(f"{rank_group_name =}")
                 print(rank_group_name, rank_group)
             rank = int(rank_group_name.replace("rank", ""))
 
@@ -507,7 +507,7 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
                 perf_events[rank] = _read_perf_events_group(rank_group["perf_events"])
             if "line_profile" in rank_group:
                 line_profile[rank] = _read_line_profile_group(
-                    rank_group["line_profile"]
+                    rank_group["line_profile"],
                 )
 
             if schema_version == 2 or "regions" not in rank_group:
@@ -549,7 +549,7 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
                         else None
                     ),
                     tags=tuple(
-                        _decode_attribute(attrs["tags"]) if "tags" in attrs else ()
+                        _decode_attribute(attrs["tags"]) if "tags" in attrs else (),
                     ),
                 )
                 # Merge if region already exists (from another rank)
@@ -610,7 +610,7 @@ def load_h5_summary(
         migrate_schema(h5file, schema_version)
         if schema_version != 2:
             raise SummaryDataUnavailable(
-                "summary-only reads require a schema-2 profiling file"
+                "summary-only reads require a schema-2 profiling file",
             )
         if "metadata" in h5file:
             metadata = {
@@ -660,7 +660,7 @@ def load_h5_summary(
             index = h5file["rank_region_index"]
             if _SUMMARY_DATASET not in index:
                 raise SummaryDataUnavailable(
-                    "profiling file has no fixed-size summary statistics"
+                    "profiling file has no fixed-size summary statistics",
                 )
 
             all_region_names = [
@@ -711,7 +711,7 @@ def load_h5_summary(
             ]
             per_region = {name: {} for name in region_names}
             for row, (region_id, rank, count) in enumerate(
-                zip(region_ids, row_ranks, counts)
+                zip(region_ids, row_ranks, counts),
             ):
                 name = all_region_names[int(region_id)]
                 rank = int(rank)
@@ -761,7 +761,7 @@ def load_h5_summary(
                 likwid[rank] = _read_likwid_group(rank_group[LIKWID_GROUP])
             if include_line_profile and "line_profile" in rank_group:
                 line_profile[rank] = _read_line_profile_group(
-                    rank_group["line_profile"]
+                    rank_group["line_profile"],
                 )
 
         recorded_ranks = h5file["rank_region_index/ranks"][()]
@@ -851,7 +851,7 @@ def read_h5_summary(
                 include_line_profile=include_line_profile,
                 regions=regions,
                 ranks=ranks,
-            )
+            ),
         )
     except SummaryDataUnavailable:
         if not fallback:

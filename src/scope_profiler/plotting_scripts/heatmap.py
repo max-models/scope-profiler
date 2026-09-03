@@ -66,7 +66,7 @@ def plot_rank_heatmap(
                         value = float(np.sum(region[rank].durations))
                     matrix[row, col] = float(value)
                 all_records.append(
-                    [run.display_label, rank, region.name, matrix[row, col]]
+                    [run.display_label, rank, region.name, matrix[row, col]],
                 )
         prepared.append((run, selected_ranks, region_names, matrix))
 
@@ -82,6 +82,7 @@ def plot_rank_heatmap(
             _write_json(
                 data_filepath,
                 {"points": [dict(zip(header, record)) for record in all_records]},
+                plot="rank_heatmap",
             )
         else:
             _write_csv(data_filepath, header, all_records)
@@ -119,10 +120,18 @@ def plot_rank_heatmap(
                 for rank in selected_ranks
             ]
         canvas.imshow(
-            matrix, cmap=cmap, aspect="auto", row=row, col=col, hover=cell_hover
+            matrix,
+            cmap=cmap,
+            aspect="auto",
+            row=row,
+            col=col,
+            hover=cell_hover,
         )
         canvas.set_xticks(
-            list(range(len(region_names))), labels=region_names, row=row, col=col
+            list(range(len(region_names))),
+            labels=region_names,
+            row=row,
+            col=col,
         )
         canvas.set_yticks(
             list(range(len(selected_ranks))),
@@ -141,9 +150,11 @@ def plot_rank_heatmap(
 
     if not single_panel:
         canvas.suptitle(
-            "Rank × region exclusive duration"
-            if exclusive
-            else "Rank × region duration"
+            (
+                "Rank × region exclusive duration"
+                if exclusive
+                else "Rank × region duration"
+            ),
         )
     rendered = _ps._render(canvas, filepath, show, backend, return_fig=return_fig)
     return rendered if return_fig else None

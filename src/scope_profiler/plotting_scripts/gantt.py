@@ -226,14 +226,16 @@ def plot_gantt(
             intervals = []
             colors = {}
             for label, (_, regions, selected_ranks, first_start_time) in zip(
-                labels, prepared
+                labels,
+                prepared,
             ):
                 for region in regions:
                     colors[region.name] = _to_hex(region.color)
                     for rank in selected_ranks:
                         region_data = region[rank]
                         for start, end in zip(
-                            region_data.start_times, region_data.end_times
+                            region_data.start_times,
+                            region_data.end_times,
                         ):
                             intervals.append(
                                 {
@@ -242,28 +244,25 @@ def plot_gantt(
                                     "region": region.name,
                                     "start_seconds": start - first_start_time,
                                     "end_seconds": end - first_start_time,
-                                }
+                                },
                             )
             _write_json(
                 data_filepath,
-                {
-                    "format": "scope-profiler-plot-data",
-                    "format_version": 1,
-                    "plot": "gantt",
-                    "intervals": intervals,
-                    "colors": colors,
-                },
+                {"intervals": intervals, "colors": colors},
+                plot="gantt",
             )
         else:
             rows = []
             for label, (_, regions, selected_ranks, first_start_time) in zip(
-                labels, prepared
+                labels,
+                prepared,
             ):
                 for region in regions:
                     for rank in selected_ranks:
                         region_data = region[rank]
                         for start, end in zip(
-                            region_data.start_times, region_data.end_times
+                            region_data.start_times,
+                            region_data.end_times,
                         ):
                             rows.append(
                                 [
@@ -272,7 +271,7 @@ def plot_gantt(
                                     region.name,
                                     start - first_start_time,
                                     end - first_start_time,
-                                ]
+                                ],
                             )
             _write_csv(
                 data_filepath,
@@ -312,8 +311,9 @@ def plot_gantt(
                 if hover_enabled:
                     lane_hover.append(
                         _ps._hover_summary(
-                            region_data, title=f"{region.name} (rank {rank})"
-                        )
+                            region_data,
+                            title=f"{region.name} (rank {rank})",
+                        ),
                     )
                 color = _to_hex(region.color)
                 visible_calls = None
@@ -328,7 +328,7 @@ def plot_gantt(
                 raw_intervals = [
                     (float(start - first_start_time), float(end - first_start_time))
                     for call_index, (start, end) in enumerate(
-                        zip(region_data.start_times, region_data.end_times)
+                        zip(region_data.start_times, region_data.end_times),
                     )
                     if visible_calls is None or call_index in visible_calls
                 ]
@@ -345,7 +345,7 @@ def plot_gantt(
                             start,
                             end - start,
                             color,
-                        )
+                        ),
                     )
                 if aggregate_calls > 1:
                     lanes[-1] += f" (blocks of {aggregate_calls})"
@@ -364,18 +364,26 @@ def plot_gantt(
         ncols=1,
         figsize=(fig_width, fig_height),
         gridspec_kw=_panel_gridspec(
-            fig_width, fig_height, lane_label_chars, not single_panel
+            fig_width,
+            fig_height,
+            lane_label_chars,
+            not single_panel,
         ),
     )
 
     for idx, (label, lanes, bars, lane_hover) in enumerate(
-        zip(labels, panel_lanes, panel_bars, panel_lane_hover)
+        zip(labels, panel_lanes, panel_bars, panel_lane_hover),
     ):
         row = None if single_panel else idx
         col = None if single_panel else 0
 
         _add_gantt_bars(
-            canvas, row, lanes, bars, hover_enabled=hover_enabled, lane_hover=lane_hover
+            canvas,
+            row,
+            lanes,
+            bars,
+            hover_enabled=hover_enabled,
+            lane_hover=lane_hover,
         )
 
         canvas.set_yticks(list(range(len(lanes))), labels=lanes, row=row, col=col)
@@ -392,7 +400,9 @@ def plot_gantt(
         canvas.set_ylim(-0.6, len(lanes) - 0.4, row=row, col=col)
         canvas.set_xlabel("Time (seconds)", row=row, col=col)
         canvas.set_title(
-            "Profiling Gantt Chart" if single_panel else label, row=row, col=col
+            "Profiling Gantt Chart" if single_panel else label,
+            row=row,
+            col=col,
         )
         canvas.set_grid(True, row=row, col=col)
 

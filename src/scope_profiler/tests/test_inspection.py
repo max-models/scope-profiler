@@ -40,10 +40,12 @@ def _write_sample_h5(path, rank_regions, metadata=None, sources=None):
                 region_group = regions_group.create_group(region_name)
                 starts, ends = payload
                 region_group.create_dataset(
-                    "start_times", data=np.asarray(starts, dtype=np.int64)
+                    "start_times",
+                    data=np.asarray(starts, dtype=np.int64),
                 )
                 region_group.create_dataset(
-                    "end_times", data=np.asarray(ends, dtype=np.int64)
+                    "end_times",
+                    data=np.asarray(ends, dtype=np.int64),
                 )
                 source = sources.get(region_name)
                 if source is not None:
@@ -127,8 +129,9 @@ def test_inspect_prints_perf_event_totals(tmp_path, capsys):
         likwid_environment={},
         perf_events={
             "solve": PerfEventTotals(
-                calls=1, values={"cycles": 1234, "instructions": 5678}
-            )
+                calls=1,
+                values={"cycles": 1234, "instructions": 5678},
+            ),
         },
     )
     with ProfilingWriter(path) as writer:
@@ -232,7 +235,7 @@ def test_source_prints_captured_call_site(tmp_path, capsys):
                 "kernels.py",
                 12,
                 '    with ProfileManager.profile_region("solve"):\n        pass\n',
-            )
+            ),
         },
     )
 
@@ -310,7 +313,7 @@ def test_cli_accepts_region_table_columns(sample_file, capsys):
             "calls",
             "total",
             "avg",
-        ]
+        ],
     )
     out = capsys.readouterr().out
     header = next(line for line in out.splitlines() if "total [s]" in line)
@@ -371,7 +374,8 @@ def test_write_metadata_json_accepts_readers_and_sequences(sample_file, tmp_path
     _write_sample_h5(second, {0: {"setup": ([0], [1 * NS])}}, metadata={"user": "max"})
 
     payload = write_metadata_json(
-        [read_h5(sample_file), second], tmp_path / "both.json"
+        [read_h5(sample_file), second],
+        tmp_path / "both.json",
     )
 
     assert len(payload["files"]) == 2
@@ -414,7 +418,7 @@ def test_cli_export_metadata_multiple_files(sample_file, tmp_path, capsys):
     out_file = tmp_path / "metadata.json"
 
     inspect_main(
-        [str(sample_file), str(second), "--export-metadata", str(out_file), "--quiet"]
+        [str(sample_file), str(second), "--export-metadata", str(out_file), "--quiet"],
     )
 
     payload = json.loads(out_file.read_text(encoding="utf-8"))

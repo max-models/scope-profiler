@@ -187,7 +187,7 @@ def test_lane_tables_decode_bytes_from_hdf5():
             "start_ns": np.array([0]),
             "end_ns": np.array([2_000_000_000]),
             "cpu_ns": np.array([1_000_000_000]),
-        }
+        },
     }
     (thread,) = lane_tables_from_columns(0, columns)[0]
 
@@ -283,7 +283,7 @@ def test_the_thread_start_hook_registers_the_thread_and_removes_itself():
         assert tracker._thread_bootstrap(sys._getframe(), "call", None) is None
         assert sys.getprofile() is None
         assert [record.name for record in tracker.threads] == [
-            threading.current_thread().name
+            threading.current_thread().name,
         ]
     finally:
         sys.setprofile(None)

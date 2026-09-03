@@ -103,7 +103,7 @@ def _raise_overlap(call, names, region_of, call_of, start_ns, end_ns, parent) ->
         "recorded calls are not properly nested: "
         f"{label(call)} starts inside {label(enclosing)} but ends after it. "
         "Regions must nest completely or not overlap at all - check for a "
-        "missing or misordered sp_end / __exit__."
+        "missing or misordered sp_end / __exit__.",
     )
 
 
@@ -239,7 +239,7 @@ def build_call_arrays(regions: Iterable, rank: int) -> CallArrays:
                 region_starts.size,
                 thread_ids,
                 getattr(region_data, "task_ids", None),
-            )
+            ),
         )
 
     if not starts:
@@ -284,7 +284,7 @@ def build_call_arrays(regions: Iterable, rank: int) -> CallArrays:
                     else lane_ids(thread_ids, task_ids)
                 )
                 for count, thread_ids, task_ids in lane_sources
-            ]
+            ],
         )[order]
         depth, parent = _lane_nesting(lane, start_ns, end_ns)
     else:
@@ -378,7 +378,7 @@ def split_by_lane(calls: CallArrays) -> list[tuple[int, CallArrays]]:
                     exclusive_ns=calls.exclusive_ns[positions],
                     lane=calls.lane[positions],
                 ),
-            )
+            ),
         )
     return split
 
@@ -462,7 +462,7 @@ def build_call_stack(regions: Iterable, rank: int, origin: float = 0.0) -> list[
                 "source_lineno": arrays.source_lines[region_row],
                 "lane": int(arrays.lane[call_id]) if arrays.lane.size else -1,
                 "color": colors[name],
-            }
+            },
         )
     return calls
 
@@ -508,7 +508,7 @@ def regions_from_snapshot(regions: dict, rank: int) -> list:
                     arrays[1],
                     thread_ids=column(arrays, 5),
                     task_ids=column(arrays, 6),
-                )
+                ),
             },
         )
         for name, arrays in regions.items()

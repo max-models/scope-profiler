@@ -367,6 +367,15 @@ class ProfilingConfig:
     MPI call of its own, so ``setup()`` does not have to be collective.
     """
 
+    def _memray_path(self, configured_path: str | None) -> Path:
+        """Return this rank's unique Memray capture path."""
+        path = Path(configured_path) if configured_path else Path(self._file_path)
+        if configured_path is None:
+            path = path.with_suffix(".memray.bin")
+        if self._size > 1:
+            path = path.with_name(f"{path.stem}.rank{self._rank}{path.suffix}")
+        return path
+
     def __init__(
         self,
         file_path: str = "profiling_data.h5",
@@ -515,7 +524,7 @@ class ProfilingConfig:
         if output_mode not in {"auto", "direct", "parallel"}:
             raise ValueError(
                 "output_mode must be 'auto', 'direct', or 'parallel', "
-                f"got {output_mode!r}"
+                f"got {output_mode!r}",
             )
         self._output_mode = output_mode
         if isinstance(hdf5_compression, str):
@@ -525,7 +534,7 @@ class ProfilingConfig:
         if hdf5_compression not in {None, "gzip", "lzf", "zstd"}:
             raise ValueError(
                 "hdf5_compression must be None, 'gzip', 'lzf', or 'zstd', "
-                f"got {hdf5_compression!r}"
+                f"got {hdf5_compression!r}",
             )
         if hdf5_chunk_size is not None and (
             isinstance(hdf5_chunk_size, bool)
@@ -564,7 +573,7 @@ class ProfilingConfig:
             or self._perf_events
         ):
             raise ValueError(
-                "aggregation_mode cannot be combined with line, GPU, NVTX, LIKWID, or perf events"
+                "aggregation_mode cannot be combined with line, GPU, NVTX, LIKWID, or perf events",
             )
         self._aggregation_mode = aggregation_mode
 
@@ -582,7 +591,7 @@ class ProfilingConfig:
         ):
             raise ValueError(
                 "track_threads/track_async cannot be combined with line, GPU, "
-                "NVTX, LIKWID, perf events, or aggregation profiling"
+                "NVTX, LIKWID, perf events, or aggregation profiling",
             )
         self._track_threads = track_threads
         self._track_async = bool(track_async)
@@ -656,15 +665,6 @@ class ProfilingConfig:
         """Initialize LIKWID markers if LIKWID is enabled."""
         if self._pylikwid is not None:
             self._pylikwid.markerinit()
-
-    def _memray_path(self, configured_path: str | None) -> Path:
-        """Return this rank's unique Memray capture path."""
-        path = Path(configured_path) if configured_path else Path(self._file_path)
-        if configured_path is None:
-            path = path.with_suffix(".memray.bin")
-        if self._size > 1:
-            path = path.with_name(f"{path.stem}.rank{self._rank}{path.suffix}")
-        return path
 
     def stop_memory_profiling(self) -> None:
         """Finish Memray's process-wide allocation capture, if enabled."""

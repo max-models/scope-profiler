@@ -1,0 +1,1267 @@
+{
+  "format": "scope-profiler-plot-data",
+  "format_version": 1,
+  "plot": "density",
+  "points": [
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.0,
+      "bin_end_seconds": 0.007428333166666666,
+      "occupied_seconds": 0.01344
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.007428333166666666,
+      "bin_end_seconds": 0.014856666333333332,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.014856666333333332,
+      "bin_end_seconds": 0.0222849995,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.0222849995,
+      "bin_end_seconds": 0.029713332666666665,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.029713332666666665,
+      "bin_end_seconds": 0.03714166583333333,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.03714166583333333,
+      "bin_end_seconds": 0.044569999,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.044569999,
+      "bin_end_seconds": 0.05199833216666666,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.05199833216666666,
+      "bin_end_seconds": 0.05942666533333333,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.05942666533333333,
+      "bin_end_seconds": 0.0668549985,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.0668549985,
+      "bin_end_seconds": 0.07428333166666666,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.07428333166666666,
+      "bin_end_seconds": 0.08171166483333332,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.08171166483333332,
+      "bin_end_seconds": 0.089139998,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.089139998,
+      "bin_end_seconds": 0.09656833116666666,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.09656833116666666,
+      "bin_end_seconds": 0.10399666433333332,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.10399666433333332,
+      "bin_end_seconds": 0.1114249975,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.1114249975,
+      "bin_end_seconds": 0.11885333066666666,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.11885333066666666,
+      "bin_end_seconds": 0.12628166383333334,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.12628166383333334,
+      "bin_end_seconds": 0.133709997,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.133709997,
+      "bin_end_seconds": 0.14113833016666666,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.14113833016666666,
+      "bin_end_seconds": 0.14856666333333332,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.14856666333333332,
+      "bin_end_seconds": 0.15599499649999998,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.15599499649999998,
+      "bin_end_seconds": 0.16342332966666664,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.16342332966666664,
+      "bin_end_seconds": 0.17085166283333333,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.17085166283333333,
+      "bin_end_seconds": 0.178279996,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.178279996,
+      "bin_end_seconds": 0.18570832916666666,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.18570832916666666,
+      "bin_end_seconds": 0.19313666233333332,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.19313666233333332,
+      "bin_end_seconds": 0.20056499549999998,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.20056499549999998,
+      "bin_end_seconds": 0.20799332866666664,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.20799332866666664,
+      "bin_end_seconds": 0.21542166183333333,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.21542166183333333,
+      "bin_end_seconds": 0.222849995,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.0,
+      "bin_end_seconds": 0.007428333166666666,
+      "occupied_seconds": 0.005844999499999999
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.007428333166666666,
+      "bin_end_seconds": 0.014856666333333332,
+      "occupied_seconds": 0.021428333166666667
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.014856666333333332,
+      "bin_end_seconds": 0.0222849995,
+      "occupied_seconds": 0.020141665833333332
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.0222849995,
+      "bin_end_seconds": 0.029713332666666665,
+      "occupied_seconds": 0.02012166683333333
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.029713332666666665,
+      "bin_end_seconds": 0.03714166583333333,
+      "occupied_seconds": 0.02044833216666666
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.03714166583333333,
+      "bin_end_seconds": 0.044569999,
+      "occupied_seconds": 0.02028499950000001
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.044569999,
+      "bin_end_seconds": 0.05199833216666666,
+      "occupied_seconds": 0.020284999499999984
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.05199833216666666,
+      "bin_end_seconds": 0.05942666533333333,
+      "occupied_seconds": 0.020284999500000005
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.05942666533333333,
+      "bin_end_seconds": 0.0668549985,
+      "occupied_seconds": 0.021284999500000006
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.0668549985,
+      "bin_end_seconds": 0.07428333166666666,
+      "occupied_seconds": 0.020284999499999984
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.07428333166666666,
+      "bin_end_seconds": 0.08171166483333332,
+      "occupied_seconds": 0.020284999499999984
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.08171166483333332,
+      "bin_end_seconds": 0.089139998,
+      "occupied_seconds": 0.020284999500000025
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.089139998,
+      "bin_end_seconds": 0.09656833116666666,
+      "occupied_seconds": 0.020466667333333327
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.09656833116666666,
+      "bin_end_seconds": 0.10399666433333332,
+      "occupied_seconds": 0.020826667333333326
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.10399666433333332,
+      "bin_end_seconds": 0.1114249975,
+      "occupied_seconds": 0.020561663833333355
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.1114249975,
+      "bin_end_seconds": 0.11885333066666666,
+      "occupied_seconds": 0.020284999499999984
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.11885333066666666,
+      "bin_end_seconds": 0.12628166383333334,
+      "occupied_seconds": 0.021284999500000013
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.12628166383333334,
+      "bin_end_seconds": 0.133709997,
+      "occupied_seconds": 0.020284999499999984
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.133709997,
+      "bin_end_seconds": 0.14113833016666666,
+      "occupied_seconds": 0.021284999499999985
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.14113833016666666,
+      "bin_end_seconds": 0.14856666333333332,
+      "occupied_seconds": 0.014538336166666666
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.14856666333333332,
+      "bin_end_seconds": 0.15599499649999998,
+      "occupied_seconds": 0.01312166983333335
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.15599499649999998,
+      "bin_end_seconds": 0.16342332966666664,
+      "occupied_seconds": 0.007428333166666662
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.16342332966666664,
+      "bin_end_seconds": 0.17085166283333333,
+      "occupied_seconds": 0.005276668333333345
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.17085166283333333,
+      "bin_end_seconds": 0.178279996,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.178279996,
+      "bin_end_seconds": 0.18570832916666666,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.18570832916666666,
+      "bin_end_seconds": 0.19313666233333332,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.19313666233333332,
+      "bin_end_seconds": 0.20056499549999998,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.20056499549999998,
+      "bin_end_seconds": 0.20799332866666664,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.20799332866666664,
+      "bin_end_seconds": 0.21542166183333333,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.21542166183333333,
+      "bin_end_seconds": 0.222849995,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.0,
+      "bin_end_seconds": 0.007428333166666666,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.007428333166666666,
+      "bin_end_seconds": 0.014856666333333332,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.014856666333333332,
+      "bin_end_seconds": 0.0222849995,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.0222849995,
+      "bin_end_seconds": 0.029713332666666665,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.029713332666666665,
+      "bin_end_seconds": 0.03714166583333333,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.03714166583333333,
+      "bin_end_seconds": 0.044569999,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.044569999,
+      "bin_end_seconds": 0.05199833216666666,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.05199833216666666,
+      "bin_end_seconds": 0.05942666533333333,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.05942666533333333,
+      "bin_end_seconds": 0.0668549985,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.0668549985,
+      "bin_end_seconds": 0.07428333166666666,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.07428333166666666,
+      "bin_end_seconds": 0.08171166483333332,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.08171166483333332,
+      "bin_end_seconds": 0.089139998,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.089139998,
+      "bin_end_seconds": 0.09656833116666666,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.09656833116666666,
+      "bin_end_seconds": 0.10399666433333332,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.10399666433333332,
+      "bin_end_seconds": 0.1114249975,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.1114249975,
+      "bin_end_seconds": 0.11885333066666666,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.11885333066666666,
+      "bin_end_seconds": 0.12628166383333334,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.12628166383333334,
+      "bin_end_seconds": 0.133709997,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.133709997,
+      "bin_end_seconds": 0.14113833016666666,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.14113833016666666,
+      "bin_end_seconds": 0.14856666333333332,
+      "occupied_seconds": 0.0047466633333333175
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.14856666333333332,
+      "bin_end_seconds": 0.15599499649999998,
+      "occupied_seconds": 0.00542833316666666
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.15599499649999998,
+      "bin_end_seconds": 0.16342332966666664,
+      "occupied_seconds": 0.011103333166666646
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.16342332966666664,
+      "bin_end_seconds": 0.17085166283333333,
+      "occupied_seconds": 0.012496660833333367
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.17085166283333333,
+      "bin_end_seconds": 0.178279996,
+      "occupied_seconds": 0.01628499949999998
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.178279996,
+      "bin_end_seconds": 0.18570832916666666,
+      "occupied_seconds": 0.017126668333333317
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.18570832916666666,
+      "bin_end_seconds": 0.19313666233333332,
+      "occupied_seconds": 0.014100005999999998
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.19313666233333332,
+      "bin_end_seconds": 0.20056499549999998,
+      "occupied_seconds": 0.011833328666666643
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.20056499549999998,
+      "bin_end_seconds": 0.20799332866666664,
+      "occupied_seconds": 0.010673337666666671
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.20799332866666664,
+      "bin_end_seconds": 0.21542166183333333,
+      "occupied_seconds": 0.005428333166666688
+    },
+    {
+      "file": "run_3ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.21542166183333333,
+      "bin_end_seconds": 0.222849995,
+      "occupied_seconds": 0.006428333166666661
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.0,
+      "bin_end_seconds": 0.0053827833333333335,
+      "occupied_seconds": 0.017159999
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.0053827833333333335,
+      "bin_end_seconds": 0.010765566666666667,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.010765566666666667,
+      "bin_end_seconds": 0.01614835,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.01614835,
+      "bin_end_seconds": 0.021531133333333334,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.021531133333333334,
+      "bin_end_seconds": 0.02691391666666667,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.02691391666666667,
+      "bin_end_seconds": 0.0322967,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.0322967,
+      "bin_end_seconds": 0.03767948333333333,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.03767948333333333,
+      "bin_end_seconds": 0.04306226666666667,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.04306226666666667,
+      "bin_end_seconds": 0.04844505,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.04844505,
+      "bin_end_seconds": 0.05382783333333334,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.05382783333333334,
+      "bin_end_seconds": 0.05921061666666667,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.05921061666666667,
+      "bin_end_seconds": 0.0645934,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.0645934,
+      "bin_end_seconds": 0.06997618333333333,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.06997618333333333,
+      "bin_end_seconds": 0.07535896666666667,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.07535896666666667,
+      "bin_end_seconds": 0.08074175,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.08074175,
+      "bin_end_seconds": 0.08612453333333334,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.08612453333333334,
+      "bin_end_seconds": 0.09150731666666667,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.09150731666666667,
+      "bin_end_seconds": 0.0968901,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.0968901,
+      "bin_end_seconds": 0.10227288333333334,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.10227288333333334,
+      "bin_end_seconds": 0.10765566666666668,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.10765566666666668,
+      "bin_end_seconds": 0.11303845,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.11303845,
+      "bin_end_seconds": 0.11842123333333333,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.11842123333333333,
+      "bin_end_seconds": 0.12380401666666667,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.12380401666666667,
+      "bin_end_seconds": 0.1291868,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.1291868,
+      "bin_end_seconds": 0.13456958333333333,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.13456958333333333,
+      "bin_end_seconds": 0.13995236666666666,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.13995236666666666,
+      "bin_end_seconds": 0.14533515,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.14533515,
+      "bin_end_seconds": 0.15071793333333333,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.15071793333333333,
+      "bin_end_seconds": 0.15610071666666667,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "setup",
+      "bin_start_seconds": 0.15610071666666667,
+      "bin_end_seconds": 0.1614835,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.0,
+      "bin_end_seconds": 0.0053827833333333335,
+      "occupied_seconds": 0.009136701
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.0053827833333333335,
+      "bin_end_seconds": 0.010765566666666667,
+      "occupied_seconds": 0.029355564666666667
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.010765566666666667,
+      "bin_end_seconds": 0.01614835,
+      "occupied_seconds": 0.027789985333333322
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.01614835,
+      "bin_end_seconds": 0.021531133333333334,
+      "occupied_seconds": 0.027721916666666683
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.021531133333333334,
+      "bin_end_seconds": 0.02691391666666667,
+      "occupied_seconds": 0.02901599700000001
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.02691391666666667,
+      "bin_end_seconds": 0.0322967,
+      "occupied_seconds": 0.027474336333333314
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.0322967,
+      "bin_end_seconds": 0.03767948333333333,
+      "occupied_seconds": 0.02819391666666668
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.03767948333333333,
+      "bin_end_seconds": 0.04306226666666667,
+      "occupied_seconds": 0.02852518333333335
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.04306226666666667,
+      "bin_end_seconds": 0.04844505,
+      "occupied_seconds": 0.02763514800000002
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.04844505,
+      "bin_end_seconds": 0.05382783333333334,
+      "occupied_seconds": 0.028958252000000018
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.05382783333333334,
+      "bin_end_seconds": 0.05921061666666667,
+      "occupied_seconds": 0.029060083333333306
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.05921061666666667,
+      "bin_end_seconds": 0.0645934,
+      "occupied_seconds": 0.027929914666666646
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.0645934,
+      "bin_end_seconds": 0.06997618333333333,
+      "occupied_seconds": 0.027032229333333366
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.06997618333333333,
+      "bin_end_seconds": 0.07535896666666667,
+      "occupied_seconds": 0.029392106000000015
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.07535896666666667,
+      "bin_end_seconds": 0.08074175,
+      "occupied_seconds": 0.029069166666666674
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.08074175,
+      "bin_end_seconds": 0.08612453333333334,
+      "occupied_seconds": 0.026573166666666675
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.08612453333333334,
+      "bin_end_seconds": 0.09150731666666667,
+      "occupied_seconds": 0.023199600000000015
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.09150731666666667,
+      "bin_end_seconds": 0.0968901,
+      "occupied_seconds": 0.01985252533333333
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.0968901,
+      "bin_end_seconds": 0.10227288333333334,
+      "occupied_seconds": 0.016121855000000004
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.10227288333333334,
+      "bin_end_seconds": 0.10765566666666668,
+      "occupied_seconds": 0.013069675333333322
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.10765566666666668,
+      "bin_end_seconds": 0.11303845,
+      "occupied_seconds": 0.009696115666666644
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.11303845,
+      "bin_end_seconds": 0.11842123333333333,
+      "occupied_seconds": 0.005382783333333335
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.11842123333333333,
+      "bin_end_seconds": 0.12380401666666667,
+      "occupied_seconds": 0.0019397666666666619
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.12380401666666667,
+      "bin_end_seconds": 0.1291868,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.1291868,
+      "bin_end_seconds": 0.13456958333333333,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.13456958333333333,
+      "bin_end_seconds": 0.13995236666666666,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.13995236666666666,
+      "bin_end_seconds": 0.14533515,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.14533515,
+      "bin_end_seconds": 0.15071793333333333,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.15071793333333333,
+      "bin_end_seconds": 0.15610071666666667,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "solve",
+      "bin_start_seconds": 0.15610071666666667,
+      "bin_end_seconds": 0.1614835,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.0,
+      "bin_end_seconds": 0.0053827833333333335,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.0053827833333333335,
+      "bin_end_seconds": 0.010765566666666667,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.010765566666666667,
+      "bin_end_seconds": 0.01614835,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.01614835,
+      "bin_end_seconds": 0.021531133333333334,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.021531133333333334,
+      "bin_end_seconds": 0.02691391666666667,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.02691391666666667,
+      "bin_end_seconds": 0.0322967,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.0322967,
+      "bin_end_seconds": 0.03767948333333333,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.03767948333333333,
+      "bin_end_seconds": 0.04306226666666667,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.04306226666666667,
+      "bin_end_seconds": 0.04844505,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.04844505,
+      "bin_end_seconds": 0.05382783333333334,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.05382783333333334,
+      "bin_end_seconds": 0.05921061666666667,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.05921061666666667,
+      "bin_end_seconds": 0.0645934,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.0645934,
+      "bin_end_seconds": 0.06997618333333333,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.06997618333333333,
+      "bin_end_seconds": 0.07535896666666667,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.07535896666666667,
+      "bin_end_seconds": 0.08074175,
+      "occupied_seconds": 0.0
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.08074175,
+      "bin_end_seconds": 0.08612453333333334,
+      "occupied_seconds": 0.0013750000000000012
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.08612453333333334,
+      "bin_end_seconds": 0.09150731666666667,
+      "occupied_seconds": 0.0028737499999999944
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.09150731666666667,
+      "bin_end_seconds": 0.0968901,
+      "occupied_seconds": 0.006361600000000009
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.0968901,
+      "bin_end_seconds": 0.10227288333333334,
+      "occupied_seconds": 0.008829303000000038
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.10227288333333334,
+      "bin_end_seconds": 0.10765566666666668,
+      "occupied_seconds": 0.011227024666666682
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.10765566666666668,
+      "bin_end_seconds": 0.11303845,
+      "occupied_seconds": 0.013844729333333305
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.11303845,
+      "bin_end_seconds": 0.11842123333333333,
+      "occupied_seconds": 0.016065065666666684
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.11842123333333333,
+      "bin_end_seconds": 0.12380401666666667,
+      "occupied_seconds": 0.017149827333333353
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.12380401666666667,
+      "bin_end_seconds": 0.1291868,
+      "occupied_seconds": 0.014723609999999956
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.1291868,
+      "bin_end_seconds": 0.13456958333333333,
+      "occupied_seconds": 0.013959346000000039
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.13456958333333333,
+      "bin_end_seconds": 0.13995236666666666,
+      "occupied_seconds": 0.01161172133333338
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.13995236666666666,
+      "bin_end_seconds": 0.14533515,
+      "occupied_seconds": 0.009929415666666663
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.14533515,
+      "bin_end_seconds": 0.15071793333333333,
+      "occupied_seconds": 0.007853534333333329
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.15071793333333333,
+      "bin_end_seconds": 0.15610071666666667,
+      "occupied_seconds": 0.0048482823333333425
+    },
+    {
+      "file": "run_6ranks",
+      "region": "exchange",
+      "bin_start_seconds": 0.15610071666666667,
+      "bin_end_seconds": 0.1614835,
+      "occupied_seconds": 0.004382783333333334
+    }
+  ]
+}

@@ -435,7 +435,7 @@ def export_json(
                 exclude=exclude,
                 ranks=ranks,
                 indent=indent,
-            )
+            ),
         )
         if verbose:
             print(f"Wrote {out_path}")
@@ -457,14 +457,14 @@ def _read_document(file_path: Path) -> dict:
     if not isinstance(document, dict) or document.get("format") != FORMAT_NAME:
         raise JSONProfileError(
             f"{file_path} is not a scope-profiler JSON profile (written by "
-            "`scope-profiler export json` or `-o <name>.json`)."
+            "`scope-profiler export json` or `-o <name>.json`).",
         )
     version = int(document.get("format_version", 0))
     if version > FORMAT_VERSION:
         raise JSONProfileError(
             f"{file_path} uses JSON profile format version {version}; this "
             f"package supports versions through {FORMAT_VERSION}. Upgrade "
-            "scope-profiler to read this file."
+            "scope-profiler to read this file.",
         )
     return document
 
@@ -574,7 +574,8 @@ def _line_profile_from_document(document: dict) -> dict:
                 "function": record.get("function", ""),
                 "first_lineno": int(record.get("first_lineno", 0)),
                 "line_numbers": np.asarray(
-                    record.get("line_numbers", ()), dtype=np.int64
+                    record.get("line_numbers", ()),
+                    dtype=np.int64,
                 ),
                 "hits": np.asarray(record.get("hits", ()), dtype=np.int64),
                 "times": _float_column(record.get("times", ())),
@@ -604,7 +605,7 @@ def load_json(file_path: str | Path, verbose: bool = False) -> dict:
         name = row["name"]
         rank = int(row["rank"])
         if verbose:
-            print(f"{name = }, {rank = }")
+            print(f"{name =}, {rank =}")
         region_names.append(name)
         per_region.setdefault(name, {})[rank] = _region_from_row(row)
         total = row.get("exclusive_total_ns")

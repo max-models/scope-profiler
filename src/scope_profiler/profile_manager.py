@@ -259,7 +259,8 @@ class ProfileManager:
                 task_ids = arrays[6] if len(arrays) > 6 else None
                 await_times = arrays[7] if len(arrays) > 7 else None
                 source_file, source_lineno, source_text = sources.get(
-                    name, (None, None, None)
+                    name,
+                    (None, None, None),
                 )
                 self._per_region.setdefault(name, {})[rank] = Region(
                     starts,
@@ -552,7 +553,10 @@ class ProfileManager:
 
     @classmethod
     def profile_region(
-        cls, region_name, functions=None, tags=None
+        cls,
+        region_name,
+        functions=None,
+        tags=None,
     ) -> BaseProfileRegion:
         """
         Get an existing ProfileRegion by name, or create a new one if it doesn't exist.
@@ -589,7 +593,9 @@ class ProfileManager:
             # hot path: tags are metadata, not per-event work.
             normalized_tags = () if tags is None else tuple(tags)
             region = cls._region_cls(
-                region_name, config=cls.get_config(), tags=normalized_tags or ()
+                region_name,
+                config=cls.get_config(),
+                tags=normalized_tags or (),
             )
             cls._regions[region_name] = region
             cls._capture_region_source(region)
@@ -598,7 +604,7 @@ class ProfileManager:
             if region.tags != normalized_tags:
                 raise ValueError(
                     f"region {region_name!r} already has tags {region.tags!r}; "
-                    f"cannot reuse it with {normalized_tags!r}"
+                    f"cannot reuse it with {normalized_tags!r}",
                 )
         if functions is not None:
             for func in functions:
@@ -695,7 +701,8 @@ class ProfileManager:
 
                 prev_profiler = sys.getprofile()
                 tracer = cls._get_recursive_tracer(
-                    root_frame=sys._getframe(), prev_profiler=prev_profiler
+                    root_frame=sys._getframe(),
+                    prev_profiler=prev_profiler,
                 )
                 sys.setprofile(tracer)
                 try:
@@ -871,7 +878,8 @@ class ProfileManager:
 
     @classmethod
     def _snapshot_call_graph(
-        cls, snapshot: dict[str, tuple]
+        cls,
+        snapshot: dict[str, tuple],
     ) -> tuple[dict[str, tuple], dict]:
         """Attach explicit call and parent ids to a timestamp snapshot.
 
@@ -896,7 +904,9 @@ class ProfileManager:
             arrays = build_call_arrays(regions_from_snapshot(snapshot, 0), rank=0)
         except NestingError as error:
             warnings.warn(
-                f"call graph not recorded: {error}", RuntimeWarning, stacklevel=2
+                f"call graph not recorded: {error}",
+                RuntimeWarning,
+                stacklevel=2,
             )
             return snapshot, None
 
@@ -997,7 +1007,7 @@ class ProfileManager:
                         f"region {name!r} was recorded by both the Python API "
                         f"and the Fortran trace {path}; merging them would "
                         f"double-count it. Give the regions distinct names (a "
-                        f"'fortran:' prefix, say)."
+                        f"'fortran:' prefix, say).",
                     )
                 merged[name] = arrays
         return merged
@@ -1164,7 +1174,9 @@ class ProfileManager:
                     token = _WriteToken(True, "", writer.index_state.state())
             except Exception as exc:
                 token = _WriteToken(
-                    False, f"rank 0 could not write profiling data: {exc}", None
+                    False,
+                    f"rank 0 could not write profiling data: {exc}",
+                    None,
                 )
 
             if size == 1:
@@ -1195,7 +1207,9 @@ class ProfileManager:
                     token = _WriteToken(True, "", writer.index_state.state())
             except Exception as exc:
                 token = _WriteToken(
-                    False, f"rank {rank} could not write profiling data: {exc}", None
+                    False,
+                    f"rank {rank} could not write profiling data: {exc}",
+                    None,
                 )
         destination = rank + 1 if rank + 1 < size else 0
         comm.send(token, dest=destination, tag=_WRITE_TOKEN_TAG)
@@ -1225,27 +1239,27 @@ class ProfileManager:
 
         if requested == "parallel" and not available:
             raise RuntimeError(
-                "output_mode='parallel' requires an h5py build with MPI support"
+                "output_mode='parallel' requires an h5py build with MPI support",
             )
         if requested == "parallel" and config.track_threads:
             raise RuntimeError(
                 "output_mode='parallel' cannot be combined with track_threads: "
                 "the collective writer does not carry the per-call thread and "
-                "task columns. Use output_mode='direct'."
+                "task columns. Use output_mode='direct'.",
             )
         if requested == "parallel" and not parallel_compatible:
             raise RuntimeError(
                 "output_mode='parallel' cannot currently be combined with LIKWID: "
                 "LIKWID counter collection launches a subprocess after MPI "
                 "initialization, while parallel HDF5 requires subsequent MPI "
-                "collectives. Use output_mode='direct'."
+                "collectives. Use output_mode='direct'.",
             )
         if requested == "parallel" and not filter_available:
             raise RuntimeError(
                 f"The parallel HDF5 library does not provide the requested "
                 f"{config.hdf5_compression!r} compression filter. Use "
                 "output_mode='direct', choose another filter, or rebuild "
-                "parallel HDF5 with that filter enabled."
+                "parallel HDF5 with that filter enabled.",
             )
 
         use_parallel = (
@@ -1300,16 +1314,19 @@ class ProfileManager:
                         "function": str(function),
                         "first_lineno": int(first_lineno),
                         "line_numbers": np.asarray(
-                            [int(row[0]) for row in timings], dtype=np.int64
+                            [int(row[0]) for row in timings],
+                            dtype=np.int64,
                         ),
                         "hits": np.asarray(
-                            [int(row[1]) for row in timings], dtype=np.int64
+                            [int(row[1]) for row in timings],
+                            dtype=np.int64,
                         ),
                         "times": np.asarray(
-                            [float(row[2]) for row in timings], dtype=float
+                            [float(row[2]) for row in timings],
+                            dtype=float,
                         ),
                         "unit": unit,
-                    }
+                    },
                 )
         return records
 
@@ -1529,13 +1546,13 @@ class ProfileManager:
         elif verbose and not write_file:
             rank_label = "rank" if size == 1 else "ranks"
             results.print_summary(
-                title=f"{results.display_label} (in memory, {size} {rank_label})"
+                title=f"{results.display_label} (in memory, {size} {rank_label})",
             )
 
         if verbose and rank == 0 and config.memory_profile_path is not None:
             rank_note = " (one capture per rank)" if size > 1 else ""
             print(
-                f"\nwrote Memray allocation profile to {config.memory_profile_path}{rank_note}"
+                f"\nwrote Memray allocation profile to {config.memory_profile_path}{rank_note}",
             )
 
         if config.use_line_profiler and verbose_line_profiler:
@@ -1577,7 +1594,7 @@ class ProfileManager:
             names = ", ".join(repr(name) for name in active[:3])
             suffix = "..." if len(active) > 3 else ""
             raise RuntimeError(
-                "cannot pause while profiling scopes are active: " + names + suffix
+                "cannot pause while profiling scopes are active: " + names + suffix,
             )
         cls._config._paused = True
 
@@ -1934,7 +1951,7 @@ class ProfileManager:
             "hdf5_chunk_size": hdf5_chunk_size,
         }
         settings.update(
-            {key: value for key, value in explicit.items() if value is not None}
+            {key: value for key, value in explicit.items() if value is not None},
         )
 
         # Memray permits exactly one active tracker per process. A new setup

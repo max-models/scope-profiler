@@ -129,7 +129,9 @@ class MPIRegion:
         return summary
 
     def events(
-        self, ranks: list[int] | int | None = None, origin: float = 0.0
+        self,
+        ranks: list[int] | int | None = None,
+        origin: float = 0.0,
     ) -> list[dict[str, Any]]:
         """
         Return one dict per recorded call, on every rank.
@@ -554,7 +556,7 @@ class MPIRegion:
         except KeyError:
             raise KeyError(
                 f"Region {self._name!r} has no data for rank {rank}. "
-                f"Available ranks: {self.ranks}"
+                f"Available ranks: {self.ranks}",
             ) from None
 
     def __iter__(self) -> Iterator[int]:

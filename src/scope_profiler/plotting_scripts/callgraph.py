@@ -42,7 +42,8 @@ def plot_callgraph(
     graph, similar to an Obsidian-style node graph.
     """
     if isinstance(profiling_data, Sequence) and not isinstance(
-        profiling_data, ProfilingResults
+        profiling_data,
+        ProfilingResults,
     ):
         if len(profiling_data) != 1:
             raise ValueError("callgraph accepts one profiling file at a time")
@@ -66,7 +67,7 @@ def plot_callgraph(
             region = regions_by_name.get(node["name"])
             rank_region = region.regions.get(rank) if region is not None else None
             if rank_region is None or node["call_index"] >= len(
-                rank_region.exclusive_durations
+                rank_region.exclusive_durations,
             ):
                 exclusive = 0.0
             else:
@@ -119,7 +120,7 @@ def plot_callgraph(
                             for candidate in nodes
                             if candidate["call_id"] in critical_ids
                         ),
-                    }
+                    },
                 )
         edge_counts = {}
         by_id = {node["call_id"]: node for node in nodes}
@@ -141,7 +142,7 @@ def plot_callgraph(
             (
                 np.cos(np.linspace(0, 2 * np.pi, len(names), endpoint=False)),
                 np.sin(np.linspace(0, 2 * np.pi, len(names), endpoint=False)),
-            )
+            ),
         ).astype(float)
         graph_edges = [(index[parent], index[child]) for parent, child in edges]
         for step in range(120):
@@ -169,13 +170,14 @@ def plot_callgraph(
         except ImportError as exc:
             raise ImportError(
                 "pyvis is required for the pyvis callgraph backend. "
-                "Install scope-profiler[graph]."
+                "Install scope-profiler[graph].",
             ) from exc
         graph = Network(height="800px", width="100%", directed=True)
         key = (lambda node: node["name"]) if compact else (lambda node: node["call_id"])
         node_keys = {key(node) for node in nodes}
         max_total = max(
-            (node.get("exclusive_duration", 0.0) for node in nodes), default=0.0
+            (node.get("exclusive_duration", 0.0) for node in nodes),
+            default=0.0,
         )
         for node in nodes:
             node_key = key(node)
@@ -212,7 +214,10 @@ def plot_callgraph(
                 )
             else:
                 graph.add_node(
-                    node_key, label=label, title=node["name"], level=node["depth"]
+                    node_key,
+                    label=label,
+                    title=node["name"],
+                    level=node["depth"],
                 )
         graph_edges = (
             edges
@@ -256,7 +261,7 @@ def plot_callgraph(
                             "levelSeparation": 140,
                             "nodeSpacing": 180,
                             "treeSpacing": 220,
-                        }
+                        },
                     },
                     "physics": {
                         "enabled": True,
@@ -270,8 +275,8 @@ def plot_callgraph(
                         },
                         "stabilization": {"iterations": 250},
                     },
-                }
-            )
+                },
+            ),
         )
         if filepath:
             output_path = Path(filepath)
@@ -301,6 +306,7 @@ def plot_callgraph(
                             for parent, child in edges
                         ],
                     },
+                    plot="callgraph",
                 )
             else:
                 _write_csv(data_filepath, ["parent", "child"], edges)
@@ -316,13 +322,21 @@ def plot_callgraph(
                         "calls": [
                             dict(zip(("call_id", "parent_id", "name", "depth"), row))
                             for row in rows
-                        ]
+                        ],
                     },
+                    plot="callgraph",
                 )
             else:
                 _write_csv(
-                    data_filepath, ["call_id", "parent_id", "name", "depth"], rows
+                    data_filepath,
+                    ["call_id", "parent_id", "name", "depth"],
+                    rows,
                 )
+
+    # HTML reports only need the portable plot-data payload.  Avoid creating
+    # a second, unused Python figure after that payload has been written.
+    if backend == "data-only":
+        return None
 
     if backend == "plotly":
         try:
@@ -354,7 +368,7 @@ def plot_callgraph(
                         mode="lines",
                         line={"color": "#999"},
                         showlegend=False,
-                    )
+                    ),
                 )
         figure.add_trace(
             go.Scatter(
@@ -367,10 +381,12 @@ def plot_callgraph(
                 mode="markers+text",
                 textposition="bottom center",
                 showlegend=False,
-            )
+            ),
         )
         figure.update_layout(
-            title=f"Call graph (rank {rank})", xaxis_visible=False, yaxis_visible=False
+            title=f"Call graph (rank {rank})",
+            xaxis_visible=False,
+            yaxis_visible=False,
         )
         if filepath:
             figure.write_html(str(filepath))
@@ -388,7 +404,7 @@ def plot_callgraph(
         figsize=(
             max(8, len(nodes) * 0.8),
             max(3, 2 + max(node["depth"] for node in nodes)),
-        )
+        ),
     )
     graph_edges = (
         edges

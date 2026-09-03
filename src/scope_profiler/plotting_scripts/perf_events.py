@@ -128,7 +128,7 @@ def plot_perf_events(
     canvas = Canvas(figsize=(max(8, len(region_names) * 0.85 + 2), 4.8))
     colors = _get_cmap_colors(cmap, len(series))
     for index, (label, values) in enumerate(
-        zip(series_labels, (item[1] for item in series))
+        zip(series_labels, (item[1] for item in series)),
     ):
         offsets = positions + (index - (len(series) - 1) / 2) * width
         canvas.bar(

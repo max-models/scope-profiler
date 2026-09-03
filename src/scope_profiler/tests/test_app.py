@@ -77,7 +77,7 @@ def test_profile_manager(
 
     regions = ProfileManager.get_all_regions()
 
-    print(f"{deactivate_profiling = } {ProfileManager._config.deactivate_profiling = }")
+    print(f"{deactivate_profiling =} {ProfileManager._config.deactivate_profiling =}")
 
     if deactivate_profiling:
         assert regions["loop1"].num_calls == 0
@@ -180,7 +180,7 @@ def test_all_region_types():
             sleep(0.001)
         assert calls == [("push", "gpu_nvtx_region"), ("pop",)]
         assert ProfileManager.get_region(
-            "gpu_nvtx_region"
+            "gpu_nvtx_region",
         ).get_gpu_durations_numpy().tolist() == [10]
     finally:
         monkeypatch.undo()
@@ -568,7 +568,7 @@ def test_finalize_registers_the_finalize_time(tmp_path):
     assert results.finalize_time == pytest.approx(recorded / 1e9)
 
     assert results.total_time == pytest.approx(
-        results.finalize_time - results.run_start_time
+        results.finalize_time - results.run_start_time,
     )
     # The un-instrumented startup and teardown make total_time the larger span.
     assert results.total_time > results.time_span
@@ -586,7 +586,7 @@ def test_finalize_return_results_also_carries_total_time(tmp_path):
     assert results.run_start_time is not None
     assert results.finalize_time is not None
     assert results.total_time == pytest.approx(
-        results.finalize_time - results.run_start_time
+        results.finalize_time - results.run_start_time,
     )
 
 

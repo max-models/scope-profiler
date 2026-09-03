@@ -236,7 +236,7 @@ def collect_region_snapshots(pylikwid, region_names: Iterable[str]) -> list[dict
                 "events": np.asarray(values, dtype=np.float64),
                 "time": float(time),
                 "count": int(count),
-            }
+            },
         )
     return snapshots
 
@@ -261,7 +261,7 @@ def snapshots_to_results(snapshots: Iterable[dict]) -> list[LikwidRegionResult]:
                 event_names=[f"event_{i}" for i in range(len(values))],
                 events=values,
                 source="marker_api",
-            )
+            ),
         )
     return results
 
@@ -351,7 +351,7 @@ def parse_marker_file(path=None) -> list[LikwidRegionResult]:
                 event_names=[f"event_{i}" for i in range(num_events)],
                 events=events,
                 source="marker_file",
-            )
+            ),
         )
     return results
 
@@ -460,7 +460,7 @@ def collect_marker_results(pylikwid) -> list[LikwidRegionResult]:
                     ],
                     metrics=metrics,
                     source="full_api",
-                )
+                ),
             )
         return results
     except Exception:
@@ -535,7 +535,7 @@ def _child_environment() -> dict:
     """
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(
-        [path for path in sys.path if path] + [env.get("PYTHONPATH", "")]
+        [path for path in sys.path if path] + [env.get("PYTHONPATH", "")],
     ).strip(os.pathsep)
 
     # The explicit override, plus the launcher variables it overrides -- so
@@ -613,7 +613,8 @@ def _subprocess_main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
     if not argv:
         print(
-            "usage: python -m scope_profiler.likwid_data <output.json>", file=sys.stderr
+            "usage: python -m scope_profiler.likwid_data <output.json>",
+            file=sys.stderr,
         )
         return 2
 
@@ -677,13 +678,19 @@ def write_likwid_results(
         # Explicit string dtype: h5py would otherwise store these as
         # fixed-width bytes, and an empty list has no inferable dtype at all.
         rgrp.attrs.create(
-            "event_names", list(result.event_names), dtype=h5py.string_dtype()
+            "event_names",
+            list(result.event_names),
+            dtype=h5py.string_dtype(),
         )
         rgrp.attrs.create(
-            "counter_names", list(result.counter_names), dtype=h5py.string_dtype()
+            "counter_names",
+            list(result.counter_names),
+            dtype=h5py.string_dtype(),
         )
         rgrp.attrs.create(
-            "metric_names", list(result.metric_names), dtype=h5py.string_dtype()
+            "metric_names",
+            list(result.metric_names),
+            dtype=h5py.string_dtype(),
         )
         rgrp.create_dataset("cpus", data=np.asarray(result.cpus, dtype=np.int64))
         rgrp.create_dataset("times", data=result.times)

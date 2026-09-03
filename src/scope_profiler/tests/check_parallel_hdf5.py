@@ -113,7 +113,7 @@ def main() -> int:
             summary_dataset = handle["rank_region_index/summary_statistics"]
             assert summary_dataset.shape == handle["rank_region_index/ranks"].shape
             assert {"total", "minimum", "maximum", "mean", "m2"}.issubset(
-                summary_dataset.dtype.names
+                summary_dataset.dtype.names,
             )
     else:
         assert not results.is_root

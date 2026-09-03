@@ -116,7 +116,8 @@ def plot_duration_histogram(
             line_hover = None
             if hover_enabled:
                 region, title = _hover_region(
-                    run.get_region(region_name), normalized_ranks
+                    run.get_region(region_name),
+                    normalized_ranks,
                 )
                 line_hover = [
                     _ps._hover_summary(
@@ -142,7 +143,10 @@ def plot_duration_histogram(
             if data_filepath:
                 label = labels[idx]
                 for center, low, high, count in zip(
-                    centers, edges[:-1], edges[1:], counts
+                    centers,
+                    edges[:-1],
+                    edges[1:],
+                    counts,
                 ):
                     data_rows.append(
                         [
@@ -152,7 +156,7 @@ def plot_duration_histogram(
                             float(high),
                             float(center),
                             int(count),
-                        ]
+                        ],
                     )
 
         canvas.set_xlabel("Duration per call (seconds)", row=row, col=col)
@@ -184,7 +188,11 @@ def plot_duration_histogram(
             colors_map = {
                 name: _to_hex(color) for name, color in sorted(color_map.items())
             }
-            _write_json(data_filepath, {"bins": bins_payload, "colors": colors_map})
+            _write_json(
+                data_filepath,
+                {"bins": bins_payload, "colors": colors_map},
+                plot="histogram",
+            )
         else:
             _write_csv(data_filepath, header, data_rows)
 

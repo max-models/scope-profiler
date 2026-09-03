@@ -15,9 +15,14 @@ import numpy as np
 from scope_profiler.call_stack import NestingError
 from scope_profiler.results import ProfilingResults
 
+PLOT_DATA_FORMAT = "scope-profiler-plot-data"
+PLOT_DATA_FORMAT_VERSION = 1
+
 
 def _write_csv(
-    filepath: str | Path, header: Sequence[str], rows: Sequence[Sequence]
+    filepath: str | Path,
+    header: Sequence[str],
+    rows: Sequence[Sequence],
 ) -> None:
     """Write rows of plotting data to a plain-text CSV file."""
     output_path = Path(filepath)
@@ -28,12 +33,29 @@ def _write_csv(
         writer.writerows(rows)
 
 
-def _write_json(filepath: str | Path, payload: dict) -> None:
-    """Write the exact data behind a plot to a JSON file."""
+def _write_json(filepath: str | Path, payload: dict, plot: str) -> None:
+    """Write the exact data behind a plot to a JSON file.
+
+    Every plot-data document carries the same envelope -- ``format``,
+    ``format_version`` and the ``plot`` kind that produced it -- so a consumer
+    (e.g. the ``@scope-profiler/plotly`` package) can dispatch on the file
+    itself instead of guessing from its keys. Stamping it here rather than at
+    each call site is what keeps the envelope on every kind.
+    """
+    document = {
+        "format": PLOT_DATA_FORMAT,
+        "format_version": PLOT_DATA_FORMAT_VERSION,
+        "plot": plot,
+        **{
+            key: value
+            for key, value in payload.items()
+            if key not in ("format", "format_version", "plot")
+        },
+    }
     output_path = Path(filepath)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+        json.dump(document, f, indent=2)
         f.write("\n")
 
 
@@ -95,7 +117,7 @@ def _get_canvas():
         raise ImportError(
             "maxplotlib is required for plotting. Install scope-profiler[pproc] "
             "or maxplotlibx (>= 0.1.9, for its gantt/flame charts and native "
-            "hover support)."
+            "hover support).",
         ) from exc
     return Canvas
 
@@ -219,7 +241,7 @@ def _hover_summary(
             continue
         lines.append(
             f"{_HOVER_LABELS.get(key, key.replace('_', ' '))}: "
-            f"{_hover_value(key, value)}"
+            f"{_hover_value(key, value)}",
         )
     return "<br>".join(lines)
 
@@ -317,7 +339,7 @@ def _render(
                     raise RuntimeError(
                         "Plotly image export failed. For PNG/PDF/SVG export, "
                         "install kaleido (e.g. `pip install -U kaleido`), or "
-                        "export to an .html filepath instead."
+                        "export to an .html filepath instead.",
                     ) from exc
         if show:
             fig.show()
@@ -362,7 +384,10 @@ def _render(
 
 
 def _panel_gridspec(
-    fig_width: float, fig_height: float, label_chars: int, multi_panel: bool
+    fig_width: float,
+    fig_height: float,
+    label_chars: int,
+    multi_panel: bool,
 ) -> dict:
     """Reserve figure margins for tick labels, axis labels and titles.
 

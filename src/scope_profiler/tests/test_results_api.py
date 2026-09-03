@@ -22,10 +22,12 @@ def _write_sample_h5(path, rank_regions, metadata=None):
                 region_group = regions_group.create_group(region_name)
                 start_times, end_times = payload
                 region_group.create_dataset(
-                    "start_times", data=np.asarray(start_times, dtype=np.int64)
+                    "start_times",
+                    data=np.asarray(start_times, dtype=np.int64),
                 )
                 region_group.create_dataset(
-                    "end_times", data=np.asarray(end_times, dtype=np.int64)
+                    "end_times",
+                    data=np.asarray(end_times, dtype=np.int64),
                 )
 
 
@@ -97,7 +99,7 @@ def test_summary_collapses_self_recursive_paths():
                 "fib",
                 {0: Region(np.array([10, 20, 30]), np.array([90, 80, 70]))},
             ),
-        }
+        },
     )
 
     from scope_profiler.summary import region_rows
@@ -132,7 +134,7 @@ def test_summary_percentage_uses_coverage_for_nested_regions(capsys):
                 "inner",
                 {0: Region(np.array([20]), np.array([80]))},
             ),
-        }
+        },
     )
 
     results.print_summary()
@@ -260,7 +262,7 @@ def test_reader_print_summary(sample_file, capsys):
 
 def test_reader_print_summary_accepts_columns(sample_file, capsys):
     read_h5(sample_file).print_summary(
-        columns=["region", "ranks", "calls", "total", "avg"]
+        columns=["region", "ranks", "calls", "total", "avg"],
     )
 
     out = capsys.readouterr().out
@@ -321,7 +323,8 @@ def test_reader_to_dataframe(sample_file):
     per_rank = results.to_dataframe(per_rank=True)
     assert list(per_rank["rank"]) == [0, 1, 0, 1]
     assert per_rank.loc[
-        (per_rank["name"] == "solve") & (per_rank["rank"] == 0), "total_duration"
+        (per_rank["name"] == "solve") & (per_rank["rank"] == 0),
+        "total_duration",
     ].item() == pytest.approx(5.0)
 
 
@@ -355,7 +358,7 @@ def test_mpi_region_events_span_ranks(sample_file):
     assert [event["rank"] for event in events] == [0, 0, 1, 1]
     assert {event["name"] for event in events} == {"solve"}
     assert [event["duration"] for event in events] == pytest.approx(
-        [2.0, 3.0, 4.0, 4.0]
+        [2.0, 3.0, 4.0, 4.0],
     )
 
     # A single rank can be selected, as an int or a list.
@@ -415,13 +418,13 @@ def test_reader_uses_registered_start_time_as_origin(tmp_path):
     # Events now carry the 20 s of un-instrumented startup.
     assert [event["start"] for event in results.events()] == pytest.approx([20.0, 50.0])
     assert [call["start"] for call in results.call_stack()] == pytest.approx(
-        [20.0, 50.0]
+        [20.0, 50.0],
     )
     # The startup gap the instrumentation could not see.
     assert results.minimum_start_time - results.run_start_time == pytest.approx(20.0)
     # Durations and the profiled window are unaffected by the origin.
     assert [event["duration"] for event in results.events()] == pytest.approx(
-        [10.0, 10.0]
+        [10.0, 10.0],
     )
     assert results.time_span == pytest.approx(40.0)
 
@@ -442,7 +445,7 @@ def test_reader_origin_overrides_registered_start_time(tmp_path):
     # ...and over relative=False.
     assert results.events(relative=False)[0]["start"] == pytest.approx(100.0)
     assert results.events(relative=False, origin=80.0)[0]["start"] == pytest.approx(
-        20.0
+        20.0,
     )
 
 
@@ -472,7 +475,7 @@ def test_reader_without_registered_start_time_falls_back(tmp_path, metadata):
     assert results.startup_time == 0.0
     assert [event["start"] for event in results.events()] == pytest.approx([0.0, 30.0])
     assert [call["start"] for call in results.call_stack()] == pytest.approx(
-        [0.0, 30.0]
+        [0.0, 30.0],
     )
     assert results.to_events_dataframe()["start"].tolist() == pytest.approx([0.0, 30.0])
     # An explicit origin still works, and so does the raw timeline.
@@ -590,7 +593,7 @@ def test_reader_call_stack(tmp_path):
                 "outer": ([10 * NS], [110 * NS]),
                 "inner": ([20 * NS, 60 * NS], [50 * NS, 100 * NS]),
                 "leaf": ([25 * NS], [30 * NS]),
-            }
+            },
         },
     )
     results = read_h5(path)
@@ -635,7 +638,7 @@ def test_call_graph_renests_around_filtered_regions(tmp_path):
                 "outer": ([0], [100]),
                 "middle": ([10], [80]),
                 "leaf": ([20], [40]),
-            }
+            },
         },
     )
     results = read_h5(path)
@@ -677,7 +680,7 @@ def test_nested_regions_expose_inclusive_and_exclusive_time(tmp_path):
                 "outer": ([0], [100]),
                 "first": ([10], [30]),
                 "second": ([50], [80]),
-            }
+            },
         },
     )
 
@@ -688,7 +691,7 @@ def test_nested_regions_expose_inclusive_and_exclusive_time(tmp_path):
     assert results["first"].inclusive_duration == pytest.approx(20e-9)
     assert results["first"].exclusive_duration == pytest.approx(20e-9)
     assert results.summary(include="outer")[0]["exclusive_duration"] == pytest.approx(
-        50e-9
+        50e-9,
     )
 
     outer_call = results.call_stack()[0]

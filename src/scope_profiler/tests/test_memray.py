@@ -67,7 +67,8 @@ def test_memray_missing_dependency_has_actionable_error(tmp_path, monkeypatch):
 
 def test_memray_options_round_trip(tmp_path):
     options = ProfilingOptions(
-        use_memray=True, memory_profile_path=str(tmp_path / "allocations.bin")
+        use_memray=True,
+        memory_profile_path=str(tmp_path / "allocations.bin"),
     )
 
     assert options.to_kwargs() == {

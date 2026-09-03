@@ -51,7 +51,7 @@ def profile(tmp_path):
                         np.array([21 * NS], dtype=np.int64),
                         np.array([22 * NS], dtype=np.int64),
                     ),
-                }
+                },
             ),
         )
     return path
@@ -172,7 +172,8 @@ def test_a_deleted_optional_column_still_reads(profile):
 
 
 def test_a_missing_exclusive_totals_column_falls_back_to_reconstruction(
-    profile, tmp_path
+    profile,
+    tmp_path,
 ):
     """Older files have no stored totals; the reader derives them instead."""
     with h5py.File(profile, "r+") as handle:

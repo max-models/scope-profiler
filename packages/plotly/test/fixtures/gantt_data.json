@@ -1,0 +1,1587 @@
+{
+  "format": "scope-profiler-plot-data",
+  "format_version": 1,
+  "plot": "gantt",
+  "intervals": [
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "setup",
+      "start_seconds": 0.0,
+      "end_seconds": 0.004
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "setup",
+      "start_seconds": 0.0,
+      "end_seconds": 0.00448
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "setup",
+      "start_seconds": 0.0,
+      "end_seconds": 0.00496
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.005,
+      "end_seconds": 0.014
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.015,
+      "end_seconds": 0.02427
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.02527,
+      "end_seconds": 0.03481
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.03581,
+      "end_seconds": 0.04562
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.04662,
+      "end_seconds": 0.0567
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.0577,
+      "end_seconds": 0.06805
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.06905,
+      "end_seconds": 0.07967
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.08067,
+      "end_seconds": 0.09156
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.09256,
+      "end_seconds": 0.10372
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.10472,
+      "end_seconds": 0.11615
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.11715,
+      "end_seconds": 0.12885
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.12985,
+      "end_seconds": 0.14182
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.00548,
+      "end_seconds": 0.01556
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.01656,
+      "end_seconds": 0.02691
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.02791,
+      "end_seconds": 0.03853
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.03953,
+      "end_seconds": 0.05042
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.05142,
+      "end_seconds": 0.06258
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.06358,
+      "end_seconds": 0.07501
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.07601,
+      "end_seconds": 0.08771
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.08871,
+      "end_seconds": 0.10068
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.10168,
+      "end_seconds": 0.11392
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.11492,
+      "end_seconds": 0.12743
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.12843,
+      "end_seconds": 0.14121
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.14221,
+      "end_seconds": 0.15526
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.00596,
+      "end_seconds": 0.01712
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.01812,
+      "end_seconds": 0.02955
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.03055,
+      "end_seconds": 0.04225
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.04325,
+      "end_seconds": 0.05522
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.05622,
+      "end_seconds": 0.068459999
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.069459999,
+      "end_seconds": 0.081969999
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.082969999,
+      "end_seconds": 0.095749999
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.096749999,
+      "end_seconds": 0.109799999
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.110799999,
+      "end_seconds": 0.124119999
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.125119999,
+      "end_seconds": 0.138709999
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.139709999,
+      "end_seconds": 0.153569999
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.154569999,
+      "end_seconds": 0.168699998
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.14282,
+      "end_seconds": 0.14532
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.14632,
+      "end_seconds": 0.148895
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.149895,
+      "end_seconds": 0.152545
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.153545,
+      "end_seconds": 0.15627
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.15727,
+      "end_seconds": 0.16007
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.16107,
+      "end_seconds": 0.163945
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.164945,
+      "end_seconds": 0.167895
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.168895,
+      "end_seconds": 0.17192
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.17292,
+      "end_seconds": 0.17602
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.17702,
+      "end_seconds": 0.180195
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.181195,
+      "end_seconds": 0.184445
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.185445,
+      "end_seconds": 0.18877
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.15626,
+      "end_seconds": 0.15906
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.16006,
+      "end_seconds": 0.162935
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.163935,
+      "end_seconds": 0.166885
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.167885,
+      "end_seconds": 0.17091
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.17191,
+      "end_seconds": 0.17501
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.17601,
+      "end_seconds": 0.179185
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.180185,
+      "end_seconds": 0.183435
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.184435,
+      "end_seconds": 0.18776
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.18876,
+      "end_seconds": 0.19216
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.19316,
+      "end_seconds": 0.196635
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.197635,
+      "end_seconds": 0.201185
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.202185,
+      "end_seconds": 0.20581
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.169699998,
+      "end_seconds": 0.172799998
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.173799998,
+      "end_seconds": 0.176974998
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.177974998,
+      "end_seconds": 0.181224998
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.182224998,
+      "end_seconds": 0.185549998
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.186549998,
+      "end_seconds": 0.189949997
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.190949997,
+      "end_seconds": 0.194424996
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.195424996,
+      "end_seconds": 0.198974996
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.199974996,
+      "end_seconds": 0.203599996
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.204599996,
+      "end_seconds": 0.208299996
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.209299996,
+      "end_seconds": 0.213074996
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.214074996,
+      "end_seconds": 0.217924996
+    },
+    {
+      "file": "run_3ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.218924996,
+      "end_seconds": 0.222849995
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "setup",
+      "start_seconds": 0.0,
+      "end_seconds": 0.0022
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "setup",
+      "start_seconds": 0.0,
+      "end_seconds": 0.002464
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "setup",
+      "start_seconds": 0.0,
+      "end_seconds": 0.002728
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "setup",
+      "start_seconds": 0.0,
+      "end_seconds": 0.002991999
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "setup",
+      "start_seconds": 0.0,
+      "end_seconds": 0.003256
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "setup",
+      "start_seconds": 0.0,
+      "end_seconds": 0.00352
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.0032,
+      "end_seconds": 0.00815
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.00915,
+      "end_seconds": 0.0142485
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.0152485,
+      "end_seconds": 0.0204955
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.0214955,
+      "end_seconds": 0.026891
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.027891,
+      "end_seconds": 0.033435
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.034435,
+      "end_seconds": 0.0401275
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.0411275,
+      "end_seconds": 0.0469685
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.0479685,
+      "end_seconds": 0.053958
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.054958,
+      "end_seconds": 0.061096
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.062096,
+      "end_seconds": 0.0683825
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.0693825,
+      "end_seconds": 0.0758175
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "solve",
+      "start_seconds": 0.0768175,
+      "end_seconds": 0.083401
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.003464,
+      "end_seconds": 0.009008
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.010008,
+      "end_seconds": 0.0157005
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.0167005,
+      "end_seconds": 0.0225415
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.0235415,
+      "end_seconds": 0.029531
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.030531,
+      "end_seconds": 0.036669
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.037669,
+      "end_seconds": 0.0439555
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.0449555,
+      "end_seconds": 0.0513905
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.0523905,
+      "end_seconds": 0.058974
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.059974,
+      "end_seconds": 0.066706
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.067706,
+      "end_seconds": 0.0745865
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.0755865,
+      "end_seconds": 0.0826155
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "solve",
+      "start_seconds": 0.0836155,
+      "end_seconds": 0.090793
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.003728,
+      "end_seconds": 0.009866
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.010866,
+      "end_seconds": 0.0171525
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.0181525,
+      "end_seconds": 0.0245875
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.0255875,
+      "end_seconds": 0.032171
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.033171,
+      "end_seconds": 0.039902999
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.040902999,
+      "end_seconds": 0.047783498
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.048783498,
+      "end_seconds": 0.055812498
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.056812498,
+      "end_seconds": 0.063989998
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.064989998,
+      "end_seconds": 0.072315998
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.073315998,
+      "end_seconds": 0.080790498
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.081790498,
+      "end_seconds": 0.089413498
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "solve",
+      "start_seconds": 0.090413498,
+      "end_seconds": 0.098184997
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "solve",
+      "start_seconds": 0.003991999,
+      "end_seconds": 0.010723998
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "solve",
+      "start_seconds": 0.011723998,
+      "end_seconds": 0.018604497
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "solve",
+      "start_seconds": 0.019604497,
+      "end_seconds": 0.026633497
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "solve",
+      "start_seconds": 0.027633497,
+      "end_seconds": 0.034810997
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "solve",
+      "start_seconds": 0.035810997,
+      "end_seconds": 0.043136997
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "solve",
+      "start_seconds": 0.044136997,
+      "end_seconds": 0.051611496
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "solve",
+      "start_seconds": 0.052611496,
+      "end_seconds": 0.060234495
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "solve",
+      "start_seconds": 0.061234495,
+      "end_seconds": 0.069005994
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "solve",
+      "start_seconds": 0.070005994,
+      "end_seconds": 0.077925993
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "solve",
+      "start_seconds": 0.078925993,
+      "end_seconds": 0.086994492
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "solve",
+      "start_seconds": 0.087994492,
+      "end_seconds": 0.096211492
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "solve",
+      "start_seconds": 0.097211492,
+      "end_seconds": 0.105576992
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "solve",
+      "start_seconds": 0.004256,
+      "end_seconds": 0.011582
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "solve",
+      "start_seconds": 0.012582,
+      "end_seconds": 0.0200565
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "solve",
+      "start_seconds": 0.0210565,
+      "end_seconds": 0.0286795
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "solve",
+      "start_seconds": 0.0296795,
+      "end_seconds": 0.037451
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "solve",
+      "start_seconds": 0.038451,
+      "end_seconds": 0.046371
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "solve",
+      "start_seconds": 0.047371,
+      "end_seconds": 0.055439499
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "solve",
+      "start_seconds": 0.056439499,
+      "end_seconds": 0.064656499
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "solve",
+      "start_seconds": 0.065656499,
+      "end_seconds": 0.074021999
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "solve",
+      "start_seconds": 0.075021999,
+      "end_seconds": 0.083535999
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "solve",
+      "start_seconds": 0.084535999,
+      "end_seconds": 0.093198499
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "solve",
+      "start_seconds": 0.094198499,
+      "end_seconds": 0.103009499
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "solve",
+      "start_seconds": 0.104009499,
+      "end_seconds": 0.112968999
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "solve",
+      "start_seconds": 0.00452,
+      "end_seconds": 0.01244
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "solve",
+      "start_seconds": 0.01344,
+      "end_seconds": 0.0215085
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "solve",
+      "start_seconds": 0.0225085,
+      "end_seconds": 0.0307255
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "solve",
+      "start_seconds": 0.0317255,
+      "end_seconds": 0.040091
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "solve",
+      "start_seconds": 0.041091,
+      "end_seconds": 0.049605
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "solve",
+      "start_seconds": 0.050605,
+      "end_seconds": 0.0592675
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "solve",
+      "start_seconds": 0.0602675,
+      "end_seconds": 0.0690785
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "solve",
+      "start_seconds": 0.0700785,
+      "end_seconds": 0.079038
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "solve",
+      "start_seconds": 0.080038,
+      "end_seconds": 0.089146
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "solve",
+      "start_seconds": 0.090146,
+      "end_seconds": 0.0994025
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "solve",
+      "start_seconds": 0.1004025,
+      "end_seconds": 0.1098075
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "solve",
+      "start_seconds": 0.1108075,
+      "end_seconds": 0.120361
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.084401,
+      "end_seconds": 0.085776
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.086776,
+      "end_seconds": 0.08819225
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.08919225,
+      "end_seconds": 0.09064975
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.09164975,
+      "end_seconds": 0.0931485
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.0941485,
+      "end_seconds": 0.0956885
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.0966885,
+      "end_seconds": 0.098269749
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.099269749,
+      "end_seconds": 0.100892249
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.101892249,
+      "end_seconds": 0.103555999
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.104555999,
+      "end_seconds": 0.106260999
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.107260999,
+      "end_seconds": 0.109007249
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.110007249,
+      "end_seconds": 0.111794749
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 0,
+      "region": "exchange",
+      "start_seconds": 0.112794749,
+      "end_seconds": 0.114623499
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.091793,
+      "end_seconds": 0.093333
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.094333,
+      "end_seconds": 0.09591425
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.09691425,
+      "end_seconds": 0.09853675
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.09953675,
+      "end_seconds": 0.1012005
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.1022005,
+      "end_seconds": 0.1039055
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.1049055,
+      "end_seconds": 0.10665175
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.10765175,
+      "end_seconds": 0.10943925
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.11043925,
+      "end_seconds": 0.112268
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.113268,
+      "end_seconds": 0.115138
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.116138,
+      "end_seconds": 0.11804925
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.11904925,
+      "end_seconds": 0.12100175
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 1,
+      "region": "exchange",
+      "start_seconds": 0.12200175,
+      "end_seconds": 0.1239955
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.099184997,
+      "end_seconds": 0.100889997
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.101889997,
+      "end_seconds": 0.103636247
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.104636247,
+      "end_seconds": 0.106423747
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.107423747,
+      "end_seconds": 0.109252497
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.110252497,
+      "end_seconds": 0.112122496
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.113122496,
+      "end_seconds": 0.115033745
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.116033745,
+      "end_seconds": 0.117986245
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.118986245,
+      "end_seconds": 0.120979995
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.121979995,
+      "end_seconds": 0.124014995
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.125014995,
+      "end_seconds": 0.127091245
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.128091245,
+      "end_seconds": 0.130208745
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 2,
+      "region": "exchange",
+      "start_seconds": 0.131208745,
+      "end_seconds": 0.133367495
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "exchange",
+      "start_seconds": 0.106576992,
+      "end_seconds": 0.108446991
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "exchange",
+      "start_seconds": 0.109446991,
+      "end_seconds": 0.11135824
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "exchange",
+      "start_seconds": 0.11235824,
+      "end_seconds": 0.11431074
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "exchange",
+      "start_seconds": 0.11531074,
+      "end_seconds": 0.11730449
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "exchange",
+      "start_seconds": 0.11830449,
+      "end_seconds": 0.12033949
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "exchange",
+      "start_seconds": 0.12133949,
+      "end_seconds": 0.123415739
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "exchange",
+      "start_seconds": 0.124415739,
+      "end_seconds": 0.126533238
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "exchange",
+      "start_seconds": 0.127533238,
+      "end_seconds": 0.129691988
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "exchange",
+      "start_seconds": 0.130691988,
+      "end_seconds": 0.132891988
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "exchange",
+      "start_seconds": 0.133891988,
+      "end_seconds": 0.136133238
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "exchange",
+      "start_seconds": 0.137133238,
+      "end_seconds": 0.139415738
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 3,
+      "region": "exchange",
+      "start_seconds": 0.140415738,
+      "end_seconds": 0.142739488
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "exchange",
+      "start_seconds": 0.113968999,
+      "end_seconds": 0.116003999
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "exchange",
+      "start_seconds": 0.117003999,
+      "end_seconds": 0.119080249
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "exchange",
+      "start_seconds": 0.120080249,
+      "end_seconds": 0.122197749
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "exchange",
+      "start_seconds": 0.123197749,
+      "end_seconds": 0.125356499
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "exchange",
+      "start_seconds": 0.126356499,
+      "end_seconds": 0.128556499
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "exchange",
+      "start_seconds": 0.129556499,
+      "end_seconds": 0.131797749
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "exchange",
+      "start_seconds": 0.132797749,
+      "end_seconds": 0.135080249
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "exchange",
+      "start_seconds": 0.136080249,
+      "end_seconds": 0.138403999
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "exchange",
+      "start_seconds": 0.139403999,
+      "end_seconds": 0.141768999
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "exchange",
+      "start_seconds": 0.142768999,
+      "end_seconds": 0.145175249
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "exchange",
+      "start_seconds": 0.146175249,
+      "end_seconds": 0.148622749
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 4,
+      "region": "exchange",
+      "start_seconds": 0.149622749,
+      "end_seconds": 0.152111499
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "exchange",
+      "start_seconds": 0.121361,
+      "end_seconds": 0.123561
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "exchange",
+      "start_seconds": 0.124561,
+      "end_seconds": 0.12680225
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "exchange",
+      "start_seconds": 0.12780225,
+      "end_seconds": 0.13008475
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "exchange",
+      "start_seconds": 0.13108475,
+      "end_seconds": 0.1334085
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "exchange",
+      "start_seconds": 0.1344085,
+      "end_seconds": 0.1367735
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "exchange",
+      "start_seconds": 0.1377735,
+      "end_seconds": 0.14017975
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "exchange",
+      "start_seconds": 0.14117975,
+      "end_seconds": 0.14362725
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "exchange",
+      "start_seconds": 0.14462725,
+      "end_seconds": 0.147116
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "exchange",
+      "start_seconds": 0.148116,
+      "end_seconds": 0.150646
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "exchange",
+      "start_seconds": 0.151646,
+      "end_seconds": 0.15421725
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "exchange",
+      "start_seconds": 0.15521725,
+      "end_seconds": 0.15782975
+    },
+    {
+      "file": "run_6ranks",
+      "rank": 5,
+      "region": "exchange",
+      "start_seconds": 0.15882975,
+      "end_seconds": 0.1614835
+    }
+  ],
+  "colors": {
+    "setup": "#8c564b",
+    "solve": "#9edae5",
+    "exchange": "#1f77b4"
+  }
+}

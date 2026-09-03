@@ -156,7 +156,7 @@ def _build_region_line_profile_node(region_name: str, by_rank: dict) -> BrowserN
                     f"Rank {rank}",
                     "line_profile_record",
                     {"rank": rank, "record": records[0]},
-                )
+                ),
             )
             continue
         rank_children.append(
@@ -172,7 +172,7 @@ def _build_region_line_profile_node(region_name: str, by_rank: dict) -> BrowserN
                     )
                     for record in records
                 ],
-            )
+            ),
         )
 
     return BrowserNode(
@@ -193,11 +193,11 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
     for title, entries in sections:
         if entries:
             metadata_children.append(
-                BrowserNode(title, "metadata_section", {"entries": entries})
+                BrowserNode(title, "metadata_section", {"entries": entries}),
             )
     if modules is not None:
         metadata_children.append(
-            BrowserNode("Modules", "modules", {"modules": list(modules)})
+            BrowserNode("Modules", "modules", {"modules": list(modules)}),
         )
 
     region_children = []
@@ -221,7 +221,7 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
         line_profile = line_profile_by_region.pop(region.name, None)
         if line_profile:
             extra_children.append(
-                _build_region_line_profile_node(region.name, line_profile)
+                _build_region_line_profile_node(region.name, line_profile),
             )
         likwid_children = []
         for rank, by_region in sorted(results.get_likwid_regions().items()):
@@ -232,7 +232,7 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
                         f"LIKWID rank {rank}",
                         "likwid_rank",
                         {"rank": rank, "region_name": region.name, "likwid": counters},
-                    )
+                    ),
                 )
         extra_children.extend(likwid_children)
         perf_children = []
@@ -244,7 +244,7 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
                         f"Perf events rank {rank}",
                         "perf_events_rank",
                         {"rank": rank, "region_name": region.name, "totals": totals},
-                    )
+                    ),
                 )
         extra_children.extend(perf_children)
         region_children.append(
@@ -253,7 +253,7 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
                 "region",
                 {"region": region, "row": sorted_rows.get(region.name)},
                 extra_children,
-            )
+            ),
         )
     for region_name, by_rank in sorted(line_profile_by_region.items()):
         line_profile_node = _build_region_line_profile_node(str(region_name), by_rank)
@@ -263,7 +263,7 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
                 "line_profile_region",
                 line_profile_node.payload,
                 line_profile_node.children,
-            )
+            ),
         )
 
     # Only an HDF5 profile has a group tree to browse; a JSON one is read
@@ -276,7 +276,8 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
     plot_children = [
         BrowserNode(
             {"flame_chart": "Flame chart", "flame_graph": "Flame graph"}.get(
-                name, name.title()
+                name,
+                name.title(),
             ),
             "plot",
             {"results": results, "plot_name": name, "description": description},
@@ -294,7 +295,7 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
                     "metric": metric,
                     "description": f"LIKWID metric/event {metric}",
                 },
-            )
+            ),
         )
 
     root = BrowserNode(
@@ -316,8 +317,11 @@ def build_browser_model(file_path: str | Path) -> BrowserModel:
                 if raw_node is None
                 else [
                     BrowserNode(
-                        "Raw HDF5", "h5_group", raw_node.payload, raw_node.children
-                    )
+                        "Raw HDF5",
+                        "h5_group",
+                        raw_node.payload,
+                        raw_node.children,
+                    ),
                 ]
             ),
         ],
@@ -330,7 +334,11 @@ def _duration(value) -> str:
 
 
 def _line_table(
-    headers, rows, *, compact: bool = False, maxcolwidths: tuple[int, ...] | None = None
+    headers,
+    rows,
+    *,
+    compact: bool = False,
+    maxcolwidths: tuple[int, ...] | None = None,
 ) -> str:
     def safe_value(value):
         try:
@@ -383,7 +391,7 @@ def node_detail_text(node: BrowserNode) -> str:
                     _duration(row["total"]),
                     f"{duration / total_region_time:.1%}" if total_region_time else "-",
                     "█" * bar_width,
-                )
+                ),
             )
         metrics = _line_table(
             ("Metric", "Value"),
@@ -525,7 +533,9 @@ def node_detail_text(node: BrowserNode) -> str:
             )
             rows.append((region, len(region_records), f"{total:.6g} s"))
         return f"Line profile rank {payload['rank']}\n\n" + _line_table(
-            ("Region", "Functions", "Total"), rows, compact=True
+            ("Region", "Functions", "Total"),
+            rows,
+            compact=True,
         )
 
     if kind == "line_profile_region":
@@ -574,7 +584,7 @@ def node_detail_text(node: BrowserNode) -> str:
                     f"{per_hit:.6g}",
                     f"{percent:.2f}",
                     source,
-                )
+                ),
             )
         header = (
             f"Rank {payload['rank']} | {record['region']} | {record['function']}\n"
@@ -619,7 +629,7 @@ def node_detail_text(node: BrowserNode) -> str:
             summary_rows.append(("Tags", ", ".join(region.tags)))
         if region.has_source:
             summary_rows.append(
-                ("Source", f"{region.source_file}:{region.source_lineno}")
+                ("Source", f"{region.source_file}:{region.source_lineno}"),
             )
         return _line_table(("Metric", "Value"), summary_rows)
 
@@ -639,7 +649,8 @@ def node_detail_text(node: BrowserNode) -> str:
             ("Std", _duration(data.std_duration)),
         ]
         return f"{region.name} on rank {rank}\n\n" + _line_table(
-            ("Metric", "Value"), rows
+            ("Metric", "Value"),
+            rows,
         )
 
     if kind == "region_calls":
@@ -690,7 +701,7 @@ def node_detail_text(node: BrowserNode) -> str:
                 _line_table(
                     ("Event", *[f"CPU {cpu}" for cpu in counters.cpus]),
                     zip(counters.event_labels, *counters.events.tolist()),
-                )
+                ),
             )
         if counters.metric_names:
             lines.append("")
@@ -698,7 +709,7 @@ def node_detail_text(node: BrowserNode) -> str:
                 _line_table(
                     ("Metric", *[f"CPU {cpu}" for cpu in counters.cpus]),
                     zip(counters.metric_names, *counters.metrics.tolist()),
-                )
+                ),
             )
         return "\n".join(lines)
 
@@ -714,7 +725,7 @@ def node_detail_text(node: BrowserNode) -> str:
                     ("Event", "Count"),
                     ((event, f"{value:,}") for event, value in totals.values.items()),
                 ),
-            ]
+            ],
         )
 
     if kind == "h5_group":
@@ -728,7 +739,7 @@ def node_detail_text(node: BrowserNode) -> str:
                     ("Key", "Value"),
                     sorted(attrs.items()),
                     maxcolwidths=(28, 72),
-                )
+                ),
             )
         return "\n".join(lines)
 
@@ -752,7 +763,7 @@ def node_detail_text(node: BrowserNode) -> str:
                     ("Key", "Value"),
                     sorted(attrs.items()),
                     maxcolwidths=(28, 72),
-                )
+                ),
             )
         return "\n".join(lines)
 
@@ -844,7 +855,9 @@ def render_plot(
         )
     elif name == "timeseries":
         plot_duration_timeseries(
-            results, log_scale=bool(settings.get("log_scale", False)), **common
+            results,
+            log_scale=bool(settings.get("log_scale", False)),
+            **common,
         )
     elif name == "callgraph":
         plot_callgraph(
@@ -890,7 +903,8 @@ def _render_plotext_text_unlocked(
         if backend != "plotext":
             return show_method(self, *args, **kwargs)
         figure = self.plot_plotext(
-            layers=kwargs.get("layers"), verbose=kwargs.get("verbose", False)
+            layers=kwargs.get("layers"),
+            verbose=kwargs.get("verbose", False),
         )
         figure.plotsize(width, height)
         figure.show()
@@ -951,7 +965,10 @@ def render_plotext_text(
     """Render a Plotext chart while protecting its process-global state."""
     with _PLOTEXT_RENDER_LOCK:
         return _render_plotext_text_unlocked(
-            node, settings=settings, width=width, height=height
+            node,
+            settings=settings,
+            width=width,
+            height=height,
         )
 
 
@@ -992,7 +1009,7 @@ def _build_textual_app_class():
     except ImportError as exc:
         raise RuntimeError(
             "The interactive TUI requires Textual. Install it with "
-            "`pip install scope-profiler[tui]` or `pip install textual`."
+            "`pip install scope-profiler[tui]` or `pip install textual`.",
         ) from exc
 
     class H5BrowserApp(App):
@@ -1142,7 +1159,8 @@ def _build_textual_app_class():
                 with Vertical(id="right"):
                     with self.DetailScroll(id="detail-scroll"):
                         yield self.Detail(
-                            self._detail(self.model.root.children[0]), id="detail"
+                            self._detail(self.model.root.children[0]),
+                            id="detail",
                         )
                     with Vertical(id="settings"):
                         yield Static("Plot settings", id="settings-title")
@@ -1160,7 +1178,9 @@ def _build_textual_app_class():
                         )
                         yield Static("Selected regions", classes="setting")
                         yield Static(
-                            "All regions", id="selected-regions", classes="setting"
+                            "All regions",
+                            id="selected-regions",
+                            classes="setting",
                         )
                         yield Input(
                             placeholder="Ranks (e.g. 0,2-4)",
@@ -1197,7 +1217,9 @@ def _build_textual_app_class():
                             classes="setting",
                         )
                         yield Input(
-                            placeholder="Top N regions", id="top_n", classes="setting"
+                            placeholder="Top N regions",
+                            id="top_n",
+                            classes="setting",
                         )
                         yield Input(
                             value="30",
@@ -1217,7 +1239,9 @@ def _build_textual_app_class():
                         )
                         yield Checkbox("Log scale", id="log_scale")
                         yield Button(
-                            "Apply settings", id="apply-settings", variant="primary"
+                            "Apply settings",
+                            id="apply-settings",
+                            variant="primary",
                         )
             yield Footer()
 
@@ -1277,7 +1301,8 @@ def _build_textual_app_class():
                 value = self.query_one(f"#{key}", Select).value
                 self.plot_settings[key] = "" if value is Select.NULL else str(value)
             self.plot_settings["log_scale"] = self.query_one(
-                "#log_scale", Checkbox
+                "#log_scale",
+                Checkbox,
             ).value
 
         def _update_selected_regions(self) -> None:
@@ -1342,7 +1367,8 @@ def _build_textual_app_class():
                 # set_timer() takes no callback arguments, so the node is
                 # bound here rather than passed along.
                 self._plotext_refresh_timer = self.set_timer(
-                    0.2, partial(self._show_plotext_in_detail, node)
+                    0.2,
+                    partial(self._show_plotext_in_detail, node),
                 )
 
         def action_focus_navigation(self) -> None:
@@ -1392,7 +1418,10 @@ def _build_textual_app_class():
                     saved = self._show_plot_in_child_process(node, settings)
                 else:
                     saved = render_plot(
-                        node, filepath=filepath, show=False, settings=settings
+                        node,
+                        filepath=filepath,
+                        show=False,
+                        settings=settings,
                     )
             except Exception as exc:
                 self.notify(str(exc), severity="error", timeout=8)
@@ -1423,7 +1452,7 @@ def _build_textual_app_class():
                 )
             except Exception as exc:
                 if isinstance(exc, ValueError) and str(exc).startswith(
-                    "Invalid region filter:"
+                    "Invalid region filter:",
                 ):
                     # Filters are edited one character at a time. Intermediate
                     # regexes can be invalid, so keep the last chart visible
@@ -1510,7 +1539,9 @@ def _build_textual_app_class():
             self.notify(f"Opened {url} for {prof_paths[0]} in Snakeviz.", timeout=8)
 
         def _show_plot_in_child_process(
-            self, node: BrowserNode, settings: dict[str, Any]
+            self,
+            node: BrowserNode,
+            settings: dict[str, Any],
         ) -> None:
             """Render a real Matplotlib figure outside Textual's event loop."""
             viewer = _matplotlib_child_script()

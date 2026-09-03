@@ -194,7 +194,7 @@ def test_snapshots_to_results():
             "events": np.array([10.0, 20.0]),
             "time": 1.5,
             "count": 3,
-        }
+        },
     ]
     (result,) = snapshots_to_results(snapshots)
     assert result.tag == "solve"
@@ -232,7 +232,8 @@ def test_markers_available_follows_the_environment():
     with mock.patch.dict(os.environ, {}, clear=True):
         assert not markers_available()
     with mock.patch.dict(
-        os.environ, {"LIKWID_FILEPATH": "/tmp/x", "LIKWID_EVENTS": "CLOCK"}
+        os.environ,
+        {"LIKWID_FILEPATH": "/tmp/x", "LIKWID_EVENTS": "CLOCK"},
     ):
         assert markers_available()
 
@@ -286,7 +287,7 @@ def test_parse_marker_file_is_multithread_aware(tmp_path):
     """Each thread of a region becomes a column, in file order."""
     path = tmp_path / "likwid.txt"
     path.write_text(
-        "2 1 1\n0:solve-0\n0 0 4 1 1.0e-03 2 1.0 2.0\n0 0 5 1 2.0e-03 2 3.0 4.0\n"
+        "2 1 1\n0:solve-0\n0 0 4 1 1.0e-03 2 1.0 2.0\n0 0 5 1 2.0e-03 2 3.0 4.0\n",
     )
 
     (result,) = parse_marker_file(str(path))
@@ -353,7 +354,10 @@ def test_isolated_collector_survives_a_segfaulting_child(tmp_path):
     # -11 is what subprocess reports for a child killed by SIGSEGV. The child
     # never got as far as writing anything, so there is nothing to salvage.
     crashed = subprocess.CompletedProcess(
-        args=[], returncode=-11, stdout=b"", stderr=b""
+        args=[],
+        returncode=-11,
+        stdout=b"",
+        stderr=b"",
     )
     with (
         mock.patch.dict(
@@ -388,8 +392,8 @@ def test_isolated_collector_salvages_results_written_before_a_crash(tmp_path):
                 events=np.array([[42.0]]),
                 metric_names=["CPI"],
                 metrics=np.array([[0.5]]),
-            )
-        )
+            ),
+        ),
     ]
 
     def write_then_crash(cmd, **kwargs):
@@ -477,7 +481,9 @@ def test_collection_falls_back_to_the_marker_file(monkeypatch, tmp_path):
     monkeypatch.setenv("LIKWID_THREADS", "10")
     # Stand in for the child crashing on a host that cannot count.
     monkeypatch.setattr(
-        likwid_data_module, "collect_marker_results_isolated", lambda *a, **k: None
+        likwid_data_module,
+        "collect_marker_results_isolated",
+        lambda *a, **k: None,
     )
 
     try:
@@ -631,7 +637,9 @@ def test_search_dirs_skip_paths_that_do_not_exist(monkeypatch):
     """Stale variables pointing nowhere must not become search entries."""
     monkeypatch.setattr(profile_config_module.shutil, "which", lambda _: None)
     with mock.patch.dict(
-        os.environ, {"LIKWID_HOME": "/nonexistent/likwid"}, clear=True
+        os.environ,
+        {"LIKWID_HOME": "/nonexistent/likwid"},
+        clear=True,
     ):
         assert _liblikwid_search_dirs() == []
 
@@ -674,7 +682,8 @@ def test_import_retries_after_preloading_liblikwid(monkeypatch):
 def test_import_fails_when_liblikwid_cannot_be_found(monkeypatch):
     """If nothing can be preloaded, the original error still surfaces."""
     attempts = _patch_pylikwid_import(
-        monkeypatch, [ImportError("liblikwid.so.5.3: cannot open shared object file")]
+        monkeypatch,
+        [ImportError("liblikwid.so.5.3: cannot open shared object file")],
     )
     monkeypatch.setattr(profile_config_module, "_preload_liblikwid", lambda: False)
 
@@ -686,7 +695,8 @@ def test_import_fails_when_liblikwid_cannot_be_found(monkeypatch):
 def test_import_does_not_retry_when_pylikwid_itself_is_missing(monkeypatch):
     """Preloading cannot conjure up the bindings, so that error propagates."""
     attempts = _patch_pylikwid_import(
-        monkeypatch, [ImportError("No module named 'pylikwid'")]
+        monkeypatch,
+        [ImportError("No module named 'pylikwid'")],
     )
     preloaded = []
     monkeypatch.setattr(
@@ -704,7 +714,7 @@ def test_import_does_not_retry_when_pylikwid_itself_is_missing(monkeypatch):
 def test_import_error_distinguishes_a_missing_shared_library():
     """pylikwid present but liblikwid unloadable must not read as "not installed"."""
     exc = ImportError(
-        "liblikwid.so.5.3: cannot open shared object file: No such file or directory"
+        "liblikwid.so.5.3: cannot open shared object file: No such file or directory",
     )
     with mock.patch.dict(os.environ, {"LIKWID_HOME": "/opt/likwid"}):
         message = _pylikwid_import_error(exc)

@@ -54,7 +54,7 @@ def test_pylikwid():
     if not under_likwid:
         print(
             "Not running under likwid-perfctr -m: LIKWID markers are no-ops, "
-            "skipping the hardware counter assertions."
+            "skipping the hardware counter assertions.",
         )
         assert not results.has_likwid
         return
@@ -109,7 +109,7 @@ def test_pylikwid():
         print(
             "\nWARNING: every hardware counter read zero. The marker plumbing "
             "works, but this host cannot actually count (virtualized CPU, "
-            f"counters disabled by SMT, ...). Source: {', '.join(sorted(sources))}"
+            f"counters disabled by SMT, ...). Source: {', '.join(sorted(sources))}",
         )
 
     print(f"LIKWID data verified in {H5_PATH} for rank(s) {results.likwid_ranks}")

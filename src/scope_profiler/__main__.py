@@ -247,13 +247,21 @@ def _report(argv):
         description="Write a standalone HTML report from profiling HDF5 files.",
     )
     parser.add_argument(
-        "files", nargs="+", help="Profiling HDF5 files or glob patterns"
+        "files",
+        nargs="+",
+        help="Profiling HDF5 files or glob patterns",
     )
     parser.add_argument(
-        "-o", "--output", required=True, metavar="PATH", help="HTML file to write"
+        "-o",
+        "--output",
+        required=True,
+        metavar="PATH",
+        help="HTML file to write",
     )
     parser.add_argument(
-        "--include", nargs="+", help="Only include matching region names"
+        "--include",
+        nargs="+",
+        help="Only include matching region names",
     )
     parser.add_argument("--exclude", nargs="+", help="Exclude matching region names")
     parser.add_argument("--ranks", nargs="+", help="Ranks to include, e.g. 0 2 or 0-3")
@@ -275,6 +283,14 @@ def _report(argv):
         help="Omit embedded interactive charts",
     )
     parser.add_argument(
+        "--charts-cdn",
+        action="store_true",
+        help=(
+            "Load Plotly from https://cdn.plot.ly instead of embedding it: "
+            "~4.7 MB smaller, but the charts then need a network connection"
+        ),
+    )
+    parser.add_argument(
         "--show",
         action="store_true",
         help="Open the generated report in the default browser",
@@ -292,6 +308,7 @@ def _report(argv):
         sort=args.sort,
         columns=args.columns,
         include_charts=not args.no_charts,
+        charts_cdn=args.charts_cdn,
     )
     print(f"Report written to: {output}")
     if args.show:
@@ -346,11 +363,14 @@ def _benchmark(argv):
     run_parser = subparsers.add_parser("run", help="run a benchmark config")
     run_parser.add_argument("config", help="benchmark TOML configuration")
     run_parser.add_argument(
-        "--label", default="candidate", help="baseline or candidate label"
+        "--label",
+        default="candidate",
+        help="baseline or candidate label",
     )
     run_parser.add_argument("--json", action="store_true", help="print only JSON")
     compare_parser = subparsers.add_parser(
-        "compare", help="compare two benchmark manifests"
+        "compare",
+        help="compare two benchmark manifests",
     )
     compare_parser.add_argument("baseline")
     compare_parser.add_argument("candidate")
@@ -542,7 +562,7 @@ def main(argv=None):
     if handler is None:
         parser.error(
             f"argument command: invalid choice: {command!r} "
-            f"(choose from {', '.join(map(repr, _COMMANDS))})"
+            f"(choose from {', '.join(map(repr, _COMMANDS))})",
         )
     return handler(rest)
 

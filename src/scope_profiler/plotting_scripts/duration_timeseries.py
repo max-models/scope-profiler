@@ -160,7 +160,7 @@ def plot_duration_timeseries(
                             float(values["min"][index]),
                             float(values["max"][index]),
                             int(values["num_ranks"][index]),
-                        ]
+                        ],
                     )
         header = [
             "file",
@@ -177,7 +177,11 @@ def plot_duration_timeseries(
             colors_map = {
                 name: _to_hex(color) for name, color in sorted(color_map.items())
             }
-            _write_json(data_filepath, {"points": points, "colors": colors_map})
+            _write_json(
+                data_filepath,
+                {"points": points, "colors": colors_map},
+                plot="timeseries",
+            )
         else:
             _write_csv(data_filepath, header, records)
 
@@ -215,7 +219,8 @@ def plot_duration_timeseries(
             line_hover = None
             if hover_enabled:
                 region, title = _hover_region(
-                    run.get_region(region_name), normalized_ranks
+                    run.get_region(region_name),
+                    normalized_ranks,
                 )
                 line_hover = [
                     _ps._hover_summary(

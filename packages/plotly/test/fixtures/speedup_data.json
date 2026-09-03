@@ -1,0 +1,47 @@
+{
+  "format": "scope-profiler-plot-data",
+  "format_version": 1,
+  "plot": "speedup",
+  "points": [
+    {
+      "region": "setup",
+      "num_ranks": 3,
+      "speedup": 1.0
+    },
+    {
+      "region": "setup",
+      "num_ranks": 6,
+      "speedup": 1.5664336577175795
+    },
+    {
+      "region": "solve",
+      "num_ranks": 3,
+      "speedup": 1.0
+    },
+    {
+      "region": "solve",
+      "num_ranks": 6,
+      "speedup": 1.594787491032169
+    },
+    {
+      "region": "exchange",
+      "num_ranks": 3,
+      "speedup": 1.0
+    },
+    {
+      "region": "exchange",
+      "num_ranks": 6,
+      "speedup": 1.5947875006964698
+    }
+  ],
+  "colors": {
+    "setup": "#1f77b4",
+    "solve": "#8c564b",
+    "exchange": "#9edae5"
+  },
+  "options": {
+    "x_field": "num_ranks",
+    "x_label": "MPI ranks",
+    "baseline": 3
+  }
+}

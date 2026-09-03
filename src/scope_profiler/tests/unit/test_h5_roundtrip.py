@@ -89,7 +89,7 @@ def runs(draw):
             min_size=1,
             max_size=5,
             unique=True,
-        )
+        ),
     )
     run = {}
     for rank in range(num_ranks):
@@ -104,7 +104,7 @@ def runs(draw):
                     st.integers(min_value=1, max_value=10_000),
                     min_size=2 * count,
                     max_size=2 * count,
-                )
+                ),
             )
             starts, ends, cursor = [], [], base
             for index in range(count):
@@ -144,7 +144,9 @@ def _assert_regions_equal(expected, actual, context):
         left, right = getattr(expected, name), getattr(actual, name)
         if isinstance(left, float) and isinstance(right, float):
             assert left == pytest.approx(
-                right, rel=1e-12, nan_ok=True
+                right,
+                rel=1e-12,
+                nan_ok=True,
             ), f"{context}: {name}"
         elif isinstance(left, np.ndarray) or isinstance(right, np.ndarray):
             assert np.array_equal(left, right), f"{context}: {name}"
@@ -162,7 +164,7 @@ def test_a_written_run_reads_back_identically(run, tmp_path_factory):
 
     assert results.num_ranks == len(run)
     assert sorted(results.region_names) == sorted(
-        {name for regions in run.values() for name in regions}
+        {name for regions in run.values() for name in regions},
     )
     for rank, regions in run.items():
         for name, (starts, ends) in regions.items():
@@ -205,7 +207,9 @@ def test_two_write_read_cycles_are_a_fixed_point(run, tmp_path_factory):
     for name in first.region_names:
         for rank in first[name].regions:
             _assert_regions_equal(
-                first[name][rank], second[name][rank], f"{name}@{rank}"
+                first[name][rank],
+                second[name][rank],
+                f"{name}@{rank}",
             )
     assert first.summary() == second.summary()
 
