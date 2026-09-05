@@ -1,0 +1,215 @@
+---
+title: 2. Post-processing profiling data
+jupyter: python3
+---
+
+> **Install for this tutorial:** `pip install "scope-profiler[pproc]"`;
+> pandas is used for the DataFrame examples.
+
+This notebook is a tour of the analysis API: `ProfilingResults` and the
+`MPIRegion` / `Region` objects it hands out.
+
+The one thing worth memorising: **every duration and timestamp in this API is in
+seconds**, converted from the nanoseconds stored on disk.
+
+
+```{python}
+import tempfile
+import time
+from pathlib import Path
+
+from scope_profiler import ProfileManager, read_h5
+
+WORKDIR = Path(tempfile.mkdtemp(prefix="scope-profiler-tutorial-"))
+DATA_FILE = WORKDIR / "profiling_data.h5"
+
+ProfileManager.setup(file_path=str(DATA_FILE))
+
+
+@ProfileManager.profile("assemble")
+def assemble(scale):
+    time.sleep(0.004 * scale)
+
+
+with ProfileManager.profile_region("setup"):
+    time.sleep(0.02)
+
+for step in range(5):
+    with ProfileManager.profile_region("timestep"):
+        assemble(scale=1 + step % 3)
+        with ProfileManager.profile_region("solve"):
+            time.sleep(0.003)
+
+ProfileManager.finalize(verbose=False)
+results = read_h5(DATA_FILE)
+results
+```
+
+## `ProfilingResults` is a mapping of regions
+
+It behaves like an ordered mapping from region name to region, so the
+usual Python idioms work.
+
+```{python}
+print("regions:", results.region_names)
+print("count:", len(results))
+print("'solve' recorded?", "solve" in results)
+print("ranks in file:", results.num_ranks)
+
+for region in results:
+    print(f"  {region.name:<10} {region.num_calls:>3} calls")
+```
+
+Asking for something that is not there tells you what *is* there:
+
+```{python}
+try:
+    results["sovle"]  # typo
+except KeyError as exc:
+    print(exc)
+```
+
+## Two levels: MPIRegion and Region
+
+`results["solve"]` returns an **`MPIRegion`** — the region across every rank that
+recorded it. Indexing it by rank gives a **`Region`**, the timings from that one
+rank.
+
+For a serial run there is only rank 0, but the two levels are the same API you
+use for an MPI run.
+
+```{python}
+timestep = results["timestep"]
+
+print("aggregated over ranks")
+print("  ranks       :", timestep.ranks)
+print("  num_calls   :", timestep.num_calls)
+print("  total   [s] :", timestep.total_duration)
+print("  average [s] :", timestep.average_duration)
+print("  min/max [s] :", timestep.min_duration, timestep.max_duration)
+print("  std     [s] :", timestep.std_duration)
+
+rank0 = timestep[0]
+print("\nrank 0 only")
+print("  durations [s]:", rank0.durations)
+print("  start times [s]:", rank0.start_times)
+print("  summary:", rank0.get_summary())
+```
+
+Per-rank breakdowns are available as dictionaries keyed by rank, which is where
+load imbalance shows up in an MPI run:
+
+```{python}
+print("calls per rank :", timestep.num_calls_per_rank())
+print("total per rank :", timestep.total_durations())
+print("avg per rank   :", timestep.average_durations())
+print("max per rank   :", timestep.max_durations())
+```
+
+## Summaries and DataFrames
+
+`summary()` returns one dict per region, aggregated over ranks.
+`print_summary()` formats the same data as a table.
+
+```{python}
+results.print_summary()
+```
+
+```{python}
+for row in results.summary():
+    print(row)
+```
+
+With pandas installed (it comes with the `plot` extra), `to_dataframe()` gives
+you the same data ready for sorting, filtering and plotting.
+
+```{python}
+frame = results.to_dataframe()
+frame.sort_values("total_duration", ascending=False)
+```
+
+`per_rank=True` emits one row per (region, rank) instead — the shape you want
+for load-balance analysis.
+
+```{python}
+results.to_dataframe(per_rank=True)
+```
+
+```{python}
+# Share of total recorded time per region.
+frame = frame.assign(share=lambda df: df.total_duration / df.total_duration.sum())
+frame[["name", "num_calls", "total_duration", "share"]].sort_values(
+    "share", ascending=False
+)
+```
+
+## Selecting regions
+
+`get_regions()`, `summary()`, `to_dataframe()` and the plotting functions all
+take `include` / `exclude`, which are **regular expressions** matched against
+the region name (via `re.match`, so they anchor at the start).
+
+```{python}
+print([region.name for region in results.get_regions(include="s")])
+print([region.name for region in results.get_regions(exclude=["setup", "assemble"])])
+print([row["name"] for row in results.summary(include=["solve", "timestep"])])
+```
+
+## Run metadata
+
+Each file carries the environment it was recorded in: the host and CPU, the
+loaded environment modules, the Slurm job it ran under, and selected
+environment variables such as `PATH` and `VIRTUAL_ENV`. This is what tells two
+otherwise identical runs apart months later.
+
+```{python}
+for key, value in sorted(results.metadata.items()):
+    # PATH and friends run to thousands of characters; clip them for display.
+    text = str(value)
+    if len(text) > 70:
+        text = text[:70] + " […]"
+    print(f"{key:>24}: {text}")
+```
+
+`scope-profiler inspect` prints the same metadata grouped and readable —
+together with per-region statistics — straight from the command line:
+
+```bash
+scope-profiler inspect profiling_data.h5
+scope-profiler inspect profiling_data.h5 --metadata-only
+```
+
+`write_metadata_json()` exports it instead, with one entry per file and no
+clipping of long values:
+
+```{python}
+from scope_profiler.inspection import write_metadata_json
+
+payload = write_metadata_json(DATA_FILE, WORKDIR / "metadata.json")
+print(sorted(payload["files"][0]["metadata"])[:8])
+```
+
+## Exporting statistics
+
+`collect_region_statistics()` builds a JSON-ready dict (durations in seconds,
+with a `units` field spelling that out), and `write_region_statistics_json()`
+writes it to a file. Both accept several runs at once for run comparisons.
+
+```{python}
+from scope_profiler import collect_region_statistics, write_region_statistics_json
+
+stats = collect_region_statistics(results, include="solve")
+print(stats["units"])
+print(stats["files"][0]["region_statistics"]["solve"])
+
+stats_path = WORKDIR / "region_statistics.json"
+write_region_statistics_json(results, stats_path)
+print("wrote", stats_path)
+```
+
+## Next
+
+[3. Visualizing results](03_visualization.md) turns these numbers into Gantt,
+flame and duration charts, and
+[5. Custom analysis](05_custom_analysis.md) goes below the summaries to the
+individual calls.

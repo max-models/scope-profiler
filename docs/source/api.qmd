@@ -1,5 +1,10 @@
 # API reference
 
+> **Install for this page:** `pip install "scope-profiler[pproc]"` covers the
+> complete reference. The core profiling and file APIs need only
+> `pip install scope-profiler`; plotting/DataFrames need `pproc`, and LIKWID
+> collection needs `scope-profiler[likwid]` plus a system LIKWID installation.
+
 ## ProfileManager
 
 The main entry point for all profiling operations. Class methods provide the
@@ -71,7 +76,7 @@ advanced use cases.
 ### ThreadedProfileRegion
 
 Selected by `track_threads=True`; see [Threads, tasks and
-coroutines](guide/concurrency.qmd).
+coroutines](guide/concurrency.md).
 
 ```{eval-rst}
 .. autoclass:: scope_profiler.region_profiler.ThreadedProfileRegion
@@ -225,12 +230,12 @@ Calls on different lanes overlap freely and are reconstructed as separate
 stacks. A run profiled with `track_threads` records a lane per call, which is
 what makes that possible; without it a whole rank is one lane, so profiling
 concurrent threads raises here instead. See [Threads, tasks and
-coroutines](guide/concurrency.qmd).
+coroutines](guide/concurrency.md).
 
 A stack of `with` blocks or decorated functions on one lane always satisfies
 this. The other realistic way to violate it is a mismatched `sp_begin`/`sp_end`
-pair in C or Fortran; see the [C](guide/c.qmd) and
-[Fortran](guide/fortran.qmd) guides.
+pair in C or Fortran; see the [C](guide/c.md) and
+[Fortran](guide/fortran.md) guides.
 
 `finalize()` is deliberately more forgiving than the readers: a rank whose
 intervals do not nest keeps its timings and loses only the call graph, with a

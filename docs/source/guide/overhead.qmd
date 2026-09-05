@@ -1,5 +1,8 @@
 # Profiling overhead
 
+> **Install for this page:** `pip install "scope-profiler[pproc]"`; the
+> benchmark uses maxplotlib to save its result as a figure.
+
 scope-profiler is designed for production HPC workloads where
 instrumentation must not distort the measurements. This page documents
 the per-call overhead of each profiling mode.

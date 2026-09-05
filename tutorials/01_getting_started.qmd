@@ -1,0 +1,178 @@
+---
+title: 1. Getting started
+jupyter: python3
+---
+
+> **Install for this tutorial:** `pip install scope-profiler` (base install
+> only).
+
+`scope-profiler` measures how long named *regions* of your code take, stores the
+raw per-call timings in HDF5, and gives you a Python API and CLI to analyse them.
+
+This notebook covers the recording side:
+
+1. configuring the profiler with `ProfileManager.setup()`
+2. marking regions with a context manager and with a decorator
+3. writing the results with `ProfileManager.finalize()`
+4. a first look at the output file
+
+Everything here runs in a single process — see
+[4. Profiling modes](04_profiling_modes.md) for MPI, LIKWID and the CLI.
+
+
+```{python}
+import tempfile
+from pathlib import Path
+
+from scope_profiler import ProfileManager
+
+# Keep the tutorial's output out of your working directory.
+WORKDIR = Path(tempfile.mkdtemp(prefix="scope-profiler-tutorial-"))
+DATA_FILE = WORKDIR / "profiling_data.h5"
+print(WORKDIR)
+```
+
+## Configuring the profiler
+
+The `ProfileManager` class methods use a process-wide default manager.
+`setup()` picks its recording strategy and output path; instantiate
+`ProfileManager()` only when you need independent sessions.
+
+The defaults record wall-clock timings for every call and flush them to disk, so
+for most runs `ProfileManager.setup(file_path=...)` is all you need.
+
+```{python}
+ProfileManager.setup(file_path=str(DATA_FILE))
+```
+
+## Marking a region with a context manager
+
+`ProfileManager.profile_region(name)` returns a region object you can use as a
+context manager. Entering it records a start timestamp, leaving it records the
+end — the region is created on first use and reused afterwards.
+
+```{python}
+import time
+
+
+def load_data(n):
+    time.sleep(0.01)
+    return list(range(n))
+
+
+def transform(values):
+    time.sleep(0.005)
+    return [value * 2 for value in values]
+
+
+with ProfileManager.profile_region("load"):
+    values = load_data(1000)
+
+for _ in range(3):
+    with ProfileManager.profile_region("transform"):
+        values = transform(values)
+```
+
+Each `with` block is one *call*. `transform` above was entered three times, so
+that region ends up with three recorded durations — the profiler keeps every
+call, not just an aggregate.
+
+## Marking a function with a decorator
+
+`@ProfileManager.profile` wraps a whole function. It works with or without
+parentheses, and takes an optional region name (the function's `__name__` is
+used otherwise).
+
+```{python}
+@ProfileManager.profile
+def solve():
+    time.sleep(0.02)
+
+
+@ProfileManager.profile("assemble_matrix")
+def assemble():
+    time.sleep(0.008)
+
+
+for _ in range(2):
+    assemble()
+    solve()
+```
+
+Decorators may be applied *before* `setup()` is called — at import time, for
+instance. `setup()` re-binds every registered decorator to the newly configured
+region class, so the decorated function always records with the current
+configuration and pays no per-call check for it.
+
+## Nesting regions
+
+Regions nest freely; the profiler records each one independently. Nesting is
+what the flame chart in
+[3. Visualizing results](03_visualization.md) reconstructs.
+
+```{python}
+with ProfileManager.profile_region("timestep"):
+    for _ in range(2):
+        with ProfileManager.profile_region("timestep.residual"):
+            time.sleep(0.004)
+        with ProfileManager.profile_region("timestep.update"):
+            time.sleep(0.002)
+```
+
+## Finalizing
+
+`finalize()` flushes the buffers, merges the per-rank files into the output file
+and (by default) prints a per-region summary. Call it once, at the end of the
+run.
+
+```{python}
+ProfileManager.finalize()
+```
+
+## Reading the results back
+
+`read_h5()` loads the merged file into a `ProfilingResults`. `print_summary()` is the quickest way
+to see what was recorded — all durations are in **seconds**.
+
+```{python}
+from scope_profiler import read_h5
+
+results = read_h5(DATA_FILE)
+results.print_summary()
+```
+
+```{python}
+solve_region = results["solve"]
+print(solve_region)
+print("calls:", solve_region.num_calls)
+print("average duration [s]:", solve_region.average_duration)
+print("per-call durations [s]:", solve_region[0].durations)
+```
+
+## What is in the file
+
+The output is a plain HDF5 file, so it is readable with any HDF5 tool. Regions
+live under `rank<N>/regions/<name>/` as `start_times` and `end_times` datasets
+of nanosecond timestamps, and run metadata lives under `metadata`.
+
+For a quick look at a file without writing any code, `scope-profiler inspect
+profiling_data.h5` prints its metadata and per-region statistics.
+
+```{python}
+import h5py
+
+with h5py.File(DATA_FILE, "r") as handle:
+    handle.visit(print)
+```
+
+```{python}
+for key, value in results.metadata.items():
+    print(f"{key:>24}: {value}")
+```
+
+## Next steps
+
+- [2. Post-processing](02_postprocessing.md) — the analysis API in depth
+- [3. Visualizing results](03_visualization.md) — Gantt, flame and duration charts
+- [4. Profiling modes](04_profiling_modes.md) — configuration, recursive
+  profiling, line profiling, MPI, LIKWID and the CLI

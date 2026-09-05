@@ -1,5 +1,10 @@
 # Examples and workflows
 
+> **Install for this page:** `pip install scope-profiler` runs the core
+> examples. `pip install "scope-profiler[extras]"` adds every broadly
+> installable example dependency; LIKWID remains separate and needs a system
+> LIKWID installation plus `scope-profiler[likwid]`.
+
 The repository includes small scripts for specific profiling tasks and a
 repeatable AI optimization workflow.
 

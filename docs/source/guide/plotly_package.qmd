@@ -1,5 +1,9 @@
 # Plotly figures for the web
 
+> **Install for this page:** export data with `pip install scope-profiler`;
+> render it in a web project with
+> `npm install @scope-profiler/plotly plotly.js-dist-min`.
+
 `@scope-profiler/plotly` is the browser-facing companion to
 `scope-profiler export plot-data --format json`. It builds plain Plotly figure
 specifications from the exported JSON, without importing Plotly itself. That

@@ -1,5 +1,9 @@
 # Profiling C and C++ code
 
+> **Install for this page:** `pip install scope-profiler` supplies the C/C++
+> sources. Building the examples requires a C99 compiler (and a C++11 compiler
+> for the RAII wrapper); no Python extra is required.
+
 scope-profiler ships a C region API with the same model as the Python one. A C
 program marks regions, writes a small trace file per rank, and
 `scope-profiler import-native` turns those traces into the usual HDF5 output —

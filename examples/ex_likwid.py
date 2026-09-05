@@ -69,7 +69,7 @@ def main() -> None:
     try:
         df = results.likwid_to_dataframe()
     except ImportError:
-        print("\n(install scope-profiler[plot] for the DataFrame view)")
+        print("\n(install scope-profiler[pproc] for the DataFrame view)")
     else:
         print("\nAs a DataFrame:")
         print(df.to_string(index=False))

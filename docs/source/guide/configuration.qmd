@@ -1,5 +1,8 @@
 # Configuration
 
+> **Install for this page:** `pip install scope-profiler`. The compression
+> section additionally needs `pip install "scope-profiler[compression]"`.
+
 All profiling behaviour is controlled through `ProfileManager.setup()`.
 This must be called **once** before any regions are created. Calls made on the
 `ProfileManager` class use its process-wide default configuration. Independent

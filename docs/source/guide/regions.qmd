@@ -1,5 +1,7 @@
 # Profiling regions
 
+> **Install for this page:** `pip install scope-profiler` (base install only).
+
 A **region** is the fundamental unit of measurement in scope-profiler.
 Every time a region is entered and exited, the profiler records a
 start/end timestamp pair and increments the call counter.

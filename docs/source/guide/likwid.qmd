@@ -1,5 +1,9 @@
 # LIKWID hardware counters
 
+> **Install for this page:** install LIKWID on the system first, then run
+> `pip install "scope-profiler[likwid]"`. Plotting recorded counters also needs
+> `scope-profiler[pproc]`.
+
 scope-profiler can wrap every profiled region in a
 [LIKWID](https://github.com/RRZE-HPC/likwid) marker region, using the
 [pylikwid](https://github.com/RRZE-HPC/pylikwid) bindings. At `finalize()` the

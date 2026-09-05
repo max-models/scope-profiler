@@ -1,5 +1,9 @@
 # HDF5 output & post-processing from Python
 
+> **Install for this page:** `pip install "scope-profiler[pproc]"` enables all
+> examples. Reading HDF5 and inspecting regions need only the base install;
+> pandas DataFrames and plotting need `pproc`.
+
 Unless `deactivate_file_output=True`, `finalize()` writes the run's timing
 data into a single HDF5 file. Under MPI, ranks write their own event arrays
 directly through parallel HDF5 or token-ordered access.
@@ -417,6 +421,8 @@ The chart displays one horizontal lane per (region, rank) combination,
 with bars spanning each recorded start-to-end interval. When multiple files
 are provided, each file gets its own stacked subplot in the exported chart.
 
+![Gantt output from the documented mock solver](../_static/figures/cli/gantt_plot.png)
+
 ## Comparison bar charts from Python
 
 ```python
@@ -454,6 +460,8 @@ is inserted before the file extension, e.g. `durations_avg.png`,
 `durations_total.png`. `plot_durations` returns the list of filepaths it
 wrote (empty if `filepath` is `None`).
 
+![Total duration grouped by region](../_static/figures/cli/durations_plot_total.png)
+
 ## Flame chart from Python
 
 ```python
@@ -473,6 +481,8 @@ remain distinguishable. Colors still identify the underlying region. When
 source capture is enabled, the flame data export includes each frame's
 `source_file` and `source_lineno`; Plotly hover cards show the same location.
 
+![Nested calls reconstructed as a flame chart](../_static/figures/cli/flame_plot.png)
+
 ## Duration over time from Python
 
 ```python
@@ -484,6 +494,8 @@ plot_duration_timeseries(results, filepath="duration_timeseries.png", show=True)
 One line per region tracks the mean duration of each call over wall-clock
 time, shaded between the minimum and maximum across the selected ranks, so
 rank imbalance and drift over the run become visible.
+
+![Per-call duration over the run](../_static/figures/cli/duration_timeseries_plot.png)
 
 ## Statistics JSON from Python
 

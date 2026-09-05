@@ -1,5 +1,9 @@
 # Profiling Fortran code
 
+> **Install for this page:** `pip install scope-profiler` supplies the Fortran
+> source and requires a Fortran 2008 compiler. For the Python/F2PY example, use
+> `pip install "scope-profiler[fortran]"` to add Meson and Ninja.
+
 scope-profiler ships a Fortran module with the same region model as the Python
 API. A Fortran program marks regions, writes a small trace file per rank, and
 `scope-profiler import-native` turns those traces into the usual HDF5 output —
