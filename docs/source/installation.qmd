@@ -1,5 +1,8 @@
 # Installation
 
+> **Warning:** These docs are built from the `devel` branch, so they may cover
+> features that are not yet available in the version published on PyPI.
+
 ## Basic install
 
 Install the latest release from [PyPI](https://pypi.org/project/scope-profiler/):
