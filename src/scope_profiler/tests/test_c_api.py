@@ -847,6 +847,273 @@ int main()
     assert "calls: 3" in output
 
 
+@pytest.mark.skipif(CXX_COMPILER is None, reason="no C++ compiler on PATH")
+def test_profile_macros_record_scope_function_and_source(tmp_path):
+    program = """
+#include "scope_profiler.hpp"
+
+static void solve()
+{
+    SP_PROFILE_FUNCTION();
+    { SP_PROFILE_SCOPE("inner"); }
+}
+
+int main()
+{
+    sp_init("macros", 0);
+    solve();
+    return sp_finalize();
+}
+"""
+    executable = build_cxx(tmp_path, program, name="profile_macros")
+    run(executable, tmp_path)
+
+    _, regions = read_trace(tmp_path / "macros_rank00000.spt")
+    assert "inner" in regions
+    function_name = next(name for name in regions if "solve" in name)
+    assert regions[function_name].source_file.endswith("profile_macros.cpp")
+    assert regions["inner"].source_lineno > 0
+
+
+@pytest.mark.skipif(CXX_COMPILER is None, reason="no C++ compiler on PATH")
+def test_disabled_profile_macros_emit_no_code_or_references(tmp_path):
+    """Arguments disappear too: disabled instrumentation has no side effects."""
+    source = tmp_path / "disabled.cpp"
+    source.write_text(
+        """
+#define SP_DISABLE_PROFILING
+#include "scope_profiler.hpp"
+
+const char *expensive_name(); // deliberately has no definition
+int main()
+{
+    SP_PROFILE_SCOPE(expensive_name());
+    SP_PROFILE_SCOPE("disabled-region-that-must-not-survive");
+    SP_PROFILE_FUNCTION();
+    return 0;
+}
+""",
+    )
+    executable = tmp_path / "disabled"
+    result = subprocess.run(
+        [
+            CXX_COMPILER,
+            "-std=c++11",
+            "-O2",
+            f"-I{c_include_dir()}",
+            str(source),
+            "-o",
+            str(executable),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    run(executable, tmp_path)
+    assert b"disabled-region-that-must-not-survive" not in executable.read_bytes()
+
+
+@pytest.mark.skipif(CXX_COMPILER is None, reason="no C++ compiler on PATH")
+def test_header_only_backend_is_shared_across_translation_units(tmp_path):
+    """C++17 inline state links once and records scopes entered in another TU."""
+    (tmp_path / "worker.cpp").write_text(
+        """
+#define SP_HEADER_ONLY
+#include "scope_profiler.hpp"
+void worker() { SP_PROFILE_SCOPE("worker"); }
+""",
+    )
+    (tmp_path / "main.cpp").write_text(
+        """
+#define SP_HEADER_ONLY
+#include "scope_profiler.hpp"
+void worker();
+int main()
+{
+    sp_init("header_only", 0);
+    worker();
+    return sp_finalize();
+}
+""",
+    )
+    executable = tmp_path / "header_only"
+    result = subprocess.run(
+        [
+            CXX_COMPILER,
+            "-std=c++17",
+            "-Wall",
+            "-Wextra",
+            "-pedantic",
+            "-O1",
+            f"-I{c_include_dir()}",
+            str(tmp_path / "main.cpp"),
+            str(tmp_path / "worker.cpp"),
+            "-o",
+            str(executable),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    run(executable, tmp_path)
+    _, regions = read_trace(tmp_path / "header_only_rank00000.spt")
+    assert len(regions["worker"][0]) == 1
+
+
+@pytest.mark.skipif(CXX_COMPILER is None, reason="no C++ compiler on PATH")
+def test_native_likwid_scopes_drive_marker_api(tmp_path):
+    """A stand-in header exercises LIKWID integration without special hardware."""
+    (tmp_path / "likwid-marker.h").write_text(
+        """
+#ifndef FAKE_LIKWID_MARKER_H
+#define FAKE_LIKWID_MARKER_H
+void fake_likwid_init(void);
+void fake_likwid_thread_init(void);
+void fake_likwid_start(const char *);
+void fake_likwid_stop(const char *);
+void fake_likwid_close(void);
+#define LIKWID_MARKER_INIT fake_likwid_init()
+#define LIKWID_MARKER_THREADINIT fake_likwid_thread_init()
+#define LIKWID_MARKER_START(tag) fake_likwid_start(tag)
+#define LIKWID_MARKER_STOP(tag) fake_likwid_stop(tag)
+#define LIKWID_MARKER_CLOSE fake_likwid_close()
+#endif
+""",
+    )
+    source = tmp_path / "likwid_scope.cpp"
+    source.write_text(
+        """
+#define SP_USE_LIKWID
+#include "scope_profiler.hpp"
+#include <cstdio>
+#include <cstring>
+#include <stdexcept>
+
+static int initialized, thread_initialized, started, stopped, closed;
+void fake_likwid_init(void) { ++initialized; }
+void fake_likwid_thread_init(void) { ++thread_initialized; }
+void fake_likwid_start(const char *tag) { if (!std::strcmp(tag, "solve")) ++started; }
+void fake_likwid_stop(const char *tag) { if (!std::strcmp(tag, "solve")) ++stopped; }
+void fake_likwid_close(void) { ++closed; }
+
+int main()
+{
+    {
+        sp::LikwidSession counters;
+        sp_init("likwid", 0);
+        try {
+            SP_PROFILE_SCOPE("solve");
+            throw std::runtime_error("leave by exception");
+        } catch (const std::runtime_error &) {}
+        sp_finalize();
+    }
+    std::printf("%d %d %d %d %d\\n",
+                initialized, thread_initialized, started, stopped, closed);
+    return 0;
+}
+""",
+    )
+    object_file = tmp_path / "scope_profiler.o"
+    subprocess.run(
+        [COMPILER, "-std=c99", f"-I{c_include_dir()}", "-c", str(SOURCE), "-o", str(object_file)],
+        check=True,
+    )
+    executable = tmp_path / "likwid_scope"
+    result = subprocess.run(
+        [
+            CXX_COMPILER,
+            "-std=c++11",
+            "-Wall",
+            "-Wextra",
+            f"-I{tmp_path}",
+            f"-I{c_include_dir()}",
+            str(source),
+            str(object_file),
+            "-o",
+            str(executable),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert run(executable, tmp_path).stdout.strip() == "1 1 1 1 1"
+    _, regions = read_trace(tmp_path / "likwid_rank00000.spt")
+    assert len(regions["solve"][0]) == 1
+
+
+@pytest.mark.skipif(shutil.which("cmake") is None, reason="cmake is not installed")
+def test_cmake_install_exports_working_header_only_target(tmp_path):
+    """The installed config is consumable by an unrelated CMake project."""
+    repository = Path(__file__).resolve().parents[3]
+    build_dir = tmp_path / "scope-build"
+    prefix = tmp_path / "prefix"
+    consumer_build = tmp_path / "consumer-build"
+
+    subprocess.run(
+        ["cmake", "-S", str(repository), "-B", str(build_dir), f"-DCMAKE_INSTALL_PREFIX={prefix}"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["cmake", "--build", str(build_dir), "--target", "install"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        [
+            "cmake",
+            "-S",
+            str(repository / "examples" / "cmake"),
+            "-B",
+            str(consumer_build),
+            f"-DCMAKE_PREFIX_PATH={prefix}",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["cmake", "--build", str(consumer_build)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    executable = consumer_build / "profiled-app"
+    run(executable, consumer_build)
+    _, regions = read_trace(consumer_build / "cmake-profile_rank00000.spt")
+    assert any("solve" in name for name in regions)
+
+    fetch_build = tmp_path / "fetch-build"
+    subprocess.run(
+        [
+            "cmake",
+            "-S",
+            str(repository / "examples" / "cmake"),
+            "-B",
+            str(fetch_build),
+            "-DSCOPE_PROFILER_USE_FETCHCONTENT=ON",
+            f"-DSCOPE_PROFILER_SOURCE_DIR={repository}",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["cmake", "--build", str(fetch_build)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    run(fetch_build / "profiled-app", fetch_build)
+    _, fetched_regions = read_trace(fetch_build / "cmake-profile_rank00000.spt")
+    assert any("solve" in name for name in fetched_regions)
+
+
 def test_scope_token_checked_ordering(tmp_path):
     program = """
 #include "scope_profiler.h"

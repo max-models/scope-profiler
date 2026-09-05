@@ -145,6 +145,7 @@ scope_profiler = [
   "c/*.c",
   "c/*.h",
   "c/*.hpp",
+  "c/*_impl.h",
   "c/Makefile",
   # Browser figure builders bundled at an exact npm-package version for
   # self-contained HTML reports.

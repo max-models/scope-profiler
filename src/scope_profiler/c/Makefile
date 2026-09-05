@@ -8,7 +8,7 @@
 #   make clean
 #
 # There is nothing to link beyond libc (and libm, for the example's sqrt):
-# the implementation is one C99 file, no HDF5 and no MPI.
+# the implementation entry point is C99, with no HDF5 and no MPI.
 
 CC ?= cc
 CXX ?= c++
@@ -27,7 +27,7 @@ all: $(EXAMPLE)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(LIB_OBJ): scope_profiler.c scope_profiler.h | $(BUILD_DIR)
+$(LIB_OBJ): scope_profiler.c scope_profiler.h scope_profiler_impl.h | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I. -c scope_profiler.c -o $@
 
 $(EXAMPLE): example.c $(LIB_OBJ)
@@ -37,10 +37,9 @@ run: $(EXAMPLE)
 	cd $(BUILD_DIR) && ./example
 	scope-profiler import-native $(BUILD_DIR) -o $(BUILD_DIR)/profiling_data.h5
 
-# scope_profiler.hpp is header-only; there is nothing to link, just a
-# translation unit that includes it, so a stale copy that fails to compile is
-# caught here rather than at a user's first build.
-hpp-check: scope_profiler.hpp scope_profiler.h | $(BUILD_DIR)
+# scope_profiler.hpp is a header-only wrapper (and can include the complete
+# implementation in C++17 mode). Compile-check the C++11 wrapper here.
+hpp-check: scope_profiler.hpp scope_profiler.h scope_profiler_impl.h | $(BUILD_DIR)
 	echo '#include "scope_profiler.hpp"' > $(BUILD_DIR)/hpp_check.cpp
 	$(CXX) $(CXXFLAGS) -I. -c $(BUILD_DIR)/hpp_check.cpp -o $(HPP_CHECK_OBJ)
 

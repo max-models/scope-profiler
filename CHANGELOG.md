@@ -4,6 +4,20 @@
 
 ### Added
 
+- C++ call sites can use `SP_PROFILE_SCOPE`, `SP_PROFILE_FUNCTION`, and their
+  explicit-context variants. Defining `SP_DISABLE_PROFILING` removes the
+  instrumentation completely, including argument evaluation, region strings,
+  and references to the native profiler ABI.
+- C++17 projects can define `SP_HEADER_ONLY` (or link the corresponding CMake
+  target) to get inline recorder definitions shared across translation units,
+  without compiling or distributing `scope_profiler.c`.
+- Native C++ scopes can drive LIKWID marker counters directly with
+  `SP_USE_LIKWID`, `sp::LikwidSession`, and `sp::likwid_thread_init()`, while
+  still recording the normal scope-profiler timeline.
+- A first-class CMake package exports `scope-profiler::native`,
+  `scope-profiler::cpp`, `scope-profiler::header-only`, and, when configured,
+  `scope-profiler::likwid`; the same targets work from an installed package or
+  through FetchContent.
 - The C API gained an explicit-context form for library code that must not
   interfere with a caller's own profiling (or with another instance of
   itself): `sp_create()`/`sp_destroy()` plus `sp_profiler_region()`,

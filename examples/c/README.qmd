@@ -14,6 +14,9 @@ what is instrumented in there. The same file is then used by:
 Everything here needs is a C compiler. The `ctypes` bridge needs no binding
 generator and no build backend — unlike the Fortran examples, which need f2py.
 
+For a C++ consumer using the RAII macros, header-only backend, and exported
+CMake targets, see `examples/cmake/` and the C/C++ guide.
+
 ## Standalone C
 
 ```bash
