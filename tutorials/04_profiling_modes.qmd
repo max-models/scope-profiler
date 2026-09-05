@@ -1,0 +1,250 @@
+---
+title: 4. Profiling modes and configuration
+jupyter: python3
+---
+
+> **Install for this tutorial:** `pip install scope-profiler` covers the
+> executable examples. The optional sections require
+> `scope-profiler[line-profiler]`, `scope-profiler[mpi]`, or
+> `scope-profiler[likwid]` as stated below.
+
+`ProfileManager.setup()` decides *what* is recorded. Under the hood it selects a
+region class specialised for that combination of options, so the recording path
+contains no configuration checks at all:
+
+| flags | region class |
+| --- | --- |
+| `deactivate_profiling=True` | `DisabledProfileRegion` |
+| *(defaults)* | `TimeOnlyProfileRegion` |
+| `use_likwid=True` | `FullProfileRegion` |
+| `use_line_profiler=True` | `LineProfilerRegion` |
+
+Every active region records nanosecond timestamps; the flags decide what it
+records on top of them. `use_line_profiler=True` wins over `use_likwid=True`.
+
+`deactivate_file_output` is deliberately absent from the table: recording works
+the same either way, and the flag only decides whether `finalize()` writes the
+buffers out.
+
+
+```{python}
+import tempfile
+import time
+from pathlib import Path
+
+from scope_profiler import ProfileManager, read_h5
+
+WORKDIR = Path(tempfile.mkdtemp(prefix="scope-profiler-tutorial-"))
+
+
+def workload():
+    time.sleep(0.002)
+
+
+def show_region_class():
+    region = ProfileManager.profile_region("probe")
+    print("  region class:", type(region).__name__)
+```
+
+## Turning profiling off
+
+`deactivate_profiling=True` swaps in a region class whose decorator returns the
+*original* function — no wrapper, no timestamps, nothing to strip out of your
+code before a production run.
+
+```{python}
+ProfileManager.setup(deactivate_profiling=True)
+show_region_class()
+
+
+@ProfileManager.profile
+def maybe_profiled():
+    workload()
+
+
+maybe_profiled()
+# Nothing was recorded, and finalize() writes no file.
+print("  calls recorded:", ProfileManager.get_region("probe").num_calls)
+```
+
+## Keeping data in memory
+
+`deactivate_file_output=True` records timings but writes no HDF5 file at all, so
+the buffers stay in-process. Use it for short runs, or when the filesystem is
+the thing you are trying not to disturb.
+
+```{python}
+ProfileManager.setup(deactivate_file_output=True, file_path=str(WORKDIR / "unused.h5"))
+show_region_class()
+
+for _ in range(3):
+    with ProfileManager.profile_region("in_memory"):
+        workload()
+
+region = ProfileManager.get_region("in_memory")
+print("  calls   :", region.num_calls)
+print("  durations [ns]:", region.get_durations_numpy())
+```
+
+```{python}
+results = ProfileManager.finalize(verbose=False, return_results=True)
+
+print("file written  :", (WORKDIR / "unused.h5").exists())
+print("num_calls     :", results["in_memory"].num_calls)
+print("total [s]     :", results["in_memory"].total_duration)
+```
+
+Note that the in-memory buffers hold raw **nanosecond** timestamps — the
+seconds-based API starts at `read_h5()`.
+
+## Buffer size
+
+Timings accumulate in a numpy buffer that doubles in size whenever it fills, so
+a region can record as many calls as memory allows. `buffer_limit` sets the
+*initial* capacity (1024 by default, i.e. 16 KB per region); raising it for a
+very hot region avoids a handful of reallocations, and lowering it saves memory
+when profiling produces many sparsely-called regions.
+
+Everything is written to HDF5 once, at `finalize()`. Because the final length is
+known by then, the datasets are stored exactly sized — a region with 5 calls
+costs a few hundred bytes rather than a full chunk.
+
+```{python}
+buffered_file = WORKDIR / "buffered.h5"
+ProfileManager.setup(buffer_limit=4, file_path=str(buffered_file))  # tiny on purpose
+
+for _ in range(10):
+    with ProfileManager.profile_region("grows_often"):
+        pass
+
+region = ProfileManager.get_region("grows_often")
+print("  calls    :", region.num_calls)
+print("  capacity :", region.capacity, "(grew from 4)")
+
+ProfileManager.finalize(verbose=False)
+print("recorded  :", read_h5(buffered_file)["grows_often"].num_calls)
+```
+
+## Recursive profiling
+
+`recursive_profile=True` traces the functions *called by* a profiled function
+and gives each its own region, named `<module>.<qualname>` — the same idea as
+`cProfile`, but scoped to the region you care about. It can also be enabled per
+decorator with `@ProfileManager.profile(recursive=True)`.
+
+It uses `sys.setprofile`, so it is much more expensive than explicit regions:
+reach for it when exploring, not in production.
+
+```{python}
+recursive_file = WORKDIR / "recursive.h5"
+ProfileManager.setup(file_path=str(recursive_file))
+
+
+def leaf():
+    time.sleep(0.001)
+
+
+def middle():
+    for _ in range(2):
+        leaf()
+
+
+@ProfileManager.profile("entry", recursive=True)
+def entry():
+    middle()
+
+
+entry()
+ProfileManager.finalize(verbose=False)
+read_h5(recursive_file).print_summary()
+```
+
+## Line-by-line profiling
+
+`use_line_profiler=True` routes decorated functions through
+[line_profiler](https://github.com/pyutils/line_profiler) as well as recording
+region timings. `finalize()` prints the per-line table.
+
+With the context-manager form, pass the functions explicitly —
+`profile_region("name", functions=[fn])` — since there is no decorated function
+to register.
+
+```{python}
+line_file = WORKDIR / "line.h5"
+ProfileManager.setup(use_line_profiler=True, file_path=str(line_file))
+
+
+@ProfileManager.profile("hot_function")
+def hot_function(n):
+    total = 0.0
+    for i in range(n):
+        total += i**0.5
+    time.sleep(0.001)
+    return total
+
+
+hot_function(20_000)
+ProfileManager.finalize()
+```
+
+## Profiling a script you cannot edit
+
+`scope-profiler run` profiles an uninstrumented script — no decorators, no
+`setup()` call — by tracing every user-level function call:
+
+```bash
+scope-profiler run my_script.py --arg value
+scope-profiler run my_script.py -o profiling_data.h5 --all
+```
+
+By default it skips stdlib and site-packages frames so the output stays focused
+on your code. The Python equivalent is `ProfileManager.run_script(...)`.
+
+## MPI
+
+Under MPI each rank writes its indexed slice to the shared output, using
+parallel HDF5 when available or a serialized token writer otherwise. Nothing
+changes in your code — install the `mpi` extra and run:
+
+```bash
+mpirun -n 4 python my_simulation.py
+```
+
+The merged file gains one `rank<N>` group per rank, and every `MPIRegion`
+property aggregates over them (see
+[2. Post-processing](02_postprocessing.md)).
+
+## LIKWID hardware counters
+
+With `use_likwid=True` each region is wrapped in a LIKWID marker region, so
+hardware counters are attributed per region. This needs
+[LIKWID](https://github.com/RRZE-HPC/likwid) and `pylikwid`, and the job must be
+launched through LIKWID:
+
+```bash
+likwid-mpirun -n 2 -g FLOPS_SP -mpi openmpi -marker python my_simulation.py
+```
+
+Raw events and derived metrics are collected from LIKWID and stored beside the
+timing data in scope-profiler's HDF5 output.
+
+## Choosing a mode
+
+- **Production runs** — the defaults. Overhead is well under a microsecond per
+  region entry.
+- **Very hot regions** — wrap a coarser scope. A region entered millions of
+  times will dominate its own measurement.
+- **Exploration** — `recursive_profile=True` or `scope-profiler run` to find the
+  hot spots, then place explicit regions and turn it back off.
+- **Shipping the instrumentation** — leave the decorators in and set
+  `deactivate_profiling=True`; they cost nothing.
+
+`examples/benchmark_overhead.py` in the repository measures the per-call cost of
+each mode on your own machine.
+
+## Next
+
+[5. Custom analysis](05_custom_analysis.md) and
+[6. Building your own plots](06_custom_plots.md) pick the recorded data apart
+call by call, for the questions the built-in summaries and charts do not
+answer.

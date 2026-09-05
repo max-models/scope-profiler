@@ -208,6 +208,8 @@ docs/source/_static/figures/
 # and run `make -C docs html` to regenerate these files.
 docs/source/*.md
 docs/source/guide/*.md
+tutorials/*.md
+tutorials/*_files/
 examples/agent_workflow/README.md
 examples/c/README.md
 examples/fortran/README.md

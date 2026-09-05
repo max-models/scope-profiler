@@ -1,5 +1,9 @@
 # MPI support
 
+> **Install for this page:** `pip install "scope-profiler[mpi]"`, plus an MPI
+> implementation such as Open MPI or MPICH. Parallel HDF5 output additionally
+> requires an MPI-enabled build of h5py; serial-HDF5 merging does not.
+
 scope-profiler is MPI-aware out of the box. When the process is launched
 under an MPI launcher and `mpi4py` is installed, the profiler
 automatically detects `MPI.COMM_WORLD` and handles per-rank data

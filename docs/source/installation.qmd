@@ -1,5 +1,8 @@
 # Installation
 
+> **Warning:** These docs are built from the `devel` branch, so they may cover
+> features that are not yet available in the version published on PyPI.
+
 ## Basic install
 
 Install the latest release from [PyPI](https://pypi.org/project/scope-profiler/):
@@ -8,29 +11,39 @@ Install the latest release from [PyPI](https://pypi.org/project/scope-profiler/)
 pip install scope-profiler
 ```
 
-This pulls in the only hard dependencies: **numpy** and **h5py**.
+This pulls in all hard dependencies: **numpy**, **h5py**, and **tabulate**
+(`tomli` is also installed on Python 3.10).
 
 ## Optional extras
 
 scope-profiler ships several optional dependency groups that you can install
 with the bracket syntax:
 
-| Extra           | Install command                               | What it adds                                                                         |
-| --------------- | --------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `extras`        | `pip install "scope-profiler[extras]"`        | Broadly installable runtime integrations, including Memray (excludes LIKWID)       |
-| `likwid`        | `pip install "scope-profiler[likwid]"`        | LIKWID hardware counters via [pylikwid](https://github.com/RRZE-HPC/pylikwid)         |
+| Extra           | Install command                               | What it adds |
+| --------------- | --------------------------------------------- | ------------ |
+| `compression`   | `pip install "scope-profiler[compression]"`  | Compressed HDF5 output via `hdf5plugin` |
+| `fortran`       | `pip install "scope-profiler[fortran]"`      | Meson and Ninja for the Python/Fortran example build |
+| `likwid`        | `pip install "scope-profiler[likwid]"`       | LIKWID hardware counters via [pylikwid](https://github.com/RRZE-HPC/pylikwid) |
 | `line-profiler` | `pip install "scope-profiler[line-profiler]"` | Line-by-line profiling via [line_profiler](https://github.com/pyutils/line_profiler) |
-| `nvtx`          | `pip install "scope-profiler[nvtx]"`          | NVTX ranges for NVIDIA Nsight profiling                                                  |
-| `mcp`           | `pip install "scope-profiler[mcp]"`           | The `scope-profiler-mcp` server, for AI coding agents (see {doc}`guide/mcp`)          |
-| `mpi`           | `pip install "scope-profiler[mpi]"`           | MPI support via [mpi4py](https://mpi4py.readthedocs.io/)                             |
-| `pproc`         | `pip install "scope-profiler[pproc]"`         | Plotting, post-processing, and TUI browsing (`scope-profiler plot`, `scope-profiler tui`, `to_dataframe()`) |
-| `dev`           | `pip install "scope-profiler[dev]"`           | All of the above plus linting, formatting, and docs tools                            |
+| `mcp`           | `pip install "scope-profiler[mcp]"`         | The `scope-profiler-mcp` server (see {doc}`guide/mcp`) |
+| `mpi`           | `pip install "scope-profiler[mpi]"`         | MPI support via [mpi4py](https://mpi4py.readthedocs.io/) |
+| `notebook`      | `pip install "scope-profiler[notebook]"`    | IPython and the notebook magics |
+| `nvtx`          | `pip install "scope-profiler[nvtx]"`        | NVTX ranges for NVIDIA Nsight profiling |
+| `perf-events`   | `pip install "scope-profiler[perf-events]"` | Built-in Linux hardware counters |
+| `pproc`         | `pip install "scope-profiler[pproc]"`       | Plotting backends (including PyVis call graphs), pandas DataFrames, JupyterLab, SnakeViz, and TUI plotting |
+| `tui`           | `pip install "scope-profiler[tui]"`         | Text-only interactive browsing; add `pproc` for its plots |
+| `extras`        | `pip install "scope-profiler[extras]"`      | All broadly installable runtime integrations above except LIKWID |
+| `dev`           | `pip install "scope-profiler[dev]"`         | Development, tests, documentation, and runtime integrations |
 
-The base install pulls in only `h5py` and `numpy`. Recording timings, writing
-HDF5 and `scope-profiler inspect` all work with that alone; the extras are
-needed only for the features they name. `use_line_profiler=True` raises a
-clear `ImportError` if the `line-profiler` extra is not installed, as
-`use_likwid=True` does for `pylikwid`.
+`pproc` is the name of an installation extra, not a CLI subcommand. Use
+`scope-profiler plot`, `scope-profiler inspect`, `scope-profiler report`, or
+`scope-profiler export` for post-processing.
+
+The base install and its hard dependencies above are sufficient for recording
+timings, writing HDF5, and `scope-profiler inspect`; extras are needed only for
+the features they name. `use_line_profiler=True` raises a clear `ImportError`
+if the `line-profiler` extra is not installed, as `use_likwid=True` does for
+`pylikwid`.
 
 ## Development install
 

@@ -1,0 +1,295 @@
+---
+title: 7. Notebook magics
+jupyter: python3
+---
+
+> **Install for this tutorial:**
+> `pip install "scope-profiler[notebook,pproc,line-profiler]"`.
+
+`scope-profiler` ships eleven IPython magics that wrap the same
+`ProfileManager.session()`/`profile_region()` API the other tutorials use by
+hand: `%%scope`, `%scope_timeit`, `%%scope_line`, `%%scope_recursive`,
+`%%scope_agg`, `%scope_load`, `%scope_df`, `%scope_last`, `%scope_compare`,
+`%scope_export`, and `%scope_reset`. They
+are meant for the "how long is this cell/line taking, and did my change help"
+loop you run dozens of times while developing in a notebook, without writing
+the session boilerplate out each time.
+
+The combined install above adds IPython, the plotting/DataFrame dependencies,
+and `line_profiler`. The equivalent explicit groups are:
+
+```bash
+pip install "scope-profiler[notebook,pproc,line-profiler]"
+```
+
+Nothing here writes an HDF5 file --- every magic below runs with
+`deactivate_file_output=True`, so results live only in the kernel's memory for
+the duration of this session. See {doc}`../guide/notebook_magics` for the full
+reference.
+
+
+```{python}
+%load_ext scope_profiler.ipython_magics
+
+import time
+
+from scope_profiler import ProfileManager
+```
+
+## A toy workload
+
+Two versions of the same computation, one deliberately slower than the other,
+so there is something worth comparing below. `time.sleep` stands in for real
+work, as in the other tutorials, so the timings are stable regardless of the
+machine running this notebook.
+
+```{python}
+def naive_sum_of_squares(n):
+    total = 0
+    for i in range(n):
+        time.sleep(0.0001)  # pretend each term is expensive to compute
+        total += i * i
+    return total
+
+
+def fast_sum_of_squares(n):
+    # closed form: 0^2 + 1^2 + ... + (n-1)^2
+    time.sleep(0.001)  # a little fixed overhead, no per-term cost
+    return (n - 1) * n * (2 * n - 1) // 6
+```
+
+## `%%scope` --- profile a cell
+
+`%%scope name` runs the cell inside a profiling region called `name` (default
+`"cell"`) and prints the summary table right after. The result is kept in
+memory under that name for `%scope_last`/`%scope_compare` to refer back to.
+
+```{python}
+%%scope naive
+result_naive = naive_sum_of_squares(50)
+result_naive
+```
+
+Nested regions work exactly as they do in a script --- `%%scope` only adds the
+outer region and the in-memory session. Add `-p`/`--plot` to also show a
+duration bar chart of everything the cell recorded, or `-q` to skip the
+printed table (the run is still recorded).
+
+```{python}
+%%scope -p
+with ProfileManager.profile_region("load"):
+    time.sleep(0.02)
+
+with ProfileManager.profile_region("process"):
+    time.sleep(0.01)
+```
+
+## `%scope_timeit` --- time a statement
+
+`%scope_timeit` answers the same question as the built-in `%timeit`, but
+through scope-profiler's own region timer and table, so its output is
+directly comparable to `%%scope`/`%scope_compare`.
+
+```{python}
+%scope_timeit -n 5 fast_sum_of_squares(50)
+```
+
+## `%%scope_recursive` --- profile a cell with nothing instrumented
+
+Everything so far needed you to say *what* to measure. `%%scope_recursive`
+does not: it records every Python call the cell makes as its own region, so
+it answers "where did the time go?" before you know what to instrument. This
+is `recursive_profile=True` --- the same thing `scope-profiler run` does to a
+script.
+
+```{python}
+%%scope_recursive
+def step(values):
+    return [value * 2 for value in values]
+
+
+def simulate(num_steps):
+    values = list(range(2_000))
+    for _ in range(num_steps):
+        values = step(values)
+        time.sleep(0.001)
+    return values
+
+
+final = simulate(10)
+```
+
+The table is sorted by total time and nests by call depth, so `simulate` and
+`step` show up on their own without a single decorator. Use this first, then
+reach for `%%scope`/`%%scope_line` on whatever it points at.
+
+Two things to keep in mind: library internals called from the cell are traced
+too (noisy, and each traced call costs overhead --- keep such cells small,
+and filter with `--include`), and the cell runs via `exec`, so a trailing
+expression is not echoed as `Out[n]`.
+
+## `%%scope_agg` --- aggregation mode for very hot regions
+
+A region entered a million times would store a million timestamps. With
+`aggregation_mode=True` each region keeps only its count, total, min/max and
+exclusive time --- bounded memory, and cheap enough to leave in a hot loop.
+
+```{python}
+%%scope_agg hot
+for _ in range(50_000):
+    with ProfileManager.profile_region("tick"):
+        pass
+```
+
+The trade-off: there is no per-call timeline, so Gantt charts and
+`%scope_df --events` have nothing to show for this run. Summaries and
+comparisons work as usual.
+
+## `%scope_last` --- reprint a previous run
+
+Reprints a recorded run's table without re-running anything --- handy after
+scrolling past a result, or to re-render it with a different `--include`.
+With no name, it reprints the most recently recorded run:
+
+```{python}
+%scope_last
+```
+
+Or name one explicitly:
+
+```{python}
+%scope_last naive
+```
+
+## `%scope_compare` --- compare two runs
+
+Record the optimized version under its own name, then compare it against the
+naive one region-by-region --- the same table `scope-profiler diff` prints
+for two HDF5 files, here for two in-notebook runs.
+
+```{python}
+%%scope optimized
+result_optimized = fast_sum_of_squares(50)
+assert result_optimized == result_naive
+```
+
+```{python}
+%scope_compare naive optimized
+```
+
+Regions are matched by name, so `naive` and `optimized` -- named after their
+own `%%scope` cell -- each show up as "only in a"/"only in b": there is
+nothing on the other side to diff them against. `scope_profiler.session`, the
+outer region every run has, *is* present in both, and its row is the real
+before/after number. To get a per-region diff instead of just the session
+total, give the part you want compared the same name in both cells, e.g. wrap
+it in `ProfileManager.profile_region("compute")` inside each `%%scope` cell.
+
+With no arguments, `%scope_compare` compares the two most recently recorded
+runs, so plain `%scope_compare` would have worked here too. Pass `--metric`
+(`total`, `avg`, `min`, `max`, `p50`, `p95`, `p99`, `imbalance`, or `calls`)
+or `--sort` (`delta`, `pct`, `name`) to change what is compared or how rows
+are ordered.
+
+```{python}
+%scope_compare naive optimized --metric avg --sort name
+```
+
+## `%%scope_line` --- line-by-line profiling for a cell
+
+Wall-clock totals tell you *that* `naive_sum_of_squares` is slow; line
+profiling tells you *which line*. `%%scope_line` runs the cell with
+`use_line_profiler=True` and prints per-line hit counts and time for whatever
+the cell hands to line_profiler -- needs the `line-profiler` extra. Prefer
+decorating the function you care about with `@ProfileManager.profile`, as
+below: it registers cleanly regardless of where it's called from.
+
+```{python}
+%%scope_line
+@ProfileManager.profile("naive_line")
+def naive_sum_of_squares_traced(n):
+    total = 0
+    for i in range(n):
+        time.sleep(0.0001)
+        total += i * i
+    return total
+
+
+naive_sum_of_squares_traced(20)
+```
+
+The `time.sleep` line dominates the table, as expected -- in a real
+workload this is exactly how you'd spot the line actually worth optimizing.
+
+## `%scope_export` --- save a run to a file
+
+A recorded run doesn't have to stay in the notebook. Export it to a `.prof`
+file for `snakeviz`/`pstats`, or to speedscope JSON, via
+`export_prof`/`export_speedscope` -- the same functions
+`scope-profiler export` uses on an HDF5 file, here applied directly to the
+in-memory result.
+
+```{python}
+import tempfile
+from pathlib import Path
+
+export_dir = Path(tempfile.mkdtemp(prefix="scope-profiler-tutorial-"))
+%scope_export -n optimized {export_dir}/optimized.prof
+%scope_export -n optimized {export_dir}/optimized.speedscope.json
+sorted(p.name for p in export_dir.iterdir())
+```
+
+## `%scope_load` --- compare against a run from outside the notebook
+
+Profiling data from an MPI job or a `scope-profiler run` is just an HDF5
+file. `%scope_load` reads one (via `read_h5`) into the same name registry the
+cell magics use, so a cluster run becomes directly comparable with what you
+just measured here. Let's write one out to stand in for that file.
+
+```{python}
+cluster_file = export_dir / "cluster_run.h5"
+with ProfileManager.session(file_path=str(cluster_file), verbose=False):
+    with ProfileManager.profile_region("optimized"):
+        fast_sum_of_squares(50)
+
+%scope_load {cluster_file}
+```
+
+```{python}
+%scope_compare cluster_run optimized
+```
+
+## `%scope_df` --- the run as a pandas DataFrame
+
+For anything the printed table doesn't cover, take the DataFrame: it is the
+magic's return value, so it renders on its own and can be assigned and
+analysed further --- everything tutorial 2 does with a file, on the run you
+just measured.
+
+```{python}
+df = %scope_df -n optimized
+df[["name", "num_calls", "total_duration", "average_duration"]]
+```
+
+```{python}
+%scope_df --events -n optimized
+```
+
+## `%scope_reset` --- drop recorded runs
+
+Recorded runs accumulate in memory for the life of the kernel. Clear one by
+name, then clear everything else that is left:
+
+```{python}
+%scope_reset naive
+%scope_reset
+```
+
+## Where to go next
+
+These magics are a thin layer over `ProfileManager` and `ProfilingResults` ---
+everything from {doc}`02_postprocessing` and {doc}`03_visualization` (custom
+filtering, DataFrames, Gantt/flame charts) still works on the
+`ProfilingResults` objects they record; reach into
+`get_ipython().magics_manager.registry["ScopeMagics"]._runs` if you want one
+back as a Python object instead of a printed table.

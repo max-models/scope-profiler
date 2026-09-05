@@ -14,11 +14,12 @@ Run::
 
     python examples/generate_cli_docs_figures.py
 
-If ``mpirun`` is unavailable the runs fall back to a single rank each, and
-the speedup figure is skipped.
+If ``mpirun`` or ``mpi4py`` is unavailable the runs fall back to a single rank
+each, and the speedup figure is skipped.
 """
 
 import argparse
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -76,9 +77,12 @@ def run_workload(h5_path: str) -> None:
                         time.sleep(0.012)
 
 
-def generate_h5_files(work_dir: str) -> list[str]:
+def generate_h5_files(work_dir: str) -> tuple[list[str], bool]:
     """Produce one HDF5 file per rank count, with mpirun when available."""
     mpirun = shutil.which("mpirun")
+    mpi_available = (
+        mpirun is not None and importlib.util.find_spec("mpi4py") is not None
+    )
     paths = []
 
     # HDF5 file locking can fail on NFS-mounted filesystems (errno 11).
@@ -87,14 +91,17 @@ def generate_h5_files(work_dir: str) -> list[str]:
     for num_ranks in RANK_COUNTS:
         h5_path = os.path.join(work_dir, f"run_{num_ranks}.h5")
         cmd = [sys.executable, os.path.abspath(__file__), "--workload", h5_path]
-        if mpirun and num_ranks > 1:
+        if mpi_available and num_ranks > 1:
             cmd = [mpirun, "-n", str(num_ranks), *cmd]
         elif num_ranks > 1:
-            print(f"mpirun not found - running the {num_ranks}-rank case serially")
+            print(
+                "mpirun/mpi4py not available - running the "
+                f"{num_ranks}-rank case serially"
+            )
         subprocess.run(cmd, check=True, cwd=work_dir, env=env)
         paths.append(h5_path)
 
-    return paths
+    return paths, mpi_available
 
 
 def plot(args: list[str], work_dir: str) -> None:
@@ -136,11 +143,26 @@ def main() -> None:
     os.makedirs(work_dir, exist_ok=True)
 
     try:
-        generate_h5_files(work_dir)
+        _, mpi_available = generate_h5_files(work_dir)
         figures_dir = os.path.join(work_dir, "figures")
 
-        # Single run: gantt, flame, durations (total only), duration timeseries.
+        # The default preset is intentionally small: Gantt plus total duration.
         plot(["default", "run_2.h5", "-o", "figures"], work_dir)
+
+        # Generate the additional single-run figures referenced by the guide.
+        plot(
+            ["flame_chart", "run_2.h5", "-o", "figures/flame_plot.png"],
+            work_dir,
+        )
+        plot(
+            [
+                "timeseries",
+                "run_2.h5",
+                "-o",
+                "figures/duration_timeseries_plot.png",
+            ],
+            work_dir,
+        )
 
         # Also produce an avg plot for the docs illustration of --metrics.
         plot(
@@ -155,11 +177,23 @@ def main() -> None:
             work_dir,
         )
 
-        # Several runs: the speedup plot, on the total time per region.
+        # Several runs: comparison preset, then the explicit speedup figure.
         plot(
             ["default", "run_1.h5", "run_2.h5", "run_4.h5", "-o", "figures_scaling"],
             work_dir,
         )
+        if mpi_available:
+            plot(
+                [
+                    "speedup",
+                    "run_1.h5",
+                    "run_2.h5",
+                    "run_4.h5",
+                    "-o",
+                    "figures_scaling/speedup_plot.png",
+                ],
+                work_dir,
+            )
 
         copied = []
         for name in SINGLE_RUN_FIGURES:

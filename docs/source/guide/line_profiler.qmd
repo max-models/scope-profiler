@@ -1,5 +1,8 @@
 # Line-by-line profiling
 
+> **Install for this page:**
+> `pip install "scope-profiler[line-profiler]"`.
+
 scope-profiler can integrate [line_profiler](https://github.com/pyutils/line_profiler)
 to give you per-source-line timing breakdowns of decorated functions,
 alongside the usual region-level statistics.

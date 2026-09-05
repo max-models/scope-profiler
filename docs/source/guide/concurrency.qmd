@@ -2,6 +2,8 @@
 title: "Threads, tasks and coroutines"
 ---
 
+> **Install for this page:** `pip install scope-profiler` (base install only).
+
 A region records a start and an end timestamp, and nothing else. That is
 enough as long as one call stack owns the process: a call that starts while
 another is open is nested inside it, and the whole post-processing stack ---

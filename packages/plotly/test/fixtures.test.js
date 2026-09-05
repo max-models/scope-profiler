@@ -12,14 +12,20 @@ import { join } from "node:path";
 import { buildFigure, PLOT_BUILDERS, inferPlotKind } from "../src/index.js";
 
 const directory = join(import.meta.dirname, "fixtures");
-const fixtures = readdirSync(directory).filter((name) => name.endsWith(".json"));
+const fixtures = readdirSync(directory).filter((name) =>
+  name.endsWith(".json"),
+);
 const load = (name) => JSON.parse(readFileSync(join(directory, name), "utf8"));
 
 test("the fixtures cover every plot kind the exporter can write", () => {
   assert.ok(fixtures.length >= 14, `only ${fixtures.length} fixtures found`);
   const kinds = new Set(fixtures.map((name) => load(name).plot));
-  for (const kind of kinds) assert.ok(PLOT_BUILDERS[kind], `no builder for ${kind}`);
-  assert.ok(kinds.has("region_statistics"), "every export writes region_statistics");
+  for (const kind of kinds)
+    assert.ok(PLOT_BUILDERS[kind], `no builder for ${kind}`);
+  assert.ok(
+    kinds.has("region_statistics"),
+    "every export writes region_statistics",
+  );
 });
 
 for (const name of fixtures) {
@@ -48,7 +54,11 @@ for (const name of fixtures) {
     const guessed = inferPlotKind(bare);
     // flame_chart and flame_graph share a payload shape and a builder.
     const expected = plot === "flame_graph" ? "flame" : plot;
-    assert.equal(guessed, expected, `${name}: inferred ${guessed}, wrote ${plot}`);
+    assert.equal(
+      guessed,
+      expected,
+      `${name}: inferred ${guessed}, wrote ${plot}`,
+    );
   });
 }
 
@@ -56,20 +66,29 @@ for (const name of fixtures) {
 // column merges two runs into one series, losing rows without saying so.
 const plotted = (figure, keys = ["x"]) =>
   figure.data.reduce(
-    (total, trace) => total + (keys.some((key) => Array.isArray(trace[key])) ? trace[keys.find((key) => Array.isArray(trace[key]))].length : 0),
+    (total, trace) =>
+      total +
+      (keys.some((key) => Array.isArray(trace[key]))
+        ? trace[keys.find((key) => Array.isArray(trace[key]))].length
+        : 0),
     0,
   );
 
 test("the rank heatmap gives every run its own lane", () => {
   const payload = load("rank_heatmap_data.json");
   const figure = buildFigure(payload);
-  const cells = figure.data[0].z.flat().filter((value) => value !== null).length;
+  const cells = figure.data[0].z
+    .flat()
+    .filter((value) => value !== null).length;
   assert.equal(cells, payload.points.length, "cells lost to a rank-only key");
   assert.equal(
     new Set(figure.data[0].y).size,
     new Set(payload.points.map((point) => `${point.file}/${point.rank}`)).size,
   );
-  assert.ok(figure.data[0].y.every((lane) => lane.includes("run_")), "lanes drop the run");
+  assert.ok(
+    figure.data[0].y.every((lane) => lane.includes("run_")),
+    "lanes drop the run",
+  );
 });
 
 test("imbalance draws a series per run, not one series across runs", () => {
@@ -78,7 +97,11 @@ test("imbalance draws a series per run, not one series across runs", () => {
   const lines = figure.data.filter((trace) => trace.mode === "lines+markers");
   assert.equal(plotted({ data: lines }), payload.points.length);
   for (const trace of lines) {
-    assert.equal(new Set(trace.x).size, trace.x.length, `${trace.name} revisits a rank`);
+    assert.equal(
+      new Set(trace.x).size,
+      trace.x.length,
+      `${trace.name} revisits a rank`,
+    );
   }
 });
 
@@ -97,7 +120,10 @@ test("the gantt gives every run, rank and region its own lane", () => {
   // the outermost region hides everything inside it.
   assert.equal(
     new Set(figure.layout.yaxis.categoryarray).size,
-    new Set(payload.intervals.map((row) => `${row.file}/${row.rank}/${row.region}`)).size,
+    new Set(
+      payload.intervals.map((row) => `${row.file}/${row.rank}/${row.region}`),
+    ).size,
   );
-  for (const lane of figure.layout.yaxis.categoryarray) assert.match(lane, /\(rank \d+\)$/);
+  for (const lane of figure.layout.yaxis.categoryarray)
+    assert.match(lane, /\(rank \d+\)$/);
 });

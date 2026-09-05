@@ -1,5 +1,8 @@
 # Plotting with the CLI
 
+> **Install for this page:** `pip install "scope-profiler[pproc]"`, including
+> the optional interactive PyVis call-graph backend.
+
 `scope-profiler plot` turns one or more `profiling_data.h5` files into
 charts and an aggregate statistics JSON. `scope-profiler export` writes the
 same plot data and external viewer formats without rendering images. Together

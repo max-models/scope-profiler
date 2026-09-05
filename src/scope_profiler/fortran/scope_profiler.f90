@@ -1,7 +1,7 @@
 !> Region profiling for Fortran, on the same timeline as scope-profiler.
 !!
 !! Records nanosecond start/end timestamps for named regions and writes them
-!! to a trace file that `scope-profiler import-fortran` turns into the usual
+!! to a trace file that `scope-profiler import-native` turns into the usual
 !! HDF5 output, so a Fortran run gets the same summaries, plots and exports as
 !! a Python one.
 !!

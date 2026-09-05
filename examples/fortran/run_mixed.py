@@ -83,7 +83,7 @@ def write_figures(results):
     try:
         from scope_profiler import export_speedscope, plot_gantt
     except ImportError:  # pragma: no cover - optional dependency
-        print("\n(install scope-profiler[plot] for charts)")
+        print("\n(install scope-profiler[pproc] for charts)")
         return
 
     figures = HERE / "figures"

@@ -1,5 +1,9 @@
 # Quickstart
 
+> **Install for this page:** `pip install "scope-profiler[pproc]"`. The base
+> install is sufficient through the text summary; `pproc` adds the plotted
+> example in step 4.
+
 This page walks through the core workflow: **session**, **instrument**, and
 **inspect**. A session sets up profiling and finalizes it automatically, even
 when the profiled code raises an exception.
@@ -96,6 +100,8 @@ Use the built-in CLI to generate a Gantt chart:
 ```bash
 scope-profiler plot default profiling_data.h5 --show
 ```
+
+![Example Gantt timeline with nested solver phases](_static/figures/gantt_plot.png)
 
 See {doc}`/guide/plot_cli` for the other charts and exports it can
 produce. Or load the data programmatically:

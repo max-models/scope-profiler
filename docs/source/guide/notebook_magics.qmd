@@ -1,5 +1,10 @@
 # Jupyter/IPython magics
 
+> **Install for this page:**
+> `pip install "scope-profiler[notebook,pproc,line-profiler]"` enables every
+> example. `notebook` alone covers the basic magics, `pproc` adds plots and
+> DataFrames, and `line-profiler` enables `%%scope_line`.
+
 `scope_profiler.ipython_magics` adds eleven magics to a notebook or IPython
 session, so a quick "how long is this cell/line taking, and where" doesn't
 need the `ProfileManager.session()`/`profile_region()` boilerplate spelled

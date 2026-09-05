@@ -1,0 +1,325 @@
+---
+title: 5. Custom analysis with the Python API
+jupyter: python3
+---
+
+> **Install for this tutorial:** `pip install "scope-profiler[pproc]"`;
+> pandas is used for event analysis.
+
+Notebook 2 covered the *aggregates*: how long each region took in total, on
+average, per rank. This notebook goes one level down, to the **individual
+calls**, which is where you go when the question you have is not one the
+built-in summaries answer.
+
+Three tools do most of the work:
+
+| Method | Gives you |
+| --- | --- |
+| `results.events()` | one entry per recorded call |
+| `results.to_events_dataframe()` | the same, as a pandas DataFrame |
+| `results.call_stack()` | the calls with their nesting reconstructed |
+
+As everywhere in this API, times are in **seconds**.
+
+
+```{python}
+import tempfile
+import time
+from pathlib import Path
+
+from scope_profiler import ProfileManager, read_h5
+
+WORKDIR = Path(tempfile.mkdtemp(prefix="scope-profiler-tutorial-"))
+DATA_FILE = WORKDIR / "profiling_data.h5"
+
+ProfileManager.setup(file_path=str(DATA_FILE))
+
+
+@ProfileManager.profile("assemble")
+def assemble():
+    time.sleep(0.002)
+
+
+with ProfileManager.profile_region("setup"):
+    time.sleep(0.01)
+
+for step in range(6):
+    with ProfileManager.profile_region("timestep"):
+        assemble()
+        with ProfileManager.profile_region("solve"):
+            # The solve gets slower as the run progresses.
+            time.sleep(0.002 + 0.001 * step)
+    if step % 3 == 2:
+        with ProfileManager.profile_region("checkpoint"):
+            time.sleep(0.004)
+
+ProfileManager.finalize(verbose=False)
+```
+
+## Reading the results back in the same script
+
+`ProfileManager.read_results()` opens the file the current configuration just
+wrote, so you do not have to repeat the path. Under MPI only rank 0 writes the
+merged file, so guard the call with a rank check there.
+
+```{python}
+results = ProfileManager.read_results()
+print(results)
+print("same file:", results.file_path == DATA_FILE)
+```
+
+## One entry per call
+
+`events()` returns the long-form ("tidy") view of the run: every recorded call,
+in region order, then rank, then call order.
+
+```{python}
+events = results.events()
+
+print(f"{len(events)} calls recorded\n")
+for event in events[:4]:
+    print(event)
+```
+
+Each entry carries the region `name`, the `rank` that recorded it, its
+`call_index` within that rank, and `start` / `end` / `duration` in seconds.
+
+### The timeline starts at zero
+
+By default the timestamps are measured from the **start of the run** —
+`ProfileManager.setup()` records that instant, and `ProfilingResults` exposes it as
+`run_start_time`. The raw values come from `perf_counter_ns()`, a monotonic
+clock with an arbitrary origin that is comparable only within one run, and you
+can still get them with `relative=False`.
+
+```{python}
+print("relative :", [round(e["start"], 4) for e in results.events(include="timestep")])
+print(
+    "absolute :",
+    [round(e["start"], 4) for e in results.events(include="timestep", relative=False)],
+)
+
+print("\nrun start    :", results.run_start_time)
+print("first entry  :", results.minimum_start_time)
+print("last exit    :", results.maximum_end_time)
+print("wall clock   :", results.time_span, "s")
+```
+
+### The time before the first region
+
+`setup()` runs before any region is entered, so the gap between the two is work
+the instrumentation never saw — imports, reading input, building a mesh. It is
+often the first surprise a profile delivers. The run's origin is the moment
+`setup()` is called, so calling it as early as possible is what makes that gap
+visible.
+
+```{python}
+print(
+    f"{results.startup_time * 1e3:.2f} ms elapsed before the first region was entered"
+)
+```
+
+### Choosing a different origin
+
+`time_origin` is the zero point in use: the registered start time, or the first
+region entry for files that have none. Override it per call with `origin`.
+
+The `plot_*` functions are the one exception — they frame their x axis on the
+first region entry, so a long startup does not fill a chart with empty space.
+The last line below reproduces exactly what a chart's axis shows.
+
+None of this is required reading for older files: one written before `setup()`
+recorded a start time reports `run_start_time` as `None`, falls back to the
+first region entry, and behaves exactly as it always did.
+
+```{python}
+print("origin       :", results.time_origin)
+print("is run start :", results.time_origin == results.run_start_time)
+
+print(
+    "\nfrom run start   :",
+    [round(e["start"], 4) for e in results.events(include="solve")],
+)
+print(
+    "from first entry :",
+    [
+        round(e["start"], 4)
+        for e in results.events(include="solve", origin=results.minimum_start_time)
+    ],
+)
+```
+
+`time_span` is the width of the profiled window, which is what you want when
+asking *what fraction of the run went into this region* — the sum of all region
+durations double-counts nested regions and can exceed the wall clock.
+
+```{python}
+for region in results.get_regions():
+    share = region.total_duration / results.time_span
+    print(f"  {region.name:<11} {share:6.1%} of the run")
+```
+
+### Selecting what you get
+
+`events()` takes the same `include` / `exclude` regexes as the rest of the API,
+plus `ranks`:
+
+```python
+results.events(include="solve")             # one region
+results.events(include=["solve", "assemble"])
+results.events(exclude="checkpoint")
+results.events(ranks=0)                     # one rank, or ranks=[0, 2]
+```
+
+```{python}
+solve_events = results.events(include="solve")
+print("calls  :", len(solve_events))
+print("indices:", [e["call_index"] for e in solve_events])
+print("slowest:", max(solve_events, key=lambda e: e["duration"]))
+```
+
+## As a DataFrame
+
+`to_events_dataframe()` returns the same data with one row per call, which is
+usually the shortest path from a question to an answer. It needs pandas (part
+of the `plot` extra).
+
+```{python}
+frame = results.to_events_dataframe()
+frame.head()
+```
+
+From here every question is a groupby. A few that come up constantly:
+
+```{python}
+# How consistent is each region, call to call?
+frame.groupby("name")["duration"].agg(["count", "mean", "std", "max"]).sort_values(
+    "mean", ascending=False
+)
+```
+
+```{python}
+# The ten slowest individual calls in the whole run.
+frame.nlargest(10, "duration")[["name", "rank", "call_index", "start", "duration"]]
+```
+
+```{python}
+# Time spent per region, per rank - the shape load-imbalance analysis wants.
+frame.pivot_table(index="rank", columns="name", values="duration", aggfunc="sum")
+```
+
+## Down to one region
+
+`Region` and `MPIRegion` expose the same view for a single region, so you can
+narrow before you widen. `Region` also hands back the stored integers directly,
+for the rare case where the nanosecond values matter more than the convenience
+of seconds.
+
+```{python}
+solve = results["solve"]  # an MPIRegion: the region across all ranks
+print("all ranks   :", len(solve.events()), "calls")
+print("rank 0 only :", len(solve.events(ranks=0)), "calls")
+
+rank0 = solve[0]  # a Region: one rank
+print("\nseconds     :", rank0.durations[:3])
+print("nanoseconds :", rank0.durations_ns[:3])
+print("start (ns)  :", rank0.start_times_ns[:3])
+```
+
+## The call stack
+
+Regions record no call graph of their own — each call is just a `(start, end)`
+pair. Nesting is therefore **reconstructed from containment**: a call that
+starts while another is still open is treated as its child. That is what the
+flame graph draws, and `call_stack()` hands you the same structure as plain
+dicts.
+
+```{python}
+calls = results.call_stack(rank=0)
+
+for call in calls[:8]:
+    indent = "  " * call["depth"]
+    print(f"{indent}{call['name']:<12} {call['duration'] * 1e3:6.2f} ms")
+```
+
+Every call carries its `depth` and the **index** of its `parent` in the returned
+list. Indices rather than names, because a region called repeatedly — or
+recursively — contributes several entries under one name.
+
+`call_stack_roots()` and `call_stack_children()` turn that flat list into a tree
+you can walk:
+
+```{python}
+from scope_profiler import call_stack_children, call_stack_roots
+
+children = call_stack_children(calls)
+
+for root in call_stack_roots(calls):
+    names = [calls[child]["name"] for child in children[root]]
+    print(f"{calls[root]['name']:<12} contains {names}")
+```
+
+### Self time
+
+A useful thing the aggregates cannot give you: **exclusive** (self) time — how
+long a region took on its own, with the time spent inside its children removed.
+It falls straight out of the tree.
+
+```{python}
+from collections import defaultdict
+
+total = defaultdict(float)
+self_time = defaultdict(float)
+
+for index, call in enumerate(calls):
+    nested = sum(calls[child]["duration"] for child in children[index])
+    total[call["name"]] += call["duration"]
+    self_time[call["name"]] += call["duration"] - nested
+
+print(f"{'region':<12}{'total [ms]':>12}{'self [ms]':>12}")
+for name in sorted(total, key=total.get, reverse=True):
+    print(f"{name:<12}{total[name] * 1e3:12.2f}{self_time[name] * 1e3:12.2f}")
+```
+
+`timestep` is nearly all children — it is a container. The regions with large
+self time are the ones actually doing work, and the ones worth optimising.
+
+## Several ranks
+
+Everything above is rank-aware; a serial run just happens to have one rank. To
+show the shape without launching `mpirun`, here is a two-rank file written by
+hand — it also documents the on-disk layout, which is plain HDF5:
+
+```{python}
+import h5py
+import numpy as np
+
+MPI_FILE = WORKDIR / "two_ranks.h5"
+NS = 1_000_000_000  # timestamps are stored as int64 nanoseconds
+
+with h5py.File(MPI_FILE, "w") as h5file:
+    for rank, factor in enumerate([1.0, 1.6]):  # rank 1 is the slow one
+        regions = h5file.create_group(f"rank{rank}").create_group("regions")
+        starts = np.array([0.0, 0.5, 1.0]) * NS
+        durations = np.array([0.2, 0.25, 0.2]) * factor * NS
+        group = regions.create_group("solve")
+        group.create_dataset("start_times", data=starts.astype(np.int64))
+        group.create_dataset("end_times", data=(starts + durations).astype(np.int64))
+
+mpi_reader = read_h5(MPI_FILE)
+print(mpi_reader)
+
+mpi_reader.to_events_dataframe()
+```
+
+```{python}
+# Load imbalance: how much longer did the slowest rank take than the fastest?
+per_rank = mpi_reader["solve"].total_durations()
+print("total per rank:", per_rank)
+print(f"imbalance     : {max(per_rank.values()) / min(per_rank.values()):.2f}x")
+```
+
+## Next
+
+[6. Building your own plots](06_custom_plots.md) takes the same three tools
+and draws charts with them.
