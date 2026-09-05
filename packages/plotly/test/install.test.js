@@ -8,7 +8,9 @@ import test from "node:test";
 const packageDirectory = resolve(import.meta.dirname, "..");
 
 test("the packed package installs and exposes its ESM API", () => {
-  const consumerDirectory = mkdtempSync(join(tmpdir(), "scope-profiler-plotly-"));
+  const consumerDirectory = mkdtempSync(
+    join(tmpdir(), "scope-profiler-plotly-"),
+  );
   let tarball;
   try {
     const packed = JSON.parse(
@@ -19,10 +21,14 @@ test("the packed package installs and exposes its ESM API", () => {
       }),
     );
     tarball = join(packageDirectory, packed[0].filename);
-    execFileSync("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", tarball], {
-      cwd: consumerDirectory,
-      stdio: "inherit",
-    });
+    execFileSync(
+      "npm",
+      ["install", "--ignore-scripts", "--no-audit", "--no-fund", tarball],
+      {
+        cwd: consumerDirectory,
+        stdio: "inherit",
+      },
+    );
     const output = execFileSync(
       "node",
       [

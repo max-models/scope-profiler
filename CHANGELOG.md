@@ -66,7 +66,7 @@
 - The weak-scaling and scaling-efficiency exports now write the `colors` and
   `options` blocks their speedup sibling already wrote, so all three plot with
   the same axis labels and baseline.
-- The HTML report's overview names the region with the most *exclusive* time
+- The HTML report's overview names the region with the most _exclusive_ time
   as the hot spot, rather than the largest inclusive total. An enclosing
   region's total is mostly its children's, so the old line reliably named a
   wrapper: a run whose overview read "`setup: total` dominates the recorded
@@ -141,8 +141,7 @@
   replaced, and `tracker.instrument_loop(loop)` covers loop implementations
   that reach neither.
 - Added the per-call `thread_ids`, `task_ids` and `await_ns` event columns and
-  the `thread_table` / `task_table` groups to the HDF5 layout, within schema
-  2. They are written only by a run that tracked threads, and a file without
+  the `thread_table` / `task_table` groups to the HDF5 layout, within schema 2. They are written only by a run that tracked threads, and a file without
   them reads back exactly as before.
 
 ### Changed

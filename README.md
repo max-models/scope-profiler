@@ -1,5 +1,3 @@
-
-
 <!-- Generated README.md is rendered from this file by docs/render_markdown.py. -->
 
 # scope-profiler
@@ -8,13 +6,13 @@ Profile Python code regions—and optionally C, Fortran, MPI, NVTX, and
 [LIKWID](https://github.com/RRZE-HPC/likwid)—with one consistent API and
 HDF5 output format.
 
-``` bash
+```bash
 pip install scope-profiler
 ```
 
 ## Quick start
 
-``` python
+```python
 from scope_profiler import ProfileManager
 
 with ProfileManager.session():
@@ -31,7 +29,7 @@ Create independent managers when two profiling sessions need to coexist.
 Each manager records only calls made through that manager and writes its
 own output:
 
-``` python
+```python
 compute_profiler = ProfileManager()
 io_profiler = ProfileManager()
 
@@ -54,7 +52,7 @@ and reports each thread’s name, lifetime and CPU time;
 splits every call into the time its task held the thread and the time it
 spent awaiting:
 
-``` python
+```python
 with ProfileManager.session(track_async=True, return_results=True) as run:
     asyncio.run(main())
 
@@ -66,7 +64,7 @@ for task in run.results.tasks[0]:
 
 You can also profile a script without changing its source:
 
-``` bash
+```bash
 scope-profiler run my_script.py
 scope-profiler inspect profiling_data.h5
 scope-profiler plot default profiling_data.h5 -o figures
@@ -80,7 +78,7 @@ region for every selected test, named from its pytest node id, so the
 normal post-processing commands can show which tests consume the suite’s
 time:
 
-``` bash
+```bash
 pytest --scope-profile --scope-profile-out pytest-profile.h5
 scope-profiler inspect pytest-profile.h5 --regions-only --sort total
 scope-profiler plot durations pytest-profile.h5 -o pytest-plots
@@ -89,7 +87,7 @@ scope-profiler plot durations pytest-profile.h5 -o pytest-plots
 By default it measures only each test’s `call` phase. Include fixture
 setup and teardown when those are relevant to the investigation:
 
-``` bash
+```bash
 pytest --scope-profile --scope-profile-phases=all
 ```
 
@@ -108,7 +106,7 @@ column rather than whole. JSON holds exactly the same data — every call,
 in integer nanoseconds — for anything that would rather not open an HDF5
 file:
 
-``` bash
+```bash
 scope-profiler run -o profile.json my_script.py     # or .json.gz
 scope-profiler run -o report.html my_script.py      # rendered report
 scope-profiler export json profiling_data.h5 -o exports  # convert an existing run
@@ -119,7 +117,7 @@ Profiling can be suspended around setup, I/O, or other phases that
 should not appear in the trace. Pause at scope boundaries and resume
 when measurement is needed again:
 
-``` python
+```python
 ProfileManager.pause()
 simulation.prepare_output()
 ProfileManager.resume()
@@ -132,7 +130,7 @@ silently span the paused period.
 For time-stepping simulations, `sample_every()` provides the same
 control with an explicit timestep number:
 
-``` python
+```python
 with ProfileManager.sample_every(10) as profile_step:
     for timestep in range(num_steps):
         with profile_step(timestep):
@@ -142,7 +140,7 @@ with ProfileManager.sample_every(10) as profile_step:
 The equivalent fully manual form is useful when the simulation has
 additional conditions around profiling:
 
-``` python
+```python
 for timestep in range(num_steps):
     if timestep % 10 == 0:
         ProfileManager.resume()
@@ -170,7 +168,7 @@ For dense traces, the Gantt view supports time windows, duration
 filtering, call coalescing, and call-depth collapsing. A binned
 occupancy heatmap avoids drawing every short event:
 
-``` bash
+```bash
 scope-profiler plot gantt profiling_data.h5 -o figures \
   --min-duration 0.001 --aggregate-calls 25 --collapse-depth 2
 scope-profiler plot density profiling_data.h5 -o figures \
@@ -189,7 +187,7 @@ chart](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/de
 
 The overhead benchmark measures the cost of each instrumentation mode:
 
-``` bash
+```bash
 python examples/benchmark_overhead.py
 ```
 
@@ -201,12 +199,12 @@ type](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/dev
 `%load_ext scope_profiler.ipython_magics` adds magics for the
 measure/compare loop, so a notebook needs no `session()` boilerplate:
 
-``` python
+```python
 %%scope_recursive
 result = solve(problem)     # every call recorded, nothing instrumented
 ```
 
-``` python
+```python
 %scope_compare baseline candidate
 ```
 
@@ -216,7 +214,7 @@ and `%scope_load` pulls in an HDF5 run from an MPI job to compare
 against. See the [notebook magics
 guide](https://max-models.github.io/scope-profiler/guide/notebook_magics.html).
 
-``` bash
+```bash
 pip install "scope-profiler[notebook]"
 ```
 
@@ -252,7 +250,7 @@ Install [Quarto](https://quarto.org/docs/get-started/) and Pandoc first,
 then create a development environment and run the docs target from the
 repository root:
 
-``` bash
+```bash
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -267,7 +265,7 @@ workflow uses the same `make -C docs html` command.
 
 ## Development
 
-``` bash
+```bash
 pip install -e '.[dev]'
 pytest
 ```

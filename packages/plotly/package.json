@@ -14,8 +14,25 @@
       "default": "./src/index.js"
     }
   },
-  "files": ["src", "README.md", "LICENSE.txt"],
-  "publishConfig": { "access": "public" },
-  "scripts": { "test": "node --test" },
-  "keywords": ["scope-profiler", "plotly", "profiling", "gantt", "flamegraph", "callgraph", "hpc", "mpi"]
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE.txt"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "scope-profiler",
+    "plotly",
+    "profiling",
+    "gantt",
+    "flamegraph",
+    "callgraph",
+    "hpc",
+    "mpi"
+  ]
 }

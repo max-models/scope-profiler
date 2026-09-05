@@ -40,7 +40,8 @@ runs:
       run: |
         python -m pip install --upgrade pip
         if [[ "${{ inputs.use-released-packages }}" != "true" ]]; then
-          pip install ".[docs]"
+          pip install -e ".[docs]"
+          python -c 'from pathlib import Path; import scope_profiler; source = (Path.cwd() / "src").resolve(); imported = Path(scope_profiler.__file__).resolve(); assert imported.is_relative_to(source), f"scope_profiler loaded from {imported}, not {source}"'
           exit 0
         fi
         # Build against this commit's PyPI release, not the previously cached
@@ -92,3 +93,9 @@ runs:
         else
           make html
         fi
+
+    - name: Verify documentation used checkout packages
+      if: inputs.use-released-packages != 'true'
+      shell: bash
+      run: |
+        cmp packages/plotly/src/index.js docs/source/_static/plotly/index.js
