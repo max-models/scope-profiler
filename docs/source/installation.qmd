@@ -23,7 +23,6 @@ with the bracket syntax:
 | --------------- | --------------------------------------------- | ------------ |
 | `compression`   | `pip install "scope-profiler[compression]"`  | Compressed HDF5 output via `hdf5plugin` |
 | `fortran`       | `pip install "scope-profiler[fortran]"`      | Meson and Ninja for the Python/Fortran example build |
-| `graph`         | `pip install "scope-profiler[graph]"`        | Interactive call graphs via PyVis |
 | `likwid`        | `pip install "scope-profiler[likwid]"`       | LIKWID hardware counters via [pylikwid](https://github.com/RRZE-HPC/pylikwid) |
 | `line-profiler` | `pip install "scope-profiler[line-profiler]"` | Line-by-line profiling via [line_profiler](https://github.com/pyutils/line_profiler) |
 | `mcp`           | `pip install "scope-profiler[mcp]"`         | The `scope-profiler-mcp` server (see {doc}`guide/mcp`) |
@@ -31,7 +30,7 @@ with the bracket syntax:
 | `notebook`      | `pip install "scope-profiler[notebook]"`    | IPython and the notebook magics |
 | `nvtx`          | `pip install "scope-profiler[nvtx]"`        | NVTX ranges for NVIDIA Nsight profiling |
 | `perf-events`   | `pip install "scope-profiler[perf-events]"` | Built-in Linux hardware counters |
-| `pproc`         | `pip install "scope-profiler[pproc]"`       | Plotting backends, pandas DataFrames, JupyterLab, SnakeViz, and TUI plotting |
+| `pproc`         | `pip install "scope-profiler[pproc]"`       | Plotting backends (including PyVis call graphs), pandas DataFrames, JupyterLab, SnakeViz, and TUI plotting |
 | `tui`           | `pip install "scope-profiler[tui]"`         | Text-only interactive browsing; add `pproc` for its plots |
 | `extras`        | `pip install "scope-profiler[extras]"`      | All broadly installable runtime integrations above except LIKWID |
 | `dev`           | `pip install "scope-profiler[dev]"`         | Development, tests, documentation, and runtime integrations |

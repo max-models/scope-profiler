@@ -170,7 +170,7 @@ def plot_callgraph(
         except ImportError as exc:
             raise ImportError(
                 "pyvis is required for the pyvis callgraph backend. "
-                "Install scope-profiler[graph].",
+                "Install scope-profiler[pproc].",
             ) from exc
         graph = Network(height="800px", width="100%", directed=True)
         key = (lambda node: node["name"]) if compact else (lambda node: node["call_id"])

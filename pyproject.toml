@@ -75,20 +75,17 @@ optional-dependencies.pproc = [
   "maxplotlibx == 0.1.9",
   "pandas",
   "plotly",
+  "pyvis >= 0.3.2",
   "snakeviz",
   "tabulate",
   "textual>=0.86",
-]
-
-optional-dependencies.graph = [
-  "pyvis >= 0.3.2",
 ]
 
 # One convenient install for broadly installable runtime integrations. LIKWID
 # stays opt-in because it requires a compatible system-level installation.
 optional-dependencies.extras = [
   "memray",
-  "scope-profiler[compression,fortran,graph,line-profiler,mcp,mpi,notebook,nvtx,perf-events,pproc,tui]",
+  "scope-profiler[compression,fortran,line-profiler,mcp,mpi,notebook,nvtx,perf-events,pproc,tui]",
 ]
 
 optional-dependencies.dev = [
@@ -100,9 +97,7 @@ optional-dependencies.dev = [
   # build on a commit nobody touched (0.15 -> 0.16 added ~79 findings here).
   # Bump deliberately, fixing or triaging the new rules in the same change.
   "ruff >= 0.16, < 0.17",
-  # `graph` included: the pyvis callgraph backend is a shipped output format,
-  # so CI has to be able to render it rather than skipping its tests.
-  "scope-profiler[docs,fortran,graph,line-profiler,mcp,mpi,notebook,nvtx,pproc,test,tui]",
+  "scope-profiler[docs,fortran,line-profiler,mcp,mpi,notebook,nvtx,pproc,test,tui]",
 ]
 # https://medium.com/@pratikdomadiya123/build-project-documentation-quickly-with-the-sphinx-python-2a9732b66594
 optional-dependencies.docs = [
