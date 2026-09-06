@@ -11,9 +11,10 @@ from __future__ import annotations
 import builtins
 import pickle
 import sys
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Iterator
+from typing import Any
 
 from scope_profiler.profile_manager import ProfileManager
 
@@ -218,7 +219,7 @@ class ProfiledMPIRequest:
         with self._wait_region():
             return self._request.wait(status)
 
-    def Wait(self, status=None):  # noqa: N802 - match mpi4py's buffer API
+    def Wait(self, status=None):
         with self._wait_region():
             return self._request.Wait(status)
 
@@ -304,25 +305,23 @@ class ProfiledMPIComm:
             request = self._communicator.irecv(buf=buf, source=source, tag=tag)
         return self._request(request, "irecv", size, source, tag)
 
-    def Send(self, buf, dest: int, tag: int = 0):  # noqa: N802
+    def Send(self, buf, dest: int, tag: int = 0):
         size = self._nbytes(buf)
         with self._region("send", bytes=size, peer=dest, tag=tag):
             return self._communicator.Send(buf, dest=dest, tag=tag)
 
-    def Recv(self, buf, source: int = -1, tag: int = -1, status=None):  # noqa: N802
+    def Recv(self, buf, source: int = -1, tag: int = -1, status=None):
         size = self._nbytes(buf)
         with self._region("recv", bytes=size, peer=source, tag=tag):
             return self._communicator.Recv(buf, source=source, tag=tag, status=status)
 
-    def Isend(self, buf, dest: int, tag: int = 0) -> ProfiledMPIRequest:  # noqa: N802
+    def Isend(self, buf, dest: int, tag: int = 0) -> ProfiledMPIRequest:
         size = self._nbytes(buf)
         with self._region("isend", bytes=size, peer=dest, tag=tag):
             request = self._communicator.Isend(buf, dest=dest, tag=tag)
         return self._request(request, "isend", size, dest, tag)
 
-    def Irecv(  # noqa: N802
-        self, buf, source: int = -1, tag: int = -1
-    ) -> ProfiledMPIRequest:
+    def Irecv(self, buf, source: int = -1, tag: int = -1) -> ProfiledMPIRequest:
         size = self._nbytes(buf)
         with self._region("irecv", bytes=size, peer=source, tag=tag):
             request = self._communicator.Irecv(buf, source=source, tag=tag)
@@ -332,7 +331,7 @@ class ProfiledMPIComm:
         with self._region("barrier", bytes=0):
             return self._communicator.barrier()
 
-    def Barrier(self):  # noqa: N802
+    def Barrier(self):
         with self._region("barrier", bytes=0):
             return self._communicator.Barrier()
 
@@ -341,7 +340,7 @@ class ProfiledMPIComm:
         with self._region("bcast", bytes=size, root=root):
             return self._communicator.bcast(obj, root=root)
 
-    def Bcast(self, buf, root: int = 0):  # noqa: N802
+    def Bcast(self, buf, root: int = 0):
         size = self._nbytes(buf)
         with self._region("bcast", bytes=size, root=root):
             return self._communicator.Bcast(buf, root=root)
@@ -353,7 +352,7 @@ class ProfiledMPIComm:
                 return self._communicator.allreduce(sendobj)
             return self._communicator.allreduce(sendobj, op=op)
 
-    def Allreduce(self, sendbuf, recvbuf, op=None):  # noqa: N802
+    def Allreduce(self, sendbuf, recvbuf, op=None):
         size = self._nbytes(sendbuf)
         with self._region("allreduce", bytes=size):
             if op is None:
@@ -367,7 +366,7 @@ class ProfiledMPIComm:
                 return self._communicator.reduce(sendobj, root=root)
             return self._communicator.reduce(sendobj, op=op, root=root)
 
-    def Reduce(self, sendbuf, recvbuf, op=None, root: int = 0):  # noqa: N802
+    def Reduce(self, sendbuf, recvbuf, op=None, root: int = 0):
         size = self._nbytes(sendbuf)
         with self._region("reduce", bytes=size, root=root):
             if op is None:
@@ -490,6 +489,6 @@ __all__ = [
     "format_mpi_region",
     "message_nbytes",
     "parse_mpi_region",
-    "profile_mpi_comm",
     "profile_mpi4py",
+    "profile_mpi_comm",
 ]
