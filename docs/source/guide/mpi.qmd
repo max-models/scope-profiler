@@ -172,11 +172,88 @@ The module does not import mpi4py. Passing the already-created communicator is
 what preserves scope-profiler's serial-process guarantee: importing
 scope-profiler alone never initializes MPI.
 
-The runnable examples show both calling styles:
+## Complete runnable Python examples
 
-- [`ex_mpi_wrappers.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_mpi_wrappers.py) uses lowercase object-mode calls.
-- [`ex_mpi_numpy_wrappers.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_mpi_numpy_wrappers.py) uses uppercase NumPy buffer calls with exact byte counts.
-- [`ex_mpi_profiling_options.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_mpi_profiling_options.py) enables automatic wrapping through `ProfilingOptions` and exercises a derived communicator.
+The documentation build executes every example below with two MPI ranks and
+captures the displayed output from the resulting profile. The source blocks
+are included directly from `examples/`, so they are the files the commands
+actually run rather than copies maintained separately in this page.
+
+### Explicit communicator wrapper
+
+This version opts in by wrapping one communicator directly.
+
+```{eval-rst}
+.. literalinclude:: ../../../examples/ex_mpi_wrappers.py
+   :language: python
+```
+
+Run it and inspect the recorded MPI regions:
+
+```bash
+mpirun -n 2 python examples/ex_mpi_wrappers.py
+scope-profiler inspect mpi_calls.h5 --regions-only --include '^mpi:' \
+  --columns region calls total avg
+```
+
+Output:
+
+```{eval-rst}
+.. literalinclude:: ../_generated/mpi-wrappers-output.txt
+   :language: text
+```
+
+### Unmodified NumPy/mpi4py program
+
+This file contains no scope-profiler imports. The regular `scope-profiler run`
+command enables MPI-call instrumentation before running it.
+
+```{eval-rst}
+.. literalinclude:: ../../../examples/ex_mpi_numpy_wrappers.py
+   :language: python
+```
+
+Run it and inspect the recorded MPI regions:
+
+```bash
+mpirun -n 2 scope-profiler run -q \
+  -o mpi_numpy_calls.h5 examples/ex_mpi_numpy_wrappers.py
+scope-profiler inspect mpi_numpy_calls.h5 --regions-only --include '^mpi:' \
+  --columns region calls total avg
+```
+
+Output:
+
+```{eval-rst}
+.. literalinclude:: ../_generated/mpi-numpy-wrappers-output.txt
+   :language: text
+```
+
+### ProfilingOptions session
+
+This version activates automatic wrapping through
+`ProfilingOptions(profile_mpi_calls=True)`. It also shows that a communicator
+returned by `Split` stays instrumented.
+
+```{eval-rst}
+.. literalinclude:: ../../../examples/ex_mpi_profiling_options.py
+   :language: python
+```
+
+Run it and inspect the recorded MPI regions:
+
+```bash
+mpirun -n 2 python examples/ex_mpi_profiling_options.py
+scope-profiler inspect mpi_profiling_options.h5 --regions-only \
+  --include '^mpi:' --columns region calls total avg
+```
+
+Output:
+
+```{eval-rst}
+.. literalinclude:: ../_generated/mpi-profiling-options-output.txt
+   :language: text
+```
 
 ## Profiling MPI calls in C++
 

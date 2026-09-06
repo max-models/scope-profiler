@@ -21,11 +21,11 @@ runs:
       with:
         python-version: ${{ inputs.python-version }}
 
-    - name: Install pandoc
+    - name: Install system documentation dependencies
       shell: bash
       run: |
         sudo apt-get update
-        sudo apt-get install -y pandoc
+        sudo apt-get install -y pandoc openmpi-bin libopenmpi-dev
 
     - name: Install Quarto
       uses: quarto-dev/quarto-actions/setup@v2

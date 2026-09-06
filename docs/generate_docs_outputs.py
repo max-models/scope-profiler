@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import contextlib
 import io
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -107,6 +109,86 @@ def write_inspect_output(profile: Path, output_name: str, display_name: str) -> 
         text=True,
     )
     write_output(output_name, inspected.stdout.replace(str(profile), display_name))
+
+
+def write_mpi_example_output(
+    temporary_directory: Path,
+    script_name: str,
+    profile_name: str,
+    output_name: str,
+    *,
+    through_cli: bool = False,
+) -> None:
+    """Run one shipped MPI example and capture its MPI-region summary."""
+    launcher = shutil.which("mpirun")
+    if launcher is None:
+        raise RuntimeError("Generating the MPI docs requires mpirun")
+
+    script = ROOT / "examples" / script_name
+    if through_cli:
+        command = [
+            launcher,
+            "--oversubscribe",
+            "-n",
+            "2",
+            sys.executable,
+            "-m",
+            "scope_profiler",
+            "run",
+            "-q",
+            "-o",
+            profile_name,
+            str(script),
+        ]
+    else:
+        command = [
+            launcher,
+            "--oversubscribe",
+            "-n",
+            "2",
+            sys.executable,
+            str(script),
+        ]
+
+    environment = os.environ.copy()
+    environment.update(
+        OMPI_ALLOW_RUN_AS_ROOT="1",
+        OMPI_ALLOW_RUN_AS_ROOT_CONFIRM="1",
+    )
+    executed = subprocess.run(
+        command,
+        cwd=temporary_directory,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    inspected = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "scope_profiler",
+            "inspect",
+            profile_name,
+            "--regions-only",
+            "--include",
+            "^mpi:",
+            "--columns",
+            "region",
+            "calls",
+            "total",
+            "avg",
+        ],
+        cwd=temporary_directory,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    output = executed.stdout
+    if output and not output.endswith("\n"):
+        output += "\n"
+    write_output(output_name, output + inspected.stdout)
 
 
 def main() -> None:
@@ -221,6 +303,28 @@ def main() -> None:
             line_profile_cli.stdout.replace(
                 str(line_profile_path), "profiling_data.h5"
             ),
+        )
+
+        mpi_examples = Path(tmp) / "mpi-examples"
+        mpi_examples.mkdir()
+        write_mpi_example_output(
+            mpi_examples,
+            "ex_mpi_wrappers.py",
+            "mpi_calls.h5",
+            "mpi-wrappers-output.txt",
+        )
+        write_mpi_example_output(
+            mpi_examples,
+            "ex_mpi_numpy_wrappers.py",
+            "mpi_numpy_calls.h5",
+            "mpi-numpy-wrappers-output.txt",
+            through_cli=True,
+        )
+        write_mpi_example_output(
+            mpi_examples,
+            "ex_mpi_profiling_options.py",
+            "mpi_profiling_options.h5",
+            "mpi-profiling-options-output.txt",
         )
 
 
