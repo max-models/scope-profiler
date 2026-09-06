@@ -27,8 +27,8 @@ from scope_profiler.mpi_wrappers import (
     format_mpi_region,
     message_nbytes,
     parse_mpi_region,
-    profile_mpi_comm,
     profile_mpi4py,
+    profile_mpi_comm,
 )
 from scope_profiler.perf_events import PerfEventError, PerfEventTotals
 from scope_profiler.profile_config import ProfilingOptions

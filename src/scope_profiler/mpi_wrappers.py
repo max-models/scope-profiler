@@ -309,9 +309,7 @@ class ProfiledMPIComm:
         with self._region("send", bytes=size, peer=dest, tag=tag):
             return self._communicator.Send(buf, dest=dest, tag=tag)
 
-    def Recv(  # noqa: N802
-        self, buf, source: int = -1, tag: int = -1, status=None
-    ):
+    def Recv(self, buf, source: int = -1, tag: int = -1, status=None):  # noqa: N802
         size = self._nbytes(buf)
         with self._region("recv", bytes=size, peer=source, tag=tag):
             return self._communicator.Recv(buf, source=source, tag=tag, status=status)

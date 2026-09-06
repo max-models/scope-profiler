@@ -1017,7 +1017,15 @@ int main()
     )
     object_file = tmp_path / "scope_profiler.o"
     subprocess.run(
-        [COMPILER, "-std=c99", f"-I{c_include_dir()}", "-c", str(SOURCE), "-o", str(object_file)],
+        [
+            COMPILER,
+            "-std=c99",
+            f"-I{c_include_dir()}",
+            "-c",
+            str(SOURCE),
+            "-o",
+            str(object_file),
+        ],
         check=True,
     )
     executable = tmp_path / "likwid_scope"
@@ -1119,7 +1127,15 @@ int main()
     )
     object_file = tmp_path / "scope_profiler.o"
     subprocess.run(
-        [COMPILER, "-std=c99", f"-I{c_include_dir()}", "-c", str(SOURCE), "-o", str(object_file)],
+        [
+            COMPILER,
+            "-std=c99",
+            f"-I{c_include_dir()}",
+            "-c",
+            str(SOURCE),
+            "-o",
+            str(object_file),
+        ],
         check=True,
     )
     executable = tmp_path / "mpi_wrappers"
@@ -1146,14 +1162,13 @@ int main()
 
     _, regions = read_trace(tmp_path / "mpi_rank00000.spt")
     assert any(
-        name == (
-            "mpi:send kind=point-to-point bytes=32 peer=2 root=-1 "
-            "tag=9 comm=7"
-        )
+        name == ("mpi:send kind=point-to-point bytes=32 peer=2 root=-1 " "tag=9 comm=7")
         for name in regions
     )
     assert any("mpi:barrier kind=collective bytes=0" in name for name in regions)
-    assert any("mpi:wait kind=wait" in name and "request=isend" in name for name in regions)
+    assert any(
+        "mpi:wait kind=wait" in name and "request=isend" in name for name in regions
+    )
 
     disabled_source = tmp_path / "mpi_disabled.cpp"
     disabled_source.write_text(
@@ -1203,7 +1218,14 @@ def test_cmake_install_exports_working_header_only_target(tmp_path):
     consumer_build = tmp_path / "consumer-build"
 
     subprocess.run(
-        ["cmake", "-S", str(repository), "-B", str(build_dir), f"-DCMAKE_INSTALL_PREFIX={prefix}"],
+        [
+            "cmake",
+            "-S",
+            str(repository),
+            "-B",
+            str(build_dir),
+            f"-DCMAKE_INSTALL_PREFIX={prefix}",
+        ],
         check=True,
         capture_output=True,
         text=True,
