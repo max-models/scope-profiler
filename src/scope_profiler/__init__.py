@@ -20,6 +20,16 @@ from scope_profiler.json_export import (
 )
 from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.mpi_region import MPIRegion
+from scope_profiler.mpi_wrappers import (
+    MPIRegionMetadata,
+    ProfiledMPIComm,
+    ProfiledMPIRequest,
+    format_mpi_region,
+    message_nbytes,
+    parse_mpi_region,
+    profile_mpi_comm,
+    profile_mpi4py,
+)
 from scope_profiler.perf_events import PerfEventError, PerfEventTotals
 from scope_profiler.profile_config import ProfilingOptions
 from scope_profiler.profile_io import read_profile, write_profile
@@ -64,9 +74,12 @@ __all__ = [
     "JSONProfileError",
     "LikwidRegionResult",
     "MPIRegion",
+    "MPIRegionMetadata",
     "NestingError",
     "PerfEventError",
     "PerfEventTotals",
+    "ProfiledMPIComm",
+    "ProfiledMPIRequest",
     "ProfileManager",
     "ProfilingOptions",
     "ProfilingResults",
@@ -82,9 +95,11 @@ __all__ = [
     "export_json",
     "export_prof",
     "export_speedscope",
+    "format_mpi_region",
     "inspect_file",
     "load_prof",
     "merge_results",
+    "message_nbytes",
     "plot_duration_timeseries",
     "plot_durations",
     "plot_flame",
@@ -96,6 +111,9 @@ __all__ = [
     "plot_scaling_efficiency",
     "plot_speedup",
     "plot_weak_scaling",
+    "parse_mpi_region",
+    "profile_mpi_comm",
+    "profile_mpi4py",
     "read_h5",
     "read_h5_summary",
     "read_json",

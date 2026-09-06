@@ -4,6 +4,19 @@
 
 ### Added
 
+- Optional C++11 MPI wrappers and a matching mpi4py communicator proxy profile
+  point-to-point, collective, nonblocking-initiation, and wait operations with
+  a shared label schema for message bytes, peer/root, tag, communicator, and
+  request origin. The Python layer imports no MPI module itself, while the
+  CMake `scope-profiler::mpi` add-on supplies native MPI headers and linkage.
+- `scope-profiler run` automatically profiles mpi4py programs that use
+  `MPI.COMM_WORLD`, `MPI.COMM_SELF`, or communicators derived from them without
+  modifying their source code. The same behavior is available to normal
+  sessions through `ProfilingOptions(profile_mpi_calls=True)` or TOML;
+  `--no-mpi-calls` disables the CLI interception.
+- Added a runnable mpi4py example using
+  `ProfilingOptions(profile_mpi_calls=True)` with predefined and derived
+  communicators.
 - C++ call sites can use `SP_PROFILE_SCOPE`, `SP_PROFILE_FUNCTION`, and their
   explicit-context variants. Defining `SP_DISABLE_PROFILING` removes the
   instrumentation completely, including argument evaluation, region strings,

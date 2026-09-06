@@ -114,6 +114,20 @@ def _parse_run_args(argv):
         default=None,
         help="Record aggregate timing statistics only; omit per-call timeline events.",
     )
+    mpi_calls = parser.add_mutually_exclusive_group()
+    mpi_calls.add_argument(
+        "--mpi-calls",
+        dest="mpi_calls",
+        action="store_true",
+        default=True,
+        help="Profile mpi4py calls without changing the target script (default)",
+    )
+    mpi_calls.add_argument(
+        "--no-mpi-calls",
+        dest="mpi_calls",
+        action="store_false",
+        help="Do not profile mpi4py communication calls",
+    )
     parser.add_argument("script", help="Script to run and profile")
     parser.add_argument(
         "script_args",
@@ -196,6 +210,7 @@ def _run(argv):
         use_memray=args.memory_profile,
         buffer_limit=args.buffer_limit,
         aggregation_mode=args.aggregation_mode,
+        profile_mpi_calls=args.mpi_calls,
         file_path=profile_path,
         config_path=args.config,
     )

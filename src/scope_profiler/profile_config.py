@@ -46,6 +46,7 @@ _CONFIG_FIELDS = {
     "label",
     "capture_region_source",
     "aggregation_mode",
+    "profile_mpi_calls",
     "track_threads",
     "track_async",
 }
@@ -147,6 +148,9 @@ class ProfilingOptions:
         total per region (default: False). Timeline events are unavailable
         in this mode; it cannot be combined with line, GPU, NVTX, or LIKWID
         profiling.
+    profile_mpi_calls : bool or None
+        Profile mpi4py operations made through predefined or derived
+        communicators (default: False). mpi4py remains lazily imported.
     track_threads : bool or None
         Record which thread each call ran on, and describe every thread the
         run touched (default: False). Required for correct results from
@@ -202,6 +206,7 @@ class ProfilingOptions:
     deactivate_file_output: bool | None = None
     recursive_profile: bool | None = None
     aggregation_mode: bool | None = None
+    profile_mpi_calls: bool | None = None
     track_threads: bool | None = None
     track_async: bool | None = None
     capture_region_source: bool | None = None
@@ -395,6 +400,7 @@ class ProfilingConfig:
         deactivate_file_output: bool = False,
         recursive_profile: bool = False,
         aggregation_mode: bool = False,
+        profile_mpi_calls: bool = False,
         track_threads: bool = False,
         track_async: bool = False,
         capture_region_source: bool = False,
@@ -443,6 +449,9 @@ class ProfilingConfig:
             exclusive total per region. Timeline events are unavailable in
             this mode; it cannot be combined with line, GPU, NVTX, or LIKWID
             profiling.
+        profile_mpi_calls : bool
+            Profile mpi4py calls made through predefined or derived
+            communicators. Enabling this does not itself import mpi4py.
         track_threads : bool
             Give every thread its own buffers and stamp each call with the
             thread it ran on, so regions entered concurrently record correct,
@@ -576,6 +585,7 @@ class ProfilingConfig:
                 "aggregation_mode cannot be combined with line, GPU, NVTX, LIKWID, or perf events",
             )
         self._aggregation_mode = aggregation_mode
+        self._profile_mpi_calls = profile_mpi_calls
 
         # track_async is a strict refinement of track_threads: a task lane is
         # identified relative to the thread it runs on, and its buffers are
@@ -849,6 +859,11 @@ class ProfilingConfig:
     def aggregation_mode(self) -> bool:
         """Whether regions retain aggregates instead of individual events."""
         return self._aggregation_mode
+
+    @property
+    def profile_mpi_calls(self) -> bool:
+        """Whether mpi4py communicator operations are profiled."""
+        return self._profile_mpi_calls
 
     @property
     def track_threads(self) -> bool:

@@ -310,6 +310,8 @@ target_link_libraries(simulation PRIVATE scope-profiler::cpp)
 - `scope-profiler::likwid` is available when scope-profiler was configured
   with `-DSCOPE_PROFILER_ENABLE_LIKWID=ON`; link this add-on alongside either
   `scope-profiler::cpp` or `scope-profiler::header-only`.
+- `scope-profiler::mpi` similarly adds `scope_profiler_mpi.hpp` and MPI linkage
+  when configured with `-DSCOPE_PROFILER_ENABLE_MPI=ON`.
 
 The same targets work through `FetchContent_MakeAvailable(scope-profiler)`.
 See `examples/cmake/` for both the installed-package and FetchContent paths.

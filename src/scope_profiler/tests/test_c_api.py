@@ -1044,6 +1044,156 @@ int main()
     assert len(regions["solve"][0]) == 1
 
 
+@pytest.mark.skipif(CXX_COMPILER is None, reason="no C++ compiler on PATH")
+def test_native_mpi_wrappers_record_operations_and_metadata(tmp_path):
+    """A stand-in MPI header exercises wrappers without an MPI installation."""
+    (tmp_path / "mpi.h").write_text(
+        """
+#ifndef FAKE_MPI_H
+#define FAKE_MPI_H
+typedef int MPI_Comm;
+typedef int MPI_Fint;
+typedef int MPI_Datatype;
+typedef int MPI_Op;
+typedef int MPI_Request;
+typedef struct { int source; } MPI_Status;
+#define MPI_SUCCESS 0
+#define MPI_COMM_WORLD 7
+#define MPI_REQUEST_NULL 0
+#define MPI_STATUS_IGNORE ((MPI_Status *)0)
+int MPI_Type_size(MPI_Datatype, int *);
+MPI_Fint MPI_Comm_c2f(MPI_Comm);
+int MPI_Send(const void *, int, MPI_Datatype, int, int, MPI_Comm);
+int MPI_Recv(void *, int, MPI_Datatype, int, int, MPI_Comm, MPI_Status *);
+int MPI_Isend(const void *, int, MPI_Datatype, int, int, MPI_Comm, MPI_Request *);
+int MPI_Irecv(void *, int, MPI_Datatype, int, int, MPI_Comm, MPI_Request *);
+int MPI_Wait(MPI_Request *, MPI_Status *);
+int MPI_Barrier(MPI_Comm);
+int MPI_Bcast(void *, int, MPI_Datatype, int, MPI_Comm);
+int MPI_Reduce(const void *, void *, int, MPI_Datatype, MPI_Op, int, MPI_Comm);
+int MPI_Allreduce(const void *, void *, int, MPI_Datatype, MPI_Op, MPI_Comm);
+#endif
+""",
+    )
+    source = tmp_path / "mpi_wrappers.cpp"
+    source.write_text(
+        """
+#include "scope_profiler_mpi.hpp"
+
+static int calls;
+int MPI_Type_size(MPI_Datatype datatype, int *size) { *size = datatype; return 0; }
+MPI_Fint MPI_Comm_c2f(MPI_Comm communicator) { return communicator; }
+int MPI_Send(const void *, int, MPI_Datatype, int, int, MPI_Comm) { ++calls; return 0; }
+int MPI_Recv(void *, int, MPI_Datatype, int, int, MPI_Comm, MPI_Status *) { ++calls; return 0; }
+int MPI_Isend(const void *, int, MPI_Datatype, int, int, MPI_Comm, MPI_Request *r)
+{ ++calls; *r = 1; return 0; }
+int MPI_Irecv(void *, int, MPI_Datatype, int, int, MPI_Comm, MPI_Request *r)
+{ ++calls; *r = 2; return 0; }
+int MPI_Wait(MPI_Request *r, MPI_Status *) { ++calls; *r = MPI_REQUEST_NULL; return 0; }
+int MPI_Barrier(MPI_Comm) { ++calls; return 0; }
+int MPI_Bcast(void *, int, MPI_Datatype, int, MPI_Comm) { ++calls; return 0; }
+int MPI_Reduce(const void *, void *, int, MPI_Datatype, MPI_Op, int, MPI_Comm)
+{ ++calls; return 0; }
+int MPI_Allreduce(const void *, void *, int, MPI_Datatype, MPI_Op, MPI_Comm)
+{ ++calls; return 0; }
+
+int main()
+{
+    int value = 1, result = 0;
+    sp_init("mpi", 0);
+    sp::mpi::send(&value, 4, 8, 2, 9, MPI_COMM_WORLD);
+    sp::mpi::recv(&value, 4, 8, 3, 10, MPI_COMM_WORLD);
+    sp::mpi::Request sent = sp::mpi::isend(&value, 4, 8, 2, 11, MPI_COMM_WORLD);
+    if (sent.error() != MPI_SUCCESS || !sent.active()) return 2;
+    sp::mpi::wait(sent);
+    sp::mpi::Request received = sp::mpi::irecv(&value, 4, 8, 3, 12, MPI_COMM_WORLD);
+    sp::mpi::wait(received);
+    sp::mpi::barrier(MPI_COMM_WORLD);
+    sp::mpi::bcast(&value, 4, 8, 1, MPI_COMM_WORLD);
+    sp::mpi::reduce(&value, &result, 4, 8, 1, 1, MPI_COMM_WORLD);
+    sp::mpi::allreduce(&value, &result, 4, 8, 1, MPI_COMM_WORLD);
+    sp_finalize();
+    return calls == 10 ? 0 : 3;
+}
+""",
+    )
+    object_file = tmp_path / "scope_profiler.o"
+    subprocess.run(
+        [COMPILER, "-std=c99", f"-I{c_include_dir()}", "-c", str(SOURCE), "-o", str(object_file)],
+        check=True,
+    )
+    executable = tmp_path / "mpi_wrappers"
+    result = subprocess.run(
+        [
+            CXX_COMPILER,
+            "-std=c++11",
+            "-Wall",
+            "-Wextra",
+            "-pedantic",
+            f"-I{tmp_path}",
+            f"-I{c_include_dir()}",
+            str(source),
+            str(object_file),
+            "-o",
+            str(executable),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    run(executable, tmp_path)
+
+    _, regions = read_trace(tmp_path / "mpi_rank00000.spt")
+    assert any(
+        name == (
+            "mpi:send kind=point-to-point bytes=32 peer=2 root=-1 "
+            "tag=9 comm=7"
+        )
+        for name in regions
+    )
+    assert any("mpi:barrier kind=collective bytes=0" in name for name in regions)
+    assert any("mpi:wait kind=wait" in name and "request=isend" in name for name in regions)
+
+    disabled_source = tmp_path / "mpi_disabled.cpp"
+    disabled_source.write_text(
+        """
+#define SP_DISABLE_PROFILING
+#include "scope_profiler_mpi.hpp"
+static int type_size_calls;
+int MPI_Type_size(MPI_Datatype datatype, int *size)
+{ ++type_size_calls; *size = datatype; return 0; }
+MPI_Fint MPI_Comm_c2f(MPI_Comm communicator) { return communicator; }
+int MPI_Send(const void *, int, MPI_Datatype, int, int, MPI_Comm) { return 23; }
+int main()
+{
+    int value = 1;
+    int status = sp::mpi::send(&value, 4, 8, 2, 9, MPI_COMM_WORLD);
+    return status == 23 && type_size_calls == 0 ? 0 : 1;
+}
+""",
+    )
+    disabled = tmp_path / "mpi_disabled"
+    result = subprocess.run(
+        [
+            CXX_COMPILER,
+            "-std=c++11",
+            "-O2",
+            f"-I{tmp_path}",
+            f"-I{c_include_dir()}",
+            str(disabled_source),
+            "-o",
+            str(disabled),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    run(disabled, tmp_path)
+    assert b"mpi:send" not in disabled.read_bytes()
+
+
 @pytest.mark.skipif(shutil.which("cmake") is None, reason="cmake is not installed")
 def test_cmake_install_exports_working_header_only_target(tmp_path):
     """The installed config is consumable by an unrelated CMake project."""
