@@ -6,8 +6,9 @@
  * one. The trace format is shared with the Fortran API, so a program built
  * from both lands in one profile.
  *
- * Self-contained C99: one .c file, no dependencies beyond libc, no HDF5, no
- * MPI. Safe to include from C++ (everything is extern "C").
+ * Self-contained C99: compile scope_profiler.c with the adjacent headers; no
+ * dependencies beyond libc, no HDF5, no MPI. Safe to include from C++
+ * (everything is extern "C").
  *
  * Two ways to use it:
  *

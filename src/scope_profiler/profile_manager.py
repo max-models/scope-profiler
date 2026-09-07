@@ -190,6 +190,7 @@ class _ProfilingSession:
                 config = self._manager._config
                 if config is not None and config.tracker is not None:
                     config.tracker.uninstall()
+                self._manager._stop_mpi_call_profiling()
         return False
 
 
@@ -330,6 +331,7 @@ class ProfileManager:
     # child process of a rank that happens to import the library, including
     # the one LIKWID's counter read-back forks. See get_config().
     _config: ProfilingConfig | None = None
+    _mpi_profile_context = None
     _region_cls = DisabledProfileRegion
     _decorators: ClassVar[dict[str, list]] = {}  # name -> [(func, _bound), ...]
     _decorated_codes: ClassVar[set] = set()
@@ -359,6 +361,7 @@ class ProfileManager:
                 "_regions": {},
                 "_next_call_id": 0,
                 "_config": None,
+                "_mpi_profile_context": None,
                 "_region_cls": DisabledProfileRegion,
                 "_decorators": {},
                 "_decorated_codes": set(),
@@ -1737,6 +1740,7 @@ class ProfileManager:
         deactivate_file_output: bool | None = None,
         recursive_profile: bool | None = None,
         aggregation_mode: bool | None = None,
+        profile_mpi_calls: bool | None = None,
         track_threads: bool | None = None,
         track_async: bool | None = None,
         capture_region_source: bool | None = None,
@@ -1823,6 +1827,11 @@ class ProfileManager:
             exclusive total per region. Timeline events are unavailable in
             this mode; it cannot be combined with line, GPU, NVTX, or LIKWID
             profiling.
+        profile_mpi_calls : bool, optional
+            Profile mpi4py operations made through predefined and derived
+            communicators (default: False). mpi4py is imported only if the
+            application imports it. With :meth:`session`, obtain
+            ``MPI.COMM_WORLD`` inside the session so it receives the proxy.
         track_threads : bool, optional
             Profile every thread (default: False). Each thread gets its own
             buffers and scope stack, so regions entered concurrently no
@@ -1886,10 +1895,10 @@ class ProfileManager:
         -----
         The run's start time is the moment ``setup()`` is called; it is stored
         as the ``start_time_ns`` metadata field and is the origin of the
-        relative timeline in post-processing. MPI is not configurable either:
-        collectives are used exactly when the process was started by an MPI
-        launcher, so a plain ``python script.py`` never imports mpi4py. See
-        :mod:`scope_profiler.mpi_launch` for the detection and its
+        relative timeline in post-processing. MPI rank detection is separate
+        from ``profile_mpi_calls``: collectives are used exactly when the
+        process was started by an MPI launcher. See
+        :mod:`scope_profiler.mpi_launch` for detection and its
         ``SCOPE_PROFILER_MPI`` override.
         """
         settings = {
@@ -1910,6 +1919,7 @@ class ProfileManager:
             "deactivate_file_output": False,
             "recursive_profile": False,
             "aggregation_mode": False,
+            "profile_mpi_calls": False,
             "track_threads": False,
             "track_async": False,
             "capture_region_source": False,
@@ -1941,6 +1951,7 @@ class ProfileManager:
             "deactivate_file_output": deactivate_file_output,
             "recursive_profile": recursive_profile,
             "aggregation_mode": aggregation_mode,
+            "profile_mpi_calls": profile_mpi_calls,
             "track_threads": track_threads,
             "track_async": track_async,
             "capture_region_source": capture_region_source,
@@ -1953,6 +1964,10 @@ class ProfileManager:
         settings.update(
             {key: value for key, value in explicit.items() if value is not None},
         )
+
+        # Restore MPI globals before resolving the next run's native
+        # communicator; otherwise get_comm() could retain the previous proxy.
+        cls._stop_mpi_call_profiling()
 
         # Memray permits exactly one active tracker per process. A new setup
         # starts a new run, so close the prior run's capture first.
@@ -2014,6 +2029,7 @@ class ProfileManager:
         config : ProfilingConfig
             The new profiling configuration to apply.
         """
+        cls._stop_mpi_call_profiling()
         cls._regions.clear()  # Clear old regions
         # A new run gets a fresh id space; ids stay unique only within one.
         cls._next_call_id = 0
@@ -2026,6 +2042,11 @@ class ProfileManager:
         if previous is not None:
             previous.stop_memory_profiling()
         cls._config = config  # Update the config
+        if config.profile_mpi_calls and not config.deactivate_profiling:
+            from scope_profiler.mpi_wrappers import profile_mpi4py
+
+            cls._mpi_profile_context = profile_mpi4py(lazy=True)
+            cls._mpi_profile_context.__enter__()
         if config.tracker is not None:
             config.tracker.install()
         cls._update_region_cls()  # Set the proper region class
@@ -2075,12 +2096,21 @@ class ProfileManager:
         The next ``get_config()`` builds a fresh default one; nothing is
         constructed here, so a reset cannot pull MPI in either.
         """
+        cls._stop_mpi_call_profiling()
         ProfilingConfig.reset()
         if cls._config is not None and cls._config.tracker is not None:
             cls._config.tracker.uninstall()
         if cls._config is not None:
             cls._config.stop_memory_profiling()
         cls._config = None
+
+    @classmethod
+    def _stop_mpi_call_profiling(cls) -> None:
+        """Restore mpi4py globals if this manager installed their proxies."""
+        context = cls._mpi_profile_context
+        cls._mpi_profile_context = None
+        if context is not None:
+            context.__exit__(None, None, None)
 
     @classmethod
     def _reset(cls) -> None:

@@ -106,3 +106,53 @@ def test_to_kwargs_only_includes_set_fields():
     options = ProfilingOptions(use_likwid=True, buffer_limit=512)
 
     assert options.to_kwargs() == {"use_likwid": True, "buffer_limit": 512}
+
+
+def test_mpi_call_profiling_option_follows_the_session_lifecycle(monkeypatch):
+    events = []
+
+    class FakeContext:
+        def __enter__(self):
+            events.append("install")
+
+        def __exit__(self, *args):
+            events.append("restore")
+
+    monkeypatch.setattr(
+        "scope_profiler.mpi_wrappers.profile_mpi4py",
+        lambda *, lazy: FakeContext(),
+    )
+    options = ProfilingOptions(
+        profile_mpi_calls=True,
+        deactivate_file_output=True,
+    )
+
+    with ProfileManager.session(options=options, verbose=False):
+        assert ProfileManager.get_config().profile_mpi_calls is True
+        assert events == ["install"]
+
+    assert events == ["install", "restore"]
+
+
+def test_toml_can_enable_mpi_call_profiling(tmp_path, monkeypatch):
+    config_file = tmp_path / "profile.toml"
+    config_file.write_text(
+        "[profiling]\nprofile_mpi_calls = true\ndeactivate_file_output = true\n",
+        encoding="utf-8",
+    )
+
+    class FakeContext:
+        def __enter__(self):
+            pass
+
+        def __exit__(self, *args):
+            pass
+
+    monkeypatch.setattr(
+        "scope_profiler.mpi_wrappers.profile_mpi4py",
+        lambda *, lazy: FakeContext(),
+    )
+
+    ProfileManager.setup(config_path=config_file)
+
+    assert ProfileManager.get_config().profile_mpi_calls is True

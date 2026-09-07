@@ -64,10 +64,10 @@ def fortran_source_path() -> Path:
 
 
 def c_source_path() -> Path:
-    """Path to ``scope_profiler.c``, the implementation to compile in.
+    """Path to ``scope_profiler.c``, the implementation entry point to compile.
 
-    Its header sits next to it; :func:`c_include_dir` is what to put on the
-    compiler's include path::
+    Its public and private implementation headers sit next to it;
+    :func:`c_include_dir` is what to put on the compiler's include path::
 
         cc -c $(python -c \
             "import scope_profiler.native_trace as t; print(t.c_source_path())") \

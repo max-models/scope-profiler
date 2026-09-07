@@ -108,7 +108,7 @@ optional-dependencies.docs = [
   "pyproject-fmt",
   "sphinx",
   "sphinx-book-theme",
-  "scope-profiler[line-profiler,notebook,pproc,tui]",
+  "scope-profiler[line-profiler,mpi,notebook,pproc,tui]",
 ]
 optional-dependencies.test = [
   # coverage[toml] so the [tool.coverage.*] tables in this file are read on
@@ -145,6 +145,7 @@ scope_profiler = [
   "c/*.c",
   "c/*.h",
   "c/*.hpp",
+  "c/*_impl.h",
   "c/Makefile",
   # Browser figure builders bundled at an exact npm-package version for
   # self-contained HTML reports.

@@ -10,10 +10,15 @@ program marks regions, writes a small trace file per rank, and
 so a C run gets the same summaries, charts, exporters and `plot` workflow as a
 Python one.
 
-It is one C99 file plus a header: no dependencies beyond libc, no HDF5, no MPI,
-nothing to link. The header is `extern "C"`, so C++ codes can include it
-directly -- or reach for the optional `scope_profiler.hpp` RAII wrapper
-described below.
+The compiled backend is a small C99 entry source plus adjacent headers: no
+dependencies beyond libc, no HDF5, no MPI, nothing else to link. Keep the
+shipped `scope_profiler_impl.h` beside `scope_profiler.c` when vendoring them.
+The public header is `extern "C"`, so C++ codes can include it directly -- or
+reach for the optional `scope_profiler.hpp` RAII wrapper described below.
+
+C++ projects can instead use the C++17 header-only backend, and CMake projects
+can consume exported `scope-profiler::native`, `scope-profiler::cpp`, and
+`scope-profiler::header-only` targets.
 
 The trace format is shared with {doc}`the Fortran API <fortran>`, so a program
 built from both lands in a single profile.
@@ -220,6 +225,97 @@ needs to be compiled or linked on its own -- only included from C++
 translation units. `make hpp-check` (in `src/scope_profiler/c/`) compile-checks
 it in CI.
 
+### Scoped instrumentation macros
+
+The recommended C++ call-site API captures source locations and closes regions
+on every exit path:
+
+```cpp
+void solve()
+{
+    SP_PROFILE_FUNCTION();
+    SP_PROFILE_SCOPE("assemble");
+    assemble_matrix();
+}
+```
+
+`SP_PROFILE_SCOPE_CTX(profiler, "assemble")` and
+`SP_PROFILE_FUNCTION_CTX(profiler)` select an explicit profiler. Give each
+macro its own lexical scope when two invocations would otherwise be on the
+same source line.
+
+Define `SP_DISABLE_PROFILING` for an uninstrumented build. All four macros then
+expand to no-ops: their arguments are not evaluated, their strings are not
+retained, and no profiler symbol is referenced. The same source can therefore
+remain instrumented without linking scope-profiler:
+
+```bash
+c++ -DSP_DISABLE_PROFILING application.cpp -o application
+```
+
+### C++17 header-only backend
+
+Defining `SP_HEADER_ONLY` before including `scope_profiler.hpp` supplies inline
+definitions of the complete recording backend. It is safe across multiple
+translation units and needs no separately compiled `scope_profiler.c`:
+
+```cpp
+#define SP_HEADER_ONLY
+#include "scope_profiler.hpp"
+```
+
+This mode requires C++17 for inline process-wide state. The ordinary compiled
+backend and RAII wrapper continue to support C++11.
+
+### Native LIKWID counters
+
+Define `SP_USE_LIKWID` and `LIKWID_PERFMON`, include LIKWID's headers, and link
+`liblikwid`. `SP_PROFILE_SCOPE*` then starts and stops a LIKWID marker with the
+same name as its timing region. An RAII session owns LIKWID initialization and
+finalization without involving Python:
+
+```cpp
+#define SP_USE_LIKWID
+#include "scope_profiler.hpp"
+
+int main()
+{
+    sp::LikwidSession counters;
+    sp_init("profile", 0);
+    {
+        SP_PROFILE_SCOPE("solve");
+        solve();
+    }
+    return sp_finalize();
+}
+```
+
+Run the executable under `likwid-perfctr -m`. Worker threads must call
+`sp::likwid_thread_init()` once before entering markers. The optional CMake
+target described below supplies the definitions, include directory, and
+library automatically.
+
+## CMake package
+
+An installed source distribution exports namespaced targets:
+
+```cmake
+find_package(scope-profiler CONFIG REQUIRED)
+target_link_libraries(simulation PRIVATE scope-profiler::cpp)
+```
+
+- `scope-profiler::native` is the compiled C99 recorder.
+- `scope-profiler::cpp` adds the C++11 RAII/macro API and links the recorder.
+- `scope-profiler::header-only` selects the C++17 header-only recorder.
+- `scope-profiler::likwid` is available when scope-profiler was configured
+  with `-DSCOPE_PROFILER_ENABLE_LIKWID=ON`; link this add-on alongside either
+  `scope-profiler::cpp` or `scope-profiler::header-only`.
+- `scope-profiler::mpi` similarly adds `scope_profiler_mpi.hpp` and MPI linkage
+  when configured with `-DSCOPE_PROFILER_ENABLE_MPI=ON`.
+
+The same targets work through `FetchContent_MakeAvailable(scope-profiler)`.
+See `examples/cmake/` for both the installed-package and FetchContent paths.
+
 ## Reset, statistics and flushing
 
 `sp_profiler_reset()` discards every recorded call and each region's
@@ -359,8 +455,9 @@ mixed C/Fortran run still merges into one profile.
 - **Not thread safe.** A region must be entered and left by the same thread.
   OpenMP threads inside a region are fine — wrap the whole parallel construct
   in one `sp_begin`/`sp_end` from the master thread.
-- **No LIKWID counters.** Hardware counters are collected only by the Python
-  API; a native trace carries timings alone.
+- **Counter storage is owned by LIKWID.** Native C++ scopes write the ordinary
+  `.spt` timing trace and LIKWID writes its marker output; the binary native
+  trace format itself remains timing-only.
 - **Recursion depth** per region is capped at `SP_MAX_DEPTH` (64); deeper
   nesting is reported on stderr and left untimed rather than corrupting the
   buffer.

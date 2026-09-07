@@ -53,6 +53,16 @@ def test_run_help_lists_memory_profile_flag(capsys):
     assert "--memory-profile" in capsys.readouterr().out
 
 
+def test_run_help_lists_mpi_call_flags(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main(["run", "--help"])
+
+    assert exc_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "--mpi-calls" in output
+    assert "--no-mpi-calls" in output
+
+
 def test_run_line_profile_flag_is_passed_to_setup(tmp_path, monkeypatch):
     script = tmp_path / "script.py"
     script.write_text("print('hello')\n", encoding="utf-8")
@@ -97,12 +107,60 @@ def test_run_line_profile_flag_is_passed_to_setup(tmp_path, monkeypatch):
     assert calls["setup"]["use_line_profiler"] is True
     assert calls["setup"]["use_memray"] is True
     assert calls["setup"]["recursive_profile"] is True
+    assert calls["setup"]["profile_mpi_calls"] is True
     assert calls["run_script"] == {
         "path": str(script),
         "script_args": ["arg"],
         "only_user_code": False,
     }
     assert calls["finalize"] == {"verbose": False}
+
+
+def test_run_enables_mpi_calls_in_profiling_options(tmp_path, monkeypatch):
+    script = tmp_path / "script.py"
+    script.write_text("pass\n", encoding="utf-8")
+    calls = {}
+
+    monkeypatch.setattr(
+        "scope_profiler.__main__.ProfileManager.setup",
+        lambda **kwargs: calls.update(setup=kwargs),
+    )
+    monkeypatch.setattr(
+        "scope_profiler.__main__.ProfileManager.run_script",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "scope_profiler.__main__.ProfileManager.finalize",
+        lambda **kwargs: None,
+    )
+
+    cli_main(["run", str(script)])
+
+    assert calls["setup"]["profile_mpi_calls"] is True
+
+
+def test_run_can_disable_automatic_mpi_call_profiling(tmp_path, monkeypatch):
+    script = tmp_path / "script.py"
+    script.write_text("pass\n", encoding="utf-8")
+    events = []
+    calls = {}
+
+    monkeypatch.setattr(
+        "scope_profiler.__main__.ProfileManager.setup",
+        lambda **kwargs: calls.update(setup=kwargs),
+    )
+    monkeypatch.setattr(
+        "scope_profiler.__main__.ProfileManager.run_script",
+        lambda *args, **kwargs: events.append("run"),
+    )
+    monkeypatch.setattr(
+        "scope_profiler.__main__.ProfileManager.finalize",
+        lambda **kwargs: events.append("finalize"),
+    )
+    cli_main(["run", "--no-mpi-calls", str(script)])
+
+    assert events == ["run", "finalize"]
+    assert calls["setup"]["profile_mpi_calls"] is False
 
 
 def test_run_toml_config_is_passed_to_setup(tmp_path, monkeypatch):

@@ -204,6 +204,13 @@ Reading what the C and Fortran region APIs write -- they share one format; see
    :undoc-members:
 ```
 
+### MPI call wrappers
+
+```{eval-rst}
+.. automodule:: scope_profiler.mpi_wrappers
+   :members:
+```
+
 ### Call stack reconstruction
 
 Regions record no call graph, so nesting is recovered from timestamp

@@ -847,6 +847,445 @@ int main()
     assert "calls: 3" in output
 
 
+@pytest.mark.skipif(CXX_COMPILER is None, reason="no C++ compiler on PATH")
+def test_profile_macros_record_scope_function_and_source(tmp_path):
+    program = """
+#include "scope_profiler.hpp"
+
+static void solve()
+{
+    SP_PROFILE_FUNCTION();
+    { SP_PROFILE_SCOPE("inner"); }
+}
+
+int main()
+{
+    sp_init("macros", 0);
+    solve();
+    return sp_finalize();
+}
+"""
+    executable = build_cxx(tmp_path, program, name="profile_macros")
+    run(executable, tmp_path)
+
+    _, regions = read_trace(tmp_path / "macros_rank00000.spt")
+    assert "inner" in regions
+    function_name = next(name for name in regions if "solve" in name)
+    assert regions[function_name].source_file.endswith("profile_macros.cpp")
+    assert regions["inner"].source_lineno > 0
+
+
+@pytest.mark.skipif(CXX_COMPILER is None, reason="no C++ compiler on PATH")
+def test_disabled_profile_macros_emit_no_code_or_references(tmp_path):
+    """Arguments disappear too: disabled instrumentation has no side effects."""
+    source = tmp_path / "disabled.cpp"
+    source.write_text(
+        """
+#define SP_DISABLE_PROFILING
+#include "scope_profiler.hpp"
+
+const char *expensive_name(); // deliberately has no definition
+int main()
+{
+    SP_PROFILE_SCOPE(expensive_name());
+    SP_PROFILE_SCOPE("disabled-region-that-must-not-survive");
+    SP_PROFILE_FUNCTION();
+    return 0;
+}
+""",
+    )
+    executable = tmp_path / "disabled"
+    result = subprocess.run(
+        [
+            CXX_COMPILER,
+            "-std=c++11",
+            "-O2",
+            f"-I{c_include_dir()}",
+            str(source),
+            "-o",
+            str(executable),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    run(executable, tmp_path)
+    assert b"disabled-region-that-must-not-survive" not in executable.read_bytes()
+
+
+@pytest.mark.skipif(CXX_COMPILER is None, reason="no C++ compiler on PATH")
+def test_header_only_backend_is_shared_across_translation_units(tmp_path):
+    """C++17 inline state links once and records scopes entered in another TU."""
+    (tmp_path / "worker.cpp").write_text(
+        """
+#define SP_HEADER_ONLY
+#include "scope_profiler.hpp"
+void worker() { SP_PROFILE_SCOPE("worker"); }
+""",
+    )
+    (tmp_path / "main.cpp").write_text(
+        """
+#define SP_HEADER_ONLY
+#include "scope_profiler.hpp"
+void worker();
+int main()
+{
+    sp_init("header_only", 0);
+    worker();
+    return sp_finalize();
+}
+""",
+    )
+    executable = tmp_path / "header_only"
+    result = subprocess.run(
+        [
+            CXX_COMPILER,
+            "-std=c++17",
+            "-Wall",
+            "-Wextra",
+            "-pedantic",
+            "-O1",
+            f"-I{c_include_dir()}",
+            str(tmp_path / "main.cpp"),
+            str(tmp_path / "worker.cpp"),
+            "-o",
+            str(executable),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    run(executable, tmp_path)
+    _, regions = read_trace(tmp_path / "header_only_rank00000.spt")
+    assert len(regions["worker"][0]) == 1
+
+
+@pytest.mark.skipif(CXX_COMPILER is None, reason="no C++ compiler on PATH")
+def test_native_likwid_scopes_drive_marker_api(tmp_path):
+    """A stand-in header exercises LIKWID integration without special hardware."""
+    (tmp_path / "likwid-marker.h").write_text(
+        """
+#ifndef FAKE_LIKWID_MARKER_H
+#define FAKE_LIKWID_MARKER_H
+void fake_likwid_init(void);
+void fake_likwid_thread_init(void);
+void fake_likwid_start(const char *);
+void fake_likwid_stop(const char *);
+void fake_likwid_close(void);
+#define LIKWID_MARKER_INIT fake_likwid_init()
+#define LIKWID_MARKER_THREADINIT fake_likwid_thread_init()
+#define LIKWID_MARKER_START(tag) fake_likwid_start(tag)
+#define LIKWID_MARKER_STOP(tag) fake_likwid_stop(tag)
+#define LIKWID_MARKER_CLOSE fake_likwid_close()
+#endif
+""",
+    )
+    source = tmp_path / "likwid_scope.cpp"
+    source.write_text(
+        """
+#define SP_USE_LIKWID
+#include "scope_profiler.hpp"
+#include <cstdio>
+#include <cstring>
+#include <stdexcept>
+
+static int initialized, thread_initialized, started, stopped, closed;
+void fake_likwid_init(void) { ++initialized; }
+void fake_likwid_thread_init(void) { ++thread_initialized; }
+void fake_likwid_start(const char *tag) { if (!std::strcmp(tag, "solve")) ++started; }
+void fake_likwid_stop(const char *tag) { if (!std::strcmp(tag, "solve")) ++stopped; }
+void fake_likwid_close(void) { ++closed; }
+
+int main()
+{
+    {
+        sp::LikwidSession counters;
+        sp_init("likwid", 0);
+        try {
+            SP_PROFILE_SCOPE("solve");
+            throw std::runtime_error("leave by exception");
+        } catch (const std::runtime_error &) {}
+        sp_finalize();
+    }
+    std::printf("%d %d %d %d %d\\n",
+                initialized, thread_initialized, started, stopped, closed);
+    return 0;
+}
+""",
+    )
+    object_file = tmp_path / "scope_profiler.o"
+    subprocess.run(
+        [
+            COMPILER,
+            "-std=c99",
+            f"-I{c_include_dir()}",
+            "-c",
+            str(SOURCE),
+            "-o",
+            str(object_file),
+        ],
+        check=True,
+    )
+    executable = tmp_path / "likwid_scope"
+    result = subprocess.run(
+        [
+            CXX_COMPILER,
+            "-std=c++11",
+            "-Wall",
+            "-Wextra",
+            f"-I{tmp_path}",
+            f"-I{c_include_dir()}",
+            str(source),
+            str(object_file),
+            "-o",
+            str(executable),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert run(executable, tmp_path).stdout.strip() == "1 1 1 1 1"
+    _, regions = read_trace(tmp_path / "likwid_rank00000.spt")
+    assert len(regions["solve"][0]) == 1
+
+
+@pytest.mark.skipif(CXX_COMPILER is None, reason="no C++ compiler on PATH")
+def test_native_mpi_wrappers_record_operations_and_metadata(tmp_path):
+    """A stand-in MPI header exercises wrappers without an MPI installation."""
+    (tmp_path / "mpi.h").write_text(
+        """
+#ifndef FAKE_MPI_H
+#define FAKE_MPI_H
+typedef int MPI_Comm;
+typedef int MPI_Fint;
+typedef int MPI_Datatype;
+typedef int MPI_Op;
+typedef int MPI_Request;
+typedef struct { int source; } MPI_Status;
+#define MPI_SUCCESS 0
+#define MPI_COMM_WORLD 7
+#define MPI_REQUEST_NULL 0
+#define MPI_STATUS_IGNORE ((MPI_Status *)0)
+int MPI_Type_size(MPI_Datatype, int *);
+MPI_Fint MPI_Comm_c2f(MPI_Comm);
+int MPI_Send(const void *, int, MPI_Datatype, int, int, MPI_Comm);
+int MPI_Recv(void *, int, MPI_Datatype, int, int, MPI_Comm, MPI_Status *);
+int MPI_Isend(const void *, int, MPI_Datatype, int, int, MPI_Comm, MPI_Request *);
+int MPI_Irecv(void *, int, MPI_Datatype, int, int, MPI_Comm, MPI_Request *);
+int MPI_Wait(MPI_Request *, MPI_Status *);
+int MPI_Barrier(MPI_Comm);
+int MPI_Bcast(void *, int, MPI_Datatype, int, MPI_Comm);
+int MPI_Reduce(const void *, void *, int, MPI_Datatype, MPI_Op, int, MPI_Comm);
+int MPI_Allreduce(const void *, void *, int, MPI_Datatype, MPI_Op, MPI_Comm);
+#endif
+""",
+    )
+    source = tmp_path / "mpi_wrappers.cpp"
+    source.write_text(
+        """
+#include "scope_profiler_mpi.hpp"
+
+static int calls;
+int MPI_Type_size(MPI_Datatype datatype, int *size) { *size = datatype; return 0; }
+MPI_Fint MPI_Comm_c2f(MPI_Comm communicator) { return communicator; }
+int MPI_Send(const void *, int, MPI_Datatype, int, int, MPI_Comm) { ++calls; return 0; }
+int MPI_Recv(void *, int, MPI_Datatype, int, int, MPI_Comm, MPI_Status *) { ++calls; return 0; }
+int MPI_Isend(const void *, int, MPI_Datatype, int, int, MPI_Comm, MPI_Request *r)
+{ ++calls; *r = 1; return 0; }
+int MPI_Irecv(void *, int, MPI_Datatype, int, int, MPI_Comm, MPI_Request *r)
+{ ++calls; *r = 2; return 0; }
+int MPI_Wait(MPI_Request *r, MPI_Status *) { ++calls; *r = MPI_REQUEST_NULL; return 0; }
+int MPI_Barrier(MPI_Comm) { ++calls; return 0; }
+int MPI_Bcast(void *, int, MPI_Datatype, int, MPI_Comm) { ++calls; return 0; }
+int MPI_Reduce(const void *, void *, int, MPI_Datatype, MPI_Op, int, MPI_Comm)
+{ ++calls; return 0; }
+int MPI_Allreduce(const void *, void *, int, MPI_Datatype, MPI_Op, MPI_Comm)
+{ ++calls; return 0; }
+
+int main()
+{
+    int value = 1, result = 0;
+    sp_init("mpi", 0);
+    sp::mpi::send(&value, 4, 8, 2, 9, MPI_COMM_WORLD);
+    sp::mpi::recv(&value, 4, 8, 3, 10, MPI_COMM_WORLD);
+    sp::mpi::Request sent = sp::mpi::isend(&value, 4, 8, 2, 11, MPI_COMM_WORLD);
+    if (sent.error() != MPI_SUCCESS || !sent.active()) return 2;
+    sp::mpi::wait(sent);
+    sp::mpi::Request received = sp::mpi::irecv(&value, 4, 8, 3, 12, MPI_COMM_WORLD);
+    sp::mpi::wait(received);
+    sp::mpi::barrier(MPI_COMM_WORLD);
+    sp::mpi::bcast(&value, 4, 8, 1, MPI_COMM_WORLD);
+    sp::mpi::reduce(&value, &result, 4, 8, 1, 1, MPI_COMM_WORLD);
+    sp::mpi::allreduce(&value, &result, 4, 8, 1, MPI_COMM_WORLD);
+    sp_finalize();
+    return calls == 10 ? 0 : 3;
+}
+""",
+    )
+    object_file = tmp_path / "scope_profiler.o"
+    subprocess.run(
+        [
+            COMPILER,
+            "-std=c99",
+            f"-I{c_include_dir()}",
+            "-c",
+            str(SOURCE),
+            "-o",
+            str(object_file),
+        ],
+        check=True,
+    )
+    executable = tmp_path / "mpi_wrappers"
+    result = subprocess.run(
+        [
+            CXX_COMPILER,
+            "-std=c++11",
+            "-Wall",
+            "-Wextra",
+            "-pedantic",
+            f"-I{tmp_path}",
+            f"-I{c_include_dir()}",
+            str(source),
+            str(object_file),
+            "-o",
+            str(executable),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    run(executable, tmp_path)
+
+    _, regions = read_trace(tmp_path / "mpi_rank00000.spt")
+    assert any(
+        name == ("mpi:send kind=point-to-point bytes=32 peer=2 root=-1 " "tag=9 comm=7")
+        for name in regions
+    )
+    assert any("mpi:barrier kind=collective bytes=0" in name for name in regions)
+    assert any(
+        "mpi:wait kind=wait" in name and "request=isend" in name for name in regions
+    )
+
+    disabled_source = tmp_path / "mpi_disabled.cpp"
+    disabled_source.write_text(
+        """
+#define SP_DISABLE_PROFILING
+#include "scope_profiler_mpi.hpp"
+static int type_size_calls;
+int MPI_Type_size(MPI_Datatype datatype, int *size)
+{ ++type_size_calls; *size = datatype; return 0; }
+MPI_Fint MPI_Comm_c2f(MPI_Comm communicator) { return communicator; }
+int MPI_Send(const void *, int, MPI_Datatype, int, int, MPI_Comm) { return 23; }
+int main()
+{
+    int value = 1;
+    int status = sp::mpi::send(&value, 4, 8, 2, 9, MPI_COMM_WORLD);
+    return status == 23 && type_size_calls == 0 ? 0 : 1;
+}
+""",
+    )
+    disabled = tmp_path / "mpi_disabled"
+    result = subprocess.run(
+        [
+            CXX_COMPILER,
+            "-std=c++11",
+            "-O2",
+            f"-I{tmp_path}",
+            f"-I{c_include_dir()}",
+            str(disabled_source),
+            "-o",
+            str(disabled),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    run(disabled, tmp_path)
+    assert b"mpi:send" not in disabled.read_bytes()
+
+
+@pytest.mark.skipif(shutil.which("cmake") is None, reason="cmake is not installed")
+def test_cmake_install_exports_working_header_only_target(tmp_path):
+    """The installed config is consumable by an unrelated CMake project."""
+    repository = Path(__file__).resolve().parents[3]
+    build_dir = tmp_path / "scope-build"
+    prefix = tmp_path / "prefix"
+    consumer_build = tmp_path / "consumer-build"
+
+    subprocess.run(
+        [
+            "cmake",
+            "-S",
+            str(repository),
+            "-B",
+            str(build_dir),
+            f"-DCMAKE_INSTALL_PREFIX={prefix}",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["cmake", "--build", str(build_dir), "--target", "install"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        [
+            "cmake",
+            "-S",
+            str(repository / "examples" / "cmake"),
+            "-B",
+            str(consumer_build),
+            f"-DCMAKE_PREFIX_PATH={prefix}",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["cmake", "--build", str(consumer_build)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    executable = consumer_build / "profiled-app"
+    run(executable, consumer_build)
+    _, regions = read_trace(consumer_build / "cmake-profile_rank00000.spt")
+    assert any("solve" in name for name in regions)
+
+    fetch_build = tmp_path / "fetch-build"
+    subprocess.run(
+        [
+            "cmake",
+            "-S",
+            str(repository / "examples" / "cmake"),
+            "-B",
+            str(fetch_build),
+            "-DSCOPE_PROFILER_USE_FETCHCONTENT=ON",
+            f"-DSCOPE_PROFILER_SOURCE_DIR={repository}",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["cmake", "--build", str(fetch_build)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    run(fetch_build / "profiled-app", fetch_build)
+    _, fetched_regions = read_trace(fetch_build / "cmake-profile_rank00000.spt")
+    assert any("solve" in name for name in fetched_regions)
+
+
 def test_scope_token_checked_ordering(tmp_path):
     program = """
 #include "scope_profiler.h"
