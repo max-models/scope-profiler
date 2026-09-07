@@ -159,10 +159,17 @@ def write_mpi_example_output(
         command,
         cwd=temporary_directory,
         env=environment,
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
     )
+    if executed.returncode:
+        rendered_command = " ".join(command)
+        raise RuntimeError(
+            f"MPI documentation example failed ({rendered_command})\n"
+            f"stdout:\n{executed.stdout or '(empty)'}\n"
+            f"stderr:\n{executed.stderr or '(empty)'}"
+        )
 
     inspected = subprocess.run(
         [
