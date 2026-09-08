@@ -19,6 +19,20 @@ from scope_profiler.region_profiler import (
 from scope_profiler.tests import examples
 
 
+def traced_region_name(func) -> str:
+    """The region name the recursive tracer gives ``func``.
+
+    The tracer sees a frame, not a function object, so it names a region from
+    ``co_qualname`` where that exists and falls back to ``co_name`` on Python
+    3.10, which predates the attribute (see
+    ``ProfileManager._frame_region_name``). A test that spells the 3.11+
+    qualified form out by hand therefore passes everywhere but 3.10, where the
+    same nested function is recorded as a bare name.
+    """
+    code = func.__code__
+    return f"{__name__}.{getattr(code, 'co_qualname', None) or code.co_name}"
+
+
 class FakeGPUTimingBackend:
     name = "fake"
 
@@ -376,10 +390,8 @@ def test_recursive_decorator_profiles_nested_calls():
     assert entry() == 12
 
     regions = ProfileManager.get_all_regions()
-    leaf_name = f"{__name__}.test_recursive_decorator_profiles_nested_calls.<locals>.helper_leaf"
-    mid_name = (
-        f"{__name__}.test_recursive_decorator_profiles_nested_calls.<locals>.helper_mid"
-    )
+    leaf_name = traced_region_name(helper_leaf)
+    mid_name = traced_region_name(helper_mid)
 
     assert regions["entry_recursive"].num_calls == 1
     assert regions[mid_name].num_calls == 3
@@ -462,12 +474,8 @@ def test_recursive_profile_setup_default_and_override():
     assert root() == 4
     assert root_non_recursive() == 42
 
-    recurse_name = (
-        f"{__name__}.test_recursive_profile_setup_default_and_override.<locals>.recurse"
-    )
-    helper_name = (
-        f"{__name__}.test_recursive_profile_setup_default_and_override.<locals>.helper"
-    )
+    recurse_name = traced_region_name(recurse)
+    helper_name = traced_region_name(helper)
     regions = ProfileManager.get_all_regions()
 
     assert regions["root_default_recursive"].num_calls == 1

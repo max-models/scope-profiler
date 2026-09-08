@@ -52,13 +52,21 @@ run-standalone: standalone
 # --------------------------------------------------------------------- mixed
 # f2py compiles the profiler module and the kernels into one extension, which
 # Python imports directly -- so both languages run in a single process.
+#
+# `only:` limits what gets wrapped for Python to the kernels' own entry points.
+# Without it f2py also wraps the profiler module's public functions, and the
+# Fortran wrapper it generates for the ones returning `integer(int64)` uses
+# that kind without importing iso_fortran_env, which gfortran rejects. Python
+# never calls into the profiler module anyway -- the kernels do, in Fortran.
 EXT_SUFFIX := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))")
 EXTENSION := kernels$(EXT_SUFFIX)
 
 mixed: $(EXTENSION)
 
 $(EXTENSION): kernels.f90 $(SP_MODULE)
-	$(PYTHON) -m numpy.f2py -c $(SP_MODULE) kernels.f90 -m kernels --quiet --backend meson
+	$(PYTHON) -m numpy.f2py -c $(SP_MODULE) kernels.f90 -m kernels --quiet \
+		--backend meson \
+		only: start_profiling stop_profiling jacobi_solve checkpoint :
 
 run-mixed: mixed
 	$(PYTHON) run_mixed.py

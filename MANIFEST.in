@@ -4,3 +4,4 @@ include examples/ex_mpi_numpy_wrappers.py
 include examples/ex_mpi_profiling_options.py
 recursive-include cmake *.cmake.in
 recursive-include examples/cmake CMakeLists.txt *.c *.cpp
+recursive-include src/scope_profiler/tests/fixtures *.b64 *.json *.md

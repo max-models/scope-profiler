@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- The HDF5 guide now identifies schema 3 as the current Python output schema,
+  and a test keeps the documented HDF5, JSON, and native format versions tied
+  to their implementation constants.
+- Platform-independent perf-event tests no longer depend on the host being
+  Linux, and the native-import test invokes the active Python interpreter
+  instead of assuming a `python` command exists.
 - Reading a profile written by a newer schema silently reported zero regions.
   Both the full and the summary-only reader tested the schema version for
   equality with 2 rather than a lower bound, so any later schema fell through
@@ -44,6 +50,36 @@
 
 ### Added
 
+- CI now runs the ordinary test suite on every supported Python version
+  (3.10--3.14) and adds a native macOS job for portable functionality. The
+  macOS environment includes Open MPI and mpi4py so it also exercises the
+  lazy MPI initialization contract.
+- Immutable compatibility fixtures cover HDF5 schemas 1--3, JSON profile v1,
+  and native trace v1/v2, so reader compatibility is checked against committed
+  fixed representative bytes rather than only files emitted by the current
+  writer.
+- `examples/benchmark_io.py` reports storage alongside its timings: the merged
+  file in bytes per recorded event, written plain and again through
+  `hdf5_compression="auto"`, with what the filter costs to write and to read.
+  `--figure` draws bytes-per-event against run size, showing the fixed cost
+  amortising away and the point at which automatic compression starts
+  applying. It also writes through the real publication path now, so the sizes
+  it reports are the ones a user gets.
+- `examples/benchmark_overhead.py` covers the `track_threads` and
+  `track_async` modes, so its figure and the budgets in `test_overhead.py`
+  describe the same set of region types.
+- Overhead and file-size analysis is now measured by the test suite, not only
+  by the benchmark scripts. `test_overhead_io.py` budgets what `finalize()`
+  spends writing a profile and what post-processing spends reading one back
+  --- including the publication pass, automatic compression, summary-only
+  reads and the timestamp codec --- and joins `test_overhead.py` under the
+  `overhead` marker that CI already runs in an isolated job.
+  `test_storage_size.py` covers bytes per event, the fixed floor, and how both
+  scale with events, ranks and regions; file size is deterministic, so its
+  budgets are tight rather than an order of magnitude clear. Alongside the
+  absolute budgets each module asserts *scaling* --- a ratio between the same
+  measurement at two sizes --- which is what catches a change in the shape of
+  a cost rather than only one large enough to blow a budget.
 - `hdf5_compression="auto"` compresses a run's event columns only once it is
   large enough for the saving to repay the write CPU, and leaves small
   profiles uncompressed. With the schema-3 encoding above, a 100,000-event

@@ -20,6 +20,7 @@ machine to shrug at.
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -311,7 +312,7 @@ def test_import_native_merges_hdf5_ranks_with_traces(tmp_path):
     merged = tmp_path / "merged.h5"
     result = subprocess.run(
         [
-            "python",
+            sys.executable,
             "-m",
             "scope_profiler",
             "import-native",
