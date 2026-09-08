@@ -33,6 +33,13 @@ _NO_EXCLUSIVE_TOTAL = -1
 # existed. -1 is what concurrency.lane_ids reads as "unknown lane".
 _NO_THREAD = -1
 _NO_TASK = -1
+# A call the writing run did not number. Native output (a C or Fortran trace,
+# or the HDF5 an SP_USE_HDF5 build writes directly) records no parent links at
+# all, and such a run must leave the columns out rather than fill them with
+# this: a reader takes an all-missing column at face value, and every call
+# sharing one id collapses the call graph to a single node. See
+# _OPTIONAL_EVENT_COLUMNS.
+_NO_CALL_ID = -1
 
 # Fixed-size statistics for summary-only readers. These live beside the
 # rank/region index, so commands such as ``diff`` can inspect a profile without
@@ -234,12 +241,7 @@ def initialize_columnar_layout(
         index.create_dataset(name, shape=(0,), maxshape=(None,), dtype=_STRING_DTYPE)
 
     events = h5file.create_group("events")
-    # call_ids/parent_ids are unique within a rank, not across the file: every
-    # rank numbers its own calls from its own id space. This column is the
-    # concatenation of all of them, so the same id appears once per rank.
-    # Slice by rank (as _read_columnar_regions does) before treating an id as
-    # a key; a file-wide id -> call mapping built from this column collides.
-    for name in ("start_times", "end_times", "call_ids", "parent_ids"):
+    for name in ("start_times", "end_times"):
         events.create_dataset(
             name,
             shape=(0,),
@@ -249,11 +251,21 @@ def initialize_columnar_layout(
         )
 
 
-# Per-call lane columns, written only by a run that tracked threads. Each is
-# created the first time a rank supplies it and back-filled for the ranks
-# already in the file, exactly like gpu_durations: a column that is absent
-# means "this run did not record it", never "these events had no value".
-_LANE_EVENT_COLUMNS = (
+# Per-call columns only some runs record. Each is created the first time a
+# rank supplies it and back-filled for the ranks already in the file, exactly
+# like gpu_durations: a column that is absent means "this run did not record
+# it", never "these events had no value". That distinction is load-bearing --
+# ProfilingResults.call_graph switches on whether call_ids is present, and
+# reconstructs the nesting from the timestamps when it is not.
+#
+# call_ids/parent_ids are unique within a rank, not across the file: every
+# rank numbers its own calls from its own id space. The column is the
+# concatenation of all of them, so the same id appears once per rank. Slice by
+# rank (as _read_columnar_regions does) before treating an id as a key; a
+# file-wide id -> call mapping built from this column collides.
+_OPTIONAL_EVENT_COLUMNS = (
+    ("call_ids", 3, _NO_CALL_ID),
+    ("parent_ids", 4, _NO_CALL_ID),
     ("thread_ids", 5, _NO_THREAD),
     ("task_ids", 6, _NO_TASK),
     ("await_ns", 7, 0),
@@ -466,9 +478,7 @@ def append_columnar_rank(
 
     _append(events["start_times"], _concatenate(payload.regions, names, 0))
     _append(events["end_times"], _concatenate(payload.regions, names, 1))
-    _append(events["call_ids"], _concatenate(payload.regions, names, 3))
-    _append(events["parent_ids"], _concatenate(payload.regions, names, 4))
-    for column, position, missing in _LANE_EVENT_COLUMNS:
+    for column, position, missing in _OPTIONAL_EVENT_COLUMNS:
         supplied = any(
             len(arrays) > position and arrays[position] is not None
             for arrays in payload.regions.values()
