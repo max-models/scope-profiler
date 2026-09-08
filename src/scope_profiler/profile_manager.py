@@ -351,6 +351,132 @@ class ProfileManager:
         "scope_profiler.profile_config",
     }
 
+    @classmethod
+    def _is_internal_frame(cls, frame: FrameType) -> bool:
+        module_name = frame.f_globals.get("__name__", "")
+        return module_name in cls._internal_modules
+
+    @classmethod
+    def _capture_region_source(cls, region: BaseProfileRegion) -> None:
+        """Record a freshly created region's call site, if it has one.
+
+        Runs exactly once per region name, at creation, so it never touches
+        the per-call hot path. Only meaningful for a direct
+        ``with ProfileManager.profile_region(...):`` call: internal callers
+        (the decorator, the recursive tracer, ``run_script``) are skipped by
+        the module check, since their own frame is inside scope_profiler
+        itself rather than user code. The decorator path instead records the
+        decorated function's source directly (see ``profile``), which is
+        richer than its one-line decoration site.
+
+        Also skipped for a disabled region: ``deactivate_profiling=True``
+        promises near-zero setup cost, and the source of a region that will
+        never report any data is not worth even a one-time AST parse. Same
+        for ``capture_region_source=False`` (see ``setup()``): both skip this
+        before it ever reads a file from disk.
+
+        This assumes the call site is exactly two frames up. A user helper
+        that itself wraps ``profile_region(...)`` (rather than calling it
+        directly in a ``with``) shifts that: the captured location becomes
+        the helper's own call to ``profile_region``, not the ``with`` at the
+        helper's call site. There is no reliable way to see through an
+        arbitrary wrapper from here, so this is a known limitation of the
+        direct-call form, same as e.g. the stdlib ``logging`` module's
+        caller detection.
+        """
+        if isinstance(region, DisabledProfileRegion):
+            return
+        frame = sys._getframe(2)  # profile_region() -> here -> caller
+        if cls._is_internal_frame(frame):
+            return
+        filename = frame.f_code.co_filename
+        lineno = frame.f_lineno
+        region.set_source(
+            filename,
+            lineno,
+            (
+                call_site_source(filename, lineno)
+                if cls._config.capture_region_source
+                else None
+            ),
+        )
+
+    @classmethod
+    def region(
+        cls,
+        region_name,
+        functions=None,
+        tags=None,
+    ) -> BaseProfileRegion:
+        """
+        Get the profiling region named ``region_name``, creating it if needed.
+
+        The returned region is a context manager, which is how a block of
+        code is timed::
+
+            with ProfileManager.region("solve"):
+                solve()
+
+        Parameters
+        ----------
+        region_name: str
+            The name of the profiling region.
+        functions : list of callable, optional
+            Functions to register for line-by-line profiling. Only has an
+            effect when ``use_line_profiler=True``. Useful when using the
+            context manager form, since the decorator form (``wrap``) registers
+            functions automatically::
+
+                with ProfileManager.region("my_region", functions=[my_func]):
+                    my_func()
+
+        tags : iterable of str, optional
+            User-defined labels persisted with the region. Reusing a region
+            name with a different non-None tag set raises ``ValueError``.
+
+        Returns
+        -------
+        ProfileRegion : The ProfileRegion instance.
+
+        Notes
+        -----
+        ``profile_region`` is the original name for this method and remains
+        available as an alias; the two are the same object.
+        """
+
+        # Deliberately not `setdefault`: it evaluates its default eagerly, so
+        # every lookup of an existing region would construct (and discard) a
+        # full region object, including its preallocated timing buffers. This
+        # runs per call event under recursive profiling.
+        region = cls._regions.get(region_name)
+        if region is None:
+            # Keep the overwhelmingly common untagged lookup on the original
+            # hot path: tags are metadata, not per-event work.
+            normalized_tags = () if tags is None else tuple(tags)
+            region = cls._region_cls(
+                region_name,
+                config=cls.get_config(),
+                tags=normalized_tags or (),
+            )
+            cls._regions[region_name] = region
+            cls._capture_region_source(region)
+        elif tags is not None:
+            normalized_tags = tuple(tags)
+            if region.tags != normalized_tags:
+                raise ValueError(
+                    f"region {region_name!r} already has tags {region.tags!r}; "
+                    f"cannot reuse it with {normalized_tags!r}",
+                )
+        if functions is not None:
+            for func in functions:
+                region.add_function(func)
+        return region
+
+    #: Original name for :meth:`region`, kept so existing instrumentation
+    #: keeps working unchanged. Same object, not a forwarding wrapper: this
+    #: is on the per-event hot path.
+    profile_region = region
+
     def __new__(cls):
         """Create a manager whose classmethod-backed state is isolated.
 
@@ -377,11 +503,6 @@ class ProfileManager:
             },
         )
         return object.__new__(isolated_cls)
-
-    @classmethod
-    def _is_internal_frame(cls, frame: FrameType) -> bool:
-        module_name = frame.f_globals.get("__name__", "")
-        return module_name in cls._internal_modules
 
     @classmethod
     def _frame_region_name(cls, frame: FrameType) -> str:
@@ -515,127 +636,6 @@ class ProfileManager:
             cls._region_cls = ThreadedProfileRegion
         else:
             cls._region_cls = TimeOnlyProfileRegion
-
-    @classmethod
-    def _capture_region_source(cls, region: BaseProfileRegion) -> None:
-        """Record a freshly created region's call site, if it has one.
-
-        Runs exactly once per region name, at creation, so it never touches
-        the per-call hot path. Only meaningful for a direct
-        ``with ProfileManager.profile_region(...):`` call: internal callers
-        (the decorator, the recursive tracer, ``run_script``) are skipped by
-        the module check, since their own frame is inside scope_profiler
-        itself rather than user code. The decorator path instead records the
-        decorated function's source directly (see ``profile``), which is
-        richer than its one-line decoration site.
-
-        Also skipped for a disabled region: ``deactivate_profiling=True``
-        promises near-zero setup cost, and the source of a region that will
-        never report any data is not worth even a one-time AST parse. Same
-        for ``capture_region_source=False`` (see ``setup()``): both skip this
-        before it ever reads a file from disk.
-
-        This assumes the call site is exactly two frames up. A user helper
-        that itself wraps ``profile_region(...)`` (rather than calling it
-        directly in a ``with``) shifts that: the captured location becomes
-        the helper's own call to ``profile_region``, not the ``with`` at the
-        helper's call site. There is no reliable way to see through an
-        arbitrary wrapper from here, so this is a known limitation of the
-        direct-call form, same as e.g. the stdlib ``logging`` module's
-        caller detection.
-        """
-        if isinstance(region, DisabledProfileRegion):
-            return
-        frame = sys._getframe(2)  # profile_region() -> here -> caller
-        if cls._is_internal_frame(frame):
-            return
-        filename = frame.f_code.co_filename
-        lineno = frame.f_lineno
-        region.set_source(
-            filename,
-            lineno,
-            (
-                call_site_source(filename, lineno)
-                if cls._config.capture_region_source
-                else None
-            ),
-        )
-
-    @classmethod
-    def region(
-        cls,
-        region_name,
-        functions=None,
-        tags=None,
-    ) -> BaseProfileRegion:
-        """
-        Get the profiling region named ``region_name``, creating it if needed.
-
-        The returned region is a context manager, which is how a block of
-        code is timed::
-
-            with ProfileManager.region("solve"):
-                solve()
-
-        Parameters
-        ----------
-        region_name: str
-            The name of the profiling region.
-        functions : list of callable, optional
-            Functions to register for line-by-line profiling. Only has an
-            effect when ``use_line_profiler=True``. Useful when using the
-            context manager form, since the decorator form (``wrap``) registers
-            functions automatically::
-
-                with ProfileManager.region("my_region", functions=[my_func]):
-                    my_func()
-
-        tags : iterable of str, optional
-            User-defined labels persisted with the region. Reusing a region
-            name with a different non-None tag set raises ``ValueError``.
-
-        Returns
-        -------
-        ProfileRegion : The ProfileRegion instance.
-
-        Notes
-        -----
-        ``profile_region`` is the original name for this method and remains
-        available as an alias; the two are the same object.
-        """
-
-        # Deliberately not `setdefault`: it evaluates its default eagerly, so
-        # every lookup of an existing region would construct (and discard) a
-        # full region object, including its preallocated timing buffers. This
-        # runs per call event under recursive profiling.
-        region = cls._regions.get(region_name)
-        if region is None:
-            # Keep the overwhelmingly common untagged lookup on the original
-            # hot path: tags are metadata, not per-event work.
-            normalized_tags = () if tags is None else tuple(tags)
-            region = cls._region_cls(
-                region_name,
-                config=cls.get_config(),
-                tags=normalized_tags or (),
-            )
-            cls._regions[region_name] = region
-            cls._capture_region_source(region)
-        elif tags is not None:
-            normalized_tags = tuple(tags)
-            if region.tags != normalized_tags:
-                raise ValueError(
-                    f"region {region_name!r} already has tags {region.tags!r}; "
-                    f"cannot reuse it with {normalized_tags!r}",
-                )
-        if functions is not None:
-            for func in functions:
-                region.add_function(func)
-        return region
-
-    #: Original name for :meth:`region`, kept so existing instrumentation
-    #: keeps working unchanged. Same object, not a forwarding wrapper: this
-    #: is on the per-event hot path.
-    profile_region = region
 
     @classmethod
     def _bind_decorated_region(cls, name: str, func, _bound: list) -> BaseProfileRegion:
@@ -1747,6 +1747,14 @@ class ProfileManager:
         return cls._regions
 
     @classmethod
+    def _stop_mpi_call_profiling(cls) -> None:
+        """Restore mpi4py globals if this manager installed their proxies."""
+        context = cls._mpi_profile_context
+        cls._mpi_profile_context = None
+        if context is not None:
+            context.__exit__(None, None, None)
+
+    @classmethod
     def setup(
         cls,
         options: ProfilingOptions | None = None,
@@ -2088,14 +2096,6 @@ class ProfileManager:
         if cls._config is not None:
             cls._config.stop_memory_profiling()
         cls._config = None
-
-    @classmethod
-    def _stop_mpi_call_profiling(cls) -> None:
-        """Restore mpi4py globals if this manager installed their proxies."""
-        context = cls._mpi_profile_context
-        cls._mpi_profile_context = None
-        if context is not None:
-            context.__exit__(None, None, None)
 
     @classmethod
     def _reset(cls) -> None:

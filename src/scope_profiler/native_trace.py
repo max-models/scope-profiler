@@ -159,14 +159,14 @@ class _RegionTrace:
         self.source_file = source_file
         self.source_lineno = source_lineno
 
+    def __getitem__(self, index):
+        return (self.start_times, self.end_times)[index]
+
     def __iter__(self):
         return iter((self.start_times, self.end_times))
 
     def __len__(self) -> int:
         return 2
-
-    def __getitem__(self, index):
-        return (self.start_times, self.end_times)[index]
 
 
 def _byte_order(buffer: bytes, path) -> tuple[str, int]:
