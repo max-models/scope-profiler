@@ -107,7 +107,11 @@ def retitle_changelog(version: str) -> bool:
     if UNRELEASED.search(text) is None:
         print(f"  {CHANGELOG.name}: no '## Unreleased' heading, left alone")
         return False
-    heading = f"## {version} - {dt.date.today().isoformat()}"
+    # Local date, but reached through an aware UTC "now": the releaser expects
+    # the date on their own calendar, and a naive today() is what DTZ011 warns
+    # about. The 3.10 floor rules out datetime.UTC, hence timezone.utc.
+    today = dt.datetime.now(dt.timezone.utc).astimezone().date()
+    heading = f"## {version} - {today.isoformat()}"
     CHANGELOG.write_text(UNRELEASED.sub(heading, text, count=1))
     print(f"  {CHANGELOG.name}: '## Unreleased' -> '{heading}'")
     return True
