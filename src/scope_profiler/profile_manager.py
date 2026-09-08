@@ -1132,6 +1132,9 @@ class ProfileManager:
                 compression=config.hdf5_compression,
                 compression_level=config.hdf5_compression_level,
                 chunk_size=config.hdf5_chunk_size,
+                # This writer receives every rank and publishes the finished
+                # profile, so it is the one that gives it its final layout.
+                repack=True,
             )
             if write_file
             else None
@@ -1212,14 +1215,28 @@ class ProfileManager:
             if size == 1:
                 if not token.ok:
                     raise OSError(token.message)
-                atomic_publish(temp_path, final_path)
+                atomic_publish(
+                    temp_path,
+                    final_path,
+                    repack=True,
+                    compression=config.hdf5_compression,
+                    compression_level=config.hdf5_compression_level,
+                    chunk_size=config.hdf5_chunk_size,
+                )
                 return
 
             comm.send(token, dest=1, tag=_WRITE_TOKEN_TAG)
             token = comm.recv(source=size - 1, tag=_WRITE_TOKEN_TAG)
             if not token[0]:
                 raise OSError(token[1])
-            atomic_publish(temp_path, final_path)
+            atomic_publish(
+                temp_path,
+                final_path,
+                repack=True,
+                compression=config.hdf5_compression,
+                compression_level=config.hdf5_compression_level,
+                chunk_size=config.hdf5_chunk_size,
+            )
             return
 
         token = comm.recv(source=rank - 1, tag=_WRITE_TOKEN_TAG)
@@ -1319,7 +1336,16 @@ class ProfileManager:
         # rename while another rank is still releasing the temporary path.
         config.comm.Barrier()
         if config._rank == 0:
-            atomic_publish(temp_path, config.file_path)
+            # Serial, after the barrier: every rank has released the file, so
+            # rank 0 alone rewrites and renames it.
+            atomic_publish(
+                temp_path,
+                config.file_path,
+                repack=True,
+                compression=config.hdf5_compression,
+                compression_level=config.hdf5_compression_level,
+                chunk_size=config.hdf5_chunk_size,
+            )
         # Callers may open the published path immediately after finalize().
         config.comm.Barrier()
 

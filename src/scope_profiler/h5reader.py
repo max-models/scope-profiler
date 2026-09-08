@@ -325,8 +325,17 @@ def _read_columnar_regions(h5file) -> tuple[dict, list[str], dict]:
         index["exclusive_totals"][()] if "exclusive_totals" in index else None
     )
 
-    start_times = events["start_times"][()]
-    end_times = events["end_times"][()]
+    # Schema 3 stores each run's start gaps and durations rather than absolute
+    # timestamps (see h5writer.encode_start_deltas). Both encodings hold the
+    # same information; which one a file uses is visible from the column names,
+    # so a schema-2 file written by an older version still reads here.
+    delta_encoded = "start_deltas" in events
+    if delta_encoded:
+        start_times = events["start_deltas"][()]
+        end_times = events["durations"][()]
+    else:
+        start_times = events["start_times"][()]
+        end_times = events["end_times"][()]
     _validate_event_index(offsets, counts, start_times.size, file_path=h5file.filename)
     gpu_column = events["gpu_durations"][()] if "gpu_durations" in events else None
     call_column = events["call_ids"][()] if "call_ids" in events else None
@@ -344,6 +353,15 @@ def _read_columnar_regions(h5file) -> tuple[dict, list[str], dict]:
             exclusive_totals.setdefault(name, {})[rank] = int(totals_column[row])
         offset = int(offsets[row])
         event_slice = slice(offset, offset + int(counts[row]))
+        if delta_encoded:
+            # Each (rank, region) row is one encoded run, so it decodes on its
+            # own: a cumulative sum for the starts, then the durations added
+            # back on to recover the ends.
+            row_starts = np.cumsum(start_times[event_slice])
+            row_ends = row_starts + end_times[event_slice]
+        else:
+            row_starts = start_times[event_slice]
+            row_ends = end_times[event_slice]
         gpu_durations = None
         if gpu_column is not None:
             candidate = gpu_column[event_slice]
@@ -356,8 +374,8 @@ def _read_columnar_regions(h5file) -> tuple[dict, list[str], dict]:
         await_times = await_column[event_slice] if await_column is not None else None
         source_line = int(source_lines[row])
         per_region[name][rank] = Region(
-            start_times[event_slice],
-            end_times[event_slice],
+            row_starts,
+            row_ends,
             gpu_durations=gpu_durations,
             call_ids=call_ids,
             parent_ids=parent_ids,
@@ -465,7 +483,11 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
                 for key, value in f["metadata"].attrs.items()
             }
 
-        if schema_version == 2:
+        # Schema 2 introduced the shared event columns and schema 3 changed how
+        # those columns are encoded, not where they live, so both are read by
+        # the same path -- a version check that is not >= silently reads a
+        # newer file as the pre-columnar layout and finds no regions at all.
+        if schema_version >= 2:
             reader = (
                 _read_aggregate_regions
                 if f.attrs.get("storage_layout", "columnar") == "aggregate"
@@ -510,7 +532,9 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
                     rank_group["line_profile"],
                 )
 
-            if schema_version == 2 or "regions" not in rank_group:
+            # The per-rank region groups only exist in schema 1; from schema 2
+            # on the regions came from the shared columns above.
+            if schema_version >= 2 or "regions" not in rank_group:
                 continue
             regions_group = rank_group["regions"]
 
@@ -608,9 +632,13 @@ def load_h5_summary(
     with _open_h5(file_path) as h5file:
         schema_version = read_schema_version(h5file)
         migrate_schema(h5file, schema_version)
-        if schema_version != 2:
+        # Summary-only reads need the fixed-size rank_region_index, which
+        # arrived in schema 2 and is unchanged since. They never touch the
+        # event columns, so schema 3's re-encoding of those does not matter
+        # here -- but an exact ``!= 2`` would refuse every future schema.
+        if schema_version < 2:
             raise SummaryDataUnavailable(
-                "summary-only reads require a schema-2 profiling file",
+                "summary-only reads require a schema-2 or newer profiling file",
             )
         if "metadata" in h5file:
             metadata = {

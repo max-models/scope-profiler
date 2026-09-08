@@ -2,8 +2,89 @@
 
 ## Unreleased
 
+### Fixed
+
+- The HDF5 guide now identifies schema 3 as the current Python output schema,
+  and a test keeps the documented HDF5, JSON, and native format versions tied
+  to their implementation constants.
+- Platform-independent perf-event tests no longer depend on the host being
+  Linux, and the native-import test invokes the active Python interpreter
+  instead of assuming a `python` command exists.
+- Reading a profile written by a newer schema silently reported zero regions.
+  Both the full and the summary-only reader tested the schema version for
+  equality with 2 rather than a lower bound, so any later schema fell through
+  to the pre-columnar layout, which finds nothing.
+- `hdf5_chunk_size` now applies to every dataset in the file. It reached only
+  the four event columns; the eleven `rank_region_index` and `region_table`
+  datasets kept h5py's default guess of 1024 elements whatever was configured.
+- `call_graph()` returned a single collapsed node for any profile written by
+  the C or Fortran API, or imported from one. Native output records no parent
+  links, but the writer stored a full `call_ids`/`parent_ids` column of `-1`
+  rather than omitting it; the reader took that at face value, every call
+  collided on id `-1`, and the graph degenerated. Those columns are now
+  written only by a run that actually numbered its calls -- as
+  `gpu_durations` and the thread/task lanes already were -- so the reader
+  falls back to reconstructing the nesting from the timestamps, which
+  `call_stack()` was doing correctly all along. Native profiles also halve in
+  size, having stored two int64 columns per event that carried nothing.
+
+### Changed
+
+- **HDF5 schema 3.** A region's calls are stored as the gap since its previous
+  call and the duration of each call, rather than two absolute nanosecond
+  timestamps: `events/start_deltas` and `events/durations` replace
+  `events/start_times` and `events/end_times`. The information is identical
+  and the round trip is exact -- the first value of each run is absolute --
+  but the magnitudes drop from ~60 bits to ~15, which is most of what makes
+  compression effective: 290 KiB to 74 KiB on a 100,000-event profile at the
+  same gzip level. Each run is encoded independently, so a rank still writes
+  the events it owns without needing any other rank's data and the parallel
+  HDF5 writer stays a plain per-rank slice write. Schema 1 and 2 files
+  continue to read.
+- A finished profile is repacked when it is published, storing small datasets
+  contiguously. HDF5 allocates a full chunk and a chunk-index B-tree for a
+  growable dataset as soon as its first element is written, and never returns
+  freed space to the file, so a one-region run spent 193 KiB to hold 0.4 KiB
+  of data; it is now 17 KiB. Files large enough for the overhead not to matter
+  are left alone.
+
 ### Added
 
+- CI now runs the ordinary test suite on every supported Python version
+  (3.10--3.14) and adds a native macOS job for portable functionality. The
+  macOS environment includes Open MPI and mpi4py so it also exercises the
+  lazy MPI initialization contract.
+- Immutable compatibility fixtures cover HDF5 schemas 1--3, JSON profile v1,
+  and native trace v1/v2, so reader compatibility is checked against committed
+  fixed representative bytes rather than only files emitted by the current
+  writer.
+- `examples/benchmark_io.py` reports storage alongside its timings: the merged
+  file in bytes per recorded event, written plain and again through
+  `hdf5_compression="auto"`, with what the filter costs to write and to read.
+  `--figure` draws bytes-per-event against run size, showing the fixed cost
+  amortising away and the point at which automatic compression starts
+  applying. It also writes through the real publication path now, so the sizes
+  it reports are the ones a user gets.
+- `examples/benchmark_overhead.py` covers the `track_threads` and
+  `track_async` modes, so its figure and the budgets in `test_overhead.py`
+  describe the same set of region types.
+- Overhead and file-size analysis is now measured by the test suite, not only
+  by the benchmark scripts. `test_overhead_io.py` budgets what `finalize()`
+  spends writing a profile and what post-processing spends reading one back
+  --- including the publication pass, automatic compression, summary-only
+  reads and the timestamp codec --- and joins `test_overhead.py` under the
+  `overhead` marker that CI already runs in an isolated job.
+  `test_storage_size.py` covers bytes per event, the fixed floor, and how both
+  scale with events, ranks and regions; file size is deterministic, so its
+  budgets are tight rather than an order of magnitude clear. Alongside the
+  absolute budgets each module asserts *scaling* --- a ratio between the same
+  measurement at two sizes --- which is what catches a change in the shape of
+  a cost rather than only one large enough to blow a budget.
+- `hdf5_compression="auto"` compresses a run's event columns only once it is
+  large enough for the saving to repay the write CPU, and leaves small
+  profiles uncompressed. With the schema-3 encoding above, a 100,000-event
+  profile drops from 3313 KiB to 142 KiB (23x) for about 12 ms of extra write
+  time.
 - `session()`, `region()`, `profile`, `setup()` and `finalize()` are
   importable from the package root, so everyday instrumentation needs no class
   name: `with sp.region("solve"):`. They are the `ProfileManager` class

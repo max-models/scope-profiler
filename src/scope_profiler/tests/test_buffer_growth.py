@@ -85,9 +85,13 @@ def test_columnar_dataset_contains_only_recorded_events(tmp_path):
     ProfileManager.finalize(verbose=False)
 
     with h5py.File(file_path, "r") as handle:
-        dataset = handle["events/start_times"]
+        dataset = handle["events/start_deltas"]
+        # Five events, not the 100,000 the buffer was preallocated for.
         assert dataset.shape == (5,)
-        assert dataset.chunks is not None
+        # Published small enough to be stored contiguously: see
+        # h5writer.publish_file. The buffer size never reaches the file.
+        assert dataset.chunks is None
+        assert dataset.nbytes == 5 * 8
 
 
 def test_no_write_when_file_output_is_deactivated(tmp_path):

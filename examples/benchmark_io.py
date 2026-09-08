@@ -27,6 +27,11 @@ nested regions:
     ``results.summary()``, with and without the exclusive totals the run
     stored for itself. The two differ by a full call-stack reconstruction,
     which is what storing them at write time buys back.
+``storage``
+    The size of the merged file, in bytes per recorded event, written plain
+    and again through ``hdf5_compression="auto"``. Reported together with what
+    the filter costs to write and to read, because the space is only worth it
+    against that.
 
 Run::
 
@@ -34,6 +39,7 @@ Run::
     python examples/benchmark_io.py --ranks 256            # bigger job
     python examples/benchmark_io.py --scaling 8,32,128     # per-rank cost vs ranks
     python examples/benchmark_io.py --json                 # machine-readable
+    python examples/benchmark_io.py --scaling 4,16,64,256 --figure figures
 
 The JSON form exists so the numbers can be diffed between two revisions the
 same way ``scope-profiler diff`` compares two profiles -- a regression here is
@@ -104,7 +110,14 @@ def timed(func, *args, **kwargs):
     return time.perf_counter() - started, result
 
 
-def write_file(path, ranks: int, regions: int, events: int, with_totals: bool) -> float:
+def write_file(
+    path,
+    ranks: int,
+    regions: int,
+    events: int,
+    with_totals: bool,
+    compression=None,
+) -> float:
     """Write a whole run and return the seconds spent writing it.
 
     Only the ``write_rank`` calls and the closing publish are counted.
@@ -112,9 +125,19 @@ def write_file(path, ranks: int, regions: int, events: int, with_totals: bool) -
     not the writer's, and it is O(events) -- large enough to hide the very
     thing this measures. The payloads are still built one rank at a time, so
     the whole job is never in memory at once.
+
+    ``repack=True`` matches what ``finalize()`` does: the closing publish is
+    where a small profile is packed and where ``compression="auto"`` decides
+    whether the run is large enough to be worth compressing. Timing a writer
+    that skipped it would measure something no user ever gets.
     """
     elapsed = 0.0
-    writer = ProfilingWriter(path, {"mpi_size": ranks, "label": "benchmark"})
+    writer = ProfilingWriter(
+        path,
+        {"mpi_size": ranks, "label": "benchmark"},
+        repack=True,
+        compression=compression,
+    )
     try:
         for rank in range(ranks):
             payload = build_payload(rank, regions, events, with_totals)
@@ -139,8 +162,22 @@ def measure(ranks: int, regions: int, events: int, directory: str) -> dict:
 
     stored_path = os.path.join(directory, "with_totals.h5")
     plain_path = os.path.join(directory, "without_totals.h5")
+    packed_path = os.path.join(directory, "auto_compressed.h5")
     write_seconds = write_file(stored_path, ranks, regions, events, True)
     write_file(plain_path, ranks, regions, events, False)
+
+    # The same run again through the automatic compression policy, so the
+    # space it saves and the write CPU it costs are measured against each
+    # other rather than reported on their own.
+    packed_write_seconds = write_file(
+        packed_path,
+        ranks,
+        regions,
+        events,
+        True,
+        compression="auto",
+    )
+    packed_read_seconds, _ = timed(read_h5, packed_path)
 
     read_seconds, results = timed(read_h5, stored_path)
     summary_seconds, rows = timed(results.summary)
@@ -168,6 +205,16 @@ def measure(ranks: int, regions: int, events: int, directory: str) -> dict:
         "total_events": total_events,
         "rows": ranks * regions,
         "file_bytes": os.path.getsize(stored_path),
+        "file_bytes_compressed": os.path.getsize(packed_path),
+        "bytes_per_event": os.path.getsize(stored_path) / total_events,
+        "bytes_per_event_compressed": (os.path.getsize(packed_path) / total_events),
+        "compression_ratio": (
+            os.path.getsize(stored_path) / os.path.getsize(packed_path)
+        ),
+        "write_seconds_compressed": packed_write_seconds,
+        "write_cost_of_compression": packed_write_seconds / write_seconds,
+        "read_seconds_compressed": packed_read_seconds,
+        "read_cost_of_compression": packed_read_seconds / read_seconds,
         "finalize_seconds_per_rank": finalize_seconds,
         "write_seconds": write_seconds,
         "write_seconds_per_rank": write_seconds / ranks,
@@ -220,6 +267,30 @@ def print_report(result: dict) -> None:
     for label, seconds, note in rows:
         print(f"  {label:<32} {seconds:>8.3f} s   {note}")
 
+    print("\n  storage")
+    storage = [
+        (
+            "uncompressed",
+            f"{result['file_bytes'] / 1e6:>8.1f} MB",
+            f"{result['bytes_per_event']:.1f} bytes/event",
+        ),
+        (
+            'hdf5_compression="auto"',
+            f"{result['file_bytes_compressed'] / 1e6:>8.1f} MB",
+            (
+                f"{result['bytes_per_event_compressed']:.2f} bytes/event, "
+                f"{result['compression_ratio']:.1f}x smaller"
+            ),
+        ),
+        (
+            "cost of compressing",
+            f"{result['write_cost_of_compression']:>8.1f}x",
+            f"write; {result['read_cost_of_compression']:.1f}x read",
+        ),
+    ]
+    for label, value, note in storage:
+        print(f"  {label:<32} {value}   {note}")
+
 
 def print_scaling(results: list) -> None:
     """Print the per-rank costs across rank counts.
@@ -233,16 +304,70 @@ def print_scaling(results: list) -> None:
     job; a rising read column would mean the reader is touching the file per
     index row rather than per column.
     """
-    print(f"\n{'ranks':>8} {'write ms/rank':>15} {'read ms/Mevent':>16} {'MB':>8}")
-    print("-" * 50)
+    print(
+        f"\n{'ranks':>8} {'write ms/rank':>15} {'read ms/Mevent':>16} "
+        f"{'MB':>8} {'B/event':>9} {'auto B/ev':>10} {'ratio':>7}"
+    )
+    print("-" * 78)
     for result in results:
         per_million = result["read_seconds"] / (result["total_events"] / 1e6) * 1e3
         print(
             f"{result['ranks']:>8} "
             f"{result['write_seconds_per_rank'] * 1e3:>15.2f} "
             f"{per_million:>16.2f} "
-            f"{result['file_bytes'] / 1e6:>8.1f}"
+            f"{result['file_bytes'] / 1e6:>8.1f} "
+            f"{result['bytes_per_event']:>9.1f} "
+            f"{result['bytes_per_event_compressed']:>10.2f} "
+            f"{result['compression_ratio']:>6.1f}x"
         )
+
+
+#: What one call actually stores: an int64 start and an int64 end. The
+#: uncompressed curve converges on this from above as the fixed cost amortises.
+BYTES_PER_EVENT = 16
+
+
+def save_storage_figure(results: list, output: str) -> str:
+    """Plot bytes per event against run size, uncompressed and compressed.
+
+    The shape is the point. Uncompressed, the curve falls from the fixed cost
+    of an almost-empty file onto the flat 16 bytes a call actually stores;
+    compressed, it steps down once the run crosses
+    ``AUTO_COMPRESSION_MIN_EVENTS`` and the automatic policy starts applying a
+    filter. Neither is visible from a single measurement.
+    """
+    from maxplotlib import Canvas
+
+    events = [result["total_events"] for result in results]
+    plain = [result["bytes_per_event"] for result in results]
+    packed = [result["bytes_per_event_compressed"] for result in results]
+
+    canvas = Canvas(nrows=1, ncols=1)
+    subplot = canvas.add_subplot(
+        title="Output size per recorded call",
+        xlabel="Events in the run",
+        ylabel="Bytes per event (log scale)",
+        grid=True,
+    )
+    subplot.plot(events, plain, label="uncompressed", marker="o")
+    subplot.plot(events, packed, label='hdf5_compression="auto"', marker="o")
+    subplot.plot(
+        events,
+        [BYTES_PER_EVENT] * len(events),
+        label=f"{BYTES_PER_EVENT} bytes (two int64)",
+        linestyle="--",
+    )
+
+    figure, axes = canvas.render(backend="matplotlib")
+    axis = np.asarray(axes).reshape(-1)[0]
+    axis.set_xscale("log")
+    axis.set_yscale("log")
+    axis.legend()
+
+    os.makedirs(output, exist_ok=True)
+    path = os.path.join(output, "benchmark_storage.png")
+    figure.savefig(path, bbox_inches="tight")
+    return path
 
 
 def main():
@@ -274,6 +399,16 @@ def main():
     parser.add_argument(
         "--json", action="store_true", help="print results as JSON and nothing else"
     )
+    parser.add_argument(
+        "--figure",
+        type=str,
+        default=None,
+        metavar="DIR",
+        help=(
+            "also save a bytes-per-event figure to DIR; needs --scaling to "
+            "have more than one point to draw, and scope-profiler[pproc]"
+        ),
+    )
     args = parser.parse_args()
 
     rank_counts = (
@@ -298,6 +433,11 @@ def main():
         print_report(result)
     if len(results) > 1:
         print_scaling(results)
+
+    if args.figure:
+        if len(results) < 2:
+            parser.error("--figure needs --scaling with at least two rank counts")
+        print(f"\nFigure saved to {save_storage_figure(results, args.figure)}")
 
 
 if __name__ == "__main__":

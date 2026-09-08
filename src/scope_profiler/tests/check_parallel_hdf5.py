@@ -107,7 +107,7 @@ def main() -> int:
         assert filtered.region_names == ["common"]
         assert filtered["common"].ranks == [size - 1]
         with h5py.File(output, "r") as handle:
-            dataset = handle["events/start_times"]
+            dataset = handle["events/start_deltas"]
             assert dataset.compression is None
             assert dataset.chunks == (2,)
             summary_dataset = handle["rank_region_index/summary_statistics"]

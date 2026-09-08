@@ -515,7 +515,7 @@ def write_results(results, output_path):
                 )
 
     likwid = results.get_likwid_regions()
-    with ProfilingWriter(output_path, results.metadata) as writer:
+    with ProfilingWriter(output_path, results.metadata, repack=True) as writer:
         for rank in sorted(set(by_rank) | set(likwid)):
             writer.write_rank(
                 rank,

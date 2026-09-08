@@ -28,8 +28,13 @@
  *     /events/                [N] every event of every region, back to back
  *         start_times         int64    nanoseconds
  *         end_times           int64    nanoseconds
- *         call_ids            int64    always -1: nesting is not recorded
- *         parent_ids          int64    always -1
+ *
+ * The optional per-call columns of that schema (call_ids, parent_ids,
+ * gpu_durations, the thread/task lanes) are *absent*, which is how the reader
+ * is told this run did not record them -- it then reconstructs the nesting
+ * from the timestamps. Writing them filled with a "missing" value instead
+ * would be read as data: every call would share one id and the call graph
+ * would collapse to a single node.
  *
  * A rank writes its own file, exactly as it writes its own .spt. Merging the
  * ranks of an MPI run stays a post-processing step
@@ -69,9 +74,9 @@ typedef struct {
     double m2;
 } sp_h5_summary;
 
-/* h5writer._NO_EXCLUSIVE_TOTAL / _NO_GPU_DURATION and the "no call id"
- * filler a native import writes: the reader treats each as "this writer did
- * not record one" rather than as a value. */
+/* h5writer._NO_EXCLUSIVE_TOTAL: an index row whose writer did not compute an
+ * exclusive total. Unlike the event columns, this one is a per-row field that
+ * has to be present, and the reader does check it for -1. */
 #define SP_H5_NOT_RECORDED (-1)
 
 /* Every handle a write needs, so one cleanup path can close whatever was
@@ -239,17 +244,6 @@ static int sp_h5_write_event_slice(
     return failed;
 }
 
-/* Fill `buffer` with `count` copies of `value`, for the columns whose every
- * element is the same "not recorded" filler. */
-static void sp_h5_fill(int64_t *buffer, hsize_t count, int64_t value)
-{
-    hsize_t i;
-
-    for (i = 0; i < count; ++i) {
-        buffer[i] = value;
-    }
-}
-
 /* The fixed-size statistics for one region's events, matching
  * h5writer._timing_summary(). Two passes, because m2 is the sum of squared
  * deviations from the mean and the mean is not known until the first is
@@ -372,20 +366,15 @@ static int sp_h5_write_profile(
     uint32_t *uint32_column = NULL;
     uint64_t *uint64_column = NULL;
     int64_t *int64_column = NULL;
-    int64_t *filler = NULL;
     sp_h5_summary *summaries = NULL;
     hsize_t rows = (hsize_t)num_regions;
     hsize_t total_events = 0;
-    hsize_t longest_region = 0;
     int64_t start_time_ns = -1;
     int failed = 0;
     int i;
 
     for (i = 0; i < num_regions; ++i) {
         total_events += (hsize_t)counts[i];
-        if ((hsize_t)counts[i] > longest_region) {
-            longest_region = (hsize_t)counts[i];
-        }
         if (counts[i] > 0 && (start_time_ns < 0 || regions[i]->start_times[0] < start_time_ns)) {
             start_time_ns = regions[i]->start_times[0];
         }
@@ -398,9 +387,8 @@ static int sp_h5_write_profile(
     uint64_column = (uint64_t *)malloc((rows > 0 ? (size_t)rows : 1) * sizeof(*uint64_column));
     int64_column = (int64_t *)malloc((rows > 0 ? (size_t)rows : 1) * sizeof(*int64_column));
     summaries = (sp_h5_summary *)malloc((rows > 0 ? (size_t)rows : 1) * sizeof(*summaries));
-    filler = (int64_t *)malloc((longest_region > 0 ? (size_t)longest_region : 1) * sizeof(*filler));
     if (strings == NULL || uint32_column == NULL || uint64_column == NULL ||
-        int64_column == NULL || summaries == NULL || filler == NULL) {
+        int64_column == NULL || summaries == NULL) {
         profiler->last_error = SP_ERR_NO_MEMORY;
         failed = 1;
         goto cleanup;
@@ -500,13 +488,15 @@ static int sp_h5_write_profile(
     }
     failed |= sp_h5_create_event_column(events_group, "start_times", total_events);
     failed |= sp_h5_create_event_column(events_group, "end_times", total_events);
-    failed |= sp_h5_create_event_column(events_group, "call_ids", total_events);
-    failed |= sp_h5_create_event_column(events_group, "parent_ids", total_events);
     if (failed) {
         goto cleanup;
     }
 
-    sp_h5_fill(filler, longest_region, SP_H5_NOT_RECORDED);
+    /* Only the two columns this API records. Everything else the schema
+     * allows per call -- call/parent ids, GPU durations, thread and task
+     * lanes -- is left out, which is what tells the reader to derive the
+     * nesting from these timestamps instead of trusting ids that were never
+     * assigned. */
     {
         hsize_t offset = 0;
 
@@ -517,11 +507,6 @@ static int sp_h5_write_profile(
                 events_group, "start_times", offset, count, regions[i]->start_times);
             failed |= sp_h5_write_event_slice(
                 events_group, "end_times", offset, count, regions[i]->end_times);
-            /* Call and parent ids exist so the reader can rebuild the call
-             * tree; the C API does not track parents, so every event is
-             * marked unknown, as a native import marks them. */
-            failed |= sp_h5_write_event_slice(events_group, "call_ids", offset, count, filler);
-            failed |= sp_h5_write_event_slice(events_group, "parent_ids", offset, count, filler);
             offset += count;
         }
     }
@@ -541,7 +526,6 @@ cleanup:
     free(uint64_column);
     free(int64_column);
     free(summaries);
-    free(filler);
     return failed;
 }
 

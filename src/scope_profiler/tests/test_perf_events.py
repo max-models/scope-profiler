@@ -11,7 +11,9 @@ from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import perf_event_tables, print_perf_event_tables
 
 
-def test_validate_events_normalizes_and_rejects_invalid_names():
+def test_validate_events_normalizes_and_rejects_invalid_names(monkeypatch):
+    monkeypatch.setattr(perf.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(perf.platform, "machine", lambda: "x86_64")
     assert perf.validate_events(["Cycles", "instructions"]) == (
         "cycles",
         "instructions",
@@ -212,6 +214,9 @@ def test_optional_permission_error_has_kernel_policy_hint():
 
 
 def test_profile_manager_records_perf_event_totals(monkeypatch):
+    monkeypatch.setattr(perf.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(perf.platform, "machine", lambda: "x86_64")
+
     class FakeGroup:
         def __init__(self, events):
             self.events = events

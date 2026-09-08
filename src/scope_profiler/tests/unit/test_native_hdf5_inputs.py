@@ -14,9 +14,11 @@ so these run everywhere -- the compiled counterparts are in
 
 import struct
 
+import h5py
 import numpy as np
 import pytest
 
+from scope_profiler import read_h5
 from scope_profiler.h5writer import ProfilingWriter
 from scope_profiler.native_trace import (
     MAGIC,
@@ -111,6 +113,35 @@ def test_find_traces_reports_a_directory_holding_neither_kind(tmp_path):
 
     with pytest.raises(FileNotFoundError, match="no .spt traces and no per-rank"):
         find_traces(tmp_path)
+
+
+def test_an_imported_profile_reconstructs_its_call_graph(tmp_path):
+    """Native output records no parent links, so the nesting must be derived.
+
+    The regression this pins: an import that wrote all-(-1) ``call_ids``
+    instead of omitting the column made ``call_graph`` take the "ids are
+    explicit" path, where every call collided on id -1 and the whole rank
+    collapsed to a single node -- while ``call_stack``, which always derives,
+    stayed correct. The two must agree.
+    """
+    from scope_profiler.native_trace import convert_traces
+
+    _write_trace(
+        tmp_path / "run_rank00000.spt",
+        0,
+        {"outer": ([0, 100], [50, 150]), "inner": ([10, 110], [20, 120])},
+    )
+    imported = convert_traces(tmp_path / "run_rank00000.spt", tmp_path / "out.h5")
+
+    with h5py.File(imported, "r") as handle:
+        assert "call_ids" not in handle["events"]
+        assert "parent_ids" not in handle["events"]
+
+    results = read_h5(imported)
+    stack = [(entry["name"], entry["depth"]) for entry in results.call_stack(rank=0)]
+    graph = [(entry["name"], entry["depth"]) for entry in results.call_graph(rank=0)]
+    assert stack == [("outer", 0), ("inner", 1), ("outer", 0), ("inner", 1)]
+    assert graph == stack
 
 
 def test_load_traces_merges_hdf5_ranks_with_traces(tmp_path):

@@ -11,6 +11,63 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The feature-complete container jobs below exercise the expensive MPI,
+  # parallel-HDF5 and LIKWID paths on the two interpreters baked into the
+  # image. This job makes the ordinary suite a compatibility gate on every
+  # other Python version advertised in pyproject.toml.
+  python-compatibility:
+    name: Test Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install native test prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential gfortran libhdf5-dev libopenmpi-dev \
+            openmpi-bin pkg-config
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install project
+        run: python -m pip install --upgrade pip && python -m pip install ".[dev]"
+
+      - name: Run test suite
+        run: python -m pytest .
+
+  # One native runner catches path, subprocess, clock and plotting assumptions
+  # that are invisible on Linux. Hardware-specific modes remain covered by
+  # their dedicated Linux jobs; pytest reports their skips explicitly.
+  macos:
+    name: Test macOS (Python 3.13)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install MPI runtime
+        run: brew install open-mpi
+
+      - name: Install portable test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test,fortran,line-profiler,mcp,mpi,notebook,nvtx,pproc,tui]" memray
+
+      - name: Run portable test suite
+        run: python -m pytest . -m "not needs_mpi and not likwid and not gpu and not overhead"
+
   package:
     name: Build and smoke-test wheel (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -663,14 +720,24 @@ jobs:
           pip install --upgrade pip
           pip install ".[dev]"
 
-      # The budgets in test_overhead.py are absolute per-call nanoseconds,
-      # deliberately set ~10x above an idle laptop so a loaded shared runner
-      # still passes. They catch a structural regression -- an allocation, a
-      # lock, a filesystem touch added to the hot path -- not a 2x slowdown.
-      # -s prints every measurement plus the summary table, so the trend is
+      # Two modules carry this marker: test_overhead.py (what a profiled call
+      # adds to the program) and test_overhead_io.py (what finalize() spends
+      # writing the profile out, and post-processing spends reading it back).
+      #
+      # The budgets are absolute, deliberately set ~10x above an idle laptop so
+      # a loaded shared runner still passes. They catch a structural regression
+      # -- an allocation or a lock on the hot path, a per-event Python loop in
+      # the writer, a quadratic index rebuild -- not a 2x slowdown. The scaling
+      # assertions alongside them are what catch a change in the shape of a
+      # cost, which no absolute budget reliably does.
+      #
+      # -s prints every measurement plus the summary tables, so the trend is
       # readable in the job log even while the gate stays green.
       #
       # Nothing else runs in this job: a parallel test session would compete
       # for the same cores and inflate every number here.
-      - name: Measure per-call overhead
+      #
+      # File *size* is deterministic rather than timing sensitive, so
+      # test_storage_size.py carries no marker and runs in the ordinary suite.
+      - name: Measure per-call, write and read overhead
         run: pytest -s -m overhead

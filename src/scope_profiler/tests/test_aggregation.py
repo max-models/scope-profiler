@@ -29,7 +29,7 @@ def test_aggregation_mode_keeps_statistics_without_events(tmp_path):
     with h5py.File(path, "r") as handle:
         assert handle.attrs["storage_layout"] == "aggregate"
         assert "events" in handle
-        assert handle["events/start_times"].shape == (0,)
+        assert handle["events/start_deltas"].shape == (0,)
         assert handle["rank_region_index/aggregate_counts"][()].tolist() == [3, 3]
 
     loaded = read_h5(path)
