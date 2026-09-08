@@ -72,7 +72,7 @@ optional dependencies.
 | `buffer_limit`        | `int`  | `1024`                | Initial per-region buffer capacity. Buffers grow on demand, so this is a starting size, not a cap. |
 | `file_path`           | `str`  | `"profiling_data.h5"` | Output path for the merged HDF5 file written by `finalize()`.                                   |
 | `output_mode`         | `str`  | `"auto"`              | MPI writer: parallel HDF5 when available, otherwise direct token-ordered writes. Accepts `auto`, `direct`, or `parallel`. |
-| `hdf5_compression`   | `str` or `None` | `None`       | Compress timestamp, GPU-duration, and line-profile arrays with `gzip`, `lzf`, or optional `zstd`. |
+| `hdf5_compression`   | `str` or `None` | `None`       | Compress timestamp, GPU-duration, and line-profile arrays with `gzip`, `lzf`, optional `zstd`, or `auto` to compress only runs large enough to repay the write CPU. |
 | `hdf5_compression_level` | `int` or `None` | `None`   | GZIP level 0--9 or Zstandard level 1--22. LZF has no level. |
 | `hdf5_chunk_size`    | `int` or `None` | `None`       | Maximum events per HDF5 chunk; enables chunked partial reads even without compression. |
 | `label`               | `str`  | `None`                | Short name for the run, used by post-processing wherever a run has to be named. See below.       |
@@ -133,6 +133,43 @@ compression_level = 4
 
 An unrecognised setting is an error naming the closest real one, in the file
 and at the `setup()` call alike.
+
+## Output file size
+
+Three things decide how large a profile is, and the defaults are chosen to
+keep the write cheap rather than the file small.
+
+**Small profiles are packed on publication.** HDF5 gives every growable
+dataset chunked storage, and a full chunk plus its index is allocated as soon
+as the first element is written --- which for a profile with a handful of
+events *is* the file. The finished file is rewritten with those datasets
+stored contiguously, which takes a one-region run from 193 KiB to 17 KiB.
+Nothing to configure; files too large for it to matter are left alone.
+
+**Timestamps are stored as gaps and durations.** A region's calls are recorded
+as the gap since its previous call and the duration of each call, rather than
+two absolute nanosecond timestamps. The information is identical --- the first
+value of each run is absolute --- but the numbers are ~15 bits instead of ~60,
+which is most of what makes compression effective here.
+
+**Compression is opt-in.** `hdf5_compression="auto"` compresses a run once it
+is large enough for the saving to repay the write CPU, and leaves small ones
+alone:
+
+```python
+ProfileManager.setup(hdf5_compression="auto")
+```
+
+Measured on a 100,000-event profile, against 3313 KiB for the same run before
+any of this:
+
+| | size | |
+| --- | --- | --- |
+| default | 3180 KiB | 1.0x |
+| `hdf5_compression="auto"` | 142 KiB | 23x |
+
+`aggregation_mode=True` is smaller still: it records no timeline at all, only
+per-region totals.
 
 ## HDF5 compression and chunking
 

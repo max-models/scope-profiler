@@ -5,7 +5,7 @@ from __future__ import annotations
 from numbers import Integral
 
 SCHEMA_ATTRIBUTE = "scope_profiler_schema"
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 
 class HDF5SchemaError(ValueError):
@@ -49,6 +49,6 @@ def migrate_schema(h5file, version: int) -> int:
     here without spreading version checks through the HDF5 parser. Migration
     is read-only: the input file is never modified.
     """
-    if version in {1, 2}:
+    if version in {1, 2, 3}:
         return version
     raise HDF5SchemaError(f"No migration registered for schema version {version}")

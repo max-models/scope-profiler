@@ -33,6 +33,13 @@ _NO_EXCLUSIVE_TOTAL = -1
 # existed. -1 is what concurrency.lane_ids reads as "unknown lane".
 _NO_THREAD = -1
 _NO_TASK = -1
+# A call the writing run did not number. Native output (a C or Fortran trace,
+# or the HDF5 an SP_USE_HDF5 build writes directly) records no parent links at
+# all, and such a run must leave the columns out rather than fill them with
+# this: a reader takes an all-missing column at face value, and every call
+# sharing one id collapses the call graph to a single node. See
+# _OPTIONAL_EVENT_COLUMNS.
+_NO_CALL_ID = -1
 
 # Fixed-size statistics for summary-only readers. These live beside the
 # rank/region index, so commands such as ``diff`` can inspect a profile without
@@ -171,8 +178,15 @@ def dataset_storage_options(
     compression_level: int | None = None,
     chunk_size: int | None = None,
 ) -> dict:
-    """Build h5py keyword arguments for one one-dimensional event dataset."""
+    """Build h5py keyword arguments for one one-dimensional event dataset.
+
+    ``compression="auto"`` contributes no filter here: the automatic policy
+    needs the run's total size, which is only known once every rank has been
+    written, so it is applied at publication by :func:`publish_file`.
+    """
     options = {}
+    if compression == "auto":
+        compression = None
     if chunk_size is not None:
         options["chunks"] = (
             chunk_size if int(length) == 0 else min(int(length), chunk_size),
@@ -200,6 +214,199 @@ def dataset_storage_options(
     return options
 
 
+#: Datasets at or below this many bytes of payload are stored contiguously
+#: rather than chunked when the file is closed. Chunked storage costs a full
+#: chunk plus a chunk-index B-tree per dataset the moment its first element is
+#: written -- measured at ~10 KiB per dataset, against ~0.15 KiB contiguous --
+#: so a one-region profile paid ~190 KiB to store a few hundred bytes. Above
+#: this size the chunk overhead is negligible and chunking is what makes
+#: partial reads and compression possible, so it is left alone.
+COMPACT_MAX_BYTES = 64 * 1024
+
+#: Event columns at or above this many values are compressed by default. Below
+#: it the filter costs write CPU for a saving smaller than the per-dataset
+#: overhead it adds; above it, gzip with the byte-shuffle filter is ~10x on
+#: nanosecond timestamps. An explicit ``hdf5_compression`` overrides this in
+#: both directions.
+AUTO_COMPRESSION_MIN_EVENTS = 1 << 14
+
+#: The filter the automatic policy applies. Level 4 is the knee of the
+#: size/CPU curve for int64 timestamp columns.
+AUTO_COMPRESSION = ("gzip", 4)
+
+#: Chunk length for the per-(rank, region) index columns. They hold one row
+#: per rank and region -- a few thousand at most on a large job -- so h5py's
+#: default guess of 1024 elements allocates far more than they ever use.
+_INDEX_CHUNK = 256
+
+
+#: Files at or below this size are repacked when published. HDF5 never
+#: reclaims the space a deleted or resized dataset leaves behind, so the only
+#: way to recover the chunk overhead is to copy the live objects into a fresh
+#: file. Below this size that copy is milliseconds and recovers most of the
+#: file; above it the payload dominates and the copy would not pay for itself.
+REPACK_MAX_FILE_BYTES = 16 * 1024 * 1024
+
+
+def _copy_attributes(source, destination) -> None:
+    """Copy every HDF5 attribute from one object to another."""
+    for key, value in source.attrs.items():
+        destination.attrs[key] = value
+
+
+def repack_file(
+    source_path,
+    destination_path,
+    *,
+    contiguous_max_bytes=None,
+    compression=None,
+    compression_level=None,
+) -> None:
+    """Copy an HDF5 file object by object, storing small datasets contiguously.
+
+    HDF5 gives every resizable dataset chunked storage, and the cost of that
+    -- a full chunk plus a chunk-index B-tree -- lands the moment the first
+    element is written, whatever the chunk size. On a profile with a handful
+    of events that overhead *is* the file: one region and one call produced
+    193 KiB holding 0.4 KiB of data. Because freed space is never returned to
+    the file, rewriting the datasets in place recovers almost none of it; only
+    a copy into a new file does.
+
+    Datasets that carry a compression filter keep their chunking, since a
+    contiguous dataset cannot be filtered.
+    """
+    if contiguous_max_bytes is None:
+        contiguous_max_bytes = COMPACT_MAX_BYTES
+
+    with (
+        h5py.File(source_path, "r") as source,
+        h5py.File(
+            destination_path,
+            "w",
+        ) as destination,
+    ):
+        _copy_attributes(source, destination)
+
+        def copy(name, obj) -> None:
+            if isinstance(obj, h5py.Group):
+                _copy_attributes(obj, destination.require_group(name))
+                return
+            large = obj.chunks is not None and obj.nbytes > contiguous_max_bytes
+            keep_chunked = obj.compression is not None or large
+            options: dict = {}
+            if keep_chunked:
+                options["chunks"] = obj.chunks
+                options["maxshape"] = obj.maxshape
+                if obj.compression is not None:
+                    # Already filtered: carry the filter across unchanged.
+                    options["compression"] = obj.compression
+                    if obj.compression_opts is not None:
+                        options["compression_opts"] = obj.compression_opts
+                    options["shuffle"] = obj.shuffle
+                elif large and compression is not None:
+                    options.update(
+                        dataset_storage_options(
+                            len(obj),
+                            compression,
+                            compression_level,
+                            obj.chunks[0],
+                        ),
+                    )
+            copied = destination.create_dataset(name, data=obj[()], **options)
+            _copy_attributes(obj, copied)
+
+        source.visititems(copy)
+
+
+def _total_event_count(path) -> int:
+    """How many call events a profile holds, or 0 if it cannot be read."""
+    try:
+        with h5py.File(path, "r") as handle:
+            events = handle.get("events")
+            if events is None:
+                return 0
+            for column in ("start_deltas", "start_times"):
+                if column in events:
+                    return len(events[column])
+            return 0
+    except (OSError, KeyError):
+        return 0
+
+
+def publish_file(
+    path,
+    *,
+    compression=None,
+    compression_level=None,
+    chunk_size=None,
+) -> bool:
+    """Rewrite a finished profile with its final storage layout.
+
+    Two things are only decidable once every rank has been written, which is
+    why they happen here rather than at dataset creation:
+
+    * **Chunk overhead.** HDF5 gives every resizable dataset chunked storage,
+      and a full chunk plus a chunk-index B-tree is allocated the moment its
+      first element is written. On a profile with a handful of events that
+      overhead is the whole file --- one region and one call produced 193 KiB
+      to hold 0.4 KiB. Freed space is never returned to an HDF5 file, so only
+      a copy into a fresh file recovers it.
+    * **Automatic compression.** ``compression="auto"`` compresses a run only
+      once it has enough events for the saving to repay the write CPU.
+
+    An explicit ``chunk_size`` is a request for chunked storage --- it is what
+    makes partial reads possible without compression --- so it is honoured
+    rather than packed away, and only the compression half applies.
+
+    A file that needs neither is left exactly as it is. Returns True when the
+    file was rewritten. The rewrite goes through a sibling temporary file and
+    a rename, so a failure leaves the original untouched.
+    """
+    file_path = Path(path)
+    try:
+        size = file_path.stat().st_size
+    except OSError:
+        return False
+
+    filter_name = filter_level = None
+    if compression == "auto" and _total_event_count(file_path) >= (
+        AUTO_COMPRESSION_MIN_EVENTS
+    ):
+        filter_name, filter_level = AUTO_COMPRESSION
+        if compression_level is not None:
+            filter_level = compression_level
+
+    # Small files are repacked for the space; any file is rewritten when the
+    # automatic policy has a filter to apply.
+    packing = chunk_size is None and size <= REPACK_MAX_FILE_BYTES
+    if not packing and filter_name is None:
+        return False
+
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{file_path.name}.",
+        suffix=".repack",
+        dir=file_path.parent,
+    )
+    os.close(descriptor)
+    temporary_path = Path(temporary)
+    try:
+        repack_file(
+            file_path,
+            temporary_path,
+            # 0 keeps every dataset chunked exactly as it was found.
+            contiguous_max_bytes=COMPACT_MAX_BYTES if packing else 0,
+            compression=filter_name,
+            compression_level=filter_level,
+        )
+    except Exception:
+        # A profile that cannot be rewritten is still a valid profile; the
+        # only thing lost is the space saving.
+        temporary_path.unlink(missing_ok=True)
+        return False
+    os.replace(temporary_path, file_path)
+    return True
+
+
 def initialize_columnar_layout(
     h5file,
     *,
@@ -208,8 +415,20 @@ def initialize_columnar_layout(
     chunk_size=None,
 ) -> None:
     """Create the schema-2 region dictionary, pair index, and event columns."""
+    # The index and dictionary columns hold one row per rank and region -- a
+    # few thousand at most on a large job -- so h5py's default guess of 1024
+    # elements allocates far more than they ever use. An explicit chunk_size
+    # is a deliberate request and wins over that default.
+    index_chunk = (chunk_size or _INDEX_CHUNK,)
+
     regions = h5file.create_group("region_table")
-    regions.create_dataset("names", shape=(0,), maxshape=(None,), dtype=_STRING_DTYPE)
+    regions.create_dataset(
+        "names",
+        shape=(0,),
+        maxshape=(None,),
+        dtype=_STRING_DTYPE,
+        chunks=index_chunk,
+    )
 
     index = h5file.create_group("rank_region_index")
     for name, dtype in (
@@ -223,23 +442,34 @@ def initialize_columnar_layout(
         # call_stack.exclusive_totals_ns.
         ("exclusive_totals", np.int64),
     ):
-        index.create_dataset(name, shape=(0,), maxshape=(None,), dtype=dtype)
+        index.create_dataset(
+            name,
+            shape=(0,),
+            maxshape=(None,),
+            dtype=dtype,
+            chunks=index_chunk,
+        )
     index.create_dataset(
         "summary_statistics",
         shape=(0,),
         maxshape=(None,),
         dtype=_SUMMARY_DTYPE,
+        chunks=index_chunk,
     )
     for name in ("source_files", "source_texts", "tags"):
-        index.create_dataset(name, shape=(0,), maxshape=(None,), dtype=_STRING_DTYPE)
+        index.create_dataset(
+            name,
+            shape=(0,),
+            maxshape=(None,),
+            dtype=_STRING_DTYPE,
+            chunks=index_chunk,
+        )
 
     events = h5file.create_group("events")
-    # call_ids/parent_ids are unique within a rank, not across the file: every
-    # rank numbers its own calls from its own id space. This column is the
-    # concatenation of all of them, so the same id appears once per rank.
-    # Slice by rank (as _read_columnar_regions does) before treating an id as
-    # a key; a file-wide id -> call mapping built from this column collides.
-    for name in ("start_times", "end_times", "call_ids", "parent_ids"):
+    # Schema 3 stores gaps and durations rather than absolute timestamps; see
+    # encode_start_deltas. The names differ from schema 2's so that a reader
+    # can tell the two encodings apart from the file alone.
+    for name in ("start_deltas", "durations"):
         events.create_dataset(
             name,
             shape=(0,),
@@ -249,11 +479,21 @@ def initialize_columnar_layout(
         )
 
 
-# Per-call lane columns, written only by a run that tracked threads. Each is
-# created the first time a rank supplies it and back-filled for the ranks
-# already in the file, exactly like gpu_durations: a column that is absent
-# means "this run did not record it", never "these events had no value".
-_LANE_EVENT_COLUMNS = (
+# Per-call columns only some runs record. Each is created the first time a
+# rank supplies it and back-filled for the ranks already in the file, exactly
+# like gpu_durations: a column that is absent means "this run did not record
+# it", never "these events had no value". That distinction is load-bearing --
+# ProfilingResults.call_graph switches on whether call_ids is present, and
+# reconstructs the nesting from the timestamps when it is not.
+#
+# call_ids/parent_ids are unique within a rank, not across the file: every
+# rank numbers its own calls from its own id space. The column is the
+# concatenation of all of them, so the same id appears once per rank. Slice by
+# rank (as _read_columnar_regions does) before treating an id as a key; a
+# file-wide id -> call mapping built from this column collides.
+_OPTIONAL_EVENT_COLUMNS = (
+    ("call_ids", 3, _NO_CALL_ID),
+    ("parent_ids", 4, _NO_CALL_ID),
     ("thread_ids", 5, _NO_THREAD),
     ("task_ids", 6, _NO_TASK),
     ("await_ns", 7, 0),
@@ -378,6 +618,74 @@ def append_aggregate_rank(h5file, rank, payload, *, index_state=None) -> bool:
     return True
 
 
+def encode_start_deltas(starts) -> np.ndarray:
+    """Encode one region's start timestamps as first-absolute-then-gaps.
+
+    Schema 3 stores the gap between consecutive calls of a region rather than
+    the absolute timestamp of each. The information is identical -- the first
+    element is the run's absolute start, so :func:`decode_start_deltas` is an
+    exact ``cumsum`` -- but the magnitudes collapse: measured gaps between
+    consecutive calls run to a few hundred nanoseconds, about 15 bits, against
+    the ~60 bits an absolute nanosecond timestamp needs. Compressed, that is
+    the difference between 290 KiB and 74 KiB on a 100k-event profile.
+
+    The encoding is per *run*, never across the whole column, so each writer
+    encodes the events it owns without needing any other rank's data.
+    """
+    starts = np.asarray(starts, dtype=np.int64)
+    if starts.size == 0:
+        return starts
+    return np.diff(starts, prepend=np.int64(0))
+
+
+def decode_start_deltas(deltas) -> np.ndarray:
+    """Rebuild absolute start timestamps from :func:`encode_start_deltas`."""
+    deltas = np.asarray(deltas, dtype=np.int64)
+    if deltas.size == 0:
+        return deltas
+    return np.cumsum(deltas)
+
+
+def encode_durations(starts, ends) -> np.ndarray:
+    """Encode one region's end timestamps as durations.
+
+    A duration is the same information as an absolute end timestamp given the
+    start, and is small where the timestamp is large, so it compresses in the
+    same way :func:`encode_start_deltas` describes.
+    """
+    starts = np.asarray(starts, dtype=np.int64)
+    ends = np.asarray(ends, dtype=np.int64)
+    if ends.size == 0:
+        return ends
+    return ends - starts
+
+
+def _encoded_columns(regions: dict, names: list) -> tuple:
+    """This rank's schema-3 ``(start_deltas, durations)``, region by region.
+
+    Each region is a run of its own, so each is encoded independently and the
+    results concatenated -- which is exactly how the reader slices them back
+    apart using ``rank_region_index``.
+    """
+    deltas: list = []
+    durations: list = []
+    for name in names:
+        arrays = regions[name]
+        starts = np.asarray(arrays[0], dtype=np.int64)
+        ends = (
+            np.asarray(arrays[1], dtype=np.int64)
+            if len(arrays) > 1
+            else np.full(starts.size, -1, dtype=np.int64)
+        )
+        deltas.append(encode_start_deltas(starts))
+        durations.append(encode_durations(starts, ends))
+    empty = [np.empty(0, dtype=np.int64)]
+    return (
+        np.concatenate(deltas or empty),
+        np.concatenate(durations or empty),
+    )
+
+
 def _concatenate(regions: dict, names: list, position: int) -> np.ndarray:
     """One int64 array of every named region's ``position``-th timing array."""
     return np.concatenate(
@@ -437,7 +745,7 @@ def append_columnar_rank(
     index_state.ranks.add(int(rank))
 
     events = h5file["events"]
-    total_before = len(events["start_times"])
+    total_before = len(events["start_deltas"])
     needs_gpu = any(
         len(arrays) > 2 and arrays[2] is not None for arrays in payload.regions.values()
     )
@@ -464,11 +772,10 @@ def append_columnar_rank(
     # consecutive slices of the shared event columns.
     offsets = total_before + np.cumsum([0, *counts[:-1]], dtype=np.uint64)
 
-    _append(events["start_times"], _concatenate(payload.regions, names, 0))
-    _append(events["end_times"], _concatenate(payload.regions, names, 1))
-    _append(events["call_ids"], _concatenate(payload.regions, names, 3))
-    _append(events["parent_ids"], _concatenate(payload.regions, names, 4))
-    for column, position, missing in _LANE_EVENT_COLUMNS:
+    start_deltas, durations = _encoded_columns(payload.regions, names)
+    _append(events["start_deltas"], start_deltas)
+    _append(events["durations"], durations)
+    for column, position, missing in _OPTIONAL_EVENT_COLUMNS:
         supplied = any(
             len(arrays) > position and arrays[position] is not None
             for arrays in payload.regions.values()
@@ -593,10 +900,32 @@ def _fsync_directory(path) -> None:
         os.close(descriptor)
 
 
-def atomic_publish(temporary_path, final_path) -> None:
-    """Durably replace ``final_path`` with a completed sibling file."""
+def atomic_publish(
+    temporary_path,
+    final_path,
+    *,
+    repack: bool = False,
+    compression=None,
+    compression_level=None,
+    chunk_size=None,
+) -> None:
+    """Durably replace ``final_path`` with a completed sibling file.
+
+    ``repack`` runs :func:`publish_file` first, giving the profile its final
+    storage layout. Pass it only where the file is genuinely finished: the
+    direct MPI writer publishes an *intermediate* file that the next rank
+    reopens and appends to, and a repacked dataset is contiguous and can no
+    longer grow.
+    """
     temporary_path = os.fspath(temporary_path)
     final_path = os.fspath(final_path)
+    if repack:
+        publish_file(
+            temporary_path,
+            compression=compression,
+            compression_level=compression_level,
+            chunk_size=chunk_size,
+        )
     _fsync_file(temporary_path)
     os.replace(temporary_path, final_path)
     _fsync_directory(os.path.dirname(os.path.abspath(final_path)))
@@ -611,6 +940,10 @@ def compression_filter_available(compression: str | None) -> bool:
     """Whether the active HDF5 library can encode the requested filter."""
     if compression is None:
         return True
+    if compression == "auto":
+        # Resolved at publication, and only ever to gzip, which every HDF5
+        # build ships. Nothing here has to be checked up front.
+        return bool(h5py.h5z.filter_avail(h5py.h5z.FILTER_DEFLATE))
     filter_ids = {
         "gzip": h5py.h5z.FILTER_DEFLATE,
         "lzf": h5py.h5z.FILTER_LZF,
@@ -772,7 +1105,7 @@ def write_parallel_payload(
             pair_index.create_dataset(name, shape=(len(pairs),), dtype=dtype)
 
         events = h5file.create_group("events")
-        for name in ("start_times", "end_times", "call_ids", "parent_ids"):
+        for name in ("start_deltas", "durations", "call_ids", "parent_ids"):
             events.create_dataset(
                 name,
                 shape=(event_offset,),
@@ -826,30 +1159,17 @@ def write_parallel_payload(
         own_offset = own_pairs[0][2] if own_pairs else 0
         own_count = sum(pair[3] for pair in own_pairs)
         own_slice = slice(own_offset, own_offset + own_count)
-        starts = (
-            np.concatenate(
-                [
-                    np.asarray(arrays[0], dtype=np.int64)
-                    for arrays in payload.regions.values()
-                ],
-            )
-            if payload.regions
-            else np.empty(0, dtype=np.int64)
+        # Encoded per region, which is per run: this rank needs nothing from
+        # any other rank to encode the events it owns, so the collective write
+        # below stays a pure per-rank slice assignment.
+        start_deltas, durations = _encoded_columns(
+            payload.regions,
+            list(payload.regions),
         )
-        ends = (
-            np.concatenate(
-                [
-                    np.asarray(arrays[1], dtype=np.int64)
-                    for arrays in payload.regions.values()
-                ],
-            )
-            if payload.regions
-            else np.empty(0, dtype=np.int64)
-        )
-        with events["start_times"].collective:
-            events["start_times"][own_slice] = starts
-        with events["end_times"].collective:
-            events["end_times"][own_slice] = ends
+        with events["start_deltas"].collective:
+            events["start_deltas"][own_slice] = start_deltas
+        with events["durations"].collective:
+            events["durations"][own_slice] = durations
         for field, column in (("call_ids", 3), ("parent_ids", 4)):
             values = (
                 np.concatenate(
@@ -1163,6 +1483,7 @@ class ProfilingWriter:
         compression: str | None = None,
         compression_level: int | None = None,
         chunk_size: int | None = None,
+        repack: bool = False,
     ) -> None:
         """Open ``file_path`` for writing and store the run's metadata.
 
@@ -1173,6 +1494,13 @@ class ProfilingWriter:
         ``index_state`` carries the region-name ids and written ranks of a file
         this process did not create itself (see :class:`ColumnarIndex`); when
         omitted for an existing file they are read back from it.
+
+        ``repack`` gives the published file its final storage layout (see
+        :func:`publish_file`). It defaults to off because a writer cannot tell
+        whether the file it publishes is finished: the direct MPI writer hands
+        its file to the next rank, and repacking stores small datasets
+        contiguously, which cannot then be resized. Pass it only where this
+        writer owns the whole file.
         """
         self._final_path = Path(file_path)
         self._atomic = mode == "w" if atomic is None else atomic
@@ -1181,6 +1509,7 @@ class ProfilingWriter:
         self._compression = compression
         self._compression_level = compression_level
         self._chunk_size = chunk_size
+        self._repack = repack
         self._index_state = index_state
         if self._atomic and mode != "w":
             raise ValueError("atomic output is only supported with mode='w'")
@@ -1277,7 +1606,14 @@ class ProfilingWriter:
                 self._file.close()
             if self._temporary_path is not None:
                 if commit:
-                    atomic_publish(self._temporary_path, self._final_path)
+                    atomic_publish(
+                        self._temporary_path,
+                        self._final_path,
+                        repack=self._repack,
+                        compression=self._compression,
+                        compression_level=self._compression_level,
+                        chunk_size=self._chunk_size,
+                    )
                 else:
                     self._temporary_path.unlink(missing_ok=True)
         except Exception:
