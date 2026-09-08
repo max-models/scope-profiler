@@ -5,6 +5,13 @@ if(@SCOPE_PROFILER_ENABLE_MPI@)
     find_dependency(MPI COMPONENTS CXX)
 endif()
 
+if(@SCOPE_PROFILER_ENABLE_HDF5@)
+    # The native target links HDF5 publicly, so a consumer of the installed
+    # package has to be able to find it too.
+    include(CMakeFindDependencyMacro)
+    find_dependency(HDF5 COMPONENTS C)
+endif()
+
 include("${CMAKE_CURRENT_LIST_DIR}/scope-profilerTargets.cmake")
 
 check_required_components(scope-profiler)

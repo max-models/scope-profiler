@@ -131,18 +131,18 @@ def main():
         # parallel run do not collide.
         kernels.kernels_start_profiling(str(HERE / "trace").encode(), rank)
 
-        with ProfileManager.profile_region("python:setup"):
+        with ProfileManager.region("python:setup"):
             # Nothing but Python here, to show a region with no C under it.
             total = sum(i * i for i in range(200_000))
 
         for step in range(STEPS):
-            with ProfileManager.profile_region("python:timestep"):
+            with ProfileManager.region("python:timestep"):
                 # Everything the C kernel records lands under this region.
-                with ProfileManager.profile_region("python:call_solver"):
+                with ProfileManager.region("python:call_solver"):
                     residual = kernels.kernels_jacobi_solve(GRID, SWEEPS)
 
                 if step % 5 == 4:
-                    with ProfileManager.profile_region("python:checkpoint"):
+                    with ProfileManager.region("python:checkpoint"):
                         kernels.kernels_checkpoint(200000)
 
         # Write the C trace *before* finalizing, then fold it in.

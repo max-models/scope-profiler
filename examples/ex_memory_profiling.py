@@ -21,7 +21,7 @@ from scope_profiler import ProfileManager
 
 def build_payload(size: int) -> list[dict[str, int]]:
     """Allocate a deliberately visible payload inside one timed region."""
-    with ProfileManager.profile_region("build-payload"):
+    with ProfileManager.region("build-payload"):
         return [{"index": index, "square": index * index} for index in range(size)]
 
 
@@ -33,7 +33,7 @@ def main() -> None:
         memray_trace_python_allocators=False,
     ):
         payload = build_payload(100_000)
-        with ProfileManager.profile_region("transform-payload"):
+        with ProfileManager.region("transform-payload"):
             # Keep the result alive through finalization so the flame graph
             # has a clear high-watermark allocation to display.
             payload = [item["square"] for item in payload]

@@ -39,10 +39,10 @@ def main() -> None:
         with ProfileManager.session(
             options=options, return_results=True, verbose=False
         ) as run:
-            with ProfileManager.profile_region("compute_bound"):
+            with ProfileManager.region("compute_bound"):
                 for _ in range(12):
                     matrix_a @ matrix_b
-            with ProfileManager.profile_region("memory_stream"):
+            with ProfileManager.region("memory_stream"):
                 for _ in range(12):
                     np.add(streaming_data, 1.0, out=streaming_data)
     except PerfEventError as exc:

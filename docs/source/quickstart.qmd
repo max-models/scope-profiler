@@ -56,14 +56,14 @@ with ProfileManager.session(recursive_profile=True):
 
 ### Context manager
 
-Use `ProfileManager.profile_region()` for finer-grained control:
+Use `ProfileManager.region()` for finer-grained control:
 
 ```python
 for step in range(num_steps):
-    with ProfileManager.profile_region("time_step"):
+    with ProfileManager.region("time_step"):
         evolve(state, dt)
 
-    with ProfileManager.profile_region("io"):
+    with ProfileManager.region("io"):
         write_checkpoint(state)
 ```
 
@@ -107,9 +107,9 @@ See {doc}`/guide/plot_cli` for the other charts and exports it can
 produce. Or load the data programmatically:
 
 ```python
-from scope_profiler import read_h5
+from scope_profiler import load
 
-results = read_h5("profiling_data.h5")
+results = load("profiling_data.h5")
 
 # The quickest look: a summary table of every region.
 results.print_summary()
@@ -119,6 +119,10 @@ for region in results:
     print(f"{region.name}: {region.num_calls} calls, "
           f"avg {region.average_duration:.4f} s")
 ```
+
+`load()` reads whichever format the file is in --- HDF5 or JSON --- so a path
+is all you need. `read_h5()` and `read_json()` remain available when the
+format is already known.
 
 ## Complete example
 
@@ -130,7 +134,7 @@ with ProfileManager.session():
     def main():
         x = 0
         for i in range(10):
-            with ProfileManager.profile_region("iteration"):
+            with ProfileManager.region("iteration"):
                 x += 1
 
     main()

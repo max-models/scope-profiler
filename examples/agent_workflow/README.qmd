@@ -113,7 +113,7 @@ The same five steps apply to any script:
 1. Nothing to instrument up front if you're happy with automatic
    whole-call-stack regions (`run_profile`'s default, `only_user_code=True`
    keeps it to your code only). Add `@ProfileManager.profile(...)` /
-   `with ProfileManager.profile_region(...)` where you want named,
+   `with ProfileManager.region(...)` where you want named,
    consistently-boundaried regions instead — see
    `examples/ex_lazy_setup.py`.
 2. Pin a correctness check the same way `test_correctness.py` does: a

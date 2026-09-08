@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(scope-profiler VERSION 0.5.1 LANGUAGES C CXX)
+project(scope-profiler VERSION 0.5.2 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
@@ -8,6 +8,7 @@ include(CMakePackageConfigHelpers)
 option(SCOPE_PROFILER_BUILD_EXAMPLES "Build the native C example" OFF)
 option(SCOPE_PROFILER_ENABLE_LIKWID "Expose the optional LIKWID marker target" OFF)
 option(SCOPE_PROFILER_ENABLE_MPI "Expose the optional native MPI wrapper target" OFF)
+option(SCOPE_PROFILER_ENABLE_HDF5 "Write profiles as HDF5 instead of .spt traces" OFF)
 
 add_library(scope_profiler_native STATIC
     src/scope_profiler/c/scope_profiler.c
@@ -39,6 +40,18 @@ target_include_directories(scope_profiler_header_only INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/scope_profiler/c>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/scope-profiler>
 )
+
+if(SCOPE_PROFILER_ENABLE_HDF5)
+    # The preferred output format: sp_finalize() then writes a schema-2
+    # <prefix>_rank<NNNNN>.h5 that `scope-profiler inspect`/`plot` open
+    # directly, instead of a .spt trace needing `import-native`. Off by
+    # default so the library keeps libc as its only dependency.
+    find_package(HDF5 REQUIRED COMPONENTS C)
+    target_compile_definitions(scope_profiler_native PUBLIC SP_USE_HDF5)
+    target_link_libraries(scope_profiler_native PUBLIC HDF5::HDF5)
+    target_compile_definitions(scope_profiler_header_only INTERFACE SP_USE_HDF5)
+    target_link_libraries(scope_profiler_header_only INTERFACE HDF5::HDF5)
+endif()
 
 if(SCOPE_PROFILER_ENABLE_LIKWID)
     find_path(SCOPE_PROFILER_LIKWID_INCLUDE_DIR likwid-marker.h REQUIRED)
@@ -92,6 +105,7 @@ install(FILES
     src/scope_profiler/c/scope_profiler.hpp
     src/scope_profiler/c/scope_profiler_mpi.hpp
     src/scope_profiler/c/scope_profiler_impl.h
+    src/scope_profiler/c/scope_profiler_hdf5.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/scope-profiler
 )
 install(EXPORT scope-profilerTargets

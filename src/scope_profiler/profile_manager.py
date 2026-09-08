@@ -22,8 +22,10 @@ from scope_profiler.call_stack import (
     regions_from_snapshot,
 )
 from scope_profiler.profile_config import (
+    _CONFIG_FIELDS,
     ProfilingConfig,
     ProfilingOptions,
+    _unknown_setting_error,
     load_profiling_config,
 )
 from scope_profiler.region_profiler import (
@@ -43,6 +45,11 @@ from scope_profiler.region_profiler import (
 )
 
 if TYPE_CHECKING:  # imported lazily in read_results() to keep imports cheap
+    # Unpack is 3.11+, so the setup()/session() annotations using it are
+    # written as strings and never evaluated on the 3.10 floor.
+    from typing import Unpack
+
+    from scope_profiler.profile_config import SetupOptions
     from scope_profiler.results import ProfilingResults
 
 # Tag for the payload messages, on a communicator of our own (see finalize).
@@ -344,6 +351,132 @@ class ProfileManager:
         "scope_profiler.profile_config",
     }
 
+    @classmethod
+    def _is_internal_frame(cls, frame: FrameType) -> bool:
+        module_name = frame.f_globals.get("__name__", "")
+        return module_name in cls._internal_modules
+
+    @classmethod
+    def _capture_region_source(cls, region: BaseProfileRegion) -> None:
+        """Record a freshly created region's call site, if it has one.
+
+        Runs exactly once per region name, at creation, so it never touches
+        the per-call hot path. Only meaningful for a direct
+        ``with ProfileManager.profile_region(...):`` call: internal callers
+        (the decorator, the recursive tracer, ``run_script``) are skipped by
+        the module check, since their own frame is inside scope_profiler
+        itself rather than user code. The decorator path instead records the
+        decorated function's source directly (see ``profile``), which is
+        richer than its one-line decoration site.
+
+        Also skipped for a disabled region: ``deactivate_profiling=True``
+        promises near-zero setup cost, and the source of a region that will
+        never report any data is not worth even a one-time AST parse. Same
+        for ``capture_region_source=False`` (see ``setup()``): both skip this
+        before it ever reads a file from disk.
+
+        This assumes the call site is exactly two frames up. A user helper
+        that itself wraps ``profile_region(...)`` (rather than calling it
+        directly in a ``with``) shifts that: the captured location becomes
+        the helper's own call to ``profile_region``, not the ``with`` at the
+        helper's call site. There is no reliable way to see through an
+        arbitrary wrapper from here, so this is a known limitation of the
+        direct-call form, same as e.g. the stdlib ``logging`` module's
+        caller detection.
+        """
+        if isinstance(region, DisabledProfileRegion):
+            return
+        frame = sys._getframe(2)  # profile_region() -> here -> caller
+        if cls._is_internal_frame(frame):
+            return
+        filename = frame.f_code.co_filename
+        lineno = frame.f_lineno
+        region.set_source(
+            filename,
+            lineno,
+            (
+                call_site_source(filename, lineno)
+                if cls._config.capture_region_source
+                else None
+            ),
+        )
+
+    @classmethod
+    def region(
+        cls,
+        region_name,
+        functions=None,
+        tags=None,
+    ) -> BaseProfileRegion:
+        """
+        Get the profiling region named ``region_name``, creating it if needed.
+
+        The returned region is a context manager, which is how a block of
+        code is timed::
+
+            with ProfileManager.region("solve"):
+                solve()
+
+        Parameters
+        ----------
+        region_name: str
+            The name of the profiling region.
+        functions : list of callable, optional
+            Functions to register for line-by-line profiling. Only has an
+            effect when ``use_line_profiler=True``. Useful when using the
+            context manager form, since the decorator form (``wrap``) registers
+            functions automatically::
+
+                with ProfileManager.region("my_region", functions=[my_func]):
+                    my_func()
+
+        tags : iterable of str, optional
+            User-defined labels persisted with the region. Reusing a region
+            name with a different non-None tag set raises ``ValueError``.
+
+        Returns
+        -------
+        ProfileRegion : The ProfileRegion instance.
+
+        Notes
+        -----
+        ``profile_region`` is the original name for this method and remains
+        available as an alias; the two are the same object.
+        """
+
+        # Deliberately not `setdefault`: it evaluates its default eagerly, so
+        # every lookup of an existing region would construct (and discard) a
+        # full region object, including its preallocated timing buffers. This
+        # runs per call event under recursive profiling.
+        region = cls._regions.get(region_name)
+        if region is None:
+            # Keep the overwhelmingly common untagged lookup on the original
+            # hot path: tags are metadata, not per-event work.
+            normalized_tags = () if tags is None else tuple(tags)
+            region = cls._region_cls(
+                region_name,
+                config=cls.get_config(),
+                tags=normalized_tags or (),
+            )
+            cls._regions[region_name] = region
+            cls._capture_region_source(region)
+        elif tags is not None:
+            normalized_tags = tuple(tags)
+            if region.tags != normalized_tags:
+                raise ValueError(
+                    f"region {region_name!r} already has tags {region.tags!r}; "
+                    f"cannot reuse it with {normalized_tags!r}",
+                )
+        if functions is not None:
+            for func in functions:
+                region.add_function(func)
+        return region
+
+    #: Original name for :meth:`region`, kept so existing instrumentation
+    #: keeps working unchanged. Same object, not a forwarding wrapper: this
+    #: is on the per-event hot path.
+    profile_region = region
+
     def __new__(cls):
         """Create a manager whose classmethod-backed state is isolated.
 
@@ -370,11 +503,6 @@ class ProfileManager:
             },
         )
         return object.__new__(isolated_cls)
-
-    @classmethod
-    def _is_internal_frame(cls, frame: FrameType) -> bool:
-        module_name = frame.f_globals.get("__name__", "")
-        return module_name in cls._internal_modules
 
     @classmethod
     def _frame_region_name(cls, frame: FrameType) -> str:
@@ -508,111 +636,6 @@ class ProfileManager:
             cls._region_cls = ThreadedProfileRegion
         else:
             cls._region_cls = TimeOnlyProfileRegion
-
-    @classmethod
-    def _capture_region_source(cls, region: BaseProfileRegion) -> None:
-        """Record a freshly created region's call site, if it has one.
-
-        Runs exactly once per region name, at creation, so it never touches
-        the per-call hot path. Only meaningful for a direct
-        ``with ProfileManager.profile_region(...):`` call: internal callers
-        (the decorator, the recursive tracer, ``run_script``) are skipped by
-        the module check, since their own frame is inside scope_profiler
-        itself rather than user code. The decorator path instead records the
-        decorated function's source directly (see ``profile``), which is
-        richer than its one-line decoration site.
-
-        Also skipped for a disabled region: ``deactivate_profiling=True``
-        promises near-zero setup cost, and the source of a region that will
-        never report any data is not worth even a one-time AST parse. Same
-        for ``capture_region_source=False`` (see ``setup()``): both skip this
-        before it ever reads a file from disk.
-
-        This assumes the call site is exactly two frames up. A user helper
-        that itself wraps ``profile_region(...)`` (rather than calling it
-        directly in a ``with``) shifts that: the captured location becomes
-        the helper's own call to ``profile_region``, not the ``with`` at the
-        helper's call site. There is no reliable way to see through an
-        arbitrary wrapper from here, so this is a known limitation of the
-        direct-call form, same as e.g. the stdlib ``logging`` module's
-        caller detection.
-        """
-        if isinstance(region, DisabledProfileRegion):
-            return
-        frame = sys._getframe(2)  # profile_region() -> here -> caller
-        if cls._is_internal_frame(frame):
-            return
-        filename = frame.f_code.co_filename
-        lineno = frame.f_lineno
-        region.set_source(
-            filename,
-            lineno,
-            (
-                call_site_source(filename, lineno)
-                if cls._config.capture_region_source
-                else None
-            ),
-        )
-
-    @classmethod
-    def profile_region(
-        cls,
-        region_name,
-        functions=None,
-        tags=None,
-    ) -> BaseProfileRegion:
-        """
-        Get an existing ProfileRegion by name, or create a new one if it doesn't exist.
-
-        Parameters
-        ----------
-        region_name: str
-            The name of the profiling region.
-        functions : list of callable, optional
-            Functions to register for line-by-line profiling. Only has an
-            effect when ``use_line_profiler=True``. Useful when using the
-            context manager form, since the decorator form (``wrap``) registers
-            functions automatically::
-
-                with ProfileManager.profile_region("my_region", functions=[my_func]):
-                    my_func()
-
-        tags : iterable of str, optional
-            User-defined labels persisted with the region. Reusing a region
-            name with a different non-None tag set raises ``ValueError``.
-
-        Returns
-        -------
-        ProfileRegion : The ProfileRegion instance.
-        """
-
-        # Deliberately not `setdefault`: it evaluates its default eagerly, so
-        # every lookup of an existing region would construct (and discard) a
-        # full region object, including its preallocated timing buffers. This
-        # runs per call event under recursive profiling.
-        region = cls._regions.get(region_name)
-        if region is None:
-            # Keep the overwhelmingly common untagged lookup on the original
-            # hot path: tags are metadata, not per-event work.
-            normalized_tags = () if tags is None else tuple(tags)
-            region = cls._region_cls(
-                region_name,
-                config=cls.get_config(),
-                tags=normalized_tags or (),
-            )
-            cls._regions[region_name] = region
-            cls._capture_region_source(region)
-        elif tags is not None:
-            normalized_tags = tuple(tags)
-            if region.tags != normalized_tags:
-                raise ValueError(
-                    f"region {region_name!r} already has tags {region.tags!r}; "
-                    f"cannot reuse it with {normalized_tags!r}",
-                )
-        if functions is not None:
-            for func in functions:
-                region.add_function(func)
-        return region
 
     @classmethod
     def _bind_decorated_region(cls, name: str, func, _bound: list) -> BaseProfileRegion:
@@ -985,10 +1008,13 @@ class ProfileManager:
 
     @classmethod
     def _merge_native_snapshot(cls, snapshot: dict, traces, config) -> dict:
-        """Add this rank's Fortran regions to its snapshot.
+        """Add this rank's C/Fortran regions to its snapshot.
 
-        Only the trace whose rank matches this one is taken, so under MPI every
-        rank folds in its own and the merge downstream is unchanged.
+        Only the file whose rank matches this one is taken, so under MPI every
+        rank folds in its own and the merge downstream is unchanged. Either
+        native format is accepted -- a ``.spt`` trace, or the ``.h5`` an
+        ``SP_USE_HDF5`` C build writes -- so a mixed-language run still comes
+        out as one file however its C side was compiled.
 
         Raises
         ------
@@ -997,22 +1023,23 @@ class ProfileManager:
             silently double-count a Python wrapper and the native region
             inside it.
         """
-        from scope_profiler.native_trace import find_traces, read_trace
+        from scope_profiler.native_trace import find_traces, read_native_ranks
 
         merged = dict(snapshot)
         for path in find_traces(traces):
-            rank, regions = read_trace(path)
-            if rank != config._rank:
-                continue
-            for name, arrays in regions.items():
+            ranks, _ = read_native_ranks(path)
+            for name, region in ranks.get(config._rank, {}).items():
                 if name in merged:
                     raise ValueError(
                         f"region {name!r} was recorded by both the Python API "
-                        f"and the Fortran trace {path}; merging them would "
+                        f"and the native profile {path}; merging them would "
                         f"double-count it. Give the regions distinct names (a "
-                        f"'fortran:' prefix, say).",
+                        f"'c:' or 'fortran:' prefix, say).",
                     )
-                merged[name] = arrays
+                # The snapshot holds plain timing arrays, not Region objects:
+                # the call-graph reconstruction and the writer index it
+                # positionally, the way the Python side's own entries are.
+                merged[name] = (region.start_times_ns, region.end_times_ns)
         return merged
 
     @classmethod
@@ -1383,15 +1410,16 @@ class ProfileManager:
             which is collective: every rank must pass the same value.
 
         native_traces : path or sequence of paths, optional
-            Trace files (or directories of them) written by the Fortran region
-            API in this same process, to fold into this run's output. Each
-            rank picks up the trace matching its own rank, so a mixed-language
-            MPI run still produces one file::
+            Files (or directories of them) written by the C or Fortran region
+            API in this same process, to fold into this run's output -- either
+            native format, a ``.spt`` trace or the ``.h5`` an ``SP_USE_HDF5``
+            C build writes. Each rank picks up the file matching its own rank,
+            so a mixed-language MPI run still produces one file::
 
-                kernels.stop_profiling()            # Fortran sp_finalize()
+                kernels.stop_profiling()            # native sp_finalize()
                 ProfileManager.finalize(native_traces=".")
 
-            Call the Fortran side's ``sp_finalize()`` first: its trace has to
+            Call the native side's ``sp_finalize()`` first: its output has to
             exist by the time this reads it. A region name recorded on both
             sides raises, rather than silently double-counting.
 
@@ -1719,37 +1747,20 @@ class ProfileManager:
         return cls._regions
 
     @classmethod
+    def _stop_mpi_call_profiling(cls) -> None:
+        """Restore mpi4py globals if this manager installed their proxies."""
+        context = cls._mpi_profile_context
+        cls._mpi_profile_context = None
+        if context is not None:
+            context.__exit__(None, None, None)
+
+    @classmethod
     def setup(
         cls,
         options: ProfilingOptions | None = None,
         *,
-        file_path: str | None = None,
-        label: str | None = None,
-        use_likwid: bool | None = None,
-        perf_events: list[str] | tuple[str, ...] | str | None = None,
-        use_line_profiler: bool | None = None,
-        use_memray: bool | None = None,
-        memory_profile_path: str | None = None,
-        memray_native_traces: bool | None = None,
-        memray_trace_python_allocators: bool | None = None,
-        memray_follow_fork: bool | None = None,
-        deactivate_profiling: bool | None = None,
-        use_nvtx: bool | None = None,
-        use_gpu_timing: bool | None = None,
-        gpu_timing_backend=None,
-        deactivate_file_output: bool | None = None,
-        recursive_profile: bool | None = None,
-        aggregation_mode: bool | None = None,
-        profile_mpi_calls: bool | None = None,
-        track_threads: bool | None = None,
-        track_async: bool | None = None,
-        capture_region_source: bool | None = None,
-        buffer_limit: int | None = None,
-        output_mode: str | None = None,
-        hdf5_compression: str | None = None,
-        hdf5_compression_level: int | None = None,
-        hdf5_chunk_size: int | None = None,
         config_path: str | os.PathLike[str] | None = None,
+        **overrides: "Unpack[SetupOptions]",
     ):
         """
         Initialize and configure the profiling system.
@@ -1767,6 +1778,23 @@ class ProfileManager:
             An explicit keyword argument passed alongside ``options`` wins
             over the same field on ``options``, which in turn wins over
             ``config_path`` and the defaults below.
+        config_path : str or os.PathLike, optional
+            TOML file containing a ``[profiling]`` table with these settings.
+            Values passed directly to ``setup()`` take precedence. See
+            :func:`~scope_profiler.profile_config.load_profiling_config`.
+        **overrides
+            Any of the settings below, passed as keyword arguments::
+
+                ProfileManager.setup(file_path="run.h5", use_likwid=True)
+
+            They are the fields of
+            :class:`~scope_profiler.profile_config.ProfilingOptions`, which
+            is where they are declared once and typed; an unrecognised name
+            raises ``TypeError`` naming the closest match. Prefixed settings
+            can also be given as groups on ``options`` -- see
+            :class:`~scope_profiler.profile_config.MemrayOptions`,
+            :class:`~scope_profiler.profile_config.GPUOptions` and
+            :class:`~scope_profiler.profile_config.HDF5Options`.
         file_path : str, optional
             Path to the output profiling data file (default: "profiling_data.h5").
         label : str or None, optional
@@ -1887,9 +1915,6 @@ class ProfileManager:
         hdf5_chunk_size : int or None, optional
             Maximum events per dataset chunk. Enables chunked partial reads
             even without compression.
-        config_path : str or os.PathLike, optional
-            TOML file containing a ``[profiling]`` table with these settings.
-            Values passed directly to ``setup()`` take precedence.
 
         Notes
         -----
@@ -1901,68 +1926,20 @@ class ProfileManager:
         :mod:`scope_profiler.mpi_launch` for detection and its
         ``SCOPE_PROFILER_MPI`` override.
         """
-        settings = {
-            "file_path": "profiling_data.h5",
-            "label": None,
-            "use_likwid": False,
-            "perf_events": None,
-            "use_line_profiler": False,
-            "use_memray": False,
-            "memory_profile_path": None,
-            "memray_native_traces": False,
-            "memray_trace_python_allocators": False,
-            "memray_follow_fork": False,
-            "deactivate_profiling": False,
-            "use_nvtx": False,
-            "use_gpu_timing": False,
-            "gpu_timing_backend": "auto",
-            "deactivate_file_output": False,
-            "recursive_profile": False,
-            "aggregation_mode": False,
-            "profile_mpi_calls": False,
-            "track_threads": False,
-            "track_async": False,
-            "capture_region_source": False,
-            "buffer_limit": 1024,
-            "output_mode": "auto",
-            "hdf5_compression": None,
-            "hdf5_compression_level": None,
-            "hdf5_chunk_size": None,
-        }
+        unknown = set(overrides) - _CONFIG_FIELDS
+        if unknown:
+            raise TypeError(_unknown_setting_error(unknown))
+
+        # Defaults live in ProfilingConfig.__init__ alone; only settings that
+        # were actually asked for are passed on, so precedence is simply the
+        # order these three sources are applied in.
+        settings: dict = {}
         if config_path is not None:
             settings.update(load_profiling_config(config_path))
         if options is not None:
             settings.update(options.to_kwargs())
-        explicit = {
-            "file_path": file_path,
-            "label": label,
-            "use_likwid": use_likwid,
-            "perf_events": perf_events,
-            "use_line_profiler": use_line_profiler,
-            "use_memray": use_memray,
-            "memory_profile_path": memory_profile_path,
-            "memray_native_traces": memray_native_traces,
-            "memray_trace_python_allocators": memray_trace_python_allocators,
-            "memray_follow_fork": memray_follow_fork,
-            "deactivate_profiling": deactivate_profiling,
-            "use_nvtx": use_nvtx,
-            "use_gpu_timing": use_gpu_timing,
-            "gpu_timing_backend": gpu_timing_backend,
-            "deactivate_file_output": deactivate_file_output,
-            "recursive_profile": recursive_profile,
-            "aggregation_mode": aggregation_mode,
-            "profile_mpi_calls": profile_mpi_calls,
-            "track_threads": track_threads,
-            "track_async": track_async,
-            "capture_region_source": capture_region_source,
-            "buffer_limit": buffer_limit,
-            "output_mode": output_mode,
-            "hdf5_compression": hdf5_compression,
-            "hdf5_compression_level": hdf5_compression_level,
-            "hdf5_chunk_size": hdf5_chunk_size,
-        }
         settings.update(
-            {key: value for key, value in explicit.items() if value is not None},
+            {key: value for key, value in overrides.items() if value is not None},
         )
 
         # Restore MPI globals before resolving the next run's native
@@ -1982,25 +1959,36 @@ class ProfileManager:
     @classmethod
     def session(
         cls,
+        options: ProfilingOptions | None = None,
         *,
         verbose: bool = True,
         verbose_line_profiler: bool = False,
         return_results: bool = False,
         native_traces=None,
-        **setup_kwargs,
+        config_path: str | os.PathLike[str] | None = None,
+        **overrides: "Unpack[SetupOptions]",
     ):
         """Return a context manager that sets up and finalizes profiling.
 
-        All keyword arguments other than ``verbose``, ``verbose_line_profiler``,
-        ``return_results`` and ``native_traces`` are passed to :meth:`setup`,
-        including ``options``
-        (a :class:`~scope_profiler.profile_config.ProfilingOptions`)::
+        Every argument other than ``verbose``, ``verbose_line_profiler``,
+        ``return_results`` and ``native_traces`` is passed to :meth:`setup`,
+        with the same meaning and precedence there -- ``options`` (a
+        :class:`~scope_profiler.profile_config.ProfilingOptions`),
+        ``config_path``, and any setting as a keyword::
 
             with ProfileManager.session(options=options) as run:
                 ...
 
+            with ProfileManager.session(file_path="run.h5") as run:
+                ...
+
         Finalization runs even when the profiled block raises; the original
         exception is preserved.
+
+        ``native_traces`` is handed to :meth:`finalize`, which folds the
+        output of a C or Fortran library profiled in this same process into
+        this run's file -- in either native format. See its documentation for
+        the two rules that mixing languages imposes.
 
         When ``return_results=True``, the context object exposes the finalized
         :class:`~scope_profiler.results.ProfilingResults` as ``results``::
@@ -2010,6 +1998,11 @@ class ProfileManager:
                     solve()
             results = run.results
         """
+        setup_kwargs: dict = dict(overrides)
+        if options is not None:
+            setup_kwargs["options"] = options
+        if config_path is not None:
+            setup_kwargs["config_path"] = config_path
         return _ProfilingSession(
             cls,
             setup_kwargs,
@@ -2103,14 +2096,6 @@ class ProfileManager:
         if cls._config is not None:
             cls._config.stop_memory_profiling()
         cls._config = None
-
-    @classmethod
-    def _stop_mpi_call_profiling(cls) -> None:
-        """Restore mpi4py globals if this manager installed their proxies."""
-        context = cls._mpi_profile_context
-        cls._mpi_profile_context = None
-        if context is not None:
-            context.__exit__(None, None, None)
 
     @classmethod
     def _reset(cls) -> None:

@@ -7,7 +7,7 @@ jupyter: python3
 > `pip install "scope-profiler[notebook,pproc,line-profiler]"`.
 
 `scope-profiler` ships eleven IPython magics that wrap the same
-`ProfileManager.session()`/`profile_region()` API the other tutorials use by
+`ProfileManager.session()`/`region()` API the other tutorials use by
 hand: `%%scope`, `%scope_timeit`, `%%scope_line`, `%%scope_recursive`,
 `%%scope_agg`, `%scope_load`, `%scope_df`, `%scope_last`, `%scope_compare`,
 `%scope_export`, and `%scope_reset`. They
@@ -77,10 +77,10 @@ printed table (the run is still recorded).
 
 ```{python}
 %%scope -p
-with ProfileManager.profile_region("load"):
+with ProfileManager.region("load"):
     time.sleep(0.02)
 
-with ProfileManager.profile_region("process"):
+with ProfileManager.region("process"):
     time.sleep(0.01)
 ```
 
@@ -137,7 +137,7 @@ exclusive time --- bounded memory, and cheap enough to leave in a hot loop.
 ```{python}
 %%scope_agg hot
 for _ in range(50_000):
-    with ProfileManager.profile_region("tick"):
+    with ProfileManager.region("tick"):
         pass
 ```
 
@@ -183,7 +183,7 @@ nothing on the other side to diff them against. `scope_profiler.session`, the
 outer region every run has, *is* present in both, and its row is the real
 before/after number. To get a per-region diff instead of just the session
 total, give the part you want compared the same name in both cells, e.g. wrap
-it in `ProfileManager.profile_region("compute")` inside each `%%scope` cell.
+it in `ProfileManager.region("compute")` inside each `%%scope` cell.
 
 With no arguments, `%scope_compare` compares the two most recently recorded
 runs, so plain `%scope_compare` would have worked here too. Pass `--metric`
@@ -249,7 +249,7 @@ just measured here. Let's write one out to stand in for that file.
 ```{python}
 cluster_file = export_dir / "cluster_run.h5"
 with ProfileManager.session(file_path=str(cluster_file), verbose=False):
-    with ProfileManager.profile_region("optimized"):
+    with ProfileManager.region("optimized"):
         fast_sum_of_squares(50)
 
 %scope_load {cluster_file}

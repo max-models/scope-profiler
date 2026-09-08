@@ -43,6 +43,130 @@ jobs:
             "from importlib.metadata import version; import scope_profiler; assert scope_profiler.__version__ == version('scope-profiler')"
           "$RUNNER_TEMP/scope-profiler-wheel/bin/python" -m scope_profiler --version
 
+  cmake-package:
+    name: Smoke-test CMake package from sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install MPI and HDF5 and build the source distribution
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openmpi-bin libopenmpi-dev libhdf5-dev
+          python -m pip install --upgrade pip build
+          python -m build --sdist
+
+      - name: Install CMake package from the source distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/scope-profiler-sdist"
+          tar -xzf dist/scope_profiler-*.tar.gz \
+            --strip-components=1 \
+            -C "$RUNNER_TEMP/scope-profiler-sdist"
+          cmake \
+            -S "$RUNNER_TEMP/scope-profiler-sdist" \
+            -B "$RUNNER_TEMP/scope-profiler-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/scope-profiler-prefix" \
+            -DSCOPE_PROFILER_ENABLE_MPI=ON
+          cmake --build "$RUNNER_TEMP/scope-profiler-build" --parallel
+          cmake --install "$RUNNER_TEMP/scope-profiler-build"
+
+      - name: Build and run installed-package consumers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake \
+            -S "$RUNNER_TEMP/scope-profiler-sdist/examples/cmake" \
+            -B "$RUNNER_TEMP/scope-profiler-consumer" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/scope-profiler-prefix"
+          cmake --build "$RUNNER_TEMP/scope-profiler-consumer" --parallel
+
+          mkdir "$RUNNER_TEMP/header-only-run"
+          cd "$RUNNER_TEMP/header-only-run"
+          "$RUNNER_TEMP/scope-profiler-consumer/profiled-app"
+          test -f cmake-profile_rank00000.spt
+
+          mkdir "$RUNNER_TEMP/compiled-run"
+          cd "$RUNNER_TEMP/compiled-run"
+          "$RUNNER_TEMP/scope-profiler-consumer/profiled-app-compiled"
+          test -f cmake-profile_rank00000.spt
+
+          mkdir "$RUNNER_TEMP/native-run"
+          cd "$RUNNER_TEMP/native-run"
+          "$RUNNER_TEMP/scope-profiler-consumer/profiled-native"
+          test -f cmake-profile_rank00000.spt
+
+          mkdir "$RUNNER_TEMP/mpi-run"
+          cd "$RUNNER_TEMP/mpi-run"
+          mpirun --oversubscribe -n 2 \
+            "$RUNNER_TEMP/scope-profiler-consumer/profiled-mpi"
+          test -f cmake-mpi-profile_rank00000.spt
+          test -f cmake-mpi-profile_rank00001.spt
+
+      # The same package again with the HDF5 backend on, because that option
+      # has to travel all the way to a consumer: SCOPE_PROFILER_ENABLE_HDF5
+      # puts SP_USE_HDF5 and the HDF5 link on the exported targets, so a
+      # program that links them writes a profile rather than a .spt trace
+      # without changing a line of its own. A second prefix keeps the traces
+      # asserted above measuring what they measure.
+      - name: Install and run consumers with the HDF5 backend enabled
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake \
+            -S "$RUNNER_TEMP/scope-profiler-sdist" \
+            -B "$RUNNER_TEMP/scope-profiler-h5-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/scope-profiler-h5-prefix" \
+            -DSCOPE_PROFILER_ENABLE_HDF5=ON
+          cmake --build "$RUNNER_TEMP/scope-profiler-h5-build" --parallel
+          cmake --install "$RUNNER_TEMP/scope-profiler-h5-build"
+
+          cmake \
+            -S "$RUNNER_TEMP/scope-profiler-sdist/examples/cmake" \
+            -B "$RUNNER_TEMP/scope-profiler-h5-consumer" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/scope-profiler-h5-prefix"
+          cmake --build "$RUNNER_TEMP/scope-profiler-h5-consumer" --parallel
+
+          mkdir "$RUNNER_TEMP/native-h5-run"
+          cd "$RUNNER_TEMP/native-h5-run"
+          "$RUNNER_TEMP/scope-profiler-h5-consumer/profiled-native"
+          test -f cmake-profile_rank00000.h5
+          test ! -f cmake-profile_rank00000.spt
+
+          mkdir "$RUNNER_TEMP/header-only-h5-run"
+          cd "$RUNNER_TEMP/header-only-h5-run"
+          "$RUNNER_TEMP/scope-profiler-h5-consumer/profiled-app"
+          test -f cmake-profile_rank00000.h5
+
+      # A named file is not yet a profile: read it back with the package that
+      # defines the layout, which is what the C writer has to agree with.
+      - name: Read the HDF5 output back with the Python reader
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install "$RUNNER_TEMP/scope-profiler-sdist"
+          cd "$RUNNER_TEMP/native-h5-run"
+          scope-profiler inspect cmake-profile_rank00000.h5 --regions-only --quiet
+          python - <<'PY'
+          from scope_profiler import read_h5
+
+          results = read_h5("cmake-profile_rank00000.h5")
+          names = sorted(region.name for region in results.get_regions())
+          print("regions:", names)
+          assert names, "the C run recorded nothing"
+          assert results.metadata["source_language"] == "c", results.metadata
+          PY
+
   typing:
     name: Type check core public API
     runs-on: ubuntu-latest
@@ -153,6 +277,18 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install ".[dev]"
+
+      # Baked into the CI image; installed here only when this run uses an
+      # image built before that, so the HDF5 steps below cannot go quietly
+      # missing while waiting for an image rebuild. The serial build, not the
+      # MPI one already present for h5py: the C API links it directly and the
+      # MPI headers would pull mpi.h into every translation unit.
+      - name: Ensure serial HDF5 headers
+        run: |
+          pkg-config --exists hdf5-serial || {
+            apt-get update
+            apt-get install -y --no-install-recommends libhdf5-dev
+          }
 
       - name: Run tests
         run: |
@@ -385,16 +521,43 @@ jobs:
 
       # The C API shares the trace format with the Fortran one, and its clock
       # selection differs per platform -- so build and run it on Linux too.
+      # Baked into the CI image; installed here only when this run uses an
+      # image built before that, so the HDF5 steps below cannot go quietly
+      # missing while waiting for an image rebuild. The serial build, not the
+      # MPI one already present for h5py: the C API links it directly and the
+      # MPI headers would pull mpi.h into every translation unit.
+      - name: Ensure serial HDF5 headers
+        run: |
+          pkg-config --exists hdf5-serial || {
+            apt-get update
+            apt-get install -y --no-install-recommends libhdf5-dev
+          }
+
       - name: Test C API (build, run, import)
         run: |
           cc --version
           make -C src/scope_profiler/c run BUILD_DIR=$PWD/c_build
           scope-profiler inspect c_build/profiling_data.h5
 
+      # The same sources with the HDF5 backend compiled in (libhdf5-dev is in
+      # the CI image). Here sp_finalize() writes the profile itself, so what
+      # is being checked is that the file it produces needs no import to be
+      # read -- `inspect` opens the program's own output, not a converted one.
+      - name: Test C API with the HDF5 backend
+        run: |
+          make -C src/scope_profiler/c run SP_HDF5=1 BUILD_DIR=$PWD/c_h5_build
+          test -f c_h5_build/profile_rank00000.h5
+          scope-profiler inspect c_h5_build/profile_rank00000.h5
+          scope-profiler inspect c_h5_build/profiling_data.h5
+          make -C src/scope_profiler/c hpp-check SP_HDF5=1 BUILD_DIR=$PWD/c_h5_build
+
       - name: Test C examples
         run: |
           make -C examples/c run-standalone BUILD_DIR=$PWD/c_example_build
           make -C examples/c run-mixed
+          make -C examples/c run-standalone SP_HDF5=1 \
+            BUILD_DIR=$PWD/c_example_h5_build
+          test -f c_example_h5_build/standalone_rank00000.h5
 
   mpi:
     runs-on: ubuntu-latest

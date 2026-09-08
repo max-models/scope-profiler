@@ -1,5 +1,11 @@
 /* Implementation of the C region API; see scope_profiler.h.
  *
+ * Two output formats. The preferred one is HDF5, written directly in the
+ * schema-2 layout scope_profiler/h5writer.py produces; it lives in
+ * scope_profiler_hdf5.h and is compiled in only when SP_USE_HDF5 is defined,
+ * so the default build keeps libc as its only dependency. The fallback, and
+ * the only format a build without HDF5 can write, is the binary trace below.
+ *
  * The trace format extends the one the Fortran API writes (documented in
  * scope_profiler/native_trace.py) with an optional source location per
  * region, gated on the format version so version-1 (Fortran) files keep
@@ -106,7 +112,9 @@ struct sp_profiler {
     int regions_capacity;
     int rank_id;
     char *output_prefix;
-    char *cached_path;  /* built lazily by trace_path() */
+    char *cached_path;  /* built lazily by output_path(); freed when the
+                         * output format changes, since the suffix does */
+    sp_output_format format;
     int active;
     sp_status last_error;
     /* Cross-region stack of open calls, for sp_profiler_end_last(). */
@@ -171,9 +179,10 @@ SP_IMPL_API const char *sp_error_string(sp_status status)
         case SP_ERR_INACTIVE: return "profiler is not active";
         case SP_ERR_NO_CLOCK: return "no monotonic clock available";
         case SP_ERR_NO_MEMORY: return "out of memory";
-        case SP_ERR_IO: return "trace file could not be written";
+        case SP_ERR_IO: return "output file could not be written";
         case SP_ERR_UNMATCHED_END: return "no open call to end";
         case SP_ERR_OPEN_SCOPES: return "a region is still open";
+        case SP_ERR_UNSUPPORTED: return "output format not available in this build";
     }
     return "unknown status";
 }
@@ -227,6 +236,9 @@ SP_IMPL_API sp_profiler *sp_create(const char *prefix, int rank)
     if (profiler == NULL) {
         return NULL;
     }
+    /* Before the early returns below, so even a profiler that never records
+     * anything reports the format (and the output path) this build writes. */
+    profiler->format = sp_default_output_format();
 
     resolve_clock();
     if (clock_id == (clockid_t)-2) {
@@ -590,10 +602,60 @@ SP_IMPL_API int sp_profiler_get_region_stats(
     return SP_OK;
 }
 
-/* "<prefix>_rank<NNNNN>.spt", cached on the profiler after the first call. */
-static const char *trace_path(sp_profiler *profiler)
+/* ---------------------------------------------------------------------- */
+/* Output format.                                                          */
+/* ---------------------------------------------------------------------- */
+
+SP_IMPL_API int sp_hdf5_available(void)
+{
+#ifdef SP_USE_HDF5
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+SP_IMPL_API sp_output_format sp_default_output_format(void)
+{
+    return sp_hdf5_available() ? SP_OUTPUT_HDF5 : SP_OUTPUT_TRACE;
+}
+
+SP_IMPL_API sp_output_format sp_profiler_output_format(const sp_profiler *profiler)
+{
+    return profiler != NULL ? profiler->format : sp_default_output_format();
+}
+
+SP_IMPL_API int sp_profiler_set_output_format(sp_profiler *profiler, sp_output_format format)
+{
+    if (profiler == NULL || !profiler->active) {
+        return SP_ERR_INACTIVE;
+    }
+    if (format == SP_OUTPUT_HDF5 && !sp_hdf5_available()) {
+        /* Keep the format the profiler already has: a program that always
+         * asks for HDF5 still gets a trace out of a build without it. */
+        profiler->last_error = SP_ERR_UNSUPPORTED;
+        return SP_ERR_UNSUPPORTED;
+    }
+    if (format != SP_OUTPUT_HDF5 && format != SP_OUTPUT_TRACE) {
+        profiler->last_error = SP_ERR_UNSUPPORTED;
+        return SP_ERR_UNSUPPORTED;
+    }
+    if (format != profiler->format) {
+        /* The suffix is part of the cached path, so it has to be rebuilt. */
+        free(profiler->cached_path);
+        profiler->cached_path = NULL;
+        profiler->format = format;
+    }
+    profiler->last_error = SP_OK;
+    return SP_OK;
+}
+
+/* "<prefix>_rank<NNNNN>.<suffix>" for the selected format, cached on the
+ * profiler after the first call. */
+static const char *output_path(sp_profiler *profiler)
 {
     const char *prefix;
+    const char *suffix;
     size_t length;
 
     if (profiler->cached_path != NULL) {
@@ -601,12 +663,14 @@ static const char *trace_path(sp_profiler *profiler)
     }
 
     prefix = profiler->output_prefix != NULL ? profiler->output_prefix : "scope_profile";
+    suffix = profiler->format == SP_OUTPUT_HDF5 ? "h5" : "spt";
     length = strlen(prefix) + 32;
     profiler->cached_path = (char *)malloc(length);
     if (profiler->cached_path == NULL) {
         return NULL;
     }
-    snprintf(profiler->cached_path, length, "%s_rank%05d.spt", prefix, profiler->rank_id);
+    snprintf(
+        profiler->cached_path, length, "%s_rank%05d.%s", prefix, profiler->rank_id, suffix);
     return profiler->cached_path;
 }
 
@@ -615,9 +679,9 @@ SP_IMPL_API const char *sp_profiler_output_path(const sp_profiler *profiler)
     if (profiler == NULL) {
         return NULL;
     }
-    /* trace_path() only mutates the cache, not anything observable; cast
+    /* output_path() only mutates the cache, not anything observable; cast
      * away const to share the lazy-build logic with the writers below. */
-    return trace_path((sp_profiler *)profiler);
+    return output_path((sp_profiler *)profiler);
 }
 
 /* How many of a region's reserved slots have both a start and an end time:
@@ -646,7 +710,7 @@ static int write_trace(sp_profiler *profiler)
         }
     }
 
-    path = trace_path(profiler);
+    path = output_path(profiler);
     if (path == NULL) {
         fprintf(stderr, "scope_profiler: out of memory writing the trace\n");
         profiler->last_error = SP_ERR_NO_MEMORY;
@@ -701,12 +765,28 @@ static int write_trace(sp_profiler *profiler)
     return failed;
 }
 
+#ifdef SP_USE_HDF5
+/* Defines write_hdf5(), which uses output_path() and written_count() above. */
+#include "scope_profiler_hdf5.h"
+#endif
+
+/* Write whichever format this profiler was configured for. */
+static int write_output(sp_profiler *profiler)
+{
+#ifdef SP_USE_HDF5
+    if (profiler->format == SP_OUTPUT_HDF5) {
+        return write_hdf5(profiler);
+    }
+#endif
+    return write_trace(profiler);
+}
+
 SP_IMPL_API int sp_profiler_flush(sp_profiler *profiler)
 {
     if (profiler == NULL || !profiler->active) {
         return 0;
     }
-    return write_trace(profiler);
+    return write_output(profiler);
 }
 
 SP_IMPL_API int sp_profiler_finalize(sp_profiler *profiler)
@@ -728,7 +808,7 @@ SP_IMPL_API int sp_profiler_finalize(sp_profiler *profiler)
         }
     }
 
-    failed = write_trace(profiler);
+    failed = write_output(profiler);
 
     profiler->active = 0;
     release_buffers(profiler);
@@ -783,6 +863,21 @@ SP_IMPL_API int64_t sp_num_calls(int region)
 SP_IMPL_API int sp_is_active(void)
 {
     return sp_profiler_is_active(g_default);
+}
+
+SP_IMPL_API int sp_set_output_format(sp_output_format format)
+{
+    return sp_profiler_set_output_format(g_default, format);
+}
+
+SP_IMPL_API sp_output_format sp_current_output_format(void)
+{
+    return sp_profiler_output_format(g_default);
+}
+
+SP_IMPL_API const char *sp_output_path(void)
+{
+    return sp_profiler_output_path(g_default);
 }
 
 SP_IMPL_API int sp_finalize(void)

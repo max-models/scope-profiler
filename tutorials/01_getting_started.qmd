@@ -47,7 +47,7 @@ ProfileManager.setup(file_path=str(DATA_FILE))
 
 ## Marking a region with a context manager
 
-`ProfileManager.profile_region(name)` returns a region object you can use as a
+`ProfileManager.region(name)` returns a region object you can use as a
 context manager. Entering it records a start timestamp, leaving it records the
 end — the region is created on first use and reused afterwards.
 
@@ -65,11 +65,11 @@ def transform(values):
     return [value * 2 for value in values]
 
 
-with ProfileManager.profile_region("load"):
+with ProfileManager.region("load"):
     values = load_data(1000)
 
 for _ in range(3):
-    with ProfileManager.profile_region("transform"):
+    with ProfileManager.region("transform"):
         values = transform(values)
 ```
 
@@ -111,11 +111,11 @@ what the flame chart in
 [3. Visualizing results](03_visualization.md) reconstructs.
 
 ```{python}
-with ProfileManager.profile_region("timestep"):
+with ProfileManager.region("timestep"):
     for _ in range(2):
-        with ProfileManager.profile_region("timestep.residual"):
+        with ProfileManager.region("timestep.residual"):
             time.sleep(0.004)
-        with ProfileManager.profile_region("timestep.update"):
+        with ProfileManager.region("timestep.update"):
             time.sleep(0.002)
 ```
 
@@ -131,13 +131,14 @@ ProfileManager.finalize()
 
 ## Reading the results back
 
-`read_h5()` loads the merged file into a `ProfilingResults`. `print_summary()` is the quickest way
-to see what was recorded — all durations are in **seconds**.
+`load()` reads a profile back into a `ProfilingResults`, in whichever format
+the file is in. `print_summary()` is the quickest way to see what was recorded
+— all durations are in **seconds**.
 
 ```{python}
-from scope_profiler import read_h5
+from scope_profiler import load
 
-results = read_h5(DATA_FILE)
+results = load(DATA_FILE)
 results.print_summary()
 ```
 

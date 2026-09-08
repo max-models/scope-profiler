@@ -4,6 +4,53 @@
 
 ### Added
 
+- `session()`, `region()`, `profile`, `setup()` and `finalize()` are
+  importable from the package root, so everyday instrumentation needs no class
+  name: `with sp.region("solve"):`. They are the `ProfileManager` class
+  methods themselves, acting on the same process-wide manager, not wrappers.
+- `ProfileManager.region()` is the new name for `profile_region()`, which it
+  describes better --- it gets or creates a region rather than profiling one.
+  `profile_region` remains available as an alias for existing instrumentation;
+  the two are the same object.
+- `load()` reads a profile back whatever format it is in, choosing by the
+  file's contents rather than its name, so a JSON profile under a `.h5` name
+  still opens. `sniff_profile_format()` exposes that detection on its own, and
+  `read_h5()`/`read_json()`/`read_profile()` remain for a known format. An
+  HTML report is refused with an explanation rather than a parse error.
+- Settings that share a prefix can be given as groups --- `MemrayOptions`,
+  `GPUOptions` and `HDF5Options` --- on `ProfilingOptions` or as
+  `[profiling.memray]`, `[profiling.gpu]` and `[profiling.hdf5]` sub-tables in
+  a TOML config. They spell the same settings without the prefix; setting one
+  thing both ways raises rather than picking a winner.
+
+### Changed
+
+- `setup()` and `session()` take their settings as `**overrides` instead of
+  restating 28 keyword parameters. `ProfilingOptions` is now the single place
+  each setting is declared: the accepted names are derived from it, and their
+  defaults live only in `ProfilingConfig.__init__`, so the four places a
+  setting used to be repeated can no longer drift. An unrecognised keyword
+  raises `TypeError` naming the closest real setting, as an unrecognised TOML
+  key now does too.
+
+- The C API can write its profile as HDF5 directly, in the same schema-2
+  layout a Python run produces, so `scope-profiler inspect`/`plot` and
+  `read_h5()` open a C run's output with no import step. It is opt-in at
+  compile time (`-DSP_USE_HDF5` plus libhdf5, or CMake's
+  `-DSCOPE_PROFILER_ENABLE_HDF5=ON`), because it is the only thing that gives
+  the library a dependency, and is the default format wherever it is compiled
+  in; `sp_set_output_format()` / `sp_profiler_set_output_format()` pin either
+  format explicitly, and asking for HDF5 in a build without it returns
+  `SP_ERR_UNSUPPORTED` and keeps writing the `.spt` trace.
+- `scope-profiler import-native` and `finalize(native_traces=...)` both read
+  the per-rank `.h5` files an HDF5 C build writes, mixed freely with `.spt`
+  traces from other ranks or from Fortran; `import-native` picks both up from
+  a directory. A merged profile in that
+  directory is not treated as input, so re-running an import does not fold a
+  previous result into the next one.
+- An import now carries each region's source location through into the HDF5
+  file it writes, instead of dropping it.
+
 - Optional C++11 MPI wrappers and a matching mpi4py communicator proxy profile
   point-to-point, collective, nonblocking-initiation, and wait operations with
   a shared label schema for message bytes, peer/root, tag, communicator, and

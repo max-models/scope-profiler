@@ -5,15 +5,21 @@
 > for the RAII wrapper); no Python extra is required.
 
 scope-profiler ships a C region API with the same model as the Python one. A C
-program marks regions, writes a small trace file per rank, and
-`scope-profiler import-native` turns those traces into the usual HDF5 output —
-so a C run gets the same summaries, charts, exporters and `plot` workflow as a
-Python one.
+program marks regions and writes one file per rank at `sp_finalize()`, so a C
+run gets the same summaries, charts, exporters and `plot` workflow as a Python
+one.
 
-The compiled backend is a small C99 entry source plus adjacent headers: no
-dependencies beyond libc, no HDF5, no MPI, nothing else to link. Keep the
-shipped `scope_profiler_impl.h` beside `scope_profiler.c` when vendoring them.
-The public header is `extern "C"`, so C++ codes can include it directly -- or
+Built with HDF5 — the preferred output format — that file *is* the profile:
+`<prefix>_rank<NNNNN>.h5`, the same layout a Python run writes, opened
+directly by `scope-profiler inspect`/`plot` and `read_h5()`. Without HDF5 the
+program writes a compact `.spt` trace instead, which `scope-profiler
+import-native` converts afterwards. See [Output format](#output-format).
+
+The compiled backend is a small C99 entry source plus adjacent headers: with
+no dependencies beyond libc, no MPI, and nothing else to link unless you opt
+into HDF5. Keep the shipped `scope_profiler_impl.h` and
+`scope_profiler_hdf5.h` beside `scope_profiler.c` when vendoring them. The
+public header is `extern "C"`, so C++ codes can include it directly -- or
 reach for the optional `scope_profiler.hpp` RAII wrapper described below.
 
 C++ projects can instead use the C++17 header-only backend, and CMake projects
@@ -21,7 +27,8 @@ can consume exported `scope-profiler::native`, `scope-profiler::cpp`, and
 `scope-profiler::header-only` targets.
 
 The trace format is shared with {doc}`the Fortran API <fortran>`, so a program
-built from both lands in a single profile.
+built from both lands in a single profile — and so does a run whose ranks
+wrote different formats.
 
 ## Getting the source
 
@@ -59,7 +66,7 @@ int main(void)
         sp_end(solve);
     }
 
-    sp_finalize();                      /* writes profile_rank00000.spt */
+    sp_finalize();                      /* writes profile_rank00000.h5 */
     return 0;
 }
 ```
@@ -88,7 +95,9 @@ The default-context convenience functions:
 | `int64_t sp_num_calls(int region)` | How often a region was entered; readable after `sp_finalize()`. |
 | `int64_t sp_now_ns(void)` | The raw clock, in nanoseconds. Shared by every profiler. |
 | `int sp_is_active(void)` | Whether profiling is running. |
-| `int sp_finalize(void)` | Write `<prefix>_rank<NNNNN>.spt` and stop. Returns non-zero on write failure. |
+| `int sp_finalize(void)` | Write `<prefix>_rank<NNNNN>.h5` (or `.spt`) and stop. Returns non-zero on write failure. |
+| `int sp_set_output_format(sp_output_format)` | Choose HDF5 or trace output; see [Output format](#output-format). |
+| `sp_output_format sp_current_output_format(void)` / `const char *sp_output_path(void)` | What will be written, and where. |
 
 Calls made before `sp_init()` are harmless: `sp_region()` returns
 `SP_INVALID_REGION` and `sp_begin`/`sp_end` ignore it. Instrumentation can stay
@@ -108,7 +117,8 @@ The explicit-context API, each taking an `sp_profiler *` from `sp_create()`:
 | `int sp_profiler_get_region_stats(const sp_profiler *, int region, sp_region_stats *)` | Call count, total/min/max duration. |
 | `int sp_profiler_num_regions(const sp_profiler *)` / `const char *sp_profiler_region_name(const sp_profiler *, int)` | Enumerate registered regions. |
 | `int sp_profiler_flush(sp_profiler *)` | Write what has been recorded so far, without stopping profiling. |
-| `int sp_profiler_finalize(sp_profiler *)` | Write the trace and stop. |
+| `int sp_profiler_finalize(sp_profiler *)` | Write the output file and stop. |
+| `int sp_profiler_set_output_format(sp_profiler *, sp_output_format)` / `sp_output_format sp_profiler_output_format(const sp_profiler *)` | The format this profiler writes. |
 | `int sp_profiler_is_active(const sp_profiler *)` / `const char *sp_profiler_output_path(const sp_profiler *)` | Introspection. |
 | `sp_status sp_profiler_last_error(const sp_profiler *)` / `const char *sp_error_string(sp_status)` | What went wrong, if anything. |
 
@@ -130,7 +140,7 @@ sp_profiler_begin(p, solve);
 solve_system();
 sp_profiler_end(p, solve);
 
-sp_profiler_finalize(p);   /* writes solver_rank00000.spt */
+sp_profiler_finalize(p);   /* writes solver_rank00000.h5 */
 sp_destroy(p);
 ```
 
@@ -312,6 +322,10 @@ target_link_libraries(simulation PRIVATE scope-profiler::cpp)
   `scope-profiler::cpp` or `scope-profiler::header-only`.
 - `scope-profiler::mpi` similarly adds `scope_profiler_mpi.hpp` and MPI linkage
   when configured with `-DSCOPE_PROFILER_ENABLE_MPI=ON`.
+- `-DSCOPE_PROFILER_ENABLE_HDF5=ON` needs no separate target: it puts
+  `SP_USE_HDF5` and the HDF5 link on `scope-profiler::native` and
+  `scope-profiler::header-only`, so everything built against them writes
+  `.h5` profiles. See [Output format](#output-format).
 
 The same targets work through `FetchContent_MakeAvailable(scope-profiler)`.
 See `examples/cmake/` for both the installed-package and FetchContent paths.
@@ -349,11 +363,65 @@ if (sp_profiler_last_error(p) != SP_OK) {
 
 `sp_profiler_output_path(p)` returns the path `sp_profiler_finalize()` /
 `sp_profiler_flush()` write (or wrote), so callers do not need to reconstruct
-`<prefix>_rank<NNNNN>.spt` themselves.
+`<prefix>_rank<NNNNN>.h5` — or `.spt` — themselves.
+
+## Output format
+
+`sp_finalize()` writes one file per rank, in one of two formats.
+
+**HDF5 — preferred.** `<prefix>_rank<NNNNN>.h5` is an ordinary
+scope-profiler profile, byte-layout-identical to what a Python run writes, so
+there is nothing to convert:
+
+```bash
+./simulation
+scope-profiler inspect profile_rank00000.h5
+scope-profiler plot default profile_rank00000.h5 -o figures
+```
+
+It is opt-in at compile time, because it is the only thing that gives the
+library a dependency. Define `SP_USE_HDF5` and link `libhdf5`:
+
+```bash
+cc -std=c99 -O2 -DSP_USE_HDF5 -c scope_profiler.c $(pkg-config --cflags hdf5)
+cc -O2 main.o scope_profiler.o $(pkg-config --libs hdf5) -o simulation
+```
+
+or, under CMake, `-DSCOPE_PROFILER_ENABLE_HDF5=ON`, which puts the definition
+and the link on the `scope-profiler::native` and `scope-profiler::header-only`
+targets for you. Serial HDF5 is enough — each rank writes its own file, so
+nothing here needs parallel HDF5 or MPI.
+
+**Trace — the fallback.** Without `SP_USE_HDF5` the program writes
+`<prefix>_rank<NNNNN>.spt`, the compact binary trace shared with
+{doc}`the Fortran API <fortran>`, and `scope-profiler import-native` turns it
+into the same HDF5 output afterwards. It needs nothing but libc, which is what
+makes it the right choice where the profiled machine has no HDF5 to link, or
+where the run must not carry the library at all.
+
+A build with HDF5 defaults to it, so most programs never touch the format API.
+To pin one explicitly:
+
+```c
+sp_init("profile", rank);
+sp_set_output_format(SP_OUTPUT_TRACE);   /* or SP_OUTPUT_HDF5 */
+printf("writing %s\n", sp_output_path());
+```
+
+`sp_hdf5_available()` reports whether this build has the HDF5 backend at all.
+Asking a build without it for `SP_OUTPUT_HDF5` returns `SP_ERR_UNSUPPORTED`
+and leaves the format alone, so instrumentation that always asks for HDF5
+still runs — and still produces a trace — where it is not available.
+
+Both formats record exactly the same measurements. The difference is what the
+file already is: an HDF5 profile carries the region names, source locations,
+per-event timestamps and the fixed-size summary statistics a reader needs,
+while a trace carries the names, source locations and timestamps and lets the
+import derive the rest.
 
 ## Under MPI
 
-Pass each rank's id so the traces do not collide:
+Pass each rank's id so the output files do not collide:
 
 ```c
 int rank;
@@ -362,13 +430,23 @@ sp_init("profile", rank);
 ```
 
 Every rank writes its own file; nothing is communicated, so `sp_finalize()` is
-not collective and a rank that dies takes only its own trace with it:
+not collective and a rank that dies takes only its own output with it. Merging
+the ranks into one profile is a post-processing step, in either format:
 
 ```bash
 mpirun -n 128 ./simulation
 scope-profiler import-native . -o profiling_data.h5
 scope-profiler plot default profiling_data.h5 -o figures
 ```
+
+`import-native` reads both, and mixes them: it picks up `*.spt` traces and
+per-rank `*_rank<NNNNN>.h5` profiles from a directory and merges every rank it
+finds into one file. A merged profile sitting in the same directory is left
+alone — only the per-rank naming is treated as input — so re-running the
+import does not fold a previous result back into the next one.
+
+With one rank there is nothing to merge: an HDF5 build's output file is the
+profile, and `import-native` is only worth running to rename it.
 
 ## Python calling C
 
@@ -395,12 +473,18 @@ ProfileManager.setup(file_path="profiling_data.h5")
 kernels.kernels_start_profiling(b"trace", 0)
 
 for step in range(nsteps):
-    with ProfileManager.profile_region("python:step"):
+    with ProfileManager.region("python:step"):
         kernels.kernels_jacobi_solve(n, sweeps)          # records its own regions
 
-kernels.kernels_stop_profiling()                          # writes the trace
+kernels.kernels_stop_profiling()                          # writes the C output
 ProfileManager.finalize(native_traces=".")                # ...and folds it in
 ```
+
+**One file comes out**, `profiling_data.h5`, holding both languages — there is
+no merge step here, and none of this changes with the C side's
+[output format](#output-format): `native_traces=` reads whichever of the two
+it wrote. The C side's own file (`trace_rank00000.h5` or `.spt`) is an
+intermediate, left beside the result.
 
 Because both APIs read the same clock, the C regions nest inside the Python
 region that called them and `call_stack()` sees a single tree:
@@ -415,8 +499,8 @@ region that called them and `call_stack()` sees a single tree:
 
 Two rules:
 
-- **Call the C `sp_finalize()` first.** Its trace has to exist by the time
-  `finalize()` reads it.
+- **Call the C `sp_finalize()` first.** Its output file has to exist by the
+  time `finalize()` reads it.
 - **Give the two sides distinct region names.** A name recorded by both raises,
   rather than silently double-counting a wrapper and the region inside it. A
   `python:` / `c:` prefix is the simplest convention.
@@ -442,7 +526,9 @@ implementation therefore defines `_DARWIN_C_SOURCE` on Apple platforms and
 
 ## The trace format
 
-Compatible with the Fortran API's; see {doc}`fortran` for the shared layout.
+This is the `.spt` fallback format; a build with HDF5 writes the schema
+described in {doc}`hdf5_and_python_api` instead. Compatible with the Fortran
+API's; see {doc}`fortran` for the shared layout.
 16 bytes per recorded call, the same as the Python side. The C API writes
 format version 2, adding an optional source file and line per region (empty
 when a region was registered with `sp_region()` rather than
@@ -456,8 +542,12 @@ mixed C/Fortran run still merges into one profile.
   OpenMP threads inside a region are fine — wrap the whole parallel construct
   in one `sp_begin`/`sp_end` from the master thread.
 - **Counter storage is owned by LIKWID.** Native C++ scopes write the ordinary
-  `.spt` timing trace and LIKWID writes its marker output; the binary native
-  trace format itself remains timing-only.
+  timing output and LIKWID writes its marker output; neither native format
+  carries counters.
+- **The HDF5 output is timing-only**, like the trace: no GPU durations, no
+  line profile, no per-call parent ids. Post-processing reconstructs the call
+  graph and exclusive times from the recorded intervals, exactly as it does
+  for an imported trace.
 - **Recursion depth** per region is capped at `SP_MAX_DEPTH` (64); deeper
   nesting is reported on stderr and left untimed rather than corrupting the
   buffer.

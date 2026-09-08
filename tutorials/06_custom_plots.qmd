@@ -34,17 +34,17 @@ def run(file_path, solve_cost, seed=0):
     jitter = random.Random(seed)  # seeded, so the notebook reproduces
     ProfileManager.setup(file_path=str(file_path))
 
-    with ProfileManager.profile_region("setup"):
+    with ProfileManager.region("setup"):
         time.sleep(0.02)
 
     for step in range(24):
-        with ProfileManager.profile_region("timestep"):
-            with ProfileManager.profile_region("assemble"):
+        with ProfileManager.region("timestep"):
+            with ProfileManager.region("assemble"):
                 time.sleep(0.002 + jitter.uniform(0, 0.0006))
-            with ProfileManager.profile_region("solve"):
+            with ProfileManager.region("solve"):
                 time.sleep(solve_cost + 0.00008 * step + jitter.uniform(0, 0.0012))
         if step % 8 == 7:
-            with ProfileManager.profile_region("checkpoint"):
+            with ProfileManager.region("checkpoint"):
                 time.sleep(0.006)
 
     ProfileManager.finalize(verbose=False)
