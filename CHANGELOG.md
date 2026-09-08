@@ -51,7 +51,9 @@
 ### Added
 
 - CI now runs the ordinary test suite on every supported Python version
-  (3.10--3.14) and adds a native macOS job for portable functionality.
+  (3.10--3.14) and adds a native macOS job for portable functionality. The
+  macOS environment includes Open MPI and mpi4py so it also exercises the
+  lazy MPI initialization contract.
 - Immutable compatibility fixtures cover HDF5 schemas 1--3, JSON profile v1,
   and native trace v1/v2, so reader compatibility is checked against committed
   fixed representative bytes rather than only files emitted by the current
