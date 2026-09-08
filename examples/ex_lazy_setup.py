@@ -8,7 +8,7 @@ config file that is read after the module containing the class has been
 imported.
 
 This example shows that ``@ProfileManager.profile`` and
-``with ProfileManager.profile_region(...)`` both work correctly when the
+``with ProfileManager.region(...)`` both work correctly when the
 session starts *after* the class is defined and the decorated methods are
 already bound.
 
@@ -65,10 +65,10 @@ with ProfileManager.session(use_line_profiler=True):
         solver.smooth()
         solver.norm()
 
-    # with-block path — profile_region() is called at runtime so it always
+    # with-block path — region() is called at runtime so it always
     # picks up the current config. Timing is recorded for the whole block;
     # line-by-line output requires decorated functions (not inline code).
-    with ProfileManager.profile_region("postprocess"):
+    with ProfileManager.region("postprocess"):
         result = []
         for x in solver.data:
             result.append(math.sin(x) * math.sqrt(abs(x) + 1.0))

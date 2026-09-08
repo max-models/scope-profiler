@@ -42,9 +42,10 @@
   in; `sp_set_output_format()` / `sp_profiler_set_output_format()` pin either
   format explicitly, and asking for HDF5 in a build without it returns
   `SP_ERR_UNSUPPORTED` and keeps writing the `.spt` trace.
-- `scope-profiler import-native` merges the per-rank `.h5` files an HDF5 C
-  build writes, mixed freely with `.spt` traces from other ranks or from
-  Fortran, and picks both up from a directory. A merged profile in that
+- `scope-profiler import-native` and `finalize(native_traces=...)` both read
+  the per-rank `.h5` files an HDF5 C build writes, mixed freely with `.spt`
+  traces from other ranks or from Fortran; `import-native` picks both up from
+  a directory. A merged profile in that
   directory is not treated as input, so re-running an import does not fold a
   previous result into the next one.
 - An import now carries each region's source location through into the HDF5

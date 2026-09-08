@@ -25,9 +25,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from scope_profiler import read_h5
+from scope_profiler import ProfileManager, read_h5
 from scope_profiler.h5writer import _timing_summary
 from scope_profiler.native_trace import (
+    c_include_dir,
     c_source_path,
     find_traces,
     load_traces,
@@ -403,3 +404,118 @@ int main(int argc, char **argv)
         == 7
     )
     assert not list(tmp_path.glob("*.tmp*"))
+
+
+MIXED_KERNELS = """
+#include "scope_profiler.h"
+#include <math.h>
+
+void kernels_start_profiling(const char *prefix, int rank)
+{
+    sp_init(prefix, rank);
+}
+
+void kernels_stop_profiling(void)
+{
+    sp_finalize();
+}
+
+double kernels_solve(int n)
+{
+    int inner = sp_region("c:inner");
+    double acc = 0.0;
+    int i;
+
+    sp_begin(inner);
+    for (i = 1; i <= n; ++i) {
+        acc += sqrt((double)i);
+    }
+    sp_end(inner);
+    return acc;
+}
+"""
+
+
+def build_shared_library(tmp_path: Path) -> Path:
+    """Build the kernels and the profiler into one ctypes-loadable library."""
+    source = tmp_path / "kernels.c"
+    source.write_text(MIXED_KERNELS)
+    library = tmp_path / "libkernels.so"
+
+    result = subprocess.run(
+        [
+            COMPILER,
+            "-std=c99",
+            "-O1",
+            "-fPIC",
+            "-shared",
+            "-DSP_USE_HDF5",
+            f"-I{c_include_dir()}",
+            str(source),
+            str(SOURCE),
+            "-lm",
+            "-o",
+            str(library),
+            *HDF5_FLAGS,
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    assert result.returncode == 0, (
+        f"compilation failed\n--- stdout ---\n{result.stdout}\n"
+        f"--- stderr ---\n{result.stderr}"
+    )
+    return library
+
+
+@pytest.fixture
+def reset_manager():
+    yield
+    ProfileManager._reset()
+
+
+def test_a_python_run_folds_in_an_hdf5_writing_c_library(tmp_path, reset_manager):
+    """One process, two languages, one file -- whichever format the C side wrote.
+
+    ``finalize(native_traces=...)`` is the single-process counterpart of
+    ``import-native``, and it has to accept what an ``SP_USE_HDF5`` build
+    produces as readily as a trace. It reads the C side's own output file, so
+    a reader that only understood ``.spt`` would fail the whole run here
+    rather than degrade.
+    """
+    import ctypes
+
+    library = ctypes.CDLL(str(build_shared_library(tmp_path)))
+    library.kernels_solve.argtypes = [ctypes.c_int]
+    library.kernels_solve.restype = ctypes.c_double
+
+    output = tmp_path / "mixed.h5"
+    ProfileManager.setup(file_path=str(output))
+    library.kernels_start_profiling(str(tmp_path / "native").encode(), 0)
+
+    for _ in range(3):
+        with ProfileManager.profile_region("python:step"):
+            library.kernels_solve(2000)
+
+    library.kernels_stop_profiling()
+    # The C side wrote a profile, not a trace, and it is what gets folded in.
+    assert (tmp_path / "native_rank00000.h5").exists()
+
+    ProfileManager.finalize(verbose=False, native_traces=tmp_path)
+
+    results = read_h5(output)
+    assert sorted(results.region_names) == ["c:inner", "python:step"]
+    assert results["python:step"].num_calls == 3
+    assert results["c:inner"].num_calls == 3
+
+    # The shared clock is what makes one call stack out of two languages: the
+    # three C calls sit under the three Python ones, not beside them.
+    stack = results.call_stack(rank=0)
+    depths = {}
+    for call in stack:
+        depths.setdefault(call["name"], set()).add(call["depth"])
+    assert depths["python:step"] == {0}
+    assert depths["c:inner"] == {1}

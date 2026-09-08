@@ -14,7 +14,7 @@ from scope_profiler import ProfileManager
 
 def work():
     """A decorated region contributes aggregate statistics."""
-    with ProfileManager.profile_region("inner"):
+    with ProfileManager.region("inner"):
         sum(range(1000))
 
 
@@ -26,8 +26,8 @@ def main():
         return_results=True,
     ) as run:
         work_region = ProfileManager.profile("work")(work)
-        total = ProfileManager.profile_region("total")
-        outer = ProfileManager.profile_region("outer")
+        total = ProfileManager.region("total")
+        outer = ProfileManager.region("outer")
         with total:
             for _ in range(10):
                 with outer:

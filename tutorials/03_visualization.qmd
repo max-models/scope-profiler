@@ -39,16 +39,16 @@ DATA_FILE = WORKDIR / "profiling_data.h5"
 
 ProfileManager.setup(file_path=str(DATA_FILE))
 
-with ProfileManager.profile_region("setup"):
+with ProfileManager.region("setup"):
     time.sleep(0.02)
 
 for step in range(4):
-    with ProfileManager.profile_region("timestep"):
-        with ProfileManager.profile_region("assemble"):
+    with ProfileManager.region("timestep"):
+        with ProfileManager.region("assemble"):
             time.sleep(0.006)
-        with ProfileManager.profile_region("solve"):
+        with ProfileManager.region("solve"):
             time.sleep(0.010)
-        with ProfileManager.profile_region("output"):
+        with ProfileManager.region("output"):
             time.sleep(0.002)
 
 ProfileManager.finalize(verbose=False)

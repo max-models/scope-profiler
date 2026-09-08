@@ -88,7 +88,7 @@ import asyncio
 from scope_profiler import ProfileManager
 
 async def fetch(url):
-    with ProfileManager.profile_region("fetch"):
+    with ProfileManager.region("fetch"):
         return await client.get(url)
 
 with ProfileManager.session(track_async=True, return_results=True) as run:

@@ -22,9 +22,9 @@ io_profiler = ProfileManager()
 
 with compute_profiler.session(file_path="compute.h5", verbose=False):
     with io_profiler.session(file_path="io.h5", verbose=False):
-        with compute_profiler.profile_region("solve"):
+        with compute_profiler.region("solve"):
             solve()
-        with io_profiler.profile_region("checkpoint"):
+        with io_profiler.region("checkpoint"):
             write_checkpoint()
 ```
 

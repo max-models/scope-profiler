@@ -42,10 +42,10 @@ def assemble(size):
 
 def simulate(num_iterations=5, size=20_000):
     """Run a few iterations of the toy 'solver', profiling each phase."""
-    with ProfileManager.profile_region("simulation"):
+    with ProfileManager.region("simulation"):
         values = assemble(size)
         for _ in range(num_iterations):
-            with ProfileManager.profile_region("iteration"):
+            with ProfileManager.region("iteration"):
                 sum(math.sqrt(abs(value)) for value in values)
 
 

@@ -1008,10 +1008,13 @@ class ProfileManager:
 
     @classmethod
     def _merge_native_snapshot(cls, snapshot: dict, traces, config) -> dict:
-        """Add this rank's Fortran regions to its snapshot.
+        """Add this rank's C/Fortran regions to its snapshot.
 
-        Only the trace whose rank matches this one is taken, so under MPI every
-        rank folds in its own and the merge downstream is unchanged.
+        Only the file whose rank matches this one is taken, so under MPI every
+        rank folds in its own and the merge downstream is unchanged. Either
+        native format is accepted -- a ``.spt`` trace, or the ``.h5`` an
+        ``SP_USE_HDF5`` C build writes -- so a mixed-language run still comes
+        out as one file however its C side was compiled.
 
         Raises
         ------
@@ -1020,22 +1023,23 @@ class ProfileManager:
             silently double-count a Python wrapper and the native region
             inside it.
         """
-        from scope_profiler.native_trace import find_traces, read_trace
+        from scope_profiler.native_trace import find_traces, read_native_ranks
 
         merged = dict(snapshot)
         for path in find_traces(traces):
-            rank, regions = read_trace(path)
-            if rank != config._rank:
-                continue
-            for name, arrays in regions.items():
+            ranks, _ = read_native_ranks(path)
+            for name, region in ranks.get(config._rank, {}).items():
                 if name in merged:
                     raise ValueError(
                         f"region {name!r} was recorded by both the Python API "
-                        f"and the Fortran trace {path}; merging them would "
+                        f"and the native profile {path}; merging them would "
                         f"double-count it. Give the regions distinct names (a "
-                        f"'fortran:' prefix, say).",
+                        f"'c:' or 'fortran:' prefix, say).",
                     )
-                merged[name] = arrays
+                # The snapshot holds plain timing arrays, not Region objects:
+                # the call-graph reconstruction and the writer index it
+                # positionally, the way the Python side's own entries are.
+                merged[name] = (region.start_times_ns, region.end_times_ns)
         return merged
 
     @classmethod
@@ -1406,15 +1410,16 @@ class ProfileManager:
             which is collective: every rank must pass the same value.
 
         native_traces : path or sequence of paths, optional
-            Trace files (or directories of them) written by the Fortran region
-            API in this same process, to fold into this run's output. Each
-            rank picks up the trace matching its own rank, so a mixed-language
-            MPI run still produces one file::
+            Files (or directories of them) written by the C or Fortran region
+            API in this same process, to fold into this run's output -- either
+            native format, a ``.spt`` trace or the ``.h5`` an ``SP_USE_HDF5``
+            C build writes. Each rank picks up the file matching its own rank,
+            so a mixed-language MPI run still produces one file::
 
-                kernels.stop_profiling()            # Fortran sp_finalize()
+                kernels.stop_profiling()            # native sp_finalize()
                 ProfileManager.finalize(native_traces=".")
 
-            Call the Fortran side's ``sp_finalize()`` first: its trace has to
+            Call the native side's ``sp_finalize()`` first: its output has to
             exist by the time this reads it. A region name recorded on both
             sides raises, rather than silently double-counting.
 
@@ -1971,6 +1976,11 @@ class ProfileManager:
 
         Finalization runs even when the profiled block raises; the original
         exception is preserved.
+
+        ``native_traces`` is handed to :meth:`finalize`, which folds the
+        output of a C or Fortran library profiled in this same process into
+        this run's file -- in either native format. See its documentation for
+        the two rules that mixing languages imposes.
 
         When ``return_results=True``, the context object exposes the finalized
         :class:`~scope_profiler.results.ProfilingResults` as ``results``::

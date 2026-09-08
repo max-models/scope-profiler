@@ -33,7 +33,7 @@ from scope_profiler import ProfileManager
 
 ProfileManager.setup(use_likwid=True, file_path="profiling_data.h5")
 
-with ProfileManager.profile_region("solve"):
+with ProfileManager.region("solve"):
     ...
 
 ProfileManager.finalize()

@@ -42,10 +42,10 @@ def make_overview_profile(path: Path) -> None:
 
     with ProfileManager.session(file_path=path, verbose=False):
         for _ in range(100):
-            with ProfileManager.profile_region("matrix_multiply"):
+            with ProfileManager.region("matrix_multiply"):
                 sum(range(100))
         for _ in range(1_000):
-            with ProfileManager.profile_region("time_step"):
+            with ProfileManager.region("time_step"):
                 sum(range(100))
 
 
@@ -54,9 +54,9 @@ def make_complete_profile(path: Path) -> None:
     from scope_profiler import ProfileManager
 
     with ProfileManager.session(file_path=path, verbose=False):
-        with ProfileManager.profile_region("main"):
+        with ProfileManager.region("main"):
             for _ in range(10):
-                with ProfileManager.profile_region("iteration"):
+                with ProfileManager.region("iteration"):
                     sum(range(100))
 
 
@@ -65,16 +65,16 @@ def make_plot_cli_profile(path: Path) -> None:
     from scope_profiler import ProfileManager
 
     with ProfileManager.session(file_path=path, verbose=False):
-        with ProfileManager.profile_region("setup"):
+        with ProfileManager.region("setup"):
             sum(range(100))
         for step in range(3):
-            with ProfileManager.profile_region("timestep"):
-                with ProfileManager.profile_region("assemble"):
+            with ProfileManager.region("timestep"):
+                with ProfileManager.region("assemble"):
                     sum(range(100))
-                with ProfileManager.profile_region("solve"):
+                with ProfileManager.region("solve"):
                     sum(range(1_000))
                 if step == 1:
-                    with ProfileManager.profile_region("io"):
+                    with ProfileManager.region("io"):
                         sum(range(100))
 
 
@@ -83,12 +83,12 @@ def make_diff_profile(path: Path, solve_seconds: float, *, teardown: bool) -> No
     from scope_profiler import ProfileManager
 
     with ProfileManager.session(file_path=path, verbose=False):
-        with ProfileManager.profile_region("setup"):
+        with ProfileManager.region("setup"):
             time.sleep(0.001)
-        with ProfileManager.profile_region("solve"):
+        with ProfileManager.region("solve"):
             time.sleep(solve_seconds)
         if teardown:
-            with ProfileManager.profile_region("teardown"):
+            with ProfileManager.region("teardown"):
                 time.sleep(0.001)
 
 

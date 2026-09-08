@@ -117,18 +117,18 @@ def main():
         # parallel run do not collide.
         kernels.start_profiling(str(HERE / "trace"), rank)
 
-        with ProfileManager.profile_region("python:setup"):
+        with ProfileManager.region("python:setup"):
             # Nothing but Python here, to show a region with no Fortran under it.
             total = sum(i * i for i in range(200_000))
 
         for step in range(STEPS):
-            with ProfileManager.profile_region("python:timestep"):
+            with ProfileManager.region("python:timestep"):
                 # Everything the Fortran kernel records lands under this region.
-                with ProfileManager.profile_region("python:call_solver"):
+                with ProfileManager.region("python:call_solver"):
                     residual = kernels.jacobi_solve(GRID, SWEEPS)
 
                 if step % 5 == 4:
-                    with ProfileManager.profile_region("python:checkpoint"):
+                    with ProfileManager.region("python:checkpoint"):
                         kernels.checkpoint(200000)
 
         # Write the Fortran trace *before* finalizing, then fold it in.

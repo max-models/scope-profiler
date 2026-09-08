@@ -96,7 +96,7 @@ See {doc}`guide/likwid`.
 ```python
 >>> from scope_profiler import ProfileManager
 >>> ProfileManager.setup()
->>> with ProfileManager.profile_region("test"):
+>>> with ProfileManager.region("test"):
 ...     pass
 >>> ProfileManager.finalize()
 profiling_data.h5  (1 rank(s))
