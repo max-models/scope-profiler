@@ -1216,9 +1216,7 @@ def test_cmake_project_version_matches_python_package():
     pyproject = (repository / "pyproject.toml").read_text()
     cmake = (repository / "CMakeLists.txt").read_text()
     python_version = re.search(r'^version = "([^"]+)"', pyproject, re.MULTILINE)
-    cmake_version = re.search(
-        r"project\(scope-profiler VERSION ([^ )]+)", cmake
-    )
+    cmake_version = re.search(r"project\(scope-profiler VERSION ([^ )]+)", cmake)
     assert python_version is not None
     assert cmake_version is not None
     assert cmake_version.group(1) == python_version.group(1)
@@ -1307,9 +1305,7 @@ def test_cmake_install_exports_working_cpp_targets(tmp_path):
         "profiled-native",
     ):
         run(fetch_build / executable_name, fetch_build)
-        _, fetched_regions = read_trace(
-            fetch_build / "cmake-profile_rank00000.spt"
-        )
+        _, fetched_regions = read_trace(fetch_build / "cmake-profile_rank00000.spt")
         assert any("solve" in name for name in fetched_regions)
 
 
