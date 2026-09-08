@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Fixed
+
+- `call_graph()` returned a single collapsed node for any profile written by
+  the C or Fortran API, or imported from one. Native output records no parent
+  links, but the writer stored a full `call_ids`/`parent_ids` column of `-1`
+  rather than omitting it; the reader took that at face value, every call
+  collided on id `-1`, and the graph degenerated. Those columns are now
+  written only by a run that actually numbered its calls -- as
+  `gpu_durations` and the thread/task lanes already were -- so the reader
+  falls back to reconstructing the nesting from the timestamps, which
+  `call_stack()` was doing correctly all along. Native profiles also halve in
+  size, having stored two int64 columns per event that carried nothing.
+
 ### Added
 
 - `session()`, `region()`, `profile`, `setup()` and `finalize()` are
