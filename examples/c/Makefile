@@ -18,15 +18,18 @@ BUILD_DIR ?= build
 # Optional HDF5 output: `make SP_HDF5=1 run-standalone` compiles the profiler
 # with its HDF5 backend, so sp_finalize() writes standalone_rank00000.h5
 # directly -- an ordinary profile, with no `import-native` step. Needs libhdf5
-# and its headers; pkg-config finds them where it knows about them, and
+# and its headers; pkg-config finds them where it knows about them (the serial
+# build, asked for first because the MPI one would drag in mpi.h), and
 # HDF5_CFLAGS/HDF5_LIBS override it where it does not:
 #
 #   make SP_HDF5=1 HDF5_CFLAGS=-I/opt/hdf5/include \
 #        HDF5_LIBS="-L/opt/hdf5/lib -lhdf5" run-standalone
 SP_HDF5 ?= 0
 ifeq ($(SP_HDF5),1)
-HDF5_CFLAGS ?= $(shell pkg-config --cflags hdf5 2>/dev/null)
-HDF5_LIBS ?= $(shell pkg-config --libs hdf5 2>/dev/null || echo -lhdf5)
+HDF5_CFLAGS ?= $(shell pkg-config --cflags hdf5-serial 2>/dev/null || \
+                       pkg-config --cflags hdf5 2>/dev/null)
+HDF5_LIBS ?= $(shell pkg-config --libs hdf5-serial 2>/dev/null || \
+                     pkg-config --libs hdf5 2>/dev/null || echo -lhdf5)
 CFLAGS += -DSP_USE_HDF5 $(HDF5_CFLAGS)
 LDLIBS += $(HDF5_LIBS)
 endif

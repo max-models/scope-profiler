@@ -22,8 +22,10 @@ from scope_profiler.call_stack import (
     regions_from_snapshot,
 )
 from scope_profiler.profile_config import (
+    _CONFIG_FIELDS,
     ProfilingConfig,
     ProfilingOptions,
+    _unknown_setting_error,
     load_profiling_config,
 )
 from scope_profiler.region_profiler import (
@@ -43,6 +45,11 @@ from scope_profiler.region_profiler import (
 )
 
 if TYPE_CHECKING:  # imported lazily in read_results() to keep imports cheap
+    # Unpack is 3.11+, so the setup()/session() annotations using it are
+    # written as strings and never evaluated on the 3.10 floor.
+    from typing import Unpack
+
+    from scope_profiler.profile_config import SetupOptions
     from scope_profiler.results import ProfilingResults
 
 # Tag for the payload messages, on a communicator of our own (see finalize).
@@ -555,14 +562,20 @@ class ProfileManager:
         )
 
     @classmethod
-    def profile_region(
+    def region(
         cls,
         region_name,
         functions=None,
         tags=None,
     ) -> BaseProfileRegion:
         """
-        Get an existing ProfileRegion by name, or create a new one if it doesn't exist.
+        Get the profiling region named ``region_name``, creating it if needed.
+
+        The returned region is a context manager, which is how a block of
+        code is timed::
+
+            with ProfileManager.region("solve"):
+                solve()
 
         Parameters
         ----------
@@ -574,7 +587,7 @@ class ProfileManager:
             context manager form, since the decorator form (``wrap``) registers
             functions automatically::
 
-                with ProfileManager.profile_region("my_region", functions=[my_func]):
+                with ProfileManager.region("my_region", functions=[my_func]):
                     my_func()
 
         tags : iterable of str, optional
@@ -584,6 +597,11 @@ class ProfileManager:
         Returns
         -------
         ProfileRegion : The ProfileRegion instance.
+
+        Notes
+        -----
+        ``profile_region`` is the original name for this method and remains
+        available as an alias; the two are the same object.
         """
 
         # Deliberately not `setdefault`: it evaluates its default eagerly, so
@@ -613,6 +631,11 @@ class ProfileManager:
             for func in functions:
                 region.add_function(func)
         return region
+
+    #: Original name for :meth:`region`, kept so existing instrumentation
+    #: keeps working unchanged. Same object, not a forwarding wrapper: this
+    #: is on the per-event hot path.
+    profile_region = region
 
     @classmethod
     def _bind_decorated_region(cls, name: str, func, _bound: list) -> BaseProfileRegion:
@@ -1723,33 +1746,8 @@ class ProfileManager:
         cls,
         options: ProfilingOptions | None = None,
         *,
-        file_path: str | None = None,
-        label: str | None = None,
-        use_likwid: bool | None = None,
-        perf_events: list[str] | tuple[str, ...] | str | None = None,
-        use_line_profiler: bool | None = None,
-        use_memray: bool | None = None,
-        memory_profile_path: str | None = None,
-        memray_native_traces: bool | None = None,
-        memray_trace_python_allocators: bool | None = None,
-        memray_follow_fork: bool | None = None,
-        deactivate_profiling: bool | None = None,
-        use_nvtx: bool | None = None,
-        use_gpu_timing: bool | None = None,
-        gpu_timing_backend=None,
-        deactivate_file_output: bool | None = None,
-        recursive_profile: bool | None = None,
-        aggregation_mode: bool | None = None,
-        profile_mpi_calls: bool | None = None,
-        track_threads: bool | None = None,
-        track_async: bool | None = None,
-        capture_region_source: bool | None = None,
-        buffer_limit: int | None = None,
-        output_mode: str | None = None,
-        hdf5_compression: str | None = None,
-        hdf5_compression_level: int | None = None,
-        hdf5_chunk_size: int | None = None,
         config_path: str | os.PathLike[str] | None = None,
+        **overrides: "Unpack[SetupOptions]",
     ):
         """
         Initialize and configure the profiling system.
@@ -1767,6 +1765,23 @@ class ProfileManager:
             An explicit keyword argument passed alongside ``options`` wins
             over the same field on ``options``, which in turn wins over
             ``config_path`` and the defaults below.
+        config_path : str or os.PathLike, optional
+            TOML file containing a ``[profiling]`` table with these settings.
+            Values passed directly to ``setup()`` take precedence. See
+            :func:`~scope_profiler.profile_config.load_profiling_config`.
+        **overrides
+            Any of the settings below, passed as keyword arguments::
+
+                ProfileManager.setup(file_path="run.h5", use_likwid=True)
+
+            They are the fields of
+            :class:`~scope_profiler.profile_config.ProfilingOptions`, which
+            is where they are declared once and typed; an unrecognised name
+            raises ``TypeError`` naming the closest match. Prefixed settings
+            can also be given as groups on ``options`` -- see
+            :class:`~scope_profiler.profile_config.MemrayOptions`,
+            :class:`~scope_profiler.profile_config.GPUOptions` and
+            :class:`~scope_profiler.profile_config.HDF5Options`.
         file_path : str, optional
             Path to the output profiling data file (default: "profiling_data.h5").
         label : str or None, optional
@@ -1887,9 +1902,6 @@ class ProfileManager:
         hdf5_chunk_size : int or None, optional
             Maximum events per dataset chunk. Enables chunked partial reads
             even without compression.
-        config_path : str or os.PathLike, optional
-            TOML file containing a ``[profiling]`` table with these settings.
-            Values passed directly to ``setup()`` take precedence.
 
         Notes
         -----
@@ -1901,68 +1913,20 @@ class ProfileManager:
         :mod:`scope_profiler.mpi_launch` for detection and its
         ``SCOPE_PROFILER_MPI`` override.
         """
-        settings = {
-            "file_path": "profiling_data.h5",
-            "label": None,
-            "use_likwid": False,
-            "perf_events": None,
-            "use_line_profiler": False,
-            "use_memray": False,
-            "memory_profile_path": None,
-            "memray_native_traces": False,
-            "memray_trace_python_allocators": False,
-            "memray_follow_fork": False,
-            "deactivate_profiling": False,
-            "use_nvtx": False,
-            "use_gpu_timing": False,
-            "gpu_timing_backend": "auto",
-            "deactivate_file_output": False,
-            "recursive_profile": False,
-            "aggregation_mode": False,
-            "profile_mpi_calls": False,
-            "track_threads": False,
-            "track_async": False,
-            "capture_region_source": False,
-            "buffer_limit": 1024,
-            "output_mode": "auto",
-            "hdf5_compression": None,
-            "hdf5_compression_level": None,
-            "hdf5_chunk_size": None,
-        }
+        unknown = set(overrides) - _CONFIG_FIELDS
+        if unknown:
+            raise TypeError(_unknown_setting_error(unknown))
+
+        # Defaults live in ProfilingConfig.__init__ alone; only settings that
+        # were actually asked for are passed on, so precedence is simply the
+        # order these three sources are applied in.
+        settings: dict = {}
         if config_path is not None:
             settings.update(load_profiling_config(config_path))
         if options is not None:
             settings.update(options.to_kwargs())
-        explicit = {
-            "file_path": file_path,
-            "label": label,
-            "use_likwid": use_likwid,
-            "perf_events": perf_events,
-            "use_line_profiler": use_line_profiler,
-            "use_memray": use_memray,
-            "memory_profile_path": memory_profile_path,
-            "memray_native_traces": memray_native_traces,
-            "memray_trace_python_allocators": memray_trace_python_allocators,
-            "memray_follow_fork": memray_follow_fork,
-            "deactivate_profiling": deactivate_profiling,
-            "use_nvtx": use_nvtx,
-            "use_gpu_timing": use_gpu_timing,
-            "gpu_timing_backend": gpu_timing_backend,
-            "deactivate_file_output": deactivate_file_output,
-            "recursive_profile": recursive_profile,
-            "aggregation_mode": aggregation_mode,
-            "profile_mpi_calls": profile_mpi_calls,
-            "track_threads": track_threads,
-            "track_async": track_async,
-            "capture_region_source": capture_region_source,
-            "buffer_limit": buffer_limit,
-            "output_mode": output_mode,
-            "hdf5_compression": hdf5_compression,
-            "hdf5_compression_level": hdf5_compression_level,
-            "hdf5_chunk_size": hdf5_chunk_size,
-        }
         settings.update(
-            {key: value for key, value in explicit.items() if value is not None},
+            {key: value for key, value in overrides.items() if value is not None},
         )
 
         # Restore MPI globals before resolving the next run's native
@@ -1982,21 +1946,27 @@ class ProfileManager:
     @classmethod
     def session(
         cls,
+        options: ProfilingOptions | None = None,
         *,
         verbose: bool = True,
         verbose_line_profiler: bool = False,
         return_results: bool = False,
         native_traces=None,
-        **setup_kwargs,
+        config_path: str | os.PathLike[str] | None = None,
+        **overrides: "Unpack[SetupOptions]",
     ):
         """Return a context manager that sets up and finalizes profiling.
 
-        All keyword arguments other than ``verbose``, ``verbose_line_profiler``,
-        ``return_results`` and ``native_traces`` are passed to :meth:`setup`,
-        including ``options``
-        (a :class:`~scope_profiler.profile_config.ProfilingOptions`)::
+        Every argument other than ``verbose``, ``verbose_line_profiler``,
+        ``return_results`` and ``native_traces`` is passed to :meth:`setup`,
+        with the same meaning and precedence there -- ``options`` (a
+        :class:`~scope_profiler.profile_config.ProfilingOptions`),
+        ``config_path``, and any setting as a keyword::
 
             with ProfileManager.session(options=options) as run:
+                ...
+
+            with ProfileManager.session(file_path="run.h5") as run:
                 ...
 
         Finalization runs even when the profiled block raises; the original
@@ -2010,6 +1980,11 @@ class ProfileManager:
                     solve()
             results = run.results
         """
+        setup_kwargs: dict = dict(overrides)
+        if options is not None:
+            setup_kwargs["options"] = options
+        if config_path is not None:
+            setup_kwargs["config_path"] = config_path
         return _ProfilingSession(
             cls,
             setup_kwargs,

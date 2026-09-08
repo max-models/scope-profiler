@@ -11,7 +11,10 @@ back.
 
 The module skips where libhdf5's headers cannot be found, so it is the
 format-selection tests in ``test_c_api.py`` -- which need no HDF5 at all --
-that keep the fallback path covered on a machine without it.
+that keep the fallback path covered on a machine without it. CI installs the
+serial library (``libhdf5-dev``, baked into the image in ``docker/ci/``), so a
+skip *there* means the backend went untested and is a problem to fix, not a
+machine to shrug at.
 """
 
 import os
@@ -34,7 +37,7 @@ from scope_profiler.tests.test_c_api import COMPILER, build, run
 
 SOURCE = c_source_path()
 
-#: A trivial program that only has to link, to prove a candidate flag set works.
+#: A trivial program, built *and run* to prove a candidate flag set works.
 _PROBE = """
 #include <hdf5.h>
 int main(void) { return H5open() < 0; }
@@ -46,11 +49,15 @@ def _candidate_flags():
 
     HDF5 has no single canonical install location and no single canonical
     pkg-config name, so rather than guess, each candidate is tried on a probe
-    program and the first that compiles *and* links wins.
+    program and the first that compiles, links *and* runs wins.
     """
     yield ["-lhdf5"]
 
-    for package in ("hdf5", "hdf5-serial"):
+    # Serial first: on Debian/Ubuntu a plain "hdf5" resolves to the MPI build,
+    # whose headers include mpi.h and whose libraries drag libmpi into every
+    # test binary. The C backend needs neither -- each rank writes its own
+    # file -- so ask for the serial build by the name it actually has.
+    for package in ("hdf5-serial", "hdf5"):
         query = shutil.which("pkg-config")
         if query is None:
             break
@@ -82,16 +89,30 @@ def _candidate_flags():
         for include in (root / "include", root / "include/hdf5/serial", root):
             if not (include / "hdf5.h").exists():
                 continue
-            libraries = [root / "lib", *sorted(root.glob("lib/*/hdf5/serial"))]
+            libraries = [
+                path
+                for path in (root / "lib", *sorted(root.glob("lib/*/hdf5/serial")))
+                if path.is_dir()
+            ]
             yield [
                 f"-I{include}",
-                *(f"-L{path}" for path in libraries if path.is_dir()),
+                # An rpath as well as a -L: a library directory the linker was
+                # pointed at is not necessarily one the loader searches, and
+                # without this the probe links and then fails to start.
+                *(f"-L{path}" for path in libraries),
+                *(f"-Wl,-rpath,{path}" for path in libraries),
                 "-lhdf5",
             ]
 
 
 def _resolve_flags():
-    """The first candidate flag set that builds the probe, or None."""
+    """The first candidate flag set that builds and runs the probe, or None.
+
+    Running it, rather than only linking it, is what keeps a half-usable
+    installation from turning this module's skips into failures: flags that
+    link against a library the loader cannot then find are rejected here, and
+    the next candidate is tried.
+    """
     if COMPILER is None:
         return None
     import tempfile
@@ -99,21 +120,24 @@ def _resolve_flags():
     with tempfile.TemporaryDirectory() as directory:
         source = Path(directory) / "probe.c"
         source.write_text(_PROBE)
+        probe = Path(directory) / "probe"
         for flags in _candidate_flags():
-            result = subprocess.run(
-                [
-                    COMPILER,
-                    "-std=c99",
-                    str(source),
-                    "-o",
-                    str(Path(directory) / "probe"),
-                    *flags,
-                ],
+            built = subprocess.run(
+                [COMPILER, "-std=c99", str(source), "-o", str(probe), *flags],
                 capture_output=True,
                 text=True,
                 check=False,
             )
-            if result.returncode == 0:
+            if built.returncode != 0:
+                continue
+            ran = subprocess.run(
+                [str(probe)],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            if ran.returncode == 0:
                 return flags
     return None
 
