@@ -269,7 +269,11 @@ def test_auto_prefers_parallel_hdf5_when_available(configured, monkeypatch):
         "write_parallel_payload",
         lambda *args, **kwargs: calls.append((args, kwargs)),
     )
-    monkeypatch.setattr(h5writer, "atomic_publish", lambda *args: calls.append(args))
+    monkeypatch.setattr(
+        h5writer,
+        "atomic_publish",
+        lambda *args, **kwargs: calls.append(args),
+    )
 
     ProfileManager._write_payload_file(payload(NS))
 

@@ -4,6 +4,13 @@
 
 ### Fixed
 
+- Reading a profile written by a newer schema silently reported zero regions.
+  Both the full and the summary-only reader tested the schema version for
+  equality with 2 rather than a lower bound, so any later schema fell through
+  to the pre-columnar layout, which finds nothing.
+- `hdf5_chunk_size` now applies to every dataset in the file. It reached only
+  the four event columns; the eleven `rank_region_index` and `region_table`
+  datasets kept h5py's default guess of 1024 elements whatever was configured.
 - `call_graph()` returned a single collapsed node for any profile written by
   the C or Fortran API, or imported from one. Native output records no parent
   links, but the writer stored a full `call_ids`/`parent_ids` column of `-1`
@@ -15,8 +22,33 @@
   `call_stack()` was doing correctly all along. Native profiles also halve in
   size, having stored two int64 columns per event that carried nothing.
 
+### Changed
+
+- **HDF5 schema 3.** A region's calls are stored as the gap since its previous
+  call and the duration of each call, rather than two absolute nanosecond
+  timestamps: `events/start_deltas` and `events/durations` replace
+  `events/start_times` and `events/end_times`. The information is identical
+  and the round trip is exact -- the first value of each run is absolute --
+  but the magnitudes drop from ~60 bits to ~15, which is most of what makes
+  compression effective: 290 KiB to 74 KiB on a 100,000-event profile at the
+  same gzip level. Each run is encoded independently, so a rank still writes
+  the events it owns without needing any other rank's data and the parallel
+  HDF5 writer stays a plain per-rank slice write. Schema 1 and 2 files
+  continue to read.
+- A finished profile is repacked when it is published, storing small datasets
+  contiguously. HDF5 allocates a full chunk and a chunk-index B-tree for a
+  growable dataset as soon as its first element is written, and never returns
+  freed space to the file, so a one-region run spent 193 KiB to hold 0.4 KiB
+  of data; it is now 17 KiB. Files large enough for the overhead not to matter
+  are left alone.
+
 ### Added
 
+- `hdf5_compression="auto"` compresses a run's event columns only once it is
+  large enough for the saving to repay the write CPU, and leaves small
+  profiles uncompressed. With the schema-3 encoding above, a 100,000-event
+  profile drops from 3313 KiB to 142 KiB (23x) for about 12 ms of extra write
+  time.
 - `session()`, `region()`, `profile`, `setup()` and `finalize()` are
   importable from the package root, so everyday instrumentation needs no class
   name: `with sp.region("solve"):`. They are the `ProfileManager` class

@@ -124,7 +124,8 @@ class HDF5Options(_OptionGroup):
     ----------
     compression : str or None
         Compression filter for timestamp and GPU-duration datasets
-        (``hdf5_compression``): ``"gzip"``, ``"lzf"``, or ``"zstd"``.
+        (``hdf5_compression``): ``"gzip"``, ``"lzf"``, ``"zstd"``, or
+        ``"auto"`` to compress only runs large enough to repay the write CPU.
     compression_level : int or None
         GZIP level 0--9 or Zstandard level 1--22
         (``hdf5_compression_level``).
@@ -267,7 +268,9 @@ class ProfilingOptions:
         append directly to one serial-HDF5 file in token order.
     hdf5_compression : str or None
         Compression filter for timestamp and GPU-duration datasets:
-        ``None``, ``"gzip"``, ``"lzf"``, or ``"zstd"`` (default: None).
+        ``None``, ``"auto"``, ``"gzip"``, ``"lzf"``, or ``"zstd"``
+        (default: None). ``"auto"`` compresses at publication time, and only
+        when the run is large enough for the saving to repay the write CPU.
     hdf5_compression_level : int or None
         GZIP level 0--9 or Zstandard level 1--22 (default: None).
     hdf5_chunk_size : int or None
@@ -778,10 +781,10 @@ class ProfilingConfig:
             hdf5_compression = hdf5_compression.strip().lower()
             if hdf5_compression in {"", "none"}:
                 hdf5_compression = None
-        if hdf5_compression not in {None, "gzip", "lzf", "zstd"}:
+        if hdf5_compression not in {None, "auto", "gzip", "lzf", "zstd"}:
             raise ValueError(
-                "hdf5_compression must be None, 'gzip', 'lzf', or 'zstd', "
-                f"got {hdf5_compression!r}",
+                "hdf5_compression must be None, 'auto', 'gzip', 'lzf', or "
+                f"'zstd', got {hdf5_compression!r}",
             )
         if hdf5_chunk_size is not None and (
             isinstance(hdf5_chunk_size, bool)

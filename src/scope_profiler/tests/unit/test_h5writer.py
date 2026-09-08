@@ -50,9 +50,10 @@ def test_rank_group_holds_the_recorded_timestamps(tmp_path):
 
     with h5py.File(path, "r") as handle:
         assert handle.attrs[SCHEMA_ATTRIBUTE] == CURRENT_SCHEMA_VERSION
-        starts = handle["events/start_times"]
-        assert starts[()].tolist() == [0, 3 * NS]
-        assert handle["events/end_times"][()].tolist() == [2 * NS, 5 * NS]
+        # Schema 3: the first value of a run is its absolute start and the
+        # rest are gaps, and the second column is durations, not end stamps.
+        assert handle["events/start_deltas"][()].tolist() == [0, 3 * NS]
+        assert handle["events/durations"][()].tolist() == [2 * NS, 2 * NS]
         # The reader recovers metadata from the top level, never from a rank.
         assert handle.attrs["storage_layout"] == "columnar"
         assert handle["metadata"].attrs["hostname"] == "node0"
@@ -246,7 +247,7 @@ def test_legacy_file_without_schema_version_still_reads(tmp_path):
     assert read_h5(path)["solve"].num_calls == 1
 
 
-@pytest.mark.parametrize("version", [0, 3, "one"])
+@pytest.mark.parametrize("version", [0, 4, "one"])
 def test_reader_rejects_invalid_or_unsupported_schema_version(tmp_path, version):
     path = tmp_path / "unsupported.h5"
     with h5py.File(path, "w") as handle:
@@ -303,9 +304,25 @@ def test_columnar_event_datasets_are_shared_and_resizable(tmp_path):
         writer.write_rank(0, payload({"sparse": (range(5), range(1, 6))}))
 
     with h5py.File(path, "r") as handle:
-        dataset = handle["events/start_times"]
+        dataset = handle["events/start_deltas"]
         assert dataset.shape == (5,)
+        # Still growable: this writer did not ask to be repacked, because a
+        # file another rank may still append to must stay resizable.
         assert dataset.chunks is not None
+        assert dataset.maxshape == (None,)
+
+
+def test_publishing_stores_a_small_profile_contiguously(tmp_path):
+    """``repack=True`` trades growability for the chunk overhead it costs."""
+    path = tmp_path / "published.h5"
+    with ProfilingWriter(path, repack=True) as writer:
+        writer.write_rank(0, payload({"sparse": (range(5), range(1, 6))}))
+
+    with h5py.File(path, "r") as handle:
+        dataset = handle["events/start_deltas"]
+        assert dataset.shape == (5,)
+        assert dataset.chunks is None
+    assert read_h5(path)["sparse"][0].num_calls == 5
 
 
 @pytest.mark.parametrize("compression", ["gzip", "lzf"])
@@ -322,7 +339,7 @@ def test_timestamp_compression_and_chunk_size_round_trip(tmp_path, compression):
         writer.write_rank(0, payload({"solve": (starts, ends)}))
 
     with h5py.File(path, "r") as handle:
-        dataset = handle["events/start_times"]
+        dataset = handle["events/start_deltas"]
         assert dataset.compression == compression
         assert dataset.chunks == (8,)
         assert dataset.shuffle is True
@@ -337,7 +354,7 @@ def test_chunking_can_be_enabled_without_compression(tmp_path):
         writer.write_rank(0, payload({"solve": (range(10), range(1, 11))}))
 
     with h5py.File(path, "r") as handle:
-        dataset = handle["events/start_times"]
+        dataset = handle["events/start_deltas"]
         assert dataset.compression is None
         assert dataset.chunks == (4,)
 
