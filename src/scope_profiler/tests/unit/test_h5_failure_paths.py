@@ -158,17 +158,66 @@ def test_the_gpu_column_is_absent_unless_the_run_recorded_one(profile):
     assert results["solve"][0].num_calls == 2
 
 
-def test_a_deleted_optional_column_still_reads(profile):
-    """Call-id/parent-id columns are optional to the reader by design."""
-    with h5py.File(profile, "r+") as handle:
-        del handle["events/call_ids"]
-        del handle["events/parent_ids"]
+def test_call_id_columns_are_absent_unless_the_run_numbered_its_calls(profile):
+    """A run that recorded no call ids must leave the columns out entirely.
+
+    Filling them with -1 instead would be read back as data: every call would
+    share one id, and ``call_graph`` -- which switches on the column being
+    present -- would collapse the whole rank to a single node instead of
+    reconstructing the nesting from the timestamps. Native output (the C and
+    Fortran APIs, and imports of it) is exactly the case that records no
+    parent links, so this is the shape those files take.
+    """
+    with h5py.File(profile, "r") as handle:
+        assert "call_ids" not in handle["events"]
+        assert "parent_ids" not in handle["events"]
 
     results = read_h5(profile)
 
     assert results["solve"][0].call_ids is None
     assert results["solve"][0].parent_ids is None
     assert results["solve"][0].num_calls == 2
+
+    # The nesting still comes back, derived rather than stored.
+    graph = results.call_graph(rank=0)
+    assert [entry["name"] for entry in graph] == [
+        entry["name"] for entry in results.call_stack(rank=0)
+    ]
+
+
+def test_call_id_columns_are_written_when_the_run_supplies_them(tmp_path):
+    """The other half: a numbered run stores its ids and the reader uses them."""
+    path = tmp_path / "numbered.h5"
+    with ProfilingWriter(path, {"hostname": "node0"}) as writer:
+        writer.write_rank(
+            0,
+            _payload(
+                {
+                    "outer": (
+                        np.array([0], dtype=np.int64),
+                        np.array([10 * NS], dtype=np.int64),
+                        None,
+                        np.array([0], dtype=np.int64),   # call ids
+                        np.array([-1], dtype=np.int64),  # parent ids
+                    ),
+                    "inner": (
+                        np.array([1 * NS], dtype=np.int64),
+                        np.array([2 * NS], dtype=np.int64),
+                        None,
+                        np.array([1], dtype=np.int64),
+                        np.array([0], dtype=np.int64),
+                    ),
+                },
+            ),
+        )
+
+    with h5py.File(path, "r") as handle:
+        assert handle["events/call_ids"][()].tolist() == [0, 1]
+        assert handle["events/parent_ids"][()].tolist() == [-1, 0]
+
+    results = read_h5(path)
+    assert results["outer"][0].call_ids.tolist() == [0]
+    assert [entry["depth"] for entry in results.call_graph(rank=0)] == [0, 1]
 
 
 def test_a_missing_exclusive_totals_column_falls_back_to_reconstruction(
