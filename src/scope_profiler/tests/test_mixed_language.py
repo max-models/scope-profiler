@@ -87,6 +87,14 @@ def kernels(tmp_path_factory):
     (build_dir / "kernels.f90").write_text(KERNELS)
     shutil.copy(MODULE_SOURCE, build_dir / "scope_profiler.f90")
 
+    # `only:` restricts what f2py wraps for Python to the kernels' own entry
+    # points. Without it, f2py also tries to wrap the scope_profiler module's
+    # public functions, and the Fortran wrapper it generates for the ones
+    # returning `integer(int64)` declares that kind without importing
+    # iso_fortran_env -- so gfortran rejects it with "Parameter 'int64' has
+    # not been declared". Newer f2py happens not to wrap them, which is why
+    # this only failed on the oldest supported Python. Nothing in Python calls
+    # into the profiler module directly anyway: the kernels do, in Fortran.
     result = subprocess.run(
         [
             sys.executable,
@@ -100,6 +108,11 @@ def kernels(tmp_path_factory):
             "--quiet",
             "--backend",
             "meson",
+            "only:",
+            "start_profiling",
+            "stop_profiling",
+            "solve",
+            ":",
         ],
         cwd=build_dir,
         capture_output=True,
