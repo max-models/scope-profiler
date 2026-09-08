@@ -197,7 +197,7 @@ def test_call_id_columns_are_written_when_the_run_supplies_them(tmp_path):
                         np.array([0], dtype=np.int64),
                         np.array([10 * NS], dtype=np.int64),
                         None,
-                        np.array([0], dtype=np.int64),   # call ids
+                        np.array([0], dtype=np.int64),  # call ids
                         np.array([-1], dtype=np.int64),  # parent ids
                     ),
                     "inner": (

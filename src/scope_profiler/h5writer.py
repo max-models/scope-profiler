@@ -327,7 +327,7 @@ def _total_event_count(path) -> int:
                 return 0
             for column in ("start_deltas", "start_times"):
                 if column in events:
-                    return int(len(events[column]))
+                    return len(events[column])
             return 0
     except (OSError, KeyError):
         return 0

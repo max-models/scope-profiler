@@ -19,7 +19,6 @@ import numpy as np
 import pytest
 
 from scope_profiler import read_h5
-
 from scope_profiler.h5writer import ProfilingWriter
 from scope_profiler.native_trace import (
     MAGIC,
