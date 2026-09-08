@@ -8,6 +8,7 @@ parse. The module skips when no C compiler is available.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -1209,9 +1210,23 @@ int main()
     assert b"mpi:send" not in disabled.read_bytes()
 
 
+def test_cmake_project_version_matches_python_package():
+    """The independently installed CMake package carries the release version."""
+    repository = Path(__file__).resolve().parents[3]
+    pyproject = (repository / "pyproject.toml").read_text()
+    cmake = (repository / "CMakeLists.txt").read_text()
+    python_version = re.search(r'^version = "([^"]+)"', pyproject, re.MULTILINE)
+    cmake_version = re.search(
+        r"project\(scope-profiler VERSION ([^ )]+)", cmake
+    )
+    assert python_version is not None
+    assert cmake_version is not None
+    assert cmake_version.group(1) == python_version.group(1)
+
+
 @pytest.mark.skipif(shutil.which("cmake") is None, reason="cmake is not installed")
-def test_cmake_install_exports_working_header_only_target(tmp_path):
-    """The installed config is consumable by an unrelated CMake project."""
+def test_cmake_install_exports_working_cpp_targets(tmp_path):
+    """Installed and FetchContent configs expose both C++ recorder variants."""
     repository = Path(__file__).resolve().parents[3]
     build_dir = tmp_path / "scope-build"
     prefix = tmp_path / "prefix"
@@ -1255,10 +1270,15 @@ def test_cmake_install_exports_working_header_only_target(tmp_path):
         capture_output=True,
         text=True,
     )
-    executable = consumer_build / "profiled-app"
-    run(executable, consumer_build)
-    _, regions = read_trace(consumer_build / "cmake-profile_rank00000.spt")
-    assert any("solve" in name for name in regions)
+    for executable_name in (
+        "profiled-app",
+        "profiled-app-compiled",
+        "profiled-native",
+    ):
+        executable = consumer_build / executable_name
+        run(executable, consumer_build)
+        _, regions = read_trace(consumer_build / "cmake-profile_rank00000.spt")
+        assert any("solve" in name for name in regions)
 
     fetch_build = tmp_path / "fetch-build"
     subprocess.run(
@@ -1281,9 +1301,16 @@ def test_cmake_install_exports_working_header_only_target(tmp_path):
         capture_output=True,
         text=True,
     )
-    run(fetch_build / "profiled-app", fetch_build)
-    _, fetched_regions = read_trace(fetch_build / "cmake-profile_rank00000.spt")
-    assert any("solve" in name for name in fetched_regions)
+    for executable_name in (
+        "profiled-app",
+        "profiled-app-compiled",
+        "profiled-native",
+    ):
+        run(fetch_build / executable_name, fetch_build)
+        _, fetched_regions = read_trace(
+            fetch_build / "cmake-profile_rank00000.spt"
+        )
+        assert any("solve" in name for name in fetched_regions)
 
 
 def test_scope_token_checked_ordering(tmp_path):
@@ -1515,6 +1542,80 @@ int main(void)
     assert "null profiler active: 0" in output
     assert "null profiler region: -1" in output
     assert "null profiler error: ok" in output
+
+
+def test_output_format_falls_back_to_a_trace_without_hdf5(tmp_path):
+    """A build without the HDF5 backend refuses the format and keeps writing .spt.
+
+    Instrumentation that always asks for HDF5 has to stay portable to a build
+    that cannot provide it, so the request is reported and declined rather
+    than either failing the run or silently producing nothing.
+    """
+    program = """
+#include "scope_profiler.h"
+#include <stdio.h>
+
+int main(void)
+{
+    sp_profiler *p = sp_create("fallback", 0);
+    int solve = sp_profiler_region(p, "solve");
+
+    printf("available: %d\\n", sp_hdf5_available());
+    printf("default: %d\\n", (int)sp_default_output_format());
+    printf("asked: %s\\n",
+           sp_error_string(
+               (sp_status)sp_profiler_set_output_format(p, SP_OUTPUT_HDF5)));
+    printf("format: %d\\n", (int)sp_profiler_output_format(p));
+    printf("path: %s\\n", sp_profiler_output_path(p));
+
+    sp_profiler_begin(p, solve);
+    sp_profiler_end(p, solve);
+    sp_profiler_finalize(p);
+    sp_destroy(p);
+    return 0;
+}
+"""
+    executable = build(tmp_path, program, name="fallback")
+    output = run(executable, tmp_path).stdout
+
+    assert "available: 0" in output
+    assert "default: 1" in output  # SP_OUTPUT_TRACE
+    assert "asked: output format not available in this build" in output
+    assert "format: 1" in output
+    assert "path: fallback_rank00000.spt" in output
+
+    _, regions = read_trace(tmp_path / "fallback_rank00000.spt")
+    assert len(regions["solve"][0]) == 1
+
+
+def test_selecting_the_trace_format_explicitly_renames_the_output(tmp_path):
+    """Asking for the always-available format works in any build."""
+    program = """
+#include "scope_profiler.h"
+#include <stdio.h>
+
+int main(void)
+{
+    int solve;
+
+    sp_init("chosen", 1);
+    printf("selected: %d\\n", sp_set_output_format(SP_OUTPUT_TRACE));
+    printf("path: %s\\n", sp_output_path());
+    solve = sp_region("solve");
+    sp_begin(solve);
+    sp_end(solve);
+    sp_finalize();
+    return 0;
+}
+"""
+    executable = build(tmp_path, program, name="chosen")
+    output = run(executable, tmp_path).stdout
+
+    assert "selected: 0" in output  # SP_OK
+    assert "path: chosen_rank00001.spt" in output
+    rank, regions = read_trace(tmp_path / "chosen_rank00001.spt")
+    assert rank == 1
+    assert len(regions["solve"][0]) == 1
 
 
 def test_reader_rejects_a_truncated_c_trace(tmp_path):

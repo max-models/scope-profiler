@@ -43,6 +43,74 @@ jobs:
             "from importlib.metadata import version; import scope_profiler; assert scope_profiler.__version__ == version('scope-profiler')"
           "$RUNNER_TEMP/scope-profiler-wheel/bin/python" -m scope_profiler --version
 
+  cmake-package:
+    name: Smoke-test CMake package from sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install MPI and build the source distribution
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openmpi-bin libopenmpi-dev
+          python -m pip install --upgrade pip build
+          python -m build --sdist
+
+      - name: Install CMake package from the source distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/scope-profiler-sdist"
+          tar -xzf dist/scope_profiler-*.tar.gz \
+            --strip-components=1 \
+            -C "$RUNNER_TEMP/scope-profiler-sdist"
+          cmake \
+            -S "$RUNNER_TEMP/scope-profiler-sdist" \
+            -B "$RUNNER_TEMP/scope-profiler-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/scope-profiler-prefix" \
+            -DSCOPE_PROFILER_ENABLE_MPI=ON
+          cmake --build "$RUNNER_TEMP/scope-profiler-build" --parallel
+          cmake --install "$RUNNER_TEMP/scope-profiler-build"
+
+      - name: Build and run installed-package consumers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake \
+            -S "$RUNNER_TEMP/scope-profiler-sdist/examples/cmake" \
+            -B "$RUNNER_TEMP/scope-profiler-consumer" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/scope-profiler-prefix"
+          cmake --build "$RUNNER_TEMP/scope-profiler-consumer" --parallel
+
+          mkdir "$RUNNER_TEMP/header-only-run"
+          cd "$RUNNER_TEMP/header-only-run"
+          "$RUNNER_TEMP/scope-profiler-consumer/profiled-app"
+          test -f cmake-profile_rank00000.spt
+
+          mkdir "$RUNNER_TEMP/compiled-run"
+          cd "$RUNNER_TEMP/compiled-run"
+          "$RUNNER_TEMP/scope-profiler-consumer/profiled-app-compiled"
+          test -f cmake-profile_rank00000.spt
+
+          mkdir "$RUNNER_TEMP/native-run"
+          cd "$RUNNER_TEMP/native-run"
+          "$RUNNER_TEMP/scope-profiler-consumer/profiled-native"
+          test -f cmake-profile_rank00000.spt
+
+          mkdir "$RUNNER_TEMP/mpi-run"
+          cd "$RUNNER_TEMP/mpi-run"
+          mpirun --oversubscribe -n 2 \
+            "$RUNNER_TEMP/scope-profiler-consumer/profiled-mpi"
+          test -f cmake-mpi-profile_rank00000.spt
+          test -f cmake-mpi-profile_rank00001.spt
+
   typing:
     name: Type check core public API
     runs-on: ubuntu-latest

@@ -43,11 +43,13 @@ The subcommands:
   with a correctness gate and writes a JSON manifest.
 - ``scope-profiler benchmark compare baseline.json candidate.json`` -- makes a
   median-based keep/reject decision for an AI agent or CI.
-- ``scope-profiler import-native traces/ -o out.h5`` -- converts the trace
-  files written by the Fortran region API
-  (``scope_profiler/fortran/scope_profiler.f90``)
-  into the usual HDF5 output, so a Fortran run post-processes exactly like a
-  Python one. See ``scope_profiler.native_trace``.
+- ``scope-profiler import-native traces/ -o out.h5`` -- merges the per-rank
+  files written by the C and Fortran region APIs
+  (``scope_profiler/c/scope_profiler.c``,
+  ``scope_profiler/fortran/scope_profiler.f90``) into one HDF5 file, so a
+  native run post-processes exactly like a Python one. Reads both the ``.spt``
+  trace and the ``.h5`` a C build compiled with HDF5 writes directly. See
+  ``scope_profiler.native_trace``.
 """
 
 import argparse
@@ -407,20 +409,27 @@ def _benchmark(argv):
 
 
 def _import_fortran(argv):
-    """Handle ``scope-profiler import-native``: Fortran traces -> HDF5."""
-    from scope_profiler.native_trace import TRACE_SUFFIX, convert_traces
+    """Handle ``scope-profiler import-native``: native output -> one HDF5 file."""
+    from scope_profiler.native_trace import (
+        HDF5_SUFFIX,
+        TRACE_SUFFIX,
+        convert_traces,
+    )
 
     parser = argparse.ArgumentParser(
         prog="scope-profiler import-native",
         description=(
-            "Convert the trace files written by the Fortran region API into a "
-            "standard scope-profiler HDF5 file."
+            "Merge the per-rank files written by the C and Fortran region APIs "
+            "into one standard scope-profiler HDF5 file. Both formats are read: "
+            f"*{TRACE_SUFFIX} traces, and the *_rank<NNNNN>{HDF5_SUFFIX} profiles "
+            "a C build compiled with HDF5 writes directly. They may be mixed."
         ),
     )
     parser.add_argument(
         "inputs",
         nargs="+",
-        help=f"trace files (*{TRACE_SUFFIX}) and/or directories containing them",
+        help=f"*{TRACE_SUFFIX} traces, *_rank<NNNNN>{HDF5_SUFFIX} profiles, "
+        "and/or directories containing them",
     )
     parser.add_argument(
         "-o",
@@ -437,8 +446,8 @@ def _import_fortran(argv):
         "--merge",
         metavar="PROFILE.h5",
         default=None,
-        help="an existing profile to combine the traces with, for a run whose "
-        "Python side was profiled separately; region names must not clash",
+        help="an existing profile to combine the native output with, for a run "
+        "whose Python side was profiled separately; region names must not clash",
     )
     parser.add_argument(
         "-q",
@@ -561,7 +570,7 @@ def main(argv=None):
     subparsers.add_parser(
         "import-native",
         add_help=False,
-        help="Convert Fortran API trace files into HDF5 "
+        help="Merge C/Fortran API per-rank output into one HDF5 file "
         "(see `scope-profiler import-native --help`)",
     )
 

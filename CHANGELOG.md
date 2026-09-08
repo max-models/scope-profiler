@@ -4,6 +4,23 @@
 
 ### Added
 
+- The C API can write its profile as HDF5 directly, in the same schema-2
+  layout a Python run produces, so `scope-profiler inspect`/`plot` and
+  `read_h5()` open a C run's output with no import step. It is opt-in at
+  compile time (`-DSP_USE_HDF5` plus libhdf5, or CMake's
+  `-DSCOPE_PROFILER_ENABLE_HDF5=ON`), because it is the only thing that gives
+  the library a dependency, and is the default format wherever it is compiled
+  in; `sp_set_output_format()` / `sp_profiler_set_output_format()` pin either
+  format explicitly, and asking for HDF5 in a build without it returns
+  `SP_ERR_UNSUPPORTED` and keeps writing the `.spt` trace.
+- `scope-profiler import-native` merges the per-rank `.h5` files an HDF5 C
+  build writes, mixed freely with `.spt` traces from other ranks or from
+  Fortran, and picks both up from a directory. A merged profile in that
+  directory is not treated as input, so re-running an import does not fold a
+  previous result into the next one.
+- An import now carries each region's source location through into the HDF5
+  file it writes, instead of dropping it.
+
 - Optional C++11 MPI wrappers and a matching mpi4py communicator proxy profile
   point-to-point, collective, nonblocking-initiation, and wait operations with
   a shared label schema for message bytes, peer/root, tag, communicator, and

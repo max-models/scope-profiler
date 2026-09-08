@@ -46,11 +46,17 @@ int main(int argc, char **argv)
         }
     }
 
-    kernels_stop_profiling();
-
+    /* Read the output path before finalizing: it names whichever format
+     * this build writes -- .h5 where the profiler was compiled with HDF5
+     * (`make SP_HDF5=1`), the .spt trace otherwise. */
     printf("rank %d: done\n", rank);
     printf("  final residual: %.5e\n", residual);
-    printf("  wrote standalone_rank%05d.spt\n", rank);
-    printf("  now run: scope-profiler import-native . -o profiling_data.h5\n");
+    printf("  wrote %s\n", sp_output_path());
+    if (sp_current_output_format() == SP_OUTPUT_TRACE) {
+        printf("  now run: scope-profiler import-native . -o profiling_data.h5\n");
+    } else {
+        printf("  now run: scope-profiler inspect %s\n", sp_output_path());
+    }
+    kernels_stop_profiling();
     return 0;
 }

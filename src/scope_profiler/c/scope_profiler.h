@@ -1,14 +1,23 @@
 /* Region profiling for C and C++, on the same timeline as scope-profiler.
  *
- * Records nanosecond start/end timestamps for named regions and writes them to
- * a trace file that `scope-profiler import-native` turns into the usual HDF5
- * output, so a C run gets the same summaries, plots and exports as a Python
- * one. The trace format is shared with the Fortran API, so a program built
- * from both lands in one profile.
+ * Records nanosecond start/end timestamps for named regions and writes them
+ * out at sp_finalize(), so a C run gets the same summaries, plots and exports
+ * as a Python one. Two output formats, chosen with
+ * sp_profiler_set_output_format() (see sp_output_format):
  *
- * Self-contained C99: compile scope_profiler.c with the adjacent headers; no
- * dependencies beyond libc, no HDF5, no MPI. Safe to include from C++
- * (everything is extern "C").
+ *   - "<prefix>_rank<NNNNN>.h5" -- the preferred format, and the default
+ *     where available: the same schema-2 HDF5 layout the Python API writes,
+ *     readable directly by `scope-profiler inspect`/`plot` and `read_h5()`.
+ *     Needs a build compiled with SP_USE_HDF5 and linked against libhdf5.
+ *   - "<prefix>_rank<NNNNN>.spt" -- a compact binary trace that
+ *     `scope-profiler import-native` converts afterwards. The format is
+ *     shared with the Fortran API, so a program built from both lands in one
+ *     profile. Needs nothing beyond libc.
+ *
+ * Self-contained C99: compile scope_profiler.c with the adjacent headers. The
+ * default build has no dependencies beyond libc, no HDF5 and no MPI; HDF5
+ * output is opt-in at compile time and is the only thing that adds one. Safe
+ * to include from C++ (everything is extern "C").
  *
  * Two ways to use it:
  *
@@ -23,7 +32,7 @@
  *            solve_system();
  *            sp_end(solve);
  *        }
- *        sp_finalize();                        // writes profile_rank00000.spt
+ *        sp_finalize();                        // writes profile_rank00000.h5
  *
  *    These operate on a hidden default context, and are always safe to call
  *    even before sp_init() -- sp_region() returns SP_INVALID_REGION and
@@ -80,9 +89,10 @@ typedef enum {
     SP_ERR_INACTIVE,       /* the profiler is NULL, or not (yet, or still) active */
     SP_ERR_NO_CLOCK,       /* clock_gettime rejected every candidate clock */
     SP_ERR_NO_MEMORY,      /* malloc/realloc failed */
-    SP_ERR_IO,             /* the trace file could not be written */
+    SP_ERR_IO,             /* the output file could not be written */
     SP_ERR_UNMATCHED_END,  /* sp_end()/sp_scope_end() with no open call to close */
-    SP_ERR_OPEN_SCOPES     /* an operation refused because a region is still open */
+    SP_ERR_OPEN_SCOPES,    /* an operation refused because a region is still open */
+    SP_ERR_UNSUPPORTED     /* asked for an output format this build cannot write */
 } sp_status;
 
 /* A human-readable name for a status, e.g. for logging. Never NULL. */
@@ -109,11 +119,54 @@ typedef struct {
 } sp_scope;
 
 /* ---------------------------------------------------------------------- */
+/* Output format.                                                          */
+/* ---------------------------------------------------------------------- */
+
+/* What sp_profiler_finalize()/sp_profiler_flush() writes.
+ *
+ * SP_OUTPUT_HDF5 is the preferred format: it produces the same schema-2 HDF5
+ * layout a Python run produces, so `scope-profiler inspect`/`plot`,
+ * `read_h5()` and every exporter work on it directly, with no import step.
+ * It is available only in a build compiled with SP_USE_HDF5 and linked
+ * against libhdf5; sp_hdf5_available() reports whether this one is.
+ *
+ * SP_OUTPUT_TRACE is the dependency-free fallback: the compact
+ * "<prefix>_rank<NNNNN>.spt" binary shared with the Fortran API, which
+ * `scope-profiler import-native` converts afterwards. Always available.
+ *
+ * A build with HDF5 defaults to SP_OUTPUT_HDF5; one without defaults to
+ * SP_OUTPUT_TRACE. */
+typedef enum {
+    SP_OUTPUT_HDF5 = 0,
+    SP_OUTPUT_TRACE = 1
+} sp_output_format;
+
+/* Whether this build can write SP_OUTPUT_HDF5 (compiled with SP_USE_HDF5). */
+int sp_hdf5_available(void);
+
+/* The format a profiler created by sp_create()/sp_init() starts with:
+ * SP_OUTPUT_HDF5 where sp_hdf5_available(), else SP_OUTPUT_TRACE. */
+sp_output_format sp_default_output_format(void);
+
+/* Choose what this profiler writes. Call before sp_profiler_finalize()/
+ * sp_profiler_flush(); the output path changes with the format, so
+ * sp_profiler_output_path() reflects the new one afterwards.
+ *
+ * Returns SP_OK, SP_ERR_INACTIVE for a NULL or finalized profiler, or
+ * SP_ERR_UNSUPPORTED when SP_OUTPUT_HDF5 is asked of a build without HDF5 --
+ * in which case the profiler keeps the format it had, so a program that
+ * always asks for HDF5 still produces a trace on a build without it. */
+int sp_profiler_set_output_format(sp_profiler *profiler, sp_output_format format);
+
+/* The format this profiler will write (the default for a NULL profiler). */
+sp_output_format sp_profiler_output_format(const sp_profiler *profiler);
+
+/* ---------------------------------------------------------------------- */
 /* Explicit-context API.                                                   */
 /* ---------------------------------------------------------------------- */
 
-/* Create a profiler that writes "<prefix>_rank<NNNNN>.spt" at
- * sp_profiler_finalize()/sp_profiler_flush().
+/* Create a profiler that writes "<prefix>_rank<NNNNN>.h5" (or .spt, on a
+ * build without HDF5) at sp_profiler_finalize()/sp_profiler_flush().
  *
  * prefix: output path prefix.
  * rank:   MPI rank of this process, so each rank writes its own trace.
@@ -206,21 +259,21 @@ int sp_profiler_num_regions(const sp_profiler *profiler);
 /* The name a region was registered with, or NULL if region is out of range. */
 const char *sp_profiler_region_name(const sp_profiler *profiler, int region);
 
-/* Write everything recorded so far to "<prefix>_rank<NNNNN>.spt", without
+/* Write everything recorded so far to sp_profiler_output_path(), without
  * stopping profiling or discarding anything -- calls still open are simply
  * not yet in the file. For long-running applications that want to publish
  * completed data before the run ends. Returns 0 on success, non-zero if the
- * trace could not be written (also recorded as SP_ERR_IO). */
+ * file could not be written (also recorded as SP_ERR_IO). */
 int sp_profiler_flush(sp_profiler *profiler);
 
-/* Write this profiler's trace, release its recording buffers, and stop
+/* Write this profiler's output, release its recording buffers, and stop
  * profiling. Region names and statistics remain readable afterwards.
  *
  * A region still open is reported on stderr and its unterminated call
  * dropped, rather than written with a missing end time (also recorded as
  * SP_ERR_OPEN_SCOPES).
  *
- * Returns 0 on success, non-zero if the trace could not be written. */
+ * Returns 0 on success, non-zero if the file could not be written. */
 int sp_profiler_finalize(sp_profiler *profiler);
 
 /* Whether this profiler is running (created with a clock and not yet
@@ -273,6 +326,17 @@ int64_t sp_now_ns(void);
 /* Whether the default context is running (sp_init succeeded, sp_finalize not
  * yet called). */
 int sp_is_active(void);
+
+/* sp_profiler_set_output_format() against the default context. Call after
+ * sp_init(), which resets the default context to sp_default_output_format(). */
+int sp_set_output_format(sp_output_format format);
+
+/* sp_profiler_output_format() against the default context. */
+sp_output_format sp_current_output_format(void);
+
+/* The path sp_finalize() writes, against the default context. NULL before
+ * sp_init(). */
+const char *sp_output_path(void);
 
 /* sp_profiler_finalize() against the default context. */
 int sp_finalize(void);

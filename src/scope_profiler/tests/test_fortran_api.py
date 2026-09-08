@@ -496,7 +496,7 @@ def test_duplicate_ranks_are_refused(tmp_path):
 
 
 def test_find_traces_reports_what_is_missing(tmp_path):
-    with pytest.raises(FileNotFoundError, match="no .spt trace files"):
+    with pytest.raises(FileNotFoundError, match="no .spt traces"):
         find_traces(tmp_path)
     with pytest.raises(FileNotFoundError, match="no such file"):
         find_traces(tmp_path / "nope.spt")

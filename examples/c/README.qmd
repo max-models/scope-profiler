@@ -7,7 +7,8 @@ the shape a real kernel library takes, where the caller neither knows nor cares
 what is instrumented in there. The same file is then used by:
 
 - **`standalone.c`** — a pure C program. No Python at run time; the trace is
-  converted afterwards with `scope-profiler import-native`.
+  converted afterwards with `scope-profiler import-native`, or written as
+  HDF5 directly with `make SP_HDF5=1` (see below).
 - **`run_mixed.py`** — a Python driver that loads the very same kernels with
   `ctypes`, so both languages record into **one** profile with one call stack.
 
@@ -36,6 +37,28 @@ Builds and runs the program, then imports its trace:
 
 From there it is an ordinary profile — `scope-profiler plot default build/profiling_data.h5 -o figures`
 and the rest.
+
+### HDF5 straight out of the C program
+
+```bash
+make SP_HDF5=1 run-standalone
+```
+
+compiles the profiler with its HDF5 backend, so `sp_finalize()` writes
+`build/standalone_rank00000.h5` — already a profile, no conversion:
+
+```bash
+scope-profiler inspect build/standalone_rank00000.h5
+```
+
+`import-native` still works, and is what merges the ranks of an MPI run. It
+needs libhdf5 and its headers; where `pkg-config` does not know about them,
+pass their location:
+
+```bash
+make SP_HDF5=1 HDF5_CFLAGS=-I/opt/hdf5/include \
+     HDF5_LIBS="-L/opt/hdf5/lib -lhdf5" run-standalone
+```
 
 ## Python driving C
 
