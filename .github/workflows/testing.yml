@@ -11,6 +11,60 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The feature-complete container jobs below exercise the expensive MPI,
+  # parallel-HDF5 and LIKWID paths on the two interpreters baked into the
+  # image. This job makes the ordinary suite a compatibility gate on every
+  # other Python version advertised in pyproject.toml.
+  python-compatibility:
+    name: Test Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install native test prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential gfortran libhdf5-dev libopenmpi-dev \
+            openmpi-bin pkg-config
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install project
+        run: python -m pip install --upgrade pip && python -m pip install ".[dev]"
+
+      - name: Run test suite
+        run: python -m pytest .
+
+  # One native runner catches path, subprocess, clock and plotting assumptions
+  # that are invisible on Linux. Hardware-specific modes remain covered by
+  # their dedicated Linux jobs; pytest reports their skips explicitly.
+  macos:
+    name: Test macOS (Python 3.13)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install portable test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test,fortran,line-profiler,mcp,notebook,nvtx,pproc,tui]" memray
+
+      - name: Run portable test suite
+        run: python -m pytest . -m "not needs_mpi and not likwid and not gpu and not overhead"
+
   package:
     name: Build and smoke-test wheel (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest

@@ -1,6 +1,6 @@
 """Writing a merged HDF5 profiling file.
 
-The exact inverse of :mod:`scope_profiler.h5reader`: schema 2 stores region
+The exact inverse of :mod:`scope_profiler.h5reader`: schemas 2 and 3 store region
 names once, one compact row per rank/region pair, and all timing events in
 shared typed columns. Rank groups remain only for auxiliary LIKWID and
 line-profiler records.
@@ -1031,7 +1031,7 @@ def write_parallel_payload(
     compression_level: int | None = None,
     chunk_size: int | None = None,
 ) -> None:
-    """Collectively create schema 2, then write each rank's assigned slices."""
+    """Collectively create the current schema, then write each rank's slices."""
     layouts = comm.allgather(payload_layout(payload))
     root_metadata = comm.bcast(metadata if rank == 0 else None, root=0)
 

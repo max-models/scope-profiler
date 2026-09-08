@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- The HDF5 guide now identifies schema 3 as the current Python output schema,
+  and a test keeps the documented HDF5, JSON, and native format versions tied
+  to their implementation constants.
+- Platform-independent perf-event tests no longer depend on the host being
+  Linux, and the native-import test invokes the active Python interpreter
+  instead of assuming a `python` command exists.
 - Reading a profile written by a newer schema silently reported zero regions.
   Both the full and the summary-only reader tested the schema version for
   equality with 2 rather than a lower bound, so any later schema fell through
@@ -44,6 +50,12 @@
 
 ### Added
 
+- CI now runs the ordinary test suite on every supported Python version
+  (3.10--3.14) and adds a native macOS job for portable functionality.
+- Immutable compatibility fixtures cover HDF5 schemas 1--3, JSON profile v1,
+  and native trace v1/v2, so reader compatibility is checked against committed
+  fixed representative bytes rather than only files emitted by the current
+  writer.
 - `examples/benchmark_io.py` reports storage alongside its timings: the merged
   file in bytes per recorded event, written plain and again through
   `hdf5_compression="auto"`, with what the filter costs to write and to read.

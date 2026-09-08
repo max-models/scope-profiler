@@ -1,0 +1,32 @@
+{
+  "format": "scope-profiler-profile",
+  "format_version": 1,
+  "time_unit": "nanoseconds",
+  "exporter": "scope-profiler@0.5.2",
+  "num_ranks": 1,
+  "event_data_available": true,
+  "metadata": {
+    "mpi_size": 1
+  },
+  "regions": [
+    {
+      "name": "solve",
+      "rank": 0,
+      "source_file": "solver.py",
+      "source_lineno": 7,
+      "tags": [
+        "golden"
+      ],
+      "start_times_ns": [
+        10,
+        20,
+        40
+      ],
+      "end_times_ns": [
+        15,
+        33,
+        55
+      ]
+    }
+  ]
+}
