@@ -73,6 +73,11 @@ def main():
     # `deactivate_file_output` is not varied here: recording is identical
     # either way and the data is written once at finalize(), so it has no
     # per-call cost.
+    # The same modes test_overhead.py budgets, in the same order, so the
+    # figure and the regression gate describe one thing rather than two.
+    # LineProfiler has no budget there -- it is three orders of magnitude
+    # heavier and belongs to targeted debugging, not always-on use -- but it
+    # is what sets the scale of this chart, so it stays.
     configs = [
         (
             "Disabled",
@@ -81,6 +86,14 @@ def main():
         (
             "TimeOnly",
             {"deactivate_profiling": False},
+        ),
+        (
+            "Threads",
+            {"deactivate_profiling": False, "track_threads": True},
+        ),
+        (
+            "Async",
+            {"deactivate_profiling": False, "track_async": True},
         ),
         (
             "LineProfiler",
@@ -173,7 +186,7 @@ def main():
     axis.set_ylim(floor_us, top_us * 10**0.4)
     axis.tick_params(axis="x", labelrotation=0)
 
-    # Direct labels: only four bars, so every one is labelled.
+    # Direct labels: few enough bars that every one is labelled.
     for xi, plot_val, val in zip(x, plot_vals, overheads_us):
         axis.annotate(
             f"{val:.3f} µs" if val > 0 else "≈ 0 µs",

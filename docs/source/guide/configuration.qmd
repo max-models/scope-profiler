@@ -160,16 +160,67 @@ alone:
 ProfileManager.setup(hdf5_compression="auto")
 ```
 
-Measured on a 100,000-event profile, against 3313 KiB for the same run before
-any of this:
+### What a profile actually costs
+
+Two numbers describe any profile: a fixed cost that does not depend on the run,
+and a marginal cost per recorded call.
+
+| | size |
+| --- | ---: |
+| fixed floor (one region, one call) | ~15.7 KiB |
+| per event, uncompressed | ~16.3 bytes |
+| per event, `hdf5_compression="auto"` | ~3.1 bytes |
+
+The floor is HDF5's own bookkeeping for the ~15 objects the schema uses ---
+object headers, group tables, the region dictionary. It does not grow with the
+region count (10 regions cost the same as 1), and it is what dominates a
+profile of a few hundred calls.
+
+The marginal cost is two `int64` per call and essentially nothing else: 16.3
+measured against 16 bytes of information stored. That holds as the run grows
+in events, in ranks, and in regions --- a profile with 200 regions costs about
+1.3x one with 2 regions holding the same number of events, because a region
+costs one index row rather than anything per call.
+
+Measured end to end on a 100,000-event profile, against 3313 KiB for the same
+run before any of this:
 
 | | size | |
 | --- | --- | --- |
 | default | 3180 KiB | 1.0x |
 | `hdf5_compression="auto"` | 142 KiB | 23x |
 
-`aggregation_mode=True` is smaller still: it records no timeline at all, only
-per-region totals.
+Compression ratios depend on the data. That 23x is a real profile, whose gaps
+between calls are small and regular. On deliberately jittered synthetic data
+--- the pessimistic case --- the same setting gives ~5x, and the delta
+encoding on its own accounts for ~1.4x of it against absolute timestamps at
+the same filter. A real profile is closer to the former.
+
+`aggregation_mode=True` is smaller still, and is the only option whose size
+does not grow with the call count at all: it records no timeline, so 10,000
+calls cost exactly what 10 do.
+
+![Bytes per recorded call, against run size](../_static/figures/benchmark_storage.png)
+
+The shape is what the table cannot show. Uncompressed, the curve falls from the
+fixed cost of an almost-empty file onto the flat 16 bytes a call actually
+stores. Compressed, it steps down sharply once the run crosses the threshold at
+which `"auto"` starts applying a filter --- below it the two curves are the
+same file. Regenerate it with:
+
+```bash
+python examples/benchmark_io.py --scaling 2,8,32,128 --figure figures
+```
+
+That script also reports the write and read cost of compression alongside the
+space it saves, since the space is only worth it against those.
+
+These figures are asserted, not just documented. `test_storage_size.py` builds
+profiles from fixed synthetic arrays --- file size is deterministic, unlike a
+timing --- so its budgets are tight enough to catch a lost encoding or a third
+column per call immediately. See
+[Profiling overhead](overhead.qmd#regression-guards) for how that fits with
+the timing budgets.
 
 ## HDF5 compression and chunking
 

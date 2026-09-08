@@ -663,14 +663,24 @@ jobs:
           pip install --upgrade pip
           pip install ".[dev]"
 
-      # The budgets in test_overhead.py are absolute per-call nanoseconds,
-      # deliberately set ~10x above an idle laptop so a loaded shared runner
-      # still passes. They catch a structural regression -- an allocation, a
-      # lock, a filesystem touch added to the hot path -- not a 2x slowdown.
-      # -s prints every measurement plus the summary table, so the trend is
+      # Two modules carry this marker: test_overhead.py (what a profiled call
+      # adds to the program) and test_overhead_io.py (what finalize() spends
+      # writing the profile out, and post-processing spends reading it back).
+      #
+      # The budgets are absolute, deliberately set ~10x above an idle laptop so
+      # a loaded shared runner still passes. They catch a structural regression
+      # -- an allocation or a lock on the hot path, a per-event Python loop in
+      # the writer, a quadratic index rebuild -- not a 2x slowdown. The scaling
+      # assertions alongside them are what catch a change in the shape of a
+      # cost, which no absolute budget reliably does.
+      #
+      # -s prints every measurement plus the summary tables, so the trend is
       # readable in the job log even while the gate stays green.
       #
       # Nothing else runs in this job: a parallel test session would compete
       # for the same cores and inflate every number here.
-      - name: Measure per-call overhead
+      #
+      # File *size* is deterministic rather than timing sensitive, so
+      # test_storage_size.py carries no marker and runs in the ordinary suite.
+      - name: Measure per-call, write and read overhead
         run: pytest -s -m overhead
