@@ -5,6 +5,26 @@
 > `pip install scope-profiler`; plotting/DataFrames need `pproc`, and LIKWID
 > collection needs `scope-profiler[likwid]` plus a system LIKWID installation.
 
+## Module-level shortcuts
+
+The five calls that make up everyday instrumentation are importable from the
+package root, so the common case needs no class name:
+
+```python
+import scope_profiler as sp
+
+with sp.session(file_path="run.h5", return_results=True) as run:
+    with sp.region("solve"):
+        solve()
+
+results = run.results
+```
+
+`sp.setup`, `sp.finalize`, `sp.session`, `sp.region` and `sp.profile` *are*
+the corresponding `ProfileManager` class methods rather than wrappers around
+them, and act on the same process-wide default manager. Use `ProfileManager`
+directly for everything else, and for independent manager instances.
+
 ## ProfileManager
 
 The main entry point for all profiling operations. Class methods provide the
@@ -15,8 +35,38 @@ output.
 
 ```{eval-rst}
 .. autoclass:: scope_profiler.profile_manager.ProfileManager
-   :members: setup, profile, profile_region, finalize, read_results, get_region, get_all_regions, get_config, set_config
+   :members: setup, session, profile, region, profile_region, finalize, read_results, get_region, get_all_regions, get_config, set_config
    :undoc-members:
+```
+
+## ProfilingOptions
+
+The settings `setup()` and `session()` accept, as an object that can be built
+away from the call site and reused across runs. It is also where each setting
+is declared once: the keyword arguments of `setup()` are its fields.
+
+Settings that share a prefix can be given as groups instead, which spell the
+same thing without the prefix:
+
+```python
+from scope_profiler import HDF5Options, ProfilingOptions
+
+options = ProfilingOptions(
+    file_path="run.h5",
+    hdf5=HDF5Options(compression="gzip", compression_level=4),
+)
+```
+
+```{eval-rst}
+.. autoclass:: scope_profiler.profile_config.ProfilingOptions
+   :members:
+.. autoclass:: scope_profiler.profile_config.MemrayOptions
+   :members:
+.. autoclass:: scope_profiler.profile_config.GPUOptions
+   :members:
+.. autoclass:: scope_profiler.profile_config.HDF5Options
+   :members:
+.. autofunction:: scope_profiler.profile_config.load_profiling_config
 ```
 
 ## ProfilingConfig
@@ -108,6 +158,7 @@ Everything in this section is importable from the package root:
 from scope_profiler import (
     build_call_arrays,
     build_call_stack,
+    load,
     read_h5,
     read_h5_summary,
     read_json,
@@ -132,6 +183,17 @@ from memory.
 .. autoclass:: scope_profiler.results.ProfilingResults
    :members:
    :undoc-members:
+```
+
+### load
+
+One entry point for reading a run back, whatever format it is in. The format
+comes from the file's contents rather than its name, so a caller that just
+has a path does not have to know which reader it wanted.
+
+```{eval-rst}
+.. autofunction:: scope_profiler.profile_io.load
+.. autofunction:: scope_profiler.profile_io.sniff_profile_format
 ```
 
 ### read_h5

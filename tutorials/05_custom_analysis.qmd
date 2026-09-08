@@ -40,17 +40,17 @@ def assemble():
     time.sleep(0.002)
 
 
-with ProfileManager.profile_region("setup"):
+with ProfileManager.region("setup"):
     time.sleep(0.01)
 
 for step in range(6):
-    with ProfileManager.profile_region("timestep"):
+    with ProfileManager.region("timestep"):
         assemble()
-        with ProfileManager.profile_region("solve"):
+        with ProfileManager.region("solve"):
             # The solve gets slower as the run progresses.
             time.sleep(0.002 + 0.001 * step)
     if step % 3 == 2:
-        with ProfileManager.profile_region("checkpoint"):
+        with ProfileManager.region("checkpoint"):
             time.sleep(0.004)
 
 ProfileManager.finalize(verbose=False)

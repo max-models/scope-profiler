@@ -68,8 +68,9 @@ make run-mixed
 
 Builds the kernels and the profiler into one shared library and runs the Python
 driver, which loads it with `ctypes`. Both sides record;
-`finalize(native_traces=...)` folds the C trace into the Python run's output,
-and one file comes out.
+`finalize(native_traces=...)` folds the C output into the Python run's output,
+and one file comes out — with no merge step, and whichever format the C side
+was built to write (`make SP_HDF5=1 run-mixed` works the same way).
 
 Because both APIs read the same clock, the call stack is a single tree across
 the language boundary:

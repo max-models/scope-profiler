@@ -47,18 +47,18 @@ def assemble(size):
 
 def reduce_values(values):
     """Called from two different phases, to show what ``call_paths`` does."""
-    with ProfileManager.profile_region("reduce"):
+    with ProfileManager.region("reduce"):
         return sum(math.sqrt(abs(value)) for value in values)
 
 
 def simulate(num_iterations=5, size=20_000):
     """Run a few iterations of the toy 'solver', profiling each phase."""
-    with ProfileManager.profile_region("simulation"):
-        with ProfileManager.profile_region("setup"):
+    with ProfileManager.region("simulation"):
+        with ProfileManager.region("setup"):
             values = assemble(size)
             reduce_values(values)
         for _ in range(num_iterations):
-            with ProfileManager.profile_region("iteration"):
+            with ProfileManager.region("iteration"):
                 reduce_values(values)
 
 

@@ -60,20 +60,20 @@ def run_workload(h5_path: str) -> None:
         def scaled(seconds: float, serial_fraction: float = 0.15) -> float:
             return seconds * (serial_fraction + (1.0 - serial_fraction) / size)
 
-        with ProfileManager.profile_region("setup"):
+        with ProfileManager.region("setup"):
             time.sleep(scaled(0.060))
 
         for step in range(3):
-            with ProfileManager.profile_region("timestep"):
-                with ProfileManager.profile_region("assemble"):
+            with ProfileManager.region("timestep"):
+                with ProfileManager.region("assemble"):
                     time.sleep(scaled(0.025))
-                with ProfileManager.profile_region("solve"):
+                with ProfileManager.region("solve"):
                     time.sleep(scaled(0.060))
-                with ProfileManager.profile_region("halo_exchange"):
+                with ProfileManager.region("halo_exchange"):
                     # Communication grows with the rank count.
                     time.sleep(0.004 * size)
                 if step % 2 == 1:
-                    with ProfileManager.profile_region("io"):
+                    with ProfileManager.region("io"):
                         time.sleep(0.012)
 
 

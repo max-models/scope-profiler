@@ -42,7 +42,7 @@ def workload():
 
 
 def show_region_class():
-    region = ProfileManager.profile_region("probe")
+    region = ProfileManager.region("probe")
     print("  region class:", type(region).__name__)
 ```
 
@@ -78,7 +78,7 @@ ProfileManager.setup(deactivate_file_output=True, file_path=str(WORKDIR / "unuse
 show_region_class()
 
 for _ in range(3):
-    with ProfileManager.profile_region("in_memory"):
+    with ProfileManager.region("in_memory"):
         workload()
 
 region = ProfileManager.get_region("in_memory")
@@ -114,7 +114,7 @@ buffered_file = WORKDIR / "buffered.h5"
 ProfileManager.setup(buffer_limit=4, file_path=str(buffered_file))  # tiny on purpose
 
 for _ in range(10):
-    with ProfileManager.profile_region("grows_often"):
+    with ProfileManager.region("grows_often"):
         pass
 
 region = ProfileManager.get_region("grows_often")
@@ -166,7 +166,7 @@ read_h5(recursive_file).print_summary()
 region timings. `finalize()` prints the per-line table.
 
 With the context-manager form, pass the functions explicitly —
-`profile_region("name", functions=[fn])` — since there is no decorated function
+`region("name", functions=[fn])` — since there is no decorated function
 to register.
 
 ```{python}

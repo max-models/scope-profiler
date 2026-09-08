@@ -41,7 +41,7 @@ with ProfileManager.session(
     aggregation_mode=True,
     return_results=True,
 ) as run:
-    with ProfileManager.profile_region("solve"):
+    with ProfileManager.region("solve"):
         solve()
 
 run.results.print_summary(title="Aggregate profile")

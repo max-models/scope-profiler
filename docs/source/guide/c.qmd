@@ -473,12 +473,18 @@ ProfileManager.setup(file_path="profiling_data.h5")
 kernels.kernels_start_profiling(b"trace", 0)
 
 for step in range(nsteps):
-    with ProfileManager.profile_region("python:step"):
+    with ProfileManager.region("python:step"):
         kernels.kernels_jacobi_solve(n, sweeps)          # records its own regions
 
-kernels.kernels_stop_profiling()                          # writes the trace
+kernels.kernels_stop_profiling()                          # writes the C output
 ProfileManager.finalize(native_traces=".")                # ...and folds it in
 ```
+
+**One file comes out**, `profiling_data.h5`, holding both languages — there is
+no merge step here, and none of this changes with the C side's
+[output format](#output-format): `native_traces=` reads whichever of the two
+it wrote. The C side's own file (`trace_rank00000.h5` or `.spt`) is an
+intermediate, left beside the result.
 
 Because both APIs read the same clock, the C regions nest inside the Python
 region that called them and `call_stack()` sees a single tree:
@@ -493,8 +499,8 @@ region that called them and `call_stack()` sees a single tree:
 
 Two rules:
 
-- **Call the C `sp_finalize()` first.** Its trace has to exist by the time
-  `finalize()` reads it.
+- **Call the C `sp_finalize()` first.** Its output file has to exist by the
+  time `finalize()` reads it.
 - **Give the two sides distinct region names.** A name recorded by both raises,
   rather than silently double-counting a wrapper and the region inside it. A
   `python:` / `c:` prefix is the simplest convention.

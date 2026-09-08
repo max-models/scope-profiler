@@ -13,16 +13,29 @@ pip install scope-profiler
 ## Quick start
 
 ```python
-from scope_profiler import ProfileManager
+import scope_profiler as sp
 
-with ProfileManager.session():
-    @ProfileManager.profile("main")
+with sp.session():
+    @sp.profile("main")
     def main():
-        with ProfileManager.profile_region("work"):
+        with sp.region("work"):
             sum(range(100))  # replace with the code you want to measure
 
     main()
 # writes profiling_data.h5 and prints a summary
+```
+
+`session`, `region`, `profile`, `setup` and `finalize` are the everyday calls,
+importable from the package root. They are `ProfileManager` class methods
+acting on the process-wide default manager, so the two spellings are
+interchangeable:
+
+```python
+from scope_profiler import ProfileManager
+
+with ProfileManager.session():
+    with ProfileManager.region("work"):
+        ...
 ```
 
 Create independent managers when two profiling sessions need to coexist. Each
@@ -34,9 +47,9 @@ io_profiler = ProfileManager()
 
 with compute_profiler.session(file_path="compute.h5", verbose=False):
     with io_profiler.session(file_path="io.h5", verbose=False):
-        with compute_profiler.profile_region("solve"):
+        with compute_profiler.region("solve"):
             solve()
-        with io_profiler.profile_region("checkpoint"):
+        with io_profiler.region("checkpoint"):
             write_checkpoint()
 ```
 
@@ -141,7 +154,7 @@ for timestep in range(num_steps):
     else:
         ProfileManager.pause()
 
-    with ProfileManager.profile_region("simulation.step"):
+    with ProfileManager.region("simulation.step"):
         simulation.step()
 ```
 

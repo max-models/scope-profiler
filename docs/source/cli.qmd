@@ -185,7 +185,7 @@ scope-profiler inspect profiling_data.h5 --source solve assemble
 ```text
 Source (2)
   solve  (kernels.py:42)
-        with ProfileManager.profile_region("solve"):
+        with ProfileManager.region("solve"):
             return solver.step(state)
   assemble  (kernels.py:18)
     @ProfileManager.profile("assemble")

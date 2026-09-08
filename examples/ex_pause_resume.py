@@ -23,7 +23,7 @@ def main(num_steps: int = 25) -> None:
         verbose=False,
         return_results=True,
     ) as run:
-        step = ProfileManager.profile_region("simulation.step")
+        step = ProfileManager.region("simulation.step")
         for timestep in range(num_steps):
             if timestep % 10 == 0:
                 ProfileManager.resume()

@@ -159,14 +159,14 @@ class _RegionTrace:
         self.source_file = source_file
         self.source_lineno = source_lineno
 
+    def __getitem__(self, index):
+        return (self.start_times, self.end_times)[index]
+
     def __iter__(self):
         return iter((self.start_times, self.end_times))
 
     def __len__(self) -> int:
         return 2
-
-    def __getitem__(self, index):
-        return (self.start_times, self.end_times)[index]
 
 
 def _byte_order(buffer: bytes, path) -> tuple[str, int]:
@@ -354,11 +354,27 @@ def read_native_h5(path) -> tuple:
     return ranks, dict(results.metadata)
 
 
-def _read_ranks(path) -> tuple:
-    """Read one native output file, whichever format it is in.
+def read_native_ranks(path) -> tuple:
+    """Read one native output file, whichever of the two formats it is in.
 
-    Returns ``(ranks, metadata)`` in the shape :func:`read_native_h5` returns;
-    a ``.spt`` trace contributes exactly one rank and no metadata.
+    The format-agnostic entry point: callers that must accept whatever a
+    native build happened to write -- :func:`load_traces` and
+    ``ProfileManager.finalize(native_traces=...)`` -- go through this rather
+    than choosing :func:`read_trace` or :func:`read_native_h5` by suffix
+    themselves.
+
+    Parameters
+    ----------
+    path : str or Path
+        A ``.spt`` trace or an ``.h5`` profile written by ``sp_finalize()``.
+
+    Returns
+    -------
+    tuple
+        ``(ranks, metadata)``, where ``ranks`` maps a rank to its
+        ``{region name: Region}``. A ``.spt`` trace contributes exactly one
+        rank and no metadata; an ``.h5`` file contributes every rank it holds
+        (one, as ``sp_finalize()`` writes it) and the metadata it stores.
     """
     from scope_profiler.region import Region
 
@@ -417,7 +433,7 @@ def load_traces(inputs, label: str | None = None):
     metadata_rank: int | None = None
     earliest = None
     for path in paths:
-        ranks, metadata = _read_ranks(path)
+        ranks, metadata = read_native_ranks(path)
         for rank, regions in sorted(ranks.items()):
             if rank in seen_ranks:
                 raise TraceFormatError(

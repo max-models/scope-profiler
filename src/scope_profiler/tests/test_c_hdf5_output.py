@@ -11,7 +11,10 @@ back.
 
 The module skips where libhdf5's headers cannot be found, so it is the
 format-selection tests in ``test_c_api.py`` -- which need no HDF5 at all --
-that keep the fallback path covered on a machine without it.
+that keep the fallback path covered on a machine without it. CI installs the
+serial library (``libhdf5-dev``, baked into the image in ``docker/ci/``), so a
+skip *there* means the backend went untested and is a problem to fix, not a
+machine to shrug at.
 """
 
 import os
@@ -22,9 +25,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from scope_profiler import read_h5
+from scope_profiler import ProfileManager, read_h5
 from scope_profiler.h5writer import _timing_summary
 from scope_profiler.native_trace import (
+    c_include_dir,
     c_source_path,
     find_traces,
     load_traces,
@@ -34,7 +38,7 @@ from scope_profiler.tests.test_c_api import COMPILER, build, run
 
 SOURCE = c_source_path()
 
-#: A trivial program that only has to link, to prove a candidate flag set works.
+#: A trivial program, built *and run* to prove a candidate flag set works.
 _PROBE = """
 #include <hdf5.h>
 int main(void) { return H5open() < 0; }
@@ -46,11 +50,15 @@ def _candidate_flags():
 
     HDF5 has no single canonical install location and no single canonical
     pkg-config name, so rather than guess, each candidate is tried on a probe
-    program and the first that compiles *and* links wins.
+    program and the first that compiles, links *and* runs wins.
     """
     yield ["-lhdf5"]
 
-    for package in ("hdf5", "hdf5-serial"):
+    # Serial first: on Debian/Ubuntu a plain "hdf5" resolves to the MPI build,
+    # whose headers include mpi.h and whose libraries drag libmpi into every
+    # test binary. The C backend needs neither -- each rank writes its own
+    # file -- so ask for the serial build by the name it actually has.
+    for package in ("hdf5-serial", "hdf5"):
         query = shutil.which("pkg-config")
         if query is None:
             break
@@ -82,16 +90,30 @@ def _candidate_flags():
         for include in (root / "include", root / "include/hdf5/serial", root):
             if not (include / "hdf5.h").exists():
                 continue
-            libraries = [root / "lib", *sorted(root.glob("lib/*/hdf5/serial"))]
+            libraries = [
+                path
+                for path in (root / "lib", *sorted(root.glob("lib/*/hdf5/serial")))
+                if path.is_dir()
+            ]
             yield [
                 f"-I{include}",
-                *(f"-L{path}" for path in libraries if path.is_dir()),
+                # An rpath as well as a -L: a library directory the linker was
+                # pointed at is not necessarily one the loader searches, and
+                # without this the probe links and then fails to start.
+                *(f"-L{path}" for path in libraries),
+                *(f"-Wl,-rpath,{path}" for path in libraries),
                 "-lhdf5",
             ]
 
 
 def _resolve_flags():
-    """The first candidate flag set that builds the probe, or None."""
+    """The first candidate flag set that builds and runs the probe, or None.
+
+    Running it, rather than only linking it, is what keeps a half-usable
+    installation from turning this module's skips into failures: flags that
+    link against a library the loader cannot then find are rejected here, and
+    the next candidate is tried.
+    """
     if COMPILER is None:
         return None
     import tempfile
@@ -99,21 +121,24 @@ def _resolve_flags():
     with tempfile.TemporaryDirectory() as directory:
         source = Path(directory) / "probe.c"
         source.write_text(_PROBE)
+        probe = Path(directory) / "probe"
         for flags in _candidate_flags():
-            result = subprocess.run(
-                [
-                    COMPILER,
-                    "-std=c99",
-                    str(source),
-                    "-o",
-                    str(Path(directory) / "probe"),
-                    *flags,
-                ],
+            built = subprocess.run(
+                [COMPILER, "-std=c99", str(source), "-o", str(probe), *flags],
                 capture_output=True,
                 text=True,
                 check=False,
             )
-            if result.returncode == 0:
+            if built.returncode != 0:
+                continue
+            ran = subprocess.run(
+                [str(probe)],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            if ran.returncode == 0:
                 return flags
     return None
 
@@ -379,3 +404,118 @@ int main(int argc, char **argv)
         == 7
     )
     assert not list(tmp_path.glob("*.tmp*"))
+
+
+MIXED_KERNELS = """
+#include "scope_profiler.h"
+#include <math.h>
+
+void kernels_start_profiling(const char *prefix, int rank)
+{
+    sp_init(prefix, rank);
+}
+
+void kernels_stop_profiling(void)
+{
+    sp_finalize();
+}
+
+double kernels_solve(int n)
+{
+    int inner = sp_region("c:inner");
+    double acc = 0.0;
+    int i;
+
+    sp_begin(inner);
+    for (i = 1; i <= n; ++i) {
+        acc += sqrt((double)i);
+    }
+    sp_end(inner);
+    return acc;
+}
+"""
+
+
+def build_shared_library(tmp_path: Path) -> Path:
+    """Build the kernels and the profiler into one ctypes-loadable library."""
+    source = tmp_path / "kernels.c"
+    source.write_text(MIXED_KERNELS)
+    library = tmp_path / "libkernels.so"
+
+    result = subprocess.run(
+        [
+            COMPILER,
+            "-std=c99",
+            "-O1",
+            "-fPIC",
+            "-shared",
+            "-DSP_USE_HDF5",
+            f"-I{c_include_dir()}",
+            str(source),
+            str(SOURCE),
+            "-lm",
+            "-o",
+            str(library),
+            *HDF5_FLAGS,
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    assert result.returncode == 0, (
+        f"compilation failed\n--- stdout ---\n{result.stdout}\n"
+        f"--- stderr ---\n{result.stderr}"
+    )
+    return library
+
+
+@pytest.fixture
+def reset_manager():
+    yield
+    ProfileManager._reset()
+
+
+def test_a_python_run_folds_in_an_hdf5_writing_c_library(tmp_path, reset_manager):
+    """One process, two languages, one file -- whichever format the C side wrote.
+
+    ``finalize(native_traces=...)`` is the single-process counterpart of
+    ``import-native``, and it has to accept what an ``SP_USE_HDF5`` build
+    produces as readily as a trace. It reads the C side's own output file, so
+    a reader that only understood ``.spt`` would fail the whole run here
+    rather than degrade.
+    """
+    import ctypes
+
+    library = ctypes.CDLL(str(build_shared_library(tmp_path)))
+    library.kernels_solve.argtypes = [ctypes.c_int]
+    library.kernels_solve.restype = ctypes.c_double
+
+    output = tmp_path / "mixed.h5"
+    ProfileManager.setup(file_path=str(output))
+    library.kernels_start_profiling(str(tmp_path / "native").encode(), 0)
+
+    for _ in range(3):
+        with ProfileManager.profile_region("python:step"):
+            library.kernels_solve(2000)
+
+    library.kernels_stop_profiling()
+    # The C side wrote a profile, not a trace, and it is what gets folded in.
+    assert (tmp_path / "native_rank00000.h5").exists()
+
+    ProfileManager.finalize(verbose=False, native_traces=tmp_path)
+
+    results = read_h5(output)
+    assert sorted(results.region_names) == ["c:inner", "python:step"]
+    assert results["python:step"].num_calls == 3
+    assert results["c:inner"].num_calls == 3
+
+    # The shared clock is what makes one call stack out of two languages: the
+    # three C calls sit under the three Python ones, not beside them.
+    stack = results.call_stack(rank=0)
+    depths = {}
+    for call in stack:
+        depths.setdefault(call["name"], set()).add(call["depth"])
+    assert depths["python:step"] == {0}
+    assert depths["c:inner"] == {1}

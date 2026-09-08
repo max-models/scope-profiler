@@ -7,10 +7,10 @@
 
 `scope_profiler.ipython_magics` adds eleven magics to a notebook or IPython
 session, so a quick "how long is this cell/line taking, and where" doesn't
-need the `ProfileManager.session()`/`profile_region()` boilerplate spelled
+need the `ProfileManager.session()`/`region()` boilerplate spelled
 out by hand each time. It is a thin adapter, not a second implementation:
 every magic calls straight into the same API the {doc}`hdf5_and_python_api`
-page describes -- `ProfileManager.session`/`profile_region`,
+page describes -- `ProfileManager.session`/`region`,
 `ProfilingResults.print_summary`/`to_dataframe`, `read_h5`, the
 `diff_rows`/`print_diff_table` functions behind `scope-profiler diff`, and
 `prof_export`/`speedscope_export`.
@@ -74,7 +74,7 @@ Options:
 - `--include PATTERN` -- regex restricting which regions the table/plot show,
   same matching `ProfilingResults.get_regions` uses.
 
-To profile sub-parts of the cell separately, nest `ProfileManager.profile_region`
+To profile sub-parts of the cell separately, nest `ProfileManager.region`
 calls inside it as usual -- `%%scope` only adds the outer region and the
 in-memory session, everything nested inside works exactly as it does in a
 script.
@@ -121,7 +121,7 @@ pip install "scope-profiler[line-profiler]"
 
 Prefer decorating the function you care about with `@ProfileManager.profile`,
 as above -- it registers cleanly regardless of where it's called from. A bare
-`with ProfileManager.profile_region(...):` at the cell's top level also
+`with ProfileManager.region(...):` at the cell's top level also
 works, but line_profiler's own handling of a module-level code object
 containing a nested `def` can cut the printed table off at that `def` --
 the same limitation a plain script hits, not something specific to the
@@ -138,7 +138,7 @@ result = solve(problem)
 ```
 
 Records **every Python call the cell makes** as its own region, named
-`<module>.<qualname>`, with no decorators and no `profile_region` blocks --
+`<module>.<qualname>`, with no decorators and no `region` blocks --
 `recursive_profile=True`, the same thing `scope-profiler run` does to a
 script. The summary comes back sorted by total time, so the answer to "where
 did this cell's time actually go?" is the top of the table:
@@ -176,7 +176,7 @@ holds for `%%scope` and `%%scope_agg` too.
 ```python
 %%scope_agg
 for step in range(1_000_000):
-    with ProfileManager.profile_region("step"):
+    with ProfileManager.region("step"):
         advance(step)
 ```
 
