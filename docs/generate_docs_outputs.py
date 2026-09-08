@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import contextlib
 import io
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -40,10 +42,10 @@ def make_overview_profile(path: Path) -> None:
 
     with ProfileManager.session(file_path=path, verbose=False):
         for _ in range(100):
-            with ProfileManager.profile_region("matrix_multiply"):
+            with ProfileManager.region("matrix_multiply"):
                 sum(range(100))
         for _ in range(1_000):
-            with ProfileManager.profile_region("time_step"):
+            with ProfileManager.region("time_step"):
                 sum(range(100))
 
 
@@ -52,9 +54,9 @@ def make_complete_profile(path: Path) -> None:
     from scope_profiler import ProfileManager
 
     with ProfileManager.session(file_path=path, verbose=False):
-        with ProfileManager.profile_region("main"):
+        with ProfileManager.region("main"):
             for _ in range(10):
-                with ProfileManager.profile_region("iteration"):
+                with ProfileManager.region("iteration"):
                     sum(range(100))
 
 
@@ -63,16 +65,16 @@ def make_plot_cli_profile(path: Path) -> None:
     from scope_profiler import ProfileManager
 
     with ProfileManager.session(file_path=path, verbose=False):
-        with ProfileManager.profile_region("setup"):
+        with ProfileManager.region("setup"):
             sum(range(100))
         for step in range(3):
-            with ProfileManager.profile_region("timestep"):
-                with ProfileManager.profile_region("assemble"):
+            with ProfileManager.region("timestep"):
+                with ProfileManager.region("assemble"):
                     sum(range(100))
-                with ProfileManager.profile_region("solve"):
+                with ProfileManager.region("solve"):
                     sum(range(1_000))
                 if step == 1:
-                    with ProfileManager.profile_region("io"):
+                    with ProfileManager.region("io"):
                         sum(range(100))
 
 
@@ -81,12 +83,12 @@ def make_diff_profile(path: Path, solve_seconds: float, *, teardown: bool) -> No
     from scope_profiler import ProfileManager
 
     with ProfileManager.session(file_path=path, verbose=False):
-        with ProfileManager.profile_region("setup"):
+        with ProfileManager.region("setup"):
             time.sleep(0.001)
-        with ProfileManager.profile_region("solve"):
+        with ProfileManager.region("solve"):
             time.sleep(solve_seconds)
         if teardown:
-            with ProfileManager.profile_region("teardown"):
+            with ProfileManager.region("teardown"):
                 time.sleep(0.001)
 
 
@@ -107,6 +109,93 @@ def write_inspect_output(profile: Path, output_name: str, display_name: str) -> 
         text=True,
     )
     write_output(output_name, inspected.stdout.replace(str(profile), display_name))
+
+
+def write_mpi_example_output(
+    temporary_directory: Path,
+    script_name: str,
+    profile_name: str,
+    output_name: str,
+    *,
+    through_cli: bool = False,
+) -> None:
+    """Run one shipped MPI example and capture its MPI-region summary."""
+    launcher = shutil.which("mpirun")
+    if launcher is None:
+        raise RuntimeError("Generating the MPI docs requires mpirun")
+
+    script = ROOT / "examples" / script_name
+    if through_cli:
+        command = [
+            launcher,
+            "--oversubscribe",
+            "-n",
+            "2",
+            sys.executable,
+            "-m",
+            "scope_profiler",
+            "run",
+            "-q",
+            "-o",
+            profile_name,
+            str(script),
+        ]
+    else:
+        command = [
+            launcher,
+            "--oversubscribe",
+            "-n",
+            "2",
+            sys.executable,
+            str(script),
+        ]
+
+    environment = os.environ.copy()
+    environment.update(
+        OMPI_ALLOW_RUN_AS_ROOT="1",
+        OMPI_ALLOW_RUN_AS_ROOT_CONFIRM="1",
+    )
+    executed = subprocess.run(
+        command,
+        cwd=temporary_directory,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if executed.returncode:
+        rendered_command = " ".join(command)
+        raise RuntimeError(
+            f"MPI documentation example failed ({rendered_command})\n"
+            f"stdout:\n{executed.stdout or '(empty)'}\n"
+            f"stderr:\n{executed.stderr or '(empty)'}"
+        )
+
+    inspected = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "scope_profiler",
+            "inspect",
+            profile_name,
+            "--regions-only",
+            "--include",
+            "^mpi:",
+            "--columns",
+            "region",
+            "calls",
+            "total",
+            "avg",
+        ],
+        cwd=temporary_directory,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    output = executed.stdout
+    if output and not output.endswith("\n"):
+        output += "\n"
+    write_output(output_name, output + inspected.stdout)
 
 
 def main() -> None:
@@ -221,6 +310,28 @@ def main() -> None:
             line_profile_cli.stdout.replace(
                 str(line_profile_path), "profiling_data.h5"
             ),
+        )
+
+        mpi_examples = Path(tmp) / "mpi-examples"
+        mpi_examples.mkdir()
+        write_mpi_example_output(
+            mpi_examples,
+            "ex_mpi_wrappers.py",
+            "mpi_calls.h5",
+            "mpi-wrappers-output.txt",
+        )
+        write_mpi_example_output(
+            mpi_examples,
+            "ex_mpi_numpy_wrappers.py",
+            "mpi_numpy_calls.h5",
+            "mpi-numpy-wrappers-output.txt",
+            through_cli=True,
+        )
+        write_mpi_example_output(
+            mpi_examples,
+            "ex_mpi_profiling_options.py",
+            "mpi_profiling_options.h5",
+            "mpi-profiling-options-output.txt",
         )
 
 

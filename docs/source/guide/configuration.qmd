@@ -1,5 +1,8 @@
 # Configuration
 
+> **Install for this page:** `pip install scope-profiler`. The compression
+> section additionally needs `pip install "scope-profiler[compression]"`.
+
 All profiling behaviour is controlled through `ProfileManager.setup()`.
 This must be called **once** before any regions are created. Calls made on the
 `ProfileManager` class use its process-wide default configuration. Independent
@@ -19,9 +22,9 @@ io_profiler = ProfileManager()
 
 with compute_profiler.session(file_path="compute.h5", verbose=False):
     with io_profiler.session(file_path="io.h5", verbose=False):
-        with compute_profiler.profile_region("solve"):
+        with compute_profiler.region("solve"):
             solve()
-        with io_profiler.profile_region("checkpoint"):
+        with io_profiler.region("checkpoint"):
             write_checkpoint()
 ```
 
@@ -77,6 +80,59 @@ optional dependencies.
 | `aggregation_mode`     | `bool` | `False`              | Keep only count, total, minimum, maximum, and exclusive total per region; individual timeline events are unavailable. |
 | `track_threads`        | `bool` | `False`              | Give every thread its own buffers and lane, and describe every thread the run touched. See {doc}`concurrency`. |
 | `track_async`          | `bool` | `False`              | Also follow asyncio tasks and greenlets, and record the await time of every call. Implies `track_threads`. |
+
+## Grouping settings, and reusing them
+
+The settings in the table above are also the fields of `ProfilingOptions`,
+which holds a set of them so they can be built away from the call site and
+reused across runs:
+
+```python
+from scope_profiler import ProfileManager, ProfilingOptions
+
+options = ProfilingOptions(use_likwid=True, buffer_limit=8192)
+
+ProfileManager.setup(options=options, file_path="run_a.h5")
+ProfileManager.setup(options=options, file_path="run_b.h5")
+```
+
+A keyword argument passed alongside `options` wins over the same field on it,
+which in turn wins over a `config_path` TOML file.
+
+The settings that share a prefix -- the Memray, GPU and HDF5 ones -- can also
+be given as groups, which spell them without the prefix:
+
+```python
+from scope_profiler import GPUOptions, HDF5Options, MemrayOptions, ProfilingOptions
+
+options = ProfilingOptions(
+    file_path="run.h5",
+    hdf5=HDF5Options(compression="gzip", compression_level=4, chunk_size=65_536),
+    memray=MemrayOptions(enabled=True, native_traces=True),
+    gpu=GPUOptions(timing=True, backend="torch"),
+)
+```
+
+The two spellings configure identical runs; setting one thing both ways raises
+`ValueError` rather than picking a winner.
+
+## Settings in a TOML file
+
+`setup(config_path=...)` reads the same settings from a `[profiling]` table,
+flat or grouped into the matching sub-tables:
+
+```toml
+[profiling]
+file_path = "run.h5"
+buffer_limit = 8192
+
+[profiling.hdf5]
+compression = "gzip"
+compression_level = 4
+```
+
+An unrecognised setting is an error naming the closest real one, in the file
+and at the `setup()` call alike.
 
 ## HDF5 compression and chunking
 

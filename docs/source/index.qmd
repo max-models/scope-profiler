@@ -11,7 +11,7 @@ all through a single, unified API.
 ## Key features
 
 - **Two instrumentation styles** --- `@ProfileManager.profile` decorator and
-  `with ProfileManager.profile_region()` context manager.
+  `with ProfileManager.region()` context manager.
 - **Near-zero overhead** --- the default timing mode adds ~700 ns per call;
   profiling can be toggled off at startup with no code changes.
 - **HDF5 time traces** --- start/end timestamps are flushed to disk and merged

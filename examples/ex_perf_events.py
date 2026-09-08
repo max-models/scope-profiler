@@ -22,7 +22,7 @@ from scope_profiler import PerfEventError, ProfileManager
 
 def compute(size: int) -> float:
     """A deliberately CPU-bound region with enough work to count."""
-    with ProfileManager.profile_region("compute"):
+    with ProfileManager.region("compute"):
         return sum(math.sin(index) * math.cos(index) for index in range(size))
 
 

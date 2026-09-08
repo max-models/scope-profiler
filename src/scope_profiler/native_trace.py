@@ -1,13 +1,24 @@
-"""Reading the trace files written by the native (C and Fortran) region APIs.
+"""Reading the per-rank output written by the native (C and Fortran) region APIs.
 
 The C and Fortran modules shipped in ``scope_profiler/c/`` and
-``scope_profiler/fortran/`` record regions with no HDF5 and no Python
-involved, and dump one small binary file per rank at ``sp_finalize()``. Both
-write a *compatible* format, so a program built from either -- or both --
-lands in one profile. This module turns those files into the same
+``scope_profiler/fortran/`` record regions with no Python involved, and write
+one small file per rank at ``sp_finalize()``.
+
+A C build compiled with ``SP_USE_HDF5`` writes ``<prefix>_rank<NNNNN>.h5``
+directly, in the same schema-2 layout :mod:`scope_profiler.h5writer`
+produces: one rank's profile, already readable by
+:func:`~scope_profiler.read_h5` with no import step. Everything this module
+then does for those files is *merging* the ranks of one run into a single
+profile.
+
+Every other native build -- Fortran, and C without HDF5 -- writes the compact
+binary trace documented below instead, one ``.spt`` per rank. Both write a
+*compatible* trace format, so a program built from either (or both) lands in
+one profile. This module turns those files into the same
 :class:`~scope_profiler.results.ProfilingResults` -- and the same HDF5 layout
 -- a Python run produces, so a Fortran run gets the whole post-processing
-stack (summaries, plots, exporters, ``plot``) for free.
+stack (summaries, plots, exporters, ``plot``) for free. The two kinds of
+input mix freely in one import.
 
 Trace layout, little- or big-endian, as written by ``sp_finalize``::
 
@@ -64,10 +75,10 @@ def fortran_source_path() -> Path:
 
 
 def c_source_path() -> Path:
-    """Path to ``scope_profiler.c``, the implementation to compile in.
+    """Path to ``scope_profiler.c``, the implementation entry point to compile.
 
-    Its header sits next to it; :func:`c_include_dir` is what to put on the
-    compiler's include path::
+    Its public and private implementation headers sit next to it;
+    :func:`c_include_dir` is what to put on the compiler's include path::
 
         cc -c $(python -c \
             "import scope_profiler.native_trace as t; print(t.c_source_path())") \
@@ -106,7 +117,19 @@ KNOWN_FORMAT_VERSIONS = (1, 2)
 """Trace format versions this reader accepts."""
 
 TRACE_SUFFIX = ".spt"
-"""Extension ``sp_finalize`` gives its output."""
+"""Extension ``sp_finalize`` gives a binary trace."""
+
+HDF5_SUFFIX = ".h5"
+"""Extension ``sp_finalize`` gives a directly-written HDF5 profile."""
+
+RANK_HDF5_GLOB = f"*_rank[0-9]*{HDF5_SUFFIX}"
+"""How :func:`find_traces` recognizes per-rank HDF5 output in a directory.
+
+Matching the ``_rank<NNNNN>`` that ``sp_finalize`` writes, rather than every
+``.h5``, keeps a merged profile sitting in the same directory (the output of
+a previous import, say) from being swallowed as an input to the next one.
+Naming such a file explicitly on the command line still reads it.
+"""
 
 _HEADER = np.dtype([("magic", "S8"), ("version", "i4"), ("rank", "i4")])
 
@@ -136,14 +159,14 @@ class _RegionTrace:
         self.source_file = source_file
         self.source_lineno = source_lineno
 
+    def __getitem__(self, index):
+        return (self.start_times, self.end_times)[index]
+
     def __iter__(self):
         return iter((self.start_times, self.end_times))
 
     def __len__(self) -> int:
         return 2
-
-    def __getitem__(self, index):
-        return (self.start_times, self.end_times)[index]
 
 
 def _byte_order(buffer: bytes, path) -> tuple[str, int]:
@@ -258,23 +281,23 @@ def read_trace(path) -> tuple:
 
 
 def find_traces(inputs) -> list:
-    """Collect trace files from paths, directories, or a mix of both.
+    """Collect native output files from paths, directories, or a mix of both.
 
     Parameters
     ----------
     inputs : path or sequence of paths
         Files to read, and/or directories to search (non-recursively) for
-        ``*.spt``.
+        ``*.spt`` traces and ``*_rank<NNNNN>.h5`` per-rank profiles.
 
     Returns
     -------
     list of Path
-        The trace files, sorted, with duplicates removed.
+        The files, sorted, with duplicates removed.
 
     Raises
     ------
     FileNotFoundError
-        If an input does not exist, or a directory holds no trace files.
+        If an input does not exist, or a directory holds neither kind of file.
     """
     if isinstance(inputs, (str, Path)):
         inputs = [inputs]
@@ -283,9 +306,14 @@ def find_traces(inputs) -> list:
     for item in inputs:
         path = Path(item)
         if path.is_dir():
-            in_dir = sorted(path.glob(f"*{TRACE_SUFFIX}"))
+            in_dir = sorted(
+                [*path.glob(f"*{TRACE_SUFFIX}"), *path.glob(RANK_HDF5_GLOB)],
+            )
             if not in_dir:
-                raise FileNotFoundError(f"no {TRACE_SUFFIX} trace files in {path}")
+                raise FileNotFoundError(
+                    f"no {TRACE_SUFFIX} traces and no per-rank {HDF5_SUFFIX} "
+                    f"profiles in {path}",
+                )
             found.extend(in_dir)
         elif path.exists():
             found.append(path)
@@ -295,13 +323,88 @@ def find_traces(inputs) -> list:
     return sorted(set(found))
 
 
+def read_native_h5(path) -> tuple:
+    """Read the per-rank HDF5 profile an ``SP_USE_HDF5`` C build writes.
+
+    The file is an ordinary schema-2 profile holding one rank, so this is
+    :func:`~scope_profiler.read_h5` plus a regrouping into the ``(rank,
+    regions)`` shape :func:`read_trace` returns -- which is what lets one
+    import mix directly-written HDF5 with ``.spt`` traces from other ranks.
+
+    Parameters
+    ----------
+    path : str or Path
+        An ``.h5`` file written by ``sp_finalize()``. A file holding several
+        ranks (a merged profile) is accepted too, and contributes all of them.
+
+    Returns
+    -------
+    tuple
+        ``(ranks, metadata)``, where ``ranks`` maps a rank to its
+        ``{region name: Region}`` and ``metadata`` is the run metadata stored
+        in the file.
+    """
+    from scope_profiler.h5reader import read_h5
+
+    results = read_h5(path)
+    ranks: dict = {}
+    for region in results.get_regions():
+        for rank, data in region.regions.items():
+            ranks.setdefault(int(rank), {})[region.name] = data
+    return ranks, dict(results.metadata)
+
+
+def read_native_ranks(path) -> tuple:
+    """Read one native output file, whichever of the two formats it is in.
+
+    The format-agnostic entry point: callers that must accept whatever a
+    native build happened to write -- :func:`load_traces` and
+    ``ProfileManager.finalize(native_traces=...)`` -- go through this rather
+    than choosing :func:`read_trace` or :func:`read_native_h5` by suffix
+    themselves.
+
+    Parameters
+    ----------
+    path : str or Path
+        A ``.spt`` trace or an ``.h5`` profile written by ``sp_finalize()``.
+
+    Returns
+    -------
+    tuple
+        ``(ranks, metadata)``, where ``ranks`` maps a rank to its
+        ``{region name: Region}``. A ``.spt`` trace contributes exactly one
+        rank and no metadata; an ``.h5`` file contributes every rank it holds
+        (one, as ``sp_finalize()`` writes it) and the metadata it stores.
+    """
+    from scope_profiler.region import Region
+
+    if Path(path).suffix == HDF5_SUFFIX:
+        return read_native_h5(path)
+
+    rank, regions = read_trace(path)
+    return {
+        rank: {
+            name: Region(
+                *region_trace,
+                source_file=region_trace.source_file,
+                source_lineno=region_trace.source_lineno,
+            )
+            for name, region_trace in regions.items()
+        },
+    }, {}
+
+
 def load_traces(inputs, label: str | None = None):
-    """Read Fortran traces into the standard post-processing API.
+    """Read native output into the standard post-processing API.
+
+    Both formats are accepted, and mix: ``.spt`` traces from a Fortran or
+    plain C build, and the per-rank ``.h5`` profiles an ``SP_USE_HDF5`` C
+    build writes. Every rank of a run lands in one result either way.
 
     Parameters
     ----------
     inputs : path or sequence of paths
-        Trace files and/or directories containing them (see :func:`find_traces`).
+        Files and/or directories containing them (see :func:`find_traces`).
     label : str, optional
         Name for the run in summaries, charts and exports.
 
@@ -314,38 +417,42 @@ def load_traces(inputs, label: str | None = None):
     Raises
     ------
     TraceFormatError
-        If two trace files claim the same rank.
+        If two files claim the same rank.
     """
     from scope_profiler.mpi_region import MPIRegion
-    from scope_profiler.region import Region
     from scope_profiler.results import ProfilingResults
 
     paths = find_traces(inputs)
 
     per_region: dict = {}
     seen_ranks: dict = {}
+    # A directly-written HDF5 file carries the environment its rank recorded
+    # (hostname, timestamp, ...). Keep the lowest rank's, the way a merged
+    # run stores rank 0's, and let the fields derived below override it.
+    file_metadata: dict = {}
+    metadata_rank: int | None = None
     earliest = None
     for path in paths:
-        rank, regions = read_trace(path)
-        if rank in seen_ranks:
-            raise TraceFormatError(
-                f"{path} and {seen_ranks[rank]} both claim rank {rank}; "
-                f"pass the MPI rank to sp_init() so each rank writes its own",
-            )
-        seen_ranks[rank] = path
-        for name, region_trace in regions.items():
-            starts, ends = region_trace
-            per_region.setdefault(name, {})[rank] = Region(
-                starts,
-                ends,
-                source_file=region_trace.source_file,
-                source_lineno=region_trace.source_lineno,
-            )
-            if starts.size:
-                first = int(starts[0])
-                earliest = first if earliest is None else min(earliest, first)
+        ranks, metadata = read_native_ranks(path)
+        for rank, regions in sorted(ranks.items()):
+            if rank in seen_ranks:
+                raise TraceFormatError(
+                    f"{path} and {seen_ranks[rank]} both claim rank {rank}; "
+                    f"pass the MPI rank to sp_init() so each rank writes its own",
+                )
+            seen_ranks[rank] = path
+            if metadata and (metadata_rank is None or rank < metadata_rank):
+                file_metadata = metadata
+                metadata_rank = rank
+            for name, region in regions.items():
+                per_region.setdefault(name, {})[rank] = region
+                starts = region.start_times_ns
+                if starts.size:
+                    first = int(starts[0])
+                    earliest = first if earliest is None else min(earliest, first)
 
-    metadata = {"source": "native", "trace_format_version": FORMAT_VERSION}
+    metadata = dict(file_metadata)
+    metadata.update({"source": "native", "trace_format_version": FORMAT_VERSION})
     if earliest is not None:
         # The timeline origin, exactly as a Python run records it at setup().
         metadata["start_time_ns"] = earliest
@@ -390,12 +497,22 @@ def write_results(results, output_path):
 
     # Regroup by rank: the writer emits one group per rank, as finalize() does.
     by_rank: dict = {}
+    sources_by_rank: dict = {}
     for region in results.get_regions():
         for rank, data in region.regions.items():
             by_rank.setdefault(rank, {})[region.name] = (
                 data.start_times_ns,
                 data.end_times_ns,
             )
+            if data.source_file is not None:
+                # Carried through so an import keeps the location a region was
+                # registered at (sp_region_at(), or a Python decorator), which
+                # `inspect` and the reports show next to the region name.
+                sources_by_rank.setdefault(rank, {})[region.name] = (
+                    data.source_file,
+                    -1 if data.source_lineno is None else data.source_lineno,
+                    data.source_text or "",
+                )
 
     likwid = results.get_likwid_regions()
     with ProfilingWriter(output_path, results.metadata) as writer:
@@ -406,6 +523,7 @@ def write_results(results, output_path):
                     regions=by_rank.get(rank, {}),
                     likwid=likwid.get(rank, {}),
                     likwid_environment={},
+                    sources=sources_by_rank.get(rank),
                 ),
             )
     return output_path

@@ -1,0 +1,15 @@
+# Real runnable benchmark for the repository's sensor workload.
+
+[benchmark]
+name = "sensor"
+script = "sensor_workload.py"
+runs = 5
+warmups = 1
+timeout_seconds = 120
+only_user_code = true
+output_dir = ".scope-profiler"
+threshold_pct = 2.0
+
+[correctness]
+command = ["pytest", "test_sensor_correctness.py", "-q"]
+timeout_seconds = 120

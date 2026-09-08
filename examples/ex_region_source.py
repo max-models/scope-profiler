@@ -39,7 +39,7 @@ def assemble(size):
 
 
 def solve(values):
-    with ProfileManager.profile_region("solve"):
+    with ProfileManager.region("solve"):
         return sum(math.sqrt(abs(v)) + math.log1p(abs(v)) for v in values)
 
 

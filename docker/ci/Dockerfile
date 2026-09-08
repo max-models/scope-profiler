@@ -1,10 +1,10 @@
 # CI image for scope-profiler's GitHub Actions "Testing" workflow.
 #
 # Bakes in the slow, rarely-changing prerequisites that testing.yml otherwise
-# rebuilds on every run: MPI, LIKWID (built from source) and pylikwid (built
-# against each tested CPython, since the extension is ABI-specific). Anything
-# that changes per-commit (the project itself, its Python deps) is still
-# installed at test time via pip, not baked in here.
+# rebuilds on every run: MPI, HDF5, LIKWID (built from source) and pylikwid
+# (built against each tested CPython, since the extension is ABI-specific).
+# Anything that changes per-commit (the project itself, its Python deps) is
+# still installed at test time via pip, not baked in here.
 #
 # Built and pushed by .github/workflows/build-ci-image.yml.
 
@@ -12,6 +12,14 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Two HDF5 flavours, for two different consumers, and they coexist by design
+# (Debian keeps each in its own include and library directory):
+# libhdf5-openmpi-dev is what the parallel h5py builds further down link
+# against, and libhdf5-dev is the serial library the C API's own HDF5 backend
+# (-DSP_USE_HDF5) is compiled against by the `c` job and by
+# tests/test_c_hdf5_output.py -- which skips itself wherever a C compiler
+# cannot find libhdf5, so leaving it out would take the backend out of CI
+# without failing anything.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gfortran \
@@ -21,6 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
     kmod \
     libhdf5-openmpi-dev \
+    libhdf5-dev \
     libopenmpi-dev \
     openmpi-bin \
     pkg-config \

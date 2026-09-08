@@ -5,7 +5,7 @@ import shutil
 from dataclasses import dataclass, fields
 from pathlib import Path
 from time import perf_counter_ns
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar, TypedDict
 
 try:  # Python 3.11+
     import tomllib as _tomllib
@@ -22,59 +22,134 @@ if TYPE_CHECKING:
     from mpi4py.MPI import Intercomm
 
 
-_CONFIG_FIELDS = {
-    "deactivate_profiling",
-    "deactivate_file_output",
-    "use_likwid",
-    "perf_events",
-    "use_line_profiler",
-    "use_memray",
-    "memory_profile_path",
-    "memray_native_traces",
-    "memray_trace_python_allocators",
-    "memray_follow_fork",
-    "use_nvtx",
-    "use_gpu_timing",
-    "gpu_timing_backend",
-    "recursive_profile",
-    "buffer_limit",
-    "file_path",
-    "output_mode",
-    "hdf5_compression",
-    "hdf5_compression_level",
-    "hdf5_chunk_size",
-    "label",
-    "capture_region_source",
-    "aggregation_mode",
-    "track_threads",
-    "track_async",
-}
+@dataclass
+class _OptionGroup:
+    """Base for the grouped option bags below.
 
-
-def load_profiling_config(path: str | os.PathLike[str]) -> dict:
-    """Load the ``[profiling]`` table from a TOML settings file.
-
-    A top-level table is also accepted for small files.  Paths in the file
-    retain TOML's normal meaning and are interpreted relative to the current
-    working directory, just like paths passed to :meth:`ProfileManager.setup`.
+    Each subclass maps its own short field names onto the flat ``setup()``
+    keyword names through ``_FIELD_MAP``, so a group is another spelling of
+    the same settings rather than a second set of them.
     """
-    config_path = Path(path)
-    try:
-        with config_path.open("rb") as stream:
-            raw = tomllib.load(stream)
-    except OSError as exc:
-        raise ValueError(f"Could not read profiling config {path!r}: {exc}") from exc
-    except tomllib.TOMLDecodeError as exc:
-        raise ValueError(f"Invalid profiling TOML {path!r}: {exc}") from exc
 
-    settings = raw.get("profiling", raw)
-    if not isinstance(settings, dict):
-        raise ValueError("Profiling config [profiling] must be a TOML table")
-    unknown = sorted(set(settings) - _CONFIG_FIELDS)
-    if unknown:
-        names = ", ".join(unknown)
-        raise ValueError(f"Unknown profiling setting(s): {names}")
-    return dict(settings)
+    #: group field name -> flat ``setup()`` keyword name.
+    _FIELD_MAP: ClassVar[dict[str, str]] = {}
+
+    def to_kwargs(self) -> dict:
+        """This group's explicitly-set fields, under their flat names."""
+        return {
+            self._FIELD_MAP[field.name]: value
+            for field in fields(self)
+            if (value := getattr(self, field.name)) is not None
+        }
+
+
+@dataclass
+class MemrayOptions(_OptionGroup):
+    """Memray capture settings, as a group.
+
+    ``ProfilingOptions(memray=MemrayOptions(enabled=True, native_traces=True))``
+    configures the same run as ``ProfilingOptions(use_memray=True,
+    memray_native_traces=True)``; use whichever reads better at the call
+    site. In a TOML config file the group is the ``[profiling.memray]``
+    table.
+
+    Attributes
+    ----------
+    enabled : bool or None
+        Record process-wide allocations with Memray (``use_memray``).
+    path : str or None
+        Capture path (``memory_profile_path``); defaults to
+        ``<file-stem>.memray.bin``.
+    native_traces : bool or None
+        Capture native stack frames (``memray_native_traces``).
+    trace_python_allocators : bool or None
+        Trace Python's own allocators (``memray_trace_python_allocators``).
+        Creates much larger traces and has materially higher overhead.
+    follow_fork : bool or None
+        Keep tracking across ``fork()`` (``memray_follow_fork``).
+    """
+
+    enabled: bool | None = None
+    path: str | None = None
+    native_traces: bool | None = None
+    trace_python_allocators: bool | None = None
+    follow_fork: bool | None = None
+
+    _FIELD_MAP: ClassVar[dict[str, str]] = {
+        "enabled": "use_memray",
+        "path": "memory_profile_path",
+        "native_traces": "memray_native_traces",
+        "trace_python_allocators": "memray_trace_python_allocators",
+        "follow_fork": "memray_follow_fork",
+    }
+
+
+@dataclass
+class GPUOptions(_OptionGroup):
+    """GPU timing and NVTX settings, as a group.
+
+    In a TOML config file this is the ``[profiling.gpu]`` table.
+
+    Attributes
+    ----------
+    timing : bool or None
+        Record CUDA-event elapsed device time per region
+        (``use_gpu_timing``).
+    backend : str, object, or None
+        CUDA-event backend (``gpu_timing_backend``): ``"auto"``, ``"torch"``,
+        ``"cupy"``, or an object implementing ``record_event()`` and
+        ``elapsed_time_ns(start_event, end_event)``.
+    nvtx : bool or None
+        Emit NVTX ranges for NVIDIA Nsight tools (``use_nvtx``).
+    """
+
+    timing: bool | None = None
+    backend: Any = None
+    nvtx: bool | None = None
+
+    _FIELD_MAP: ClassVar[dict[str, str]] = {
+        "timing": "use_gpu_timing",
+        "backend": "gpu_timing_backend",
+        "nvtx": "use_nvtx",
+    }
+
+
+@dataclass
+class HDF5Options(_OptionGroup):
+    """HDF5 storage settings, as a group.
+
+    In a TOML config file this is the ``[profiling.hdf5]`` table.
+
+    Attributes
+    ----------
+    compression : str or None
+        Compression filter for timestamp and GPU-duration datasets
+        (``hdf5_compression``): ``"gzip"``, ``"lzf"``, or ``"zstd"``.
+    compression_level : int or None
+        GZIP level 0--9 or Zstandard level 1--22
+        (``hdf5_compression_level``).
+    chunk_size : int or None
+        Maximum events per dataset chunk (``hdf5_chunk_size``). Enables
+        chunked partial reads even without compression.
+    """
+
+    compression: str | None = None
+    compression_level: int | None = None
+    chunk_size: int | None = None
+
+    _FIELD_MAP: ClassVar[dict[str, str]] = {
+        "compression": "hdf5_compression",
+        "compression_level": "hdf5_compression_level",
+        "chunk_size": "hdf5_chunk_size",
+    }
+
+
+#: TOML sub-table name -> the option group it fills.
+_OPTION_GROUPS: dict[str, type[_OptionGroup]] = {
+    "memray": MemrayOptions,
+    "gpu": GPUOptions,
+    "hdf5": HDF5Options,
+}
 
 
 @dataclass
@@ -98,6 +173,18 @@ class ProfilingOptions:
     reused across runs with one-off overrides::
 
         ProfileManager.setup(options=options, file_path="run_b.h5")
+
+    Settings that share a prefix can also be given as groups --
+    :class:`MemrayOptions`, :class:`GPUOptions` and :class:`HDF5Options` --
+    which spell the same settings without the prefix::
+
+        options = ProfilingOptions(
+            file_path="run.h5",
+            hdf5=HDF5Options(compression="gzip", compression_level=4),
+        )
+
+    Setting one thing both ways raises ``ValueError`` rather than picking a
+    winner.
 
     Attributes
     ----------
@@ -147,6 +234,9 @@ class ProfilingOptions:
         total per region (default: False). Timeline events are unavailable
         in this mode; it cannot be combined with line, GPU, NVTX, or LIKWID
         profiling.
+    profile_mpi_calls : bool or None
+        Profile mpi4py operations made through predefined or derived
+        communicators (default: False). mpi4py remains lazily imported.
     track_threads : bool or None
         Record which thread each call ran on, and describe every thread the
         run touched (default: False). Required for correct results from
@@ -183,6 +273,14 @@ class ProfilingOptions:
     hdf5_chunk_size : int or None
         Maximum events per dataset chunk (default: None). Enables chunked
         partial reads even without compression.
+    memray : MemrayOptions or None
+        The ``use_memray``/``memory_profile_path``/``memray_*`` settings as
+        one group.
+    gpu : GPUOptions or None
+        The ``use_gpu_timing``/``gpu_timing_backend``/``use_nvtx`` settings
+        as one group.
+    hdf5 : HDF5Options or None
+        The ``hdf5_*`` settings as one group.
     """
 
     file_path: str | None = None
@@ -202,6 +300,7 @@ class ProfilingOptions:
     deactivate_file_output: bool | None = None
     recursive_profile: bool | None = None
     aggregation_mode: bool | None = None
+    profile_mpi_calls: bool | None = None
     track_threads: bool | None = None
     track_async: bool | None = None
     capture_region_source: bool | None = None
@@ -211,13 +310,157 @@ class ProfilingOptions:
     hdf5_compression_level: int | None = None
     hdf5_chunk_size: int | None = None
 
+    # Grouped spellings of the settings above; see :class:`MemrayOptions`,
+    # :class:`GPUOptions` and :class:`HDF5Options`.
+    memray: "MemrayOptions | None" = None
+    gpu: "GPUOptions | None" = None
+    hdf5: "HDF5Options | None" = None
+
     def to_kwargs(self) -> dict:
-        """This options' explicitly-set fields, as ``setup()`` keyword arguments."""
-        return {
+        """This options' explicitly-set fields, as ``setup()`` keyword arguments.
+
+        Group fields are expanded to the flat names they stand for. Setting
+        the same thing both ways raises ``ValueError`` rather than picking a
+        winner.
+        """
+        kwargs = {
             field.name: value
             for field in fields(self)
-            if (value := getattr(self, field.name)) is not None
+            if field.name not in _OPTION_GROUPS
+            and (value := getattr(self, field.name)) is not None
         }
+        for name in _OPTION_GROUPS:
+            group = getattr(self, name)
+            if group is None:
+                continue
+            for key, value in group.to_kwargs().items():
+                if key in kwargs:
+                    raise ValueError(
+                        f"{key!r} is set both directly and on the {name!r} "
+                        f"option group; set it in one place",
+                    )
+                kwargs[key] = value
+        return kwargs
+
+
+#: Every flat ``setup()`` setting name, derived from :class:`ProfilingOptions`
+#: so the dataclass stays the single place a setting is declared.
+_CONFIG_FIELDS = frozenset(
+    field.name for field in fields(ProfilingOptions) if field.name not in _OPTION_GROUPS
+)
+
+
+class SetupOptions(TypedDict, total=False):
+    """The keyword names :meth:`ProfileManager.setup` accepts, for typing.
+
+    ``setup()`` and ``session()`` take their settings as ``**overrides``
+    rather than restating 28 keyword parameters, so this is what gives type
+    checkers and editors the names and types of those keywords. It mirrors
+    :class:`ProfilingOptions` exactly -- ``test_setup_options_match_fields``
+    fails the build if the two ever drift.
+    """
+
+    file_path: str
+    label: str
+    use_likwid: bool
+    perf_events: list[str] | tuple[str, ...] | str
+    use_line_profiler: bool
+    use_memray: bool
+    memory_profile_path: str
+    memray_native_traces: bool
+    memray_trace_python_allocators: bool
+    memray_follow_fork: bool
+    deactivate_profiling: bool
+    use_nvtx: bool
+    use_gpu_timing: bool
+    gpu_timing_backend: Any
+    deactivate_file_output: bool
+    recursive_profile: bool
+    aggregation_mode: bool
+    profile_mpi_calls: bool
+    track_threads: bool
+    track_async: bool
+    capture_region_source: bool
+    buffer_limit: int
+    output_mode: str
+    hdf5_compression: str
+    hdf5_compression_level: int
+    hdf5_chunk_size: int
+
+
+def _unknown_setting_error(names) -> str:
+    """Explain unknown ``setup()`` keywords, suggesting near-misses."""
+    import difflib
+
+    parts = []
+    for name in sorted(names):
+        close = difflib.get_close_matches(name, sorted(_CONFIG_FIELDS), n=1)
+        parts.append(f"{name!r}" + (f" (did you mean {close[0]!r}?)" if close else ""))
+    return "Unknown profiling setting(s): " + ", ".join(parts)
+
+
+def _flatten_group_tables(settings: dict) -> dict:
+    """Expand ``[profiling.<group>]`` sub-tables into flat setting names."""
+    flat = {key: value for key, value in settings.items() if key not in _OPTION_GROUPS}
+    for name, group_cls in _OPTION_GROUPS.items():
+        table = settings.get(name)
+        if table is None:
+            continue
+        if not isinstance(table, dict):
+            raise ValueError(f"Profiling setting {name!r} must be a TOML table")
+        unknown = sorted(set(table) - set(group_cls._FIELD_MAP))
+        if unknown:
+            names = ", ".join(unknown)
+            raise ValueError(f"Unknown [{name}] profiling setting(s): {names}")
+        for key, value in table.items():
+            flat_key = group_cls._FIELD_MAP[key]
+            if flat_key in flat:
+                raise ValueError(
+                    f"Profiling setting {flat_key!r} is set both directly and "
+                    f"as {name}.{key}",
+                )
+            flat[flat_key] = value
+    return flat
+
+
+def load_profiling_config(path: str | os.PathLike[str]) -> dict:
+    """Load the ``[profiling]`` table from a TOML settings file.
+
+    A top-level table is also accepted for small files.  Paths in the file
+    retain TOML's normal meaning and are interpreted relative to the current
+    working directory, just like paths passed to :meth:`ProfileManager.setup`.
+
+    Settings may be written flat, or grouped into the ``memray``, ``gpu`` and
+    ``hdf5`` sub-tables that mirror :class:`MemrayOptions`,
+    :class:`GPUOptions` and :class:`HDF5Options`::
+
+        [profiling]
+        file_path = "run.h5"
+
+        [profiling.hdf5]
+        compression = "gzip"
+        compression_level = 4
+
+    Setting the same thing both ways is an error, not a silent precedence
+    rule.
+    """
+    config_path = Path(path)
+    try:
+        with config_path.open("rb") as stream:
+            raw = tomllib.load(stream)
+    except OSError as exc:
+        raise ValueError(f"Could not read profiling config {path!r}: {exc}") from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise ValueError(f"Invalid profiling TOML {path!r}: {exc}") from exc
+
+    settings = raw.get("profiling", raw)
+    if not isinstance(settings, dict):
+        raise ValueError("Profiling config [profiling] must be a TOML table")
+    settings = _flatten_group_tables(settings)
+    unknown = set(settings) - _CONFIG_FIELDS
+    if unknown:
+        raise ValueError(_unknown_setting_error(unknown))
+    return dict(settings)
 
 
 # try:
@@ -395,6 +638,7 @@ class ProfilingConfig:
         deactivate_file_output: bool = False,
         recursive_profile: bool = False,
         aggregation_mode: bool = False,
+        profile_mpi_calls: bool = False,
         track_threads: bool = False,
         track_async: bool = False,
         capture_region_source: bool = False,
@@ -443,6 +687,9 @@ class ProfilingConfig:
             exclusive total per region. Timeline events are unavailable in
             this mode; it cannot be combined with line, GPU, NVTX, or LIKWID
             profiling.
+        profile_mpi_calls : bool
+            Profile mpi4py calls made through predefined or derived
+            communicators. Enabling this does not itself import mpi4py.
         track_threads : bool
             Give every thread its own buffers and stamp each call with the
             thread it ran on, so regions entered concurrently record correct,
@@ -576,6 +823,7 @@ class ProfilingConfig:
                 "aggregation_mode cannot be combined with line, GPU, NVTX, LIKWID, or perf events",
             )
         self._aggregation_mode = aggregation_mode
+        self._profile_mpi_calls = profile_mpi_calls
 
         # track_async is a strict refinement of track_threads: a task lane is
         # identified relative to the thread it runs on, and its buffers are
@@ -849,6 +1097,11 @@ class ProfilingConfig:
     def aggregation_mode(self) -> bool:
         """Whether regions retain aggregates instead of individual events."""
         return self._aggregation_mode
+
+    @property
+    def profile_mpi_calls(self) -> bool:
+        """Whether mpi4py communicator operations are profiled."""
+        return self._profile_mpi_calls
 
     @property
     def track_threads(self) -> bool:

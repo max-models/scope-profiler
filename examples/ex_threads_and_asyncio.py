@@ -27,9 +27,9 @@ ASYNC_PROFILE = "async_profile.h5"
 def solve(manager, steps=3):
     """Work done by every worker thread, under two nested regions."""
     for _ in range(steps):
-        with manager.profile_region("solve"):
+        with manager.region("solve"):
             time.sleep(0.005)
-            with manager.profile_region("assemble"):
+            with manager.region("assemble"):
                 time.sleep(0.002)
 
 
@@ -113,7 +113,7 @@ def profile_threads():
 
 async def fetch(manager, delay):
     """A task that awaits, then does a little work of its own."""
-    with manager.profile_region("fetch"):
+    with manager.region("fetch"):
         await asyncio.sleep(delay)
         deadline = time.perf_counter() + 0.005
         while time.perf_counter() < deadline:

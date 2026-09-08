@@ -1,5 +1,9 @@
 # MCP server for AI coding agents
 
+> **Install for this page:** `pip install "scope-profiler[mcp]"`. To use the
+> optional `plot_profile` tool too, install
+> `pip install "scope-profiler[mcp,pproc]"`.
+
 [MCP](https://modelcontextprotocol.io) (Model Context Protocol) is a standard
 way for an AI coding agent -- Claude Code, or any other MCP-capable client --
 to call tools exposed by a local server. `scope-profiler-mcp` is such a
@@ -101,7 +105,20 @@ Claude Code does not activate), point `command` at the interpreter instead:
 ```
 
 Once configured, restart Claude Code (or run `/mcp` to check connection
-status) and the four tools below become available for it to call.
+status) and the six tools below become available for it to call.
+
+### Troubleshooting: `CONNECTION_CLOSED` / `ModuleNotFoundError: No module named 'mcp'`
+
+`scope-profiler-mcp` resolves to whichever interpreter's `bin/` the command
+is found in first on `PATH`. If that interpreter has `scope-profiler`
+installed *without* the `mcp` extra (e.g. a global/system Python, while the
+extra was only installed into a project virtualenv), the process crashes
+immediately on import and the client reports a generic closed-connection
+error rather than the underlying `ModuleNotFoundError`. Run
+`scope-profiler-mcp` directly in a terminal to see the real traceback, then
+either `pip install "scope-profiler[mcp]"` into the interpreter actually on
+`PATH`, or point `command`/`args` at the virtualenv interpreter as shown
+above.
 
 ## Available tools
 
@@ -123,6 +140,24 @@ Structured version of `scope-profiler diff`, plus the whole-run comparison
 `regressions`/`improvements` split by `threshold_pct`. The arithmetic is done
 here, in Python -- an agent should never need to subtract two numbers from
 two separate `inspect_profile` calls to answer "did this get faster?".
+
+### `run_benchmark`
+
+Structured version of the declarative benchmark runner described in
+`AGENTS.md`: runs `benchmark.script` from a `benchmark.toml`-style config the
+configured number of times, runs the correctness check, and returns a
+manifest (timing statistics plus a pass/fail correctness result) tagged with
+`label`. Prefer this over `run_profile` when a repo already has a
+`benchmark.toml` -- it gives repeated-run statistics and a correctness gate
+in one call instead of a single profiling run.
+
+### `compare_benchmarks`
+
+Compares two manifests produced by `run_benchmark` and returns a
+`decision: "keep"` / `"reject"` verdict alongside the timing deltas -- the
+same keep/reject rule the CLI optimization workflow in `AGENTS.md` uses, so
+an agent following its "benchmark, change, benchmark, compare" loop does not
+have to reimplement the threshold logic itself.
 
 ### `run_profile`
 

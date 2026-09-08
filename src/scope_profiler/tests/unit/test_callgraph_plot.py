@@ -149,12 +149,12 @@ def test_plotly_backend_in_compact_mode_labels_regions(results):
     assert set(markers.text) == {"root", "middle", "leaf", "sibling"}
 
 
-# The pyvis backend is an optional extra (scope-profiler[graph]). CI installs
-# it via the dev extra, so these run there; a partial install skips them
-# instead of reporting the missing dependency as a failure.
+# The pyvis backend is part of the plotting extra (scope-profiler[pproc]). CI
+# installs it via the dev extra, so these run there; a partial install skips
+# them instead of reporting the missing dependency as a failure.
 pyvis_backend = pytest.mark.skipif(
     importlib.util.find_spec("pyvis") is None,
-    reason="the optional 'graph' extra (pyvis) is not installed",
+    reason="the optional 'pproc' extra (pyvis) is not installed",
 )
 
 
@@ -196,7 +196,7 @@ def test_pyvis_backend_reports_a_missing_install(results, monkeypatch):
     import sys
 
     monkeypatch.setitem(sys.modules, "pyvis.network", None)
-    with pytest.raises(ImportError, match="pyvis is required"):
+    with pytest.raises(ImportError, match=r"Install scope-profiler\[pproc\]"):
         plot_callgraph(results, backend="pyvis", verbose=False)
 
 

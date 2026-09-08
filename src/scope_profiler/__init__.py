@@ -20,12 +20,51 @@ from scope_profiler.json_export import (
 )
 from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.mpi_region import MPIRegion
+from scope_profiler.mpi_wrappers import (
+    MPIRegionMetadata,
+    ProfiledMPIComm,
+    ProfiledMPIRequest,
+    format_mpi_region,
+    message_nbytes,
+    parse_mpi_region,
+    profile_mpi4py,
+    profile_mpi_comm,
+)
 from scope_profiler.perf_events import PerfEventError, PerfEventTotals
-from scope_profiler.profile_config import ProfilingOptions
-from scope_profiler.profile_io import read_profile, write_profile
+from scope_profiler.profile_config import (
+    GPUOptions,
+    HDF5Options,
+    MemrayOptions,
+    ProfilingOptions,
+)
+from scope_profiler.profile_io import (
+    load,
+    read_profile,
+    sniff_profile_format,
+    write_profile,
+)
 from scope_profiler.profile_manager import ProfileManager
 from scope_profiler.region import EventDataUnavailableError, Region
 from scope_profiler.results import ProfilingResults, merge_results
+
+#: Module-level spellings of the instrumentation API, so the common calls
+#: need no class name::
+#:
+#:     import scope_profiler as sp
+#:
+#:     with sp.session(file_path="run.h5") as run:
+#:         with sp.region("solve"):
+#:             solve()
+#:
+#: These are the ``ProfileManager`` class methods themselves rather than
+#: forwarding wrappers -- ``region()`` runs on the per-event path, and an
+#: extra frame there is measurable overhead. They act on the same global
+#: manager state the class methods do.
+finalize = ProfileManager.finalize
+profile = ProfileManager.profile
+region = ProfileManager.region
+session = ProfileManager.session
+setup = ProfileManager.setup
 
 try:
     __version__ = version("scope-profiler")
@@ -61,13 +100,19 @@ __all__ = [
     "CallArrays",
     "CorruptProfileError",
     "EventDataUnavailableError",
+    "GPUOptions",
+    "HDF5Options",
     "JSONProfileError",
     "LikwidRegionResult",
     "MPIRegion",
+    "MPIRegionMetadata",
+    "MemrayOptions",
     "NestingError",
     "PerfEventError",
     "PerfEventTotals",
     "ProfileManager",
+    "ProfiledMPIComm",
+    "ProfiledMPIRequest",
     "ProfilingOptions",
     "ProfilingResults",
     "Region",
@@ -82,9 +127,14 @@ __all__ = [
     "export_json",
     "export_prof",
     "export_speedscope",
+    "finalize",
+    "format_mpi_region",
     "inspect_file",
+    "load",
     "load_prof",
     "merge_results",
+    "message_nbytes",
+    "parse_mpi_region",
     "plot_duration_timeseries",
     "plot_durations",
     "plot_flame",
@@ -96,10 +146,17 @@ __all__ = [
     "plot_scaling_efficiency",
     "plot_speedup",
     "plot_weak_scaling",
+    "profile",
+    "profile_mpi4py",
+    "profile_mpi_comm",
     "read_h5",
     "read_h5_summary",
     "read_json",
     "read_profile",
+    "region",
+    "session",
+    "setup",
+    "sniff_profile_format",
     "to_pstats",
     "write_json",
     "write_profile",

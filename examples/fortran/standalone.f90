@@ -51,6 +51,6 @@ program standalone
    write (output_unit, "(a,i0,a)") "rank ", rank, ": done"
    write (output_unit, "(a,es12.5)") "  final residual: ", residual
    write (output_unit, "(a,i5.5,a)") "  wrote standalone_rank", rank, ".spt"
-   write (output_unit, "(a)") "  now run: scope-profiler import-fortran . -o profiling_data.h5"
+   write (output_unit, "(a)") "  now run: scope-profiler import-native . -o profiling_data.h5"
 
 end program standalone

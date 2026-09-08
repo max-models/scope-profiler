@@ -5,6 +5,10 @@
  *     ./example
  *     scope-profiler import-native . -o profiling_data.h5
  *     scope-profiler inspect profiling_data.h5
+ *
+ * Built with HDF5 (-DSP_USE_HDF5 ... -lhdf5, or -DSCOPE_PROFILER_ENABLE_HDF5=ON
+ * under CMake) it writes profile_rank00000.h5 instead, which
+ * `scope-profiler inspect` opens directly -- no import step.
  */
 #include "scope_profiler.h"
 
@@ -70,9 +74,11 @@ int main(void)
     printf("solve entered %lld time(s)\n", (long long)sp_num_calls(solve));
     printf("checksum (ignore): %.4f\n", total + (double)step);
 
+    /* Read the path before finalizing: it names whichever format this
+     * build writes, .h5 or .spt. */
+    printf("writing %s\n", sp_output_path());
     if (sp_finalize() != 0) {
         return 1;
     }
-    printf("wrote profile_rank00000.spt\n");
     return 0;
 }

@@ -10,11 +10,7 @@
     "exclude": null,
     "ranks": null
   },
-  "common_regions": [
-    "setup",
-    "solve",
-    "exchange"
-  ],
+  "common_regions": ["setup", "solve", "exchange"],
   "files": [
     {
       "label": "run_3ranks",

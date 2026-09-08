@@ -1,5 +1,8 @@
 # Line-by-line profiling
 
+> **Install for this page:**
+> `pip install "scope-profiler[line-profiler]"`.
+
 scope-profiler can integrate [line_profiler](https://github.com/pyutils/line_profiler)
 to give you per-source-line timing breakdowns of decorated functions,
 alongside the usual region-level statistics.
@@ -54,7 +57,7 @@ def allocate(N=100_000):
 
 
 def run_scope_only():
-    with ProfileManager.profile_region("scope_only"):
+    with ProfileManager.region("scope_only"):
         total = sum(range(100_000))
     return total
 
@@ -85,7 +88,7 @@ The line-by-line table shows, for each source line:
 
 - **Decorator** (`@ProfileManager.profile`) --- automatically registers
   the function with `line_profiler`. This is the primary use case.
-- **Context manager** (`with ProfileManager.profile_region()`) ---
+- **Context manager** (`with ProfileManager.region()`) ---
   enables/disables the profiler around the block and automatically registers
   the active caller function. Lines executed in the scope are included even
   when the function is not decorated. Passing `functions=[...]` remains

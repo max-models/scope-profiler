@@ -1,5 +1,9 @@
 # MPI support
 
+> **Install for this page:** `pip install "scope-profiler[mpi]"`, plus an MPI
+> implementation such as Open MPI or MPICH. Parallel HDF5 output additionally
+> requires an MPI-enabled build of h5py; serial-HDF5 merging does not.
+
 scope-profiler is MPI-aware out of the box. When the process is launched
 under an MPI launcher and `mpi4py` is installed, the profiler
 automatically detects `MPI.COMM_WORLD` and handles per-rank data
@@ -86,6 +90,232 @@ mpirun -n 4 python mpi_example.py
 
 The output `profiling_data.h5` will contain groups `rank0` through
 `rank3`, each with their own timing data.
+
+## Profiling MPI calls in Python
+
+The ordinary MPI support above profiles work on each rank. Enable MPI-call
+profiling when communication operations themselves should appear on the
+timeline.
+
+For an unchanged script, launch it through the regular profiler command:
+
+```bash
+mpirun -n 4 scope-profiler run simulation.py
+```
+
+MPI-call profiling is enabled by default. The runner waits for the target to
+import mpi4py, so a serial program that does not use MPI still neither imports
+nor initializes it. It then temporarily replaces mpi4py's `COMM_WORLD` and
+`COMM_SELF` globals with transparent profiling proxies and restores them at
+shutdown. Communicators returned by common constructors such as `Split`, `Dup`,
+`Create_cart`, and `Create_intercomm` remain wrapped automatically.
+Communicators obtained through an unrecognized third-party API can still be
+passed to `profile_mpi_comm()` explicitly. Use `--no-mpi-calls` to
+disable this behavior.
+
+For a normal profiling session, enable the same behavior through
+`ProfilingOptions` and obtain the communicator inside the session:
+
+```python
+from mpi4py import MPI
+from scope_profiler import ProfileManager, ProfilingOptions
+
+options = ProfilingOptions(profile_mpi_calls=True)
+with ProfileManager.session(options=options, file_path="mpi-calls.h5"):
+    comm = MPI.COMM_WORLD
+    comm.barrier()
+```
+
+The setting is also accepted in TOML:
+
+```toml
+[profiling]
+profile_mpi_calls = true
+```
+
+To wrap an individual communicator explicitly instead:
+
+```python
+from mpi4py import MPI
+from scope_profiler import ProfileManager, profile_mpi_comm
+
+comm = profile_mpi_comm(MPI.COMM_WORLD)
+
+with ProfileManager.session(file_path="mpi-calls.h5"):
+    if comm.rank == 0:
+        request = comm.isend({"work": 42}, dest=1, tag=7)
+        request.wait()
+    elif comm.rank == 1:
+        payload = comm.recv(source=0, tag=7)
+
+    total = comm.allreduce(comm.rank)
+    comm.barrier()
+```
+
+`ProfiledMPIComm` is a proxy: attributes and unwrapped methods continue to
+come from the original communicator. It explicitly wraps the object-mode
+`send`, `recv`, `isend`, `irecv`, `bcast`, `reduce`, `allreduce`, and
+`barrier` methods, along with their uppercase buffer-mode equivalents.
+Nonblocking calls return `ProfiledMPIRequest`; its `wait()` / `Wait()` region
+retains the initiating operation's bytes, peer, tag, and communicator.
+
+Buffer-mode message sizes are exact when mpi4py supplies a datatype. For
+object-mode values without a buffer interface, the default is `bytes=-1` so
+profiling never serializes an object twice or repeats its `__reduce__` side
+effects. Pass `profile_mpi_comm(comm, pickle_object_sizes=True)` to record a
+protocol-5 pickle-size estimate when that extra serialization is acceptable.
+A high-level receive cannot know the incoming serialized size before it
+blocks, so it also records `bytes=-1`; use `Recv`/`Irecv` with an explicit
+buffer when an exact receive capacity is important.
+
+The module does not import mpi4py. Passing the already-created communicator is
+what preserves scope-profiler's serial-process guarantee: importing
+scope-profiler alone never initializes MPI.
+
+## Complete runnable Python examples
+
+The documentation build executes every example below with two MPI ranks and
+captures the displayed output from the resulting profile. The source blocks
+are included directly from `examples/`, so they are the files the commands
+actually run rather than copies maintained separately in this page.
+
+### Explicit communicator wrapper
+
+This version opts in by wrapping one communicator directly.
+
+```{eval-rst}
+.. literalinclude:: ../../../examples/ex_mpi_wrappers.py
+   :language: python
+```
+
+Run it and inspect the recorded MPI regions:
+
+```bash
+mpirun -n 2 python examples/ex_mpi_wrappers.py
+scope-profiler inspect mpi_calls.h5 --regions-only --include '^mpi:' \
+  --columns region calls total avg
+```
+
+Output:
+
+```{eval-rst}
+.. literalinclude:: ../_generated/mpi-wrappers-output.txt
+   :language: text
+```
+
+### Unmodified NumPy/mpi4py program
+
+This file contains no scope-profiler imports. The regular `scope-profiler run`
+command enables MPI-call instrumentation before running it.
+
+```{eval-rst}
+.. literalinclude:: ../../../examples/ex_mpi_numpy_wrappers.py
+   :language: python
+```
+
+Run it and inspect the recorded MPI regions:
+
+```bash
+mpirun -n 2 scope-profiler run -q \
+  -o mpi_numpy_calls.h5 examples/ex_mpi_numpy_wrappers.py
+scope-profiler inspect mpi_numpy_calls.h5 --regions-only --include '^mpi:' \
+  --columns region calls total avg
+```
+
+Output:
+
+```{eval-rst}
+.. literalinclude:: ../_generated/mpi-numpy-wrappers-output.txt
+   :language: text
+```
+
+### ProfilingOptions session
+
+This version activates automatic wrapping through
+`ProfilingOptions(profile_mpi_calls=True)`. It also shows that a communicator
+returned by `Split` stays instrumented.
+
+```{eval-rst}
+.. literalinclude:: ../../../examples/ex_mpi_profiling_options.py
+   :language: python
+```
+
+Run it and inspect the recorded MPI regions:
+
+```bash
+mpirun -n 2 python examples/ex_mpi_profiling_options.py
+scope-profiler inspect mpi_profiling_options.h5 --regions-only \
+  --include '^mpi:' --columns region calls total avg
+```
+
+Output:
+
+```{eval-rst}
+.. literalinclude:: ../_generated/mpi-profiling-options-output.txt
+   :language: text
+```
+
+## Profiling MPI calls in C++
+
+`scope_profiler_mpi.hpp` provides C++11 wrappers for `MPI_Send`, `MPI_Recv`,
+`MPI_Isend`, `MPI_Irecv`, `MPI_Wait`, `MPI_Barrier`, `MPI_Bcast`, `MPI_Reduce`,
+and `MPI_Allreduce`:
+
+```cpp
+#include <scope_profiler_mpi.hpp>
+
+sp_init("mpi-calls", rank);
+
+sp::mpi::Request request = sp::mpi::isend(
+    values, count, MPI_DOUBLE, peer, 7, MPI_COMM_WORLD);
+sp::mpi::wait(request);
+
+sp::mpi::allreduce(
+    local, global, count, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+
+sp_finalize();
+```
+
+The wrappers return the underlying MPI status code. `isend` and `irecv`
+return a move-only request whose `error()` reports initiation status,
+`native()` exposes the underlying `MPI_Request`, and `active()` shows whether
+MPI still owns it. The application remains responsible for completing or
+freeing every request, exactly as with native MPI.
+
+With CMake, configure scope-profiler with
+`-DSCOPE_PROFILER_ENABLE_MPI=ON`, then link the MPI add-on beside either native
+backend:
+
+```cmake
+target_link_libraries(simulation PRIVATE
+    scope-profiler::cpp
+    scope-profiler::mpi
+)
+```
+
+`scope-profiler::header-only` can replace `scope-profiler::cpp`. Defining
+`SP_DISABLE_PROFILING` removes metadata construction, datatype-size queries,
+region strings, and profiler references while the wrappers continue to call
+MPI normally.
+
+## MPI metadata representation
+
+Both languages use the same canonical region labels:
+
+```text
+mpi:send kind=point-to-point bytes=32 peer=2 root=-1 tag=9 comm=7
+mpi:allreduce kind=collective bytes=32 peer=-1 root=-1 tag=-1 comm=7
+mpi:wait kind=wait bytes=32 peer=2 root=-1 tag=9 comm=7 request=isend
+```
+
+This makes mixed Python/C++ communication directly comparable and keeps the
+data compatible with all existing plots and exporters. `-1` means “not
+applicable” or “unknown.” Python regions also persist each field as an
+`mpi.*` tag. Communicator IDs come from `MPI_Comm_c2f` in C++ and `Comm.py2f`
+in Python. Receive labels describe the requested source and buffer capacity;
+with wildcard receives, inspect the returned MPI status for the actual source.
+Pass any such label to `parse_mpi_region()` to obtain an
+`MPIRegionMetadata` object, including labels loaded from a native C++ trace.
 
 ## Visualizing MPI results
 

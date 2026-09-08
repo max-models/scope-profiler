@@ -2,6 +2,8 @@
 title: "Threads, tasks and coroutines"
 ---
 
+> **Install for this page:** `pip install scope-profiler` (base install only).
+
 A region records a start and an end timestamp, and nothing else. That is
 enough as long as one call stack owns the process: a call that starts while
 another is open is nested inside it, and the whole post-processing stack ---
@@ -86,7 +88,7 @@ import asyncio
 from scope_profiler import ProfileManager
 
 async def fetch(url):
-    with ProfileManager.profile_region("fetch"):
+    with ProfileManager.region("fetch"):
         return await client.get(url)
 
 with ProfileManager.session(track_async=True, return_results=True) as run:

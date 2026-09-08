@@ -1,5 +1,10 @@
 # CLI reference
 
+> **Install for this page:** `pip install "scope-profiler[pproc]"` enables the
+> profiling, inspection, report, export, plot, and plotted-TUI examples. A
+> text-only TUI can instead use `scope-profiler[tui]`; line profiling needs
+> `scope-profiler[line-profiler]`.
+
 All subcommands live under the single `scope-profiler` executable (also
 runnable as `python -m scope_profiler`).
 
@@ -180,7 +185,7 @@ scope-profiler inspect profiling_data.h5 --source solve assemble
 ```text
 Source (2)
   solve  (kernels.py:42)
-        with ProfileManager.profile_region("solve"):
+        with ProfileManager.region("solve"):
             return solver.step(state)
   assemble  (kernels.py:18)
     @ProfileManager.profile("assemble")

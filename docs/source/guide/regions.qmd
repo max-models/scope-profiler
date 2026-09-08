@@ -1,5 +1,7 @@
 # Profiling regions
 
+> **Install for this page:** `pip install scope-profiler` (base install only).
+
 A **region** is the fundamental unit of measurement in scope-profiler.
 Every time a region is entered and exited, the profiler records a
 start/end timestamp pair and increments the call counter.
@@ -39,18 +41,21 @@ def solve(A, b):
 Nested calls are stored as additional regions using fully-qualified names
 such as `my_module.run_pipeline`.
 
-### Context manager --- `ProfileManager.profile_region()`
+### Context manager --- `ProfileManager.region()`
 
 Ideal for profiling a section of code inside a function:
 
 ```python
 def time_step(state, dt):
-    with ProfileManager.profile_region("rhs_evaluation"):
+    with ProfileManager.region("rhs_evaluation"):
         rhs = compute_rhs(state)
 
-    with ProfileManager.profile_region("state_update"):
+    with ProfileManager.region("state_update"):
         state += dt * rhs
 ```
+
+`profile_region()` is the original name for this method and still works ---
+the two are the same object, so existing instrumentation needs no change.
 
 ### Mixing both
 
@@ -62,7 +67,7 @@ into a single region:
 @ProfileManager.profile("compute")
 def compute_batch(data):
     for chunk in data:
-        with ProfileManager.profile_region("compute"):
+        with ProfileManager.region("compute"):
             process(chunk)
 # Both the decorator and the context manager contribute
 # to the same "compute" region.
@@ -71,7 +76,7 @@ def compute_batch(data):
 ## Region identity
 
 Regions are identified by **name** (a string). The first call to
-`profile_region("foo")` creates the region; subsequent calls with the
+`region("foo")` creates the region; subsequent calls with the
 same name return the existing instance. This means:
 
 - The same region can be entered from multiple call sites.
@@ -84,8 +89,8 @@ same name return the existing instance. This means:
 Regions can be nested arbitrarily:
 
 ```python
-with ProfileManager.profile_region("outer"):
-    with ProfileManager.profile_region("inner"):
+with ProfileManager.region("outer"):
+    with ProfileManager.region("inner"):
         work()
 ```
 

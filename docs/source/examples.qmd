@@ -1,5 +1,10 @@
 # Examples and workflows
 
+> **Install for this page:** `pip install scope-profiler` runs the core
+> examples. `pip install "scope-profiler[extras]"` adds every broadly
+> installable example dependency; LIKWID remains separate and needs a system
+> LIKWID installation plus `scope-profiler[likwid]`.
+
 The repository includes small scripts for specific profiling tasks and a
 repeatable AI optimization workflow.
 
@@ -12,6 +17,9 @@ repeatable AI optimization workflow.
 - [`ex_region_source.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_region_source.py) — retain and inspect region source code.
 - [`ex_aggregation.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_aggregation.py) — record compact per-region aggregate statistics without storing an event timeline.
 - [`ex_perf_events.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_perf_events.py) — collect Linux CPU-counter totals per profiled region.
+- [`ex_mpi_wrappers.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_mpi_wrappers.py) — profile mpi4py point-to-point, collective, and wait calls with communication metadata.
+- [`ex_mpi_numpy_wrappers.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_mpi_numpy_wrappers.py) — profile an unchanged mpi4py/NumPy program through `scope-profiler run`.
+- [`ex_mpi_profiling_options.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_mpi_profiling_options.py) — enable automatic MPI-call instrumentation from `ProfilingOptions` inside a normal session.
 - [`ex_perf_event_plots.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_perf_event_plots.py) — compare IPC and cache-miss pressure across regions.
 - [`ex_threads_and_asyncio.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_threads_and_asyncio.py) — profile concurrent threads, and split an asyncio task's wall time into running and awaiting.
 - [`ex_json_export.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_json_export.py) — write the run as JSON instead of HDF5, and read it back into the same results.
@@ -33,7 +41,7 @@ with ProfileManager.session(
     aggregation_mode=True,
     return_results=True,
 ) as run:
-    with ProfileManager.profile_region("solve"):
+    with ProfileManager.region("solve"):
         solve()
 
 run.results.print_summary(title="Aggregate profile")

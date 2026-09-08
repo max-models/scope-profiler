@@ -3,7 +3,7 @@
 !!     gfortran -cpp -O2 -c scope_profiler.F90
 !!     gfortran -cpp -O2 example.f90 scope_profiler.o -o example
 !!     ./example
-!!     scope-profiler import-fortran . -o profiling_data.h5
+!!     scope-profiler import-native . -o profiling_data.h5
 !!     scope-profiler inspect profiling_data.h5
 program example
    use scope_profiler

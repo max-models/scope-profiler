@@ -29,11 +29,11 @@ def matmul(n: int) -> float:
 
 def main() -> None:
     with ProfileManager.session(use_likwid=True, file_path=H5_PATH):
-        with ProfileManager.profile_region("main"):
+        with ProfileManager.region("main"):
             for _ in range(3):
                 matmul(256)
 
-            with ProfileManager.profile_region("memory_bound"):
+            with ProfileManager.region("memory_bound"):
                 data = np.zeros(4_000_000)
                 data += 1.0
 
@@ -69,7 +69,7 @@ def main() -> None:
     try:
         df = results.likwid_to_dataframe()
     except ImportError:
-        print("\n(install scope-profiler[plot] for the DataFrame view)")
+        print("\n(install scope-profiler[pproc] for the DataFrame view)")
     else:
         print("\nAs a DataFrame:")
         print(df.to_string(index=False))

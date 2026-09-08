@@ -14,7 +14,9 @@ npm install @scope-profiler/plotly plotly.js-dist-min
 import Plotly from "plotly.js-dist-min";
 import { buildGanttFigure, renderFigure } from "@scope-profiler/plotly";
 
-const payload = await fetch("/figures/gantt_data.json").then((response) => response.json());
+const payload = await fetch("/figures/gantt_data.json").then((response) =>
+  response.json(),
+);
 const figure = buildGanttFigure(payload);
 await renderFigure(Plotly, document.querySelector("#gantt"), figure);
 ```
@@ -27,8 +29,14 @@ produced it, so `buildFigure` can pick the builder for you:
 ```js
 import { buildFigure, renderFigure } from "@scope-profiler/plotly";
 
-const payload = await fetch("/figures/rank_heatmap_data.json").then((response) => response.json());
-await renderFigure(Plotly, document.querySelector("#chart"), buildFigure(payload));
+const payload = await fetch("/figures/rank_heatmap_data.json").then(
+  (response) => response.json(),
+);
+await renderFigure(
+  Plotly,
+  document.querySelector("#chart"),
+  buildFigure(payload),
+);
 ```
 
 `buildFigure` rejects a document that is not `scope-profiler-plot-data` and one

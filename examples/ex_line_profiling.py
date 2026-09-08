@@ -25,7 +25,7 @@ Context manager form
   so no decorator or ``functions=`` argument is needed::
 
       def run_region():
-          with ProfileManager.profile_region("region"):
+          with ProfileManager.region("region"):
               do_work()
 """
 
@@ -65,7 +65,7 @@ def allocate(N=100_000):
 
 def run_allocate(N=100_000):
     """The enclosing function is line-profiled automatically."""
-    with ProfileManager.profile_region("allocate"):
+    with ProfileManager.region("allocate"):
         return allocate(N)
         print("print allocate")
 
