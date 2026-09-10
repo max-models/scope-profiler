@@ -22,6 +22,7 @@ import {
   inferPlotKind,
   resolveTheme,
   setTheme,
+  validatePlotData,
 } from "../src/index.js";
 
 test("gantt gives each region and rank a lane, and honours supplied colors", () => {
@@ -410,6 +411,25 @@ test("buildFigure refuses a foreign document or a newer format version", () => {
     /upgrade/,
   );
   assert.throws(() => buildFigure({ points: [] }), /options\.plot/);
+});
+
+test("validatePlotData names the required data for each selected builder", () => {
+  assert.equal(
+    validatePlotData({ plot: "roofline", points: [] }),
+    "roofline",
+  );
+  assert.equal(
+    validatePlotData({ plot: "callgraph", regions: [], edges: [] }),
+    "callgraph",
+  );
+  assert.throws(
+    () => validatePlotData({ plot: "roofline" }),
+    /requires a points array/,
+  );
+  assert.throws(
+    () => buildFigure({ plot: "likwid" }),
+    /requires a bars array/,
+  );
 });
 
 test("the scaling builders read their own y column and ideal line", () => {

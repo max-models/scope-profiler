@@ -1135,6 +1135,26 @@ export const PLOT_BUILDERS = {
   region_statistics: buildRegionSummaryFigure,
 };
 
+const PLOT_ARRAYS = {
+  gantt: "intervals",
+  density: "points",
+  flame: "calls",
+  flame_chart: "calls",
+  flame_graph: "calls",
+  durations: "bars",
+  timeseries: "points",
+  speedup: "points",
+  weak_scaling: "points",
+  scaling_efficiency: "points",
+  weak_scaling_efficiency: "points",
+  rank_heatmap: "points",
+  histogram: "bins",
+  imbalance: "points",
+  likwid: "bars",
+  roofline: "points",
+  region_statistics: "files",
+};
+
 /** Guess the plot kind of a payload written before the envelope existed. */
 export function inferPlotKind(payload) {
   if (!payload || typeof payload !== "object") return undefined;
@@ -1161,6 +1181,43 @@ export function inferPlotKind(payload) {
   return undefined;
 }
 
+/** Validate a plot-data envelope and return its resolved plot kind.
+ *
+ * The validator deliberately requires only the array each builder consumes:
+ * exporter versions may add fields without breaking existing dashboards.
+ */
+export function validatePlotData(payload, options = {}) {
+  if (!payload || typeof payload !== "object")
+    throw new TypeError("plot-data must be an object.");
+  if (payload.format != null && payload.format !== PLOT_DATA_FORMAT)
+    throw new TypeError(
+      `Expected a ${PLOT_DATA_FORMAT} document, got ${JSON.stringify(payload.format)}.`,
+    );
+  if (
+    typeof payload.format_version === "number" &&
+    payload.format_version > SUPPORTED_FORMAT_VERSION
+  )
+    throw new TypeError(
+      `Plot-data format version ${payload.format_version} is newer than this package supports (${SUPPORTED_FORMAT_VERSION}); upgrade @scope-profiler/plotly.`,
+    );
+  const kind = options.plot ?? payload.plot ?? inferPlotKind(payload);
+  if (!kind || !PLOT_BUILDERS[kind])
+    throw new TypeError(
+      kind
+        ? `No figure builder for plot kind ${JSON.stringify(kind)}.`
+        : "Could not determine the plot kind; pass options.plot.",
+    );
+  if (kind === "callgraph") {
+    if (!Array.isArray(payload.calls) && !Array.isArray(payload.regions))
+      throw new TypeError('Plot kind "callgraph" requires calls or regions data.');
+  } else if (!Array.isArray(payload[PLOT_ARRAYS[kind]])) {
+    throw new TypeError(
+      `Plot kind ${JSON.stringify(kind)} requires a ${PLOT_ARRAYS[kind]} array.`,
+    );
+  }
+  return kind;
+}
+
 /** Build the right figure for any plot-data document, without naming a builder.
  *
  * Dispatches on the document's own `plot` field, falling back to the payload
@@ -1168,23 +1225,8 @@ export function inferPlotKind(payload) {
  * kind.
  */
 export function buildFigure(payload, options = {}) {
-  if (payload?.format != null && payload.format !== PLOT_DATA_FORMAT)
-    throw new TypeError(
-      `Expected a ${PLOT_DATA_FORMAT} document, got ${JSON.stringify(payload.format)}.`,
-    );
-  const version = payload?.format_version;
-  if (typeof version === "number" && version > SUPPORTED_FORMAT_VERSION)
-    throw new TypeError(
-      `Plot-data format version ${version} is newer than this package supports (${SUPPORTED_FORMAT_VERSION}); upgrade @scope-profiler/plotly.`,
-    );
-  const kind = options.plot ?? payload?.plot ?? inferPlotKind(payload);
-  const builder = kind && PLOT_BUILDERS[kind];
-  if (!builder)
-    throw new TypeError(
-      kind
-        ? `No figure builder for plot kind ${JSON.stringify(kind)}.`
-        : "Could not determine the plot kind; pass options.plot.",
-    );
+  const kind = validatePlotData(payload, options);
+  const builder = PLOT_BUILDERS[kind];
   return builder(payload, { plot: kind, ...options });
 }
 

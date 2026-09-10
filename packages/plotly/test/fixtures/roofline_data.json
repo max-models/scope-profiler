@@ -1,0 +1,28 @@
+{
+  "format": "scope-profiler-plot-data",
+  "format_version": 1,
+  "plot": "roofline",
+  "points": [
+    {
+      "file": "run_3ranks.h5",
+      "region": "solve",
+      "rank": 0,
+      "arithmetic_intensity_flops_per_byte": 2.5,
+      "performance_gflops": 120.0,
+      "bandwidth_gbs": 48.0
+    }
+  ],
+  "roofline": [
+    {
+      "arithmetic_intensity_flops_per_byte": 0.1,
+      "performance_gflops": 32.0
+    },
+    {
+      "arithmetic_intensity_flops_per_byte": 10.0,
+      "performance_gflops": 240.0
+    }
+  ],
+  "peak_flops_gflops": 240.0,
+  "peak_bandwidth_gbs": 320.0,
+  "empirical_ceilings": false
+}
