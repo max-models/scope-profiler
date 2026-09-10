@@ -1285,9 +1285,7 @@ def _render_selected_plots(
             data_format=data_format,
             backend=args.backend,
         )
-        saved.extend(
-            path for path in (path, weak_scaling_efficiency_data_path) if path
-        )
+        saved.extend(path for path in (path, weak_scaling_efficiency_data_path) if path)
 
     if "rank_heatmap" in selected_plots:
         path = image_path("rank_heatmap", "rank_heatmap_plot")

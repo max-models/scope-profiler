@@ -9,6 +9,7 @@ import h5py
 import numpy as np
 import pytest
 
+import scope_profiler.post_processing as post_processing
 from scope_profiler import read_h5
 from scope_profiler.call_stack import build_call_stack
 from scope_profiler.h5writer import ProfilingWriter
@@ -25,8 +26,8 @@ from scope_profiler.plotting_scripts import (
     _stacked_segments,
     available_likwid_metrics,
     available_perf_event_metrics,
-    collect_roofline_points,
     collect_region_statistics,
+    collect_roofline_points,
     plot_duration_histogram,
     plot_duration_timeseries,
     plot_durations,
@@ -44,8 +45,12 @@ from scope_profiler.plotting_scripts import (
     plot_weak_scaling,
     plot_weak_scaling_efficiency,
 )
-import scope_profiler.post_processing as post_processing
-from scope_profiler.post_processing import _PLOT_CATALOG, build_parser, export_main, main
+from scope_profiler.post_processing import (
+    _PLOT_CATALOG,
+    build_parser,
+    export_main,
+    main,
+)
 from scope_profiler.profile_manager import RankPayload
 from scope_profiler.results import ProfilingResults
 
@@ -1766,9 +1771,9 @@ def test_roofline_derives_per_region_intensity_and_exports_json(tmp_path):
 
 def test_roofline_filters_and_rejects_missing_or_invalid_metrics():
     results = _roofline_results()
-    assert [point["region"] for point in collect_roofline_points(results, include="solve")] == [
-        "solve"
-    ]
+    assert [
+        point["region"] for point in collect_roofline_points(results, include="solve")
+    ] == ["solve"]
     assert collect_roofline_points(results, flops_metric="missing") == []
     with pytest.raises(ValueError, match="No LIKWID roofline points"):
         plot_roofline(results, flops_metric="missing", show=False, verbose=False)
@@ -1792,10 +1797,18 @@ def test_roofline_metric_detection_units_and_empirical_csv_export(tmp_path):
     assert _rate_to_giga(1, "DP [KFLOP/s]", "flops") == pytest.approx(1e-6)
     assert _rate_to_giga(1, "DP [FLOP/s]", "flops") == pytest.approx(1e-9)
     assert _rate_to_giga(1, "CPI", "flops") is None
-    assert _rate_to_giga(1, "Memory bandwidth [GBytes/s]", "bandwidth") == pytest.approx(1)
-    assert _rate_to_giga(1, "Memory bandwidth [KBytes/s]", "bandwidth") == pytest.approx(1e-6)
-    assert _rate_to_giga(1, "Memory bandwidth [Bytes/s]", "bandwidth") == pytest.approx(1e-9)
-    assert _rate_to_giga(1, "Memory bandwidth [GiBytes/s]", "bandwidth") == pytest.approx(2**30 / 1e9)
+    assert _rate_to_giga(
+        1, "Memory bandwidth [GBytes/s]", "bandwidth"
+    ) == pytest.approx(1)
+    assert _rate_to_giga(
+        1, "Memory bandwidth [KBytes/s]", "bandwidth"
+    ) == pytest.approx(1e-6)
+    assert _rate_to_giga(1, "Memory bandwidth [Bytes/s]", "bandwidth") == pytest.approx(
+        1e-9
+    )
+    assert _rate_to_giga(
+        1, "Memory bandwidth [GiBytes/s]", "bandwidth"
+    ) == pytest.approx(2**30 / 1e9)
     assert _rate_to_giga(1, "Memory bandwidth [GB/s]", "bandwidth") is None
     assert collect_roofline_points(_roofline_results(), ranks=[9]) == []
 

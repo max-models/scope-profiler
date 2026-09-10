@@ -125,7 +125,9 @@ def collect_roofline_points(
                 if flops is None or bandwidth is None:
                     continue
                 performance = _rate_to_giga(flops, selected_flops, "flops")
-                bandwidth_gbs = _rate_to_giga(bandwidth, selected_bandwidth, "bandwidth")
+                bandwidth_gbs = _rate_to_giga(
+                    bandwidth, selected_bandwidth, "bandwidth"
+                )
                 if performance is None or bandwidth_gbs is None:
                     continue
                 points.append(
@@ -135,10 +137,13 @@ def collect_roofline_points(
                         "rank": int(rank),
                         "performance_gflops": performance,
                         "bandwidth_gbs": bandwidth_gbs,
-                        "arithmetic_intensity_flops_per_byte": performance / bandwidth_gbs,
-                        "runtime_seconds": float(np.nanmax(result.times))
-                        if np.asarray(result.times).size
-                        else None,
+                        "arithmetic_intensity_flops_per_byte": performance
+                        / bandwidth_gbs,
+                        "runtime_seconds": (
+                            float(np.nanmax(result.times))
+                            if np.asarray(result.times).size
+                            else None
+                        ),
                         "flops_metric": selected_flops,
                         "bandwidth_metric": selected_bandwidth,
                     },
@@ -146,14 +151,18 @@ def collect_roofline_points(
     return points
 
 
-def _roofline(points: list[dict], peak_flops: float | None, peak_bandwidth: float | None):
+def _roofline(
+    points: list[dict], peak_flops: float | None, peak_bandwidth: float | None
+):
     if peak_flops is not None and peak_flops <= 0:
         raise ValueError("peak_flops must be positive GFLOP/s")
     if peak_bandwidth is not None and peak_bandwidth <= 0:
         raise ValueError("peak_bandwidth must be positive GB/s")
     empirical = peak_flops is None or peak_bandwidth is None
     ceiling_flops = peak_flops or max(point["performance_gflops"] for point in points)
-    ceiling_bandwidth = peak_bandwidth or max(point["bandwidth_gbs"] for point in points)
+    ceiling_bandwidth = peak_bandwidth or max(
+        point["bandwidth_gbs"] for point in points
+    )
     minimum = min(point["arithmetic_intensity_flops_per_byte"] for point in points)
     maximum = max(point["arithmetic_intensity_flops_per_byte"] for point in points)
     x = np.logspace(np.log10(minimum / 2), np.log10(maximum * 2), 160)
@@ -164,7 +173,9 @@ def _roofline(points: list[dict], peak_flops: float | None, peak_bandwidth: floa
         "roofline": [
             {
                 "arithmetic_intensity_flops_per_byte": float(value),
-                "performance_gflops": float(min(ceiling_flops, ceiling_bandwidth * value)),
+                "performance_gflops": float(
+                    min(ceiling_flops, ceiling_bandwidth * value)
+                ),
             }
             for value in x
         ],
@@ -255,7 +266,10 @@ def plot_roofline(
     canvas.set_yscale("log")
     canvas.set_xlabel("Arithmetic intensity [FLOP/byte]")
     canvas.set_ylabel("Attained performance [GFLOP/s]")
-    canvas.set_title("Roofline analysis" + (" (empirical ceilings)" if roof["empirical_ceilings"] else ""))
+    canvas.set_title(
+        "Roofline analysis"
+        + (" (empirical ceilings)" if roof["empirical_ceilings"] else "")
+    )
     canvas.set_grid(True)
     canvas.set_legend()
 
