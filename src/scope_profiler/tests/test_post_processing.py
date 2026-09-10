@@ -1731,6 +1731,25 @@ def test_plot_likwid_export_data_json(tmp_path):
     assert values["rank 1"] == pytest.approx(550.0)
 
 
+def test_plot_likwid_export_data_parquet(tmp_path):
+    pd = pytest.importorskip("pandas")
+    results = _likwid_results({0: 500.0, 1: 550.0})
+    data_file = tmp_path / "likwid_data.parquet"
+
+    plot_likwid(
+        results,
+        metric="MFlops/s",
+        filepath=tmp_path / "likwid_plot.png",
+        show=False,
+        verbose=False,
+        data_filepath=data_file,
+        data_format="parquet",
+    )
+
+    frame = pd.read_parquet(data_file)
+    assert set(frame["series"]) == {"rank 0", "rank 1"}
+
+
 def test_plot_likwid_without_likwid_data_raises(tmp_path):
     file_path = tmp_path / "run.h5"
     _write_sample_h5(file_path, _sample_file_data(1, 10, 20))
@@ -1766,6 +1785,25 @@ def test_roofline_derives_per_region_intensity_and_exports_json(tmp_path):
     document = json.loads(data_file.read_text(encoding="utf-8"))
     assert document["plot"] == "roofline"
     assert len(document["points"]) == 2
+
+
+def test_roofline_export_data_parquet(tmp_path):
+    pd = pytest.importorskip("pandas")
+    results = _roofline_results()
+    parquet_file = tmp_path / "roofline_data.parquet"
+
+    plot_roofline(
+        results,
+        peak_flops=10.0,
+        peak_bandwidth=4.0,
+        show=False,
+        verbose=False,
+        data_filepath=parquet_file,
+        data_format="parquet",
+    )
+
+    frame = pd.read_parquet(parquet_file)
+    assert set(frame["region"]) == {"solve", "setup"}
 
 
 def test_roofline_filters_and_rejects_missing_or_invalid_metrics():
@@ -1969,6 +2007,115 @@ def test_post_processing_cli_export_data_format_json(tmp_path):
         assert data_file.exists()
         json.loads(data_file.read_text(encoding="utf-8"))
         assert not (output_dir / name.replace(".json", ".csv")).exists()
+
+
+def test_write_parquet_reports_missing_pandas_clearly(tmp_path, monkeypatch):
+    from scope_profiler.plotting_scripts._utils import _write_parquet
+
+    monkeypatch.setitem(sys.modules, "pandas", None)
+    with pytest.raises(ImportError, match="Parquet export requires pandas"):
+        _write_parquet(tmp_path / "out.parquet", ["a"], [[1]])
+
+
+def test_write_parquet_reports_a_missing_engine_clearly(tmp_path, monkeypatch):
+    from scope_profiler.plotting_scripts._utils import _write_parquet
+
+    pytest.importorskip("pandas")
+    import pandas as pd
+
+    def _no_engine(self, *args, **kwargs):
+        raise ImportError("Unable to find a usable engine")
+
+    monkeypatch.setattr(pd.DataFrame, "to_parquet", _no_engine)
+    with pytest.raises(ImportError, match="Parquet export requires a Parquet engine"):
+        _write_parquet(tmp_path / "out.parquet", ["a"], [[1]])
+
+
+def test_post_processing_cli_export_data_format_parquet(tmp_path):
+    """Every tabular exporter also writes Parquet, alongside its own header."""
+    pd = pytest.importorskip("pandas")
+    file_path = tmp_path / "run.h5"
+    output_dir = tmp_path / "figures"
+    _write_sample_h5(file_path, _sample_file_data(2, 10, 20))
+
+    export_main(
+        [
+            "plot-data",
+            str(file_path),
+            "-o",
+            str(output_dir),
+            "--format",
+            "parquet",
+            "--plots",
+            "gantt",
+            "durations",
+            "callgraph",
+            "flame_chart",
+            "flame_graph",
+            "histogram",
+            "density",
+            "imbalance",
+            "rank_heatmap",
+        ],
+    )
+
+    expected = {
+        "gantt_data.parquet": {"file", "rank", "region", "start_seconds"},
+        "durations_data.parquet": {"file", "region", "metric", "value_seconds"},
+        "callgraph_data.parquet": {"call_id", "parent_id", "name", "depth"},
+        "flame_chart_data.parquet": {"file", "rank", "call_id", "region"},
+        "flame_graph_data.parquet": {"file", "rank", "call_id", "region"},
+        "histogram_data.parquet": {"file", "region", "count"},
+        "timeline_density_data.parquet": {"file", "region", "occupied_seconds"},
+        "imbalance_data.parquet": {"file", "region", "rank", "value_seconds"},
+        "rank_heatmap_data.parquet": {"file", "rank", "region"},
+    }
+    for name, expected_columns in expected.items():
+        data_file = output_dir / name
+        assert data_file.exists(), name
+        frame = pd.read_parquet(data_file)
+        assert not frame.empty
+        assert expected_columns <= set(frame.columns)
+        assert not (output_dir / name.replace(".parquet", ".csv")).exists()
+
+    # region_statistics is always JSON: it is a nested document, not a table.
+    assert (output_dir / "region_statistics.json").exists()
+    assert not (output_dir / "region_statistics.parquet").exists()
+
+
+def test_post_processing_cli_export_scaling_family_parquet(tmp_path):
+    """speedup/weak_scaling/scaling_efficiency share scaling.py's exporter."""
+    pd = pytest.importorskip("pandas")
+    file_one = tmp_path / "run_1.h5"
+    file_two = tmp_path / "run_2.h5"
+    output_dir = tmp_path / "figures"
+    _write_sample_h5(file_one, _sample_file_data(1, 100, 200))
+    _write_sample_h5(file_two, _sample_file_data(2, 50, 100))
+
+    export_main(
+        [
+            "plot-data",
+            str(file_one),
+            str(file_two),
+            "-o",
+            str(output_dir),
+            "--format",
+            "parquet",
+            "--plots",
+            "speedup",
+            "weak_scaling",
+            "scaling_efficiency",
+        ],
+    )
+
+    for name in (
+        "speedup_data.parquet",
+        "weak_scaling_data.parquet",
+        "scaling_efficiency_data.parquet",
+    ):
+        frame = pd.read_parquet(output_dir / name)
+        assert not frame.empty
+        assert "region" in frame.columns
 
 
 def test_post_processing_cli_export_plot_data_without_images(tmp_path):

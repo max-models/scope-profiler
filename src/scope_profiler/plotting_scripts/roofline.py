@@ -24,6 +24,7 @@ from scope_profiler.plotting_scripts._utils import (
     _to_hex,
     _write_csv,
     _write_json,
+    _write_parquet,
 )
 from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import _name_selected
@@ -278,7 +279,8 @@ def plot_roofline(
         if data_format == "json":
             _write_json(data_filepath, payload, plot="roofline")
         else:
-            _write_csv(
+            writer = _write_parquet if data_format == "parquet" else _write_csv
+            writer(
                 data_filepath,
                 list(points[0]),
                 [[point[key] for key in points[0]] for point in points],

@@ -200,7 +200,7 @@ instead; pass `{ plot: "gantt" }` to settle the case by hand.
 | `buildDensityFigure(payload)` | `timeline_density_data.json` | Binned timeline occupancy, for traces too large to draw call by call |
 | `buildCallgraphFigure(payload)` | `callgraph_data.json` | Sankey call graph, from either callgraph shape |
 | `buildRegionSummaryFigure(payload, { metric, topN, files, orientation })` | `region_statistics.json` | The slowest regions of a run, ranked |
-| `buildComparisonFigure(payload, { files, metric })` | `region_statistics.json` | Two runs side by side, over the regions both recorded |
+| `buildComparisonFigure(payload, { files, metric })` | `region_statistics.json` | Every run side by side, over the regions they all recorded; `{ comparison: "percent" \| "absolute" }` draws a single delta bar instead, for exactly two runs |
 | `buildLikwidFigure(payload)` | `likwid_data.json` | One LIKWID hardware-counter metric |
 | `buildRooflineFigure(payload)` | `roofline_data.json` | Per-region LIKWID roofline placement |
 | `buildWeakScalingFigure(payload)` | `weak_scaling_data.json` | Weak-scaling curve |

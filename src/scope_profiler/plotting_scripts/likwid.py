@@ -15,6 +15,7 @@ from scope_profiler.plotting_scripts._utils import (
     _unique_labels,
     _write_csv,
     _write_json,
+    _write_parquet,
 )
 from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import _name_selected
@@ -241,6 +242,7 @@ def plot_likwid(
                 plot="likwid",
             )
         else:
-            _write_csv(data_filepath, ["series", "region", "value"], data_rows)
+            writer = _write_parquet if data_format == "parquet" else _write_csv
+            writer(data_filepath, ["series", "region", "value"], data_rows)
 
     _ps._render(canvas, filepath, show, backend)

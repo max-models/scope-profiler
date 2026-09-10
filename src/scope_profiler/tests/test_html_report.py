@@ -485,6 +485,44 @@ def test_region_durations_compare_multiple_runs_without_stacking(tmp_path, monke
     )
 
 
+def test_report_adds_a_change_chart_for_exactly_two_runs(tmp_path):
+    baseline = tmp_path / "baseline.h5"
+    candidate = tmp_path / "candidate.h5"
+    _write_sample_h5(baseline, _sample_file_data(1, 10, 20))
+    _write_sample_h5(candidate, _sample_file_data(1, 10, 40))
+    report = tmp_path / "report.html"
+
+    create_html_report([baseline, candidate], report, include_charts=False)
+    assert '"plot": "region_statistics"' not in report.read_text(encoding="utf-8")
+
+    create_html_report([baseline, candidate], report)
+    document = report.read_text(encoding="utf-8")
+    assert "Change: candidate vs baseline" in document
+    assert '"plot": "region_statistics"' in document
+    assert '"comparison": "percent"' in document
+    assert "Percent change in each region's total duration" in document
+
+
+def test_report_omits_the_change_chart_for_one_or_three_runs(tmp_path):
+    one = tmp_path / "one.h5"
+    two = tmp_path / "two.h5"
+    three = tmp_path / "three.h5"
+    for path in (one, two, three):
+        _write_sample_h5(path, _sample_file_data(1, 10, 20))
+
+    single_report = tmp_path / "single.html"
+    create_html_report([one], single_report)
+    document = single_report.read_text(encoding="utf-8")
+    assert "chart-heading" in document
+    assert '"plot": "region_statistics"' not in document
+
+    triple_report = tmp_path / "triple.html"
+    create_html_report([one, two, three], triple_report)
+    assert '"plot": "region_statistics"' not in triple_report.read_text(
+        encoding="utf-8",
+    )
+
+
 def test_report_escapes_profile_text_inside_embedded_chart_json(tmp_path):
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"

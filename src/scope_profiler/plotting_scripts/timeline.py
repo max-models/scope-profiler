@@ -12,6 +12,7 @@ from scope_profiler.plotting_scripts._utils import (
     _set_xticks,
     _write_csv,
     _write_json,
+    _write_parquet,
 )
 from scope_profiler.results import ProfilingResults
 
@@ -126,7 +127,8 @@ def plot_timeline_density(
                 plot="density",
             )
         else:
-            _write_csv(data_filepath, header, records)
+            writer = _write_parquet if data_format == "parquet" else _write_csv
+            writer(data_filepath, header, records)
     canvas = Canvas(
         nrows=len(prepared),
         ncols=1,

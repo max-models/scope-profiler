@@ -1418,13 +1418,15 @@ export function buildRegionSummaryFigure(payload, options = {}) {
   return { data, layout: withEmptyState(layout, regions.length > 0) };
 }
 
-/** Build a side-by-side comparison of two runs in a region_statistics document.
+/** Build a side-by-side comparison of runs in a region_statistics document.
  *
  * The same bars as `buildRegionSummaryFigure`, narrowed to the runs named in
- * `options.files` and to the regions both of them recorded, and drawn
- * vertically with every shared region kept rather than a ranked top slice --
- * the reading for "what changed between these two runs?" rather than "where
- * did this run spend its time?".
+ * `options.files` (every run in the document by default, not only the first
+ * two) and to the regions all of them recorded, and drawn vertically with
+ * every shared region kept rather than a ranked top slice -- the reading for
+ * "what changed between these runs?" rather than "where did this run spend
+ * its time?". `options.comparison: "absolute"` or `"percent"` instead draws a
+ * single delta bar per region, which needs exactly two runs.
  */
 export function buildComparisonFigure(payload, options = {}) {
   if (options.comparison && options.comparison !== "side-by-side") {
@@ -1523,7 +1525,6 @@ export function buildComparisonFigure(payload, options = {}) {
     topN: Infinity,
     commonRegionsOnly: true,
     ...options,
-    files: options.files ?? [0, 1],
   });
 }
 

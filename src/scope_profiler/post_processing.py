@@ -373,7 +373,7 @@ def _add_roofline_args(parser: argparse.ArgumentParser) -> None:
 def _add_data_export_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--format",
-        choices=["csv", "json"],
+        choices=["csv", "json", "parquet"],
         default="csv",
         help="Data export format (default: csv).",
     )

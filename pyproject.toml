@@ -5,7 +5,7 @@ requires = [ "setuptools", "wheel" ]
 
 [project]
 name = "scope-profiler"
-version = "0.6.0"
+version = "0.6.1"
 description = "Profile code regions in python, optionally with LIKWID markers."
 readme = "README.md"
 keywords = [ "python" ]
@@ -76,6 +76,7 @@ optional-dependencies.pproc = [
   "maxplotlibx == 0.1.9",
   "pandas",
   "plotly",
+  "pyarrow",
   "pyvis >= 0.3.2",
   "snakeviz",
   "tabulate",

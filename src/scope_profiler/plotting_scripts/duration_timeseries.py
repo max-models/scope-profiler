@@ -17,6 +17,7 @@ from scope_profiler.plotting_scripts._utils import (
     _unique_labels,
     _write_csv,
     _write_json,
+    _write_parquet,
 )
 from scope_profiler.results import ProfilingResults
 
@@ -183,7 +184,8 @@ def plot_duration_timeseries(
                 plot="timeseries",
             )
         else:
-            _write_csv(data_filepath, header, records)
+            writer = _write_parquet if data_format == "parquet" else _write_csv
+            writer(data_filepath, header, records)
 
     if verbose:
         print("Plotting duration over time for files: " + ", ".join(labels))

@@ -31,6 +31,7 @@ from scope_profiler.plotting_scripts._utils import (
     _unique_labels,
     _write_csv,
     _write_json,
+    _write_parquet,
 )
 from scope_profiler.plotting_scripts.callgraph import plot_callgraph
 from scope_profiler.plotting_scripts.duration_timeseries import (
@@ -113,6 +114,7 @@ __all__ = [
     "_unique_labels",
     "_write_csv",
     "_write_json",
+    "_write_parquet",
     "available_likwid_metrics",
     "available_perf_event_metrics",
     "collect_region_statistics",

@@ -16,6 +16,7 @@ from scope_profiler.plotting_scripts._utils import (
     _unique_labels,
     _write_csv,
     _write_json,
+    _write_parquet,
 )
 from scope_profiler.results import ProfilingResults
 
@@ -137,7 +138,8 @@ def plot_flame_chart(
                             call["exclusive_duration"],
                         ],
                     )
-            _write_csv(
+            writer = _write_parquet if data_format == "parquet" else _write_csv
+            writer(
                 data_filepath,
                 [
                     "file",
@@ -463,7 +465,8 @@ def plot_flame_graph(
                 "inclusive_duration_seconds",
                 "exclusive_duration_seconds",
             ]
-            _write_csv(
+            writer = _write_parquet if data_format == "parquet" else _write_csv
+            writer(
                 data_filepath,
                 headers,
                 [[row[key] for key in headers] for row in rows],
