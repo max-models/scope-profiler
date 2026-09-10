@@ -9,6 +9,15 @@ export interface PlotlyLike {
     layout: object,
     config?: object,
   ): unknown;
+  /** Used by `updateFigure` when present, to keep the viewer's zoom and pan. */
+  react?(
+    element: Element | string,
+    data: object[],
+    layout: object,
+    config?: object,
+  ): unknown;
+  /** Tear a figure down and release its resources. */
+  purge?(element: Element | string): unknown;
 }
 export type PlotKind =
   | "gantt"
@@ -38,8 +47,17 @@ export interface ThemeTokens {
   neutral?: string;
 }
 export interface BuildOptions {
+  /** Region or series name to colour. Falls back to the payload's `colors`. */
   colors?: Record<string, string>;
+  /**
+   * Drop rows before they are drawn. The first argument is always the name
+   * being filtered, but the second is the record the builder is walking, and
+   * that differs by figure: a row of the payload's own array for most of them,
+   * a node (`{ name, depth, ... }`) or a call for `buildCallgraphFigure`, and
+   * the region's statistics object for the region_statistics builders.
+   */
   filterRegion?: (region: string, row: object) => boolean;
+  /** Merged over the generated layout, last. */
   layout?: object;
   metric?: string;
   xField?: string;
@@ -54,7 +72,14 @@ export function resolveTheme(
 ): Required<ThemeTokens>;
 export function buildGanttFigure(
   payload: object,
-  options?: BuildOptions,
+  options?: BuildOptions & {
+    /**
+     * One lane per rank instead of one per region and rank. The compact view
+     * suits a flat profile compared across many ranks; the default keeps a
+     * nested profile legible, and matches `scope-profiler plot gantt`.
+     */
+    laneBy?: "rank" | "region";
+  },
 ): Figure;
 export function buildFlameFigure(
   payload: object,
@@ -103,6 +128,8 @@ export function buildImbalanceFigure(
   payload: object,
   options?: BuildOptions,
 ): Figure;
+/** Short metric names the region_statistics builders accept, and their fields. */
+export declare const SUMMARY_METRICS: Readonly<Record<string, string>>;
 export interface SummaryOptions {
   topN?: number;
   files?: (string | number)[];
@@ -136,9 +163,18 @@ export const PLOT_BUILDERS: Record<
   (payload: object, options?: BuildOptions) => Figure
 >;
 export function inferPlotKind(payload: object): PlotKind | undefined;
-export function validatePlotData(payload: object, options?: BuildOptions): PlotKind;
+export function validatePlotData(
+  payload: object,
+  options?: BuildOptions,
+): PlotKind;
 export function buildFigure(payload: object, options?: BuildOptions): Figure;
 export function renderFigure(
+  plotly: PlotlyLike,
+  element: Element | string,
+  figure: Figure,
+  config?: object,
+): unknown;
+export function updateFigure(
   plotly: PlotlyLike,
   element: Element | string,
   figure: Figure,

@@ -816,7 +816,13 @@ def _plot_options(args: argparse.Namespace, name: str):
             metric if name == "imbalance" and metric else imbalance_metric
         ),
         "likwid_metric": (
-            metric if name == "likwid" else getattr(args, "likwid_metric", None)
+            # `plot likwid` spells it --metric, `export plot-data` spells it
+            # --likwid-metric. Without the `and metric` guard the export always
+            # resolved to None, so `plot-data --plots likwid --likwid-metric X`
+            # passed the argument check and then failed as if X were missing.
+            metric
+            if name == "likwid" and metric
+            else getattr(args, "likwid_metric", None)
         ),
         "perf_event_metric": metric if name == "perf_events" else None,
         "speedup_x_field": getattr(args, "x", "num_ranks"),

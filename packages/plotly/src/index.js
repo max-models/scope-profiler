@@ -25,6 +25,20 @@ function colorMap(names, supplied = {}) {
   return map;
 }
 
+// Region, file and series names come from the profiled application, so a
+// hovertemplate that interpolates one is interpolating untrusted text. Plotly
+// substitutes %{...} inside a template and renders what is left as HTML, so a
+// region named "%{y}" rewrote every hover label that mentioned it, and one
+// carrying a tag injected markup into them. Escape both spellings; the result
+// is only ever used as literal text.
+function label(name) {
+  return String(name)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/%\{/g, "%&#123;");
+}
+
 function values(payload, key) {
   if (!payload || !Array.isArray(payload[key]))
     throw new TypeError(
@@ -151,7 +165,10 @@ function withEmptyState(layout, hasData) {
   if (hasData) return layout;
   return {
     ...layout,
+    // Append rather than assign: an empty payload used to discard whatever
+    // annotations the caller's own `layout` override had put here.
     annotations: [
+      ...(Array.isArray(layout.annotations) ? layout.annotations : []),
       {
         text: "No data to display.",
         showarrow: false,
@@ -161,7 +178,22 @@ function withEmptyState(layout, hasData) {
         y: 0.5,
       },
     ],
+    // A full grid with axis titles and no marks on it reads as a broken chart
+    // rather than an empty one, so the message stands on its own. Figures
+    // without cartesian axes (icicle, sankey) ignore these.
+    xaxis: { ...layout.xaxis, visible: false },
+    yaxis: { ...layout.yaxis, visible: false },
   };
+}
+
+// Pooled magnitude per region, largest first -- the order both the durations
+// bars and the heatmap columns are laid out in, and the one
+// `buildRegionSummaryFigure` has always ranked by.
+function totalsByRegion(rows, value) {
+  const totals = new Map();
+  for (const row of rows)
+    totals.set(row.region, (totals.get(row.region) ?? 0) + (value(row) ?? 0));
+  return new Map([...totals].sort((a, b) => b[1] - a[1]));
 }
 
 function filtered(rows, options) {
@@ -229,20 +261,28 @@ export function buildGanttFigure(payload, options = {}) {
     `${multi ? `${row.file ?? "run"} / ` : ""}${row.region} (rank ${row.rank ?? 0})`;
   const laneOf = options.laneBy === "rank" ? rankLane : regionLane;
   const lanes = [...new Set(intervals.map(laneOf))];
+  // A lane index rather than the lane string on every bar. The label is
+  // already in `lanes`; repeating it per interval costs one string per row and
+  // makes Plotly resolve a category for each of them, which a 200k-interval
+  // trace feels. The axis carries the names back via ticktext.
+  const laneIndex = new Map(lanes.map((lane, position) => [lane, position]));
   const data = [...byRegion].map(([region, rows]) => {
     return {
       type: "bar",
       orientation: "h",
       name: region,
-      y: rows.map(laneOf),
+      y: rows.map((row) => laneIndex.get(laneOf(row))),
       x: rows.map((row) => row.end_seconds - row.start_seconds),
       base: rows.map((row) => row.start_seconds),
+      // A categorical axis gave every bar its slot; a linear one sizes bars
+      // from the data, so the thickness has to be said out loud.
+      width: 0.8,
       marker: {
         color: colors.get(region),
         line: { color: "rgba(0, 0, 0, 0.28)", width: 0.5 },
       },
       customdata: rows.map((row) => [row.file ?? "run", row.rank ?? 0]),
-      hovertemplate: `<b>${region}</b><br>%{customdata[0]} / rank %{customdata[1]}<br>start: %{base:.6g} s<br>duration: %{x:.6g} s<extra></extra>`,
+      hovertemplate: `<b>${label(region)}</b><br>%{customdata[0]} / rank %{customdata[1]}<br>start: %{base:.6g} s<br>duration: %{x:.6g} s<extra></extra>`,
     };
   });
   const byRank = options.laneBy === "rank";
@@ -256,9 +296,10 @@ export function buildGanttFigure(payload, options = {}) {
     showlegend: byRegion.size > 1,
     xaxis: axis({ title: "Time (s)" }),
     yaxis: axis({
-      categoryorder: "array",
-      categoryarray: lanes,
-      ...(byRank ? { autorange: "reversed" } : {}),
+      tickmode: "array",
+      tickvals: lanes.map((_, position) => position),
+      ticktext: lanes,
+      range: byRank ? [lanes.length - 0.5, -0.5] : [-0.5, lanes.length - 0.5],
       showgrid: false,
     }),
     ...options.layout,
@@ -268,7 +309,7 @@ export function buildGanttFigure(payload, options = {}) {
 
 /** Build an icicle flame chart using scope-profiler's explicit call IDs. */
 export function buildFlameFigure(payload, options = {}) {
-  const { baseLayout, axis } = palette(options);
+  const { baseLayout } = palette(options);
   const allCalls = values(payload, "calls");
   const calls = filtered(allCalls, options);
   const regions = [...new Set(calls.map((call) => call.region))];
@@ -310,7 +351,7 @@ export function buildFlameFigure(payload, options = {}) {
     parents.push(anchors[index]);
     markerColors.push(colors.get(call.region));
     hovertext.push(
-      `<b>${call.region}</b><br>${call.file ?? "run"} / rank ${call.rank ?? 0}<br>start: ${call.start_seconds.toPrecision(6)} s<br>inclusive: ${duration(call).toPrecision(6)} s`,
+      `<b>${label(call.region)}</b><br>${label(call.file ?? "run")} / rank ${call.rank ?? 0}<br>start: ${call.start_seconds.toPrecision(6)} s<br>inclusive: ${duration(call).toPrecision(6)} s`,
     );
   });
   const layout = baseLayout({
@@ -356,8 +397,22 @@ export function buildDurationsFigure(payload, options = {}) {
   const groups = groupBy(bars, (bar) =>
     stacked ? bar.segment : bar.rank == null ? bar.file : `rank ${bar.rank}`,
   );
-  const regions = [...new Set(bars.map((bar) => bar.region))];
-  const colors = colorMap(groups.keys(), options.colors ?? payload.colors);
+  // Ranked by the pooled metric, so the costly regions lead. Appearance order
+  // is whatever the exporter happened to walk, which with two runs of
+  // different region sets interleaves them unpredictably.
+  const regions = [...totalsByRegion(bars, (bar) => bar.value_seconds).keys()];
+  // A group is a rank, a run, or a stacked child region depending on the
+  // export, but a caller -- and the payload's own `colors` -- keys colours by
+  // the name it knows. "rank 3" is a label this builder invents, so accept a
+  // colour supplied under the bare rank rather than silently dropping to the
+  // default cycle.
+  const supplied = options.colors ?? payload.colors ?? {};
+  const byGroup = {};
+  for (const [group, rows] of groups) {
+    const color = supplied[group] ?? supplied[rows[0].rank];
+    if (color != null) byGroup[group] = color;
+  }
+  const colors = colorMap(groups.keys(), byGroup);
   const data = [...groups].map(([group, rows]) => {
     const byRegion = new Map(
       rows.map((bar) => [bar.region, bar.value_seconds]),
@@ -371,7 +426,7 @@ export function buildDurationsFigure(payload, options = {}) {
         color: colors.get(group),
         line: { color: "rgba(0, 0, 0, 0.22)", width: 0.5 },
       },
-      hovertemplate: `<b>%{x}</b><br>${group}: %{y:.6g} s<extra></extra>`,
+      hovertemplate: `<b>%{x}</b><br>${label(group)}: %{y:.6g} s<extra></extra>`,
     };
   });
   const layout = baseLayout({
@@ -473,7 +528,7 @@ export function buildSpeedupFigure(payload, options = {}) {
       y: rows.map((row) => row[kind.yKey]),
       line: { color: colors.get(region), width: 2.4 },
       marker: { color: colors.get(region), size: 7 },
-      hovertemplate: `<b>%{x}</b><br>${region}: %{y:.3g}${kind.suffix}<extra></extra>`,
+      hovertemplate: `<b>%{x}</b><br>${label(region)}: %{y:.3g}${kind.suffix}<extra></extra>`,
     };
   });
   const baseline = payload.options?.baseline ?? xValues[0];
@@ -560,7 +615,7 @@ export function buildDurationTimeseriesFigure(payload, options = {}) {
         row.max_duration_seconds,
         row.call_index,
       ]),
-      hovertemplate: `<b>${name}</b><br>time: %{x:.6g} s<br>mean: %{y:.6g} s<br>min–max: %{customdata[0]:.4g}–%{customdata[1]:.4g} s<extra></extra>`,
+      hovertemplate: `<b>${label(name)}</b><br>time: %{x:.6g} s<br>mean: %{y:.6g} s<br>min–max: %{customdata[0]:.4g}–%{customdata[1]:.4g} s<extra></extra>`,
     };
   });
   const layout = baseLayout({
@@ -604,7 +659,7 @@ export function buildHistogramFigure(payload, options = {}) {
         line: { color: "rgba(0, 0, 0, 0.2)", width: 0.5 },
         ...(runs.multi ? { pattern: { shape: pattern, solidity: 0.35 } } : {}),
       },
-      hovertemplate: `<b>${name}</b><br>%{x:.6g} s: %{y} calls<extra></extra>`,
+      hovertemplate: `<b>${label(name)}</b><br>%{x:.6g} s: %{y} calls<extra></extra>`,
     };
   });
   const layout = baseLayout({
@@ -622,7 +677,6 @@ export function buildHistogramFigure(payload, options = {}) {
 export function buildRankHeatmapFigure(payload, options = {}) {
   const { baseLayout, axis } = palette(options);
   const points = filtered(values(payload, "points"), options);
-  const regions = [...new Set(points.map((point) => point.region))];
   const multi = new Set(points.map((point) => point.file ?? "run")).size > 1;
   // A lane per run and rank. Keying cells by rank alone silently let a second
   // run overwrite the first, showing one run's numbers under both labels.
@@ -638,6 +692,12 @@ export function buildRankHeatmapFigure(payload, options = {}) {
     : undefined;
   const valueKey =
     options.valueKey ?? inferredValueKey ?? "total_duration_seconds";
+  // Columns ranked by pooled duration rather than by the order the exporter
+  // happened to walk, which with two runs of different region sets interleaves
+  // them differently every time.
+  const regions = [
+    ...totalsByRegion(points, (point) => point[valueKey]).keys(),
+  ];
   const byCell = new Map(
     points.map((point) => [
       `${laneOf(point)}\u0000${point.region}`,
@@ -700,7 +760,7 @@ export function buildImbalanceFigure(payload, options = {}) {
         y: rows.map((row) => row.value_seconds),
         line: { color, width: 2.2 },
         marker: { color, size: 7, symbol },
-        hovertemplate: `<b>${name}</b><br>rank %{x}: %{y:.6g} s<extra></extra>`,
+        hovertemplate: `<b>${label(name)}</b><br>rank %{x}: %{y:.6g} s<extra></extra>`,
       },
       {
         type: "scatter",
@@ -730,31 +790,34 @@ export function buildDensityFigure(payload, options = {}) {
   const points = filtered(values(payload, "points"), options);
   const lane = (point) => `${point.file ?? "run"} / ${point.region}`;
   const lanes = [...new Set(points.map(lane))];
-  const starts = [
-    ...new Set(points.map((point) => point.bin_start_seconds)),
-  ].sort((a, b) => a - b);
-  const width = points.length
-    ? points[0].bin_end_seconds - points[0].bin_start_seconds
-    : 0;
+  // Each cell sits at the centre of its own bin. Deriving one bin width from
+  // the first point and applying it to every lane put the second run's cells
+  // at the wrong times whenever two runs of different length were binned into
+  // the same number of bins -- which is exactly what the exporter does.
+  const centre = (point) =>
+    (point.bin_start_seconds + point.bin_end_seconds) / 2;
+  const centres = [...new Set(points.map(centre))].sort((a, b) => a - b);
   // Occupancy is the share of the bin the region was inside, which compares
   // across runs of different length; raw seconds stay available via valueKey.
   const asFraction = (options.valueKey ?? "occupancy") === "occupancy";
+  // NUL-joined: a lane name is a file and a region, either of which may hold
+  // the ":" that used to separate the two halves of this key.
   const byCell = new Map(
-    points.map((point) => [`${lane(point)}:${point.bin_start_seconds}`, point]),
+    points.map((point) => [`${lane(point)}\u0000${centre(point)}`, point]),
   );
-  const cell = (laneName, start, pick) => {
-    const point = byCell.get(`${laneName}:${start}`);
+  const cell = (laneName, at, pick) => {
+    const point = byCell.get(`${laneName}\u0000${at}`);
     return point ? pick(point) : null;
   };
   const span = (point) => point.bin_end_seconds - point.bin_start_seconds;
   const data = [
     {
       type: "heatmap",
-      x: starts.map((start) => start + width / 2),
+      x: centres,
       y: lanes,
       z: lanes.map((laneName) =>
-        starts.map((start) =>
-          cell(laneName, start, (point) =>
+        centres.map((at) =>
+          cell(laneName, at, (point) =>
             asFraction
               ? span(point) > 0
                 ? point.occupied_seconds / span(point)
@@ -764,8 +827,8 @@ export function buildDensityFigure(payload, options = {}) {
         ),
       ),
       customdata: lanes.map((laneName) =>
-        starts.map((start) =>
-          cell(laneName, start, (point) => point.occupied_seconds),
+        centres.map((at) =>
+          cell(laneName, at, (point) => point.occupied_seconds),
         ),
       ),
       colorscale: options.colorscale ?? "Viridis",
@@ -788,6 +851,7 @@ export function buildDensityFigure(payload, options = {}) {
   return { data, layout: withEmptyState(layout, points.length > 0) };
 }
 
+/** Axis label for each field a region_statistics document stores. */
 const SUMMARY_LABELS = {
   count: "Calls",
   average_duration_seconds: "Average duration (s)",
@@ -799,10 +863,14 @@ const SUMMARY_LABELS = {
   total_duration_seconds: "Total duration (s)",
 };
 
-// The short metric names the CLI and the durations export use, mapped to the
-// field they are stored under in a region_statistics document, so a caller
-// can say "total" wherever it says "total" everywhere else.
-const SUMMARY_METRIC_ALIASES = {
+/** Short metric names accepted by the region_statistics builders.
+ *
+ * The names the CLI and the durations export use, mapped to the field they are
+ * stored under in a region_statistics document, so a caller can say "total"
+ * wherever it says "total" everywhere else. The stored field names are
+ * accepted too; exported so a page can offer the list rather than guess it.
+ */
+export const SUMMARY_METRICS = Object.freeze({
   avg: "average_duration_seconds",
   min: "min_duration_seconds",
   max: "max_duration_seconds",
@@ -811,7 +879,7 @@ const SUMMARY_METRIC_ALIASES = {
   last: "last_duration_seconds",
   std: "std_duration_seconds",
   count: "count",
-};
+});
 
 // Pick the runs to draw, in the order asked for. `files` names them by label
 // (or by index), which is how a page lets a viewer compare two runs out of a
@@ -832,9 +900,20 @@ export function buildRegionSummaryFigure(payload, options = {}) {
   const { baseLayout, axis } = palette(options);
   const files = selectFiles(values(payload, "files"), options.files);
   const metric =
-    SUMMARY_METRIC_ALIASES[options.metric] ??
+    SUMMARY_METRICS[options.metric] ??
     options.metric ??
     "total_duration_seconds";
+  // An unrecognised metric used to draw a full chart of nulls, which reads as
+  // "this run recorded nothing" rather than "that is not a metric".
+  if (!(metric in SUMMARY_LABELS))
+    throw new TypeError(
+      `Unknown region-statistics metric ${JSON.stringify(options.metric)}; expected one of ${[
+        ...Object.keys(SUMMARY_METRICS),
+        ...Object.keys(SUMMARY_LABELS),
+      ]
+        .map((name) => JSON.stringify(name))
+        .join(", ")}.`,
+    );
   const limit = options.topN ?? 20;
   const horizontal = (options.orientation ?? "h") === "h";
   const keep =
@@ -884,8 +963,8 @@ export function buildRegionSummaryFigure(payload, options = {}) {
       },
       customdata: regions.map((region) => stats[region]?.count ?? null),
       hovertemplate: horizontal
-        ? `<b>%{y}</b><br>${labels[index]}: %{x:.6g}${unit}<br>calls: %{customdata}<extra></extra>`
-        : `<b>%{x}</b><br>${labels[index]}: %{y:.6g}${unit}<br>calls: %{customdata}<extra></extra>`,
+        ? `<b>%{y}</b><br>${label(labels[index])}: %{x:.6g}${unit}<br>calls: %{customdata}<extra></extra>`
+        : `<b>%{x}</b><br>${label(labels[index])}: %{y:.6g}${unit}<br>calls: %{customdata}<extra></extra>`,
     };
   });
   const magnitudeAxis = axis({ title: SUMMARY_LABELS[metric] ?? metric });
@@ -943,7 +1022,7 @@ export function buildComparisonFigure(payload, options = {}) {
  * recursion in full.
  */
 export function buildCallgraphFigure(payload, options = {}) {
-  const { baseLayout, axis } = palette(options);
+  const { baseLayout } = palette(options);
   const compact = Array.isArray(payload?.regions);
   if (!compact && !Array.isArray(payload?.calls))
     throw new TypeError(
@@ -1044,7 +1123,7 @@ export function buildLikwidFigure(payload, options = {}) {
         color: colors.get(name),
         line: { color: "rgba(0, 0, 0, 0.22)", width: 0.5 },
       },
-      hovertemplate: `<b>%{x}</b><br>${name}: %{y:.6g}<extra></extra>`,
+      hovertemplate: `<b>%{x}</b><br>${label(name)}: %{y:.6g}<extra></extra>`,
     };
   });
   const layout = baseLayout({
@@ -1063,7 +1142,7 @@ export function buildLikwidFigure(payload, options = {}) {
 
 /** Build a log-log roofline plot from per-region LIKWID-derived rates. */
 export function buildRooflineFigure(payload, options = {}) {
-  const { baseLayout, axis } = palette(options);
+  const { theme, baseLayout, axis } = palette(options);
   const points = filtered(values(payload, "points"), options);
   const series = groupBy(points, (point) => point.file ?? "run");
   const colors = colorMap(series.keys(), options.colors ?? payload.colors);
@@ -1093,15 +1172,23 @@ export function buildRooflineFigure(payload, options = {}) {
       name: payload.empirical_ceilings ? "empirical roof" : "roofline",
       x: roof.map((point) => point.arithmetic_intensity_flops_per_byte),
       y: roof.map((point) => point.performance_gflops),
-      line: { color: "#111", width: 2, dash: "dash" },
+      // The one line in the package that used to be a fixed near-black, which
+      // is invisible on the dark theme this builder otherwise honours.
+      line: { color: theme.text ?? theme.neutral, width: 2, dash: "dash" },
       hovertemplate:
         "intensity: %{x:.6g} FLOP/byte<br>ceiling: %{y:.6g} GFLOP/s<extra></extra>",
     });
   }
   const layout = baseLayout({
-    title: payload.empirical_ceilings
-      ? "Roofline analysis (empirical ceilings)"
-      : "Roofline analysis",
+    title: {
+      text: payload.empirical_ceilings
+        ? "Roofline analysis (empirical ceilings)"
+        : "Roofline analysis",
+      ...(theme.text ? { font: { color: theme.text } } : {}),
+    },
+    // This is the one figure that carries a title, and baseLayout's 32px top
+    // margin is sized for the seventeen that do not.
+    margin: { l: 100, r: 24, t: 56, b: 64 },
     xaxis: axis({ title: "Arithmetic intensity [FLOP/byte]", type: "log" }),
     yaxis: axis({ title: "Attained performance [GFLOP/s]", type: "log" }),
     showlegend: series.size > 1 || roof.length > 0,
@@ -1209,7 +1296,9 @@ export function validatePlotData(payload, options = {}) {
     );
   if (kind === "callgraph") {
     if (!Array.isArray(payload.calls) && !Array.isArray(payload.regions))
-      throw new TypeError('Plot kind "callgraph" requires calls or regions data.');
+      throw new TypeError(
+        'Plot kind "callgraph" requires calls or regions data.',
+      );
   } else if (!Array.isArray(payload[PLOT_ARRAYS[kind]])) {
     throw new TypeError(
       `Plot kind ${JSON.stringify(kind)} requires a ${PLOT_ARRAYS[kind]} array.`,
@@ -1230,6 +1319,8 @@ export function buildFigure(payload, options = {}) {
   return builder(payload, { plot: kind, ...options });
 }
 
+const RENDER_CONFIG = { responsive: true, displaylogo: false };
+
 /** Render a figure with any Plotly-compatible bundle. */
 export function renderFigure(plotly, element, figure, config = {}) {
   if (!plotly || typeof plotly.newPlot !== "function")
@@ -1237,8 +1328,29 @@ export function renderFigure(plotly, element, figure, config = {}) {
       "renderFigure requires a Plotly-compatible object with newPlot().",
     );
   return plotly.newPlot(element, figure.data, figure.layout, {
-    responsive: true,
-    displaylogo: false,
+    ...RENDER_CONFIG,
+    ...config,
+  });
+}
+
+/** Redraw a figure into an element that already holds one.
+ *
+ * `renderFigure` builds the plot from scratch, which throws away the viewer's
+ * zoom and pan. A theme toggle, a changed filter or a new metric rebuilds the
+ * figure but should not move the view, so route those through here: it uses
+ * Plotly's `react`, and falls back to `newPlot` for a bundle without one.
+ */
+export function updateFigure(plotly, element, figure, config = {}) {
+  const draw =
+    plotly && typeof plotly.react === "function"
+      ? plotly.react
+      : plotly?.newPlot;
+  if (typeof draw !== "function")
+    throw new TypeError(
+      "updateFigure requires a Plotly-compatible object with react() or newPlot().",
+    );
+  return draw.call(plotly, element, figure.data, figure.layout, {
+    ...RENDER_CONFIG,
     ...config,
   });
 }

@@ -39,6 +39,10 @@ await renderFigure(
 );
 ```
 
+`validatePlotData(payload, options)` performs the same checks on its own and
+returns the resolved kind, for a page that wants to report a bad file rather
+than catch a build.
+
 `buildFigure` rejects a document that is not `scope-profiler-plot-data` and one
 whose `format_version` is newer than this package supports. JSON written before
 scope-profiler stamped that envelope on every kind still works: the kind is then
@@ -58,12 +62,42 @@ Common options: `colors` (region or series name to color), `filterRegion(name,
 row)` to drop rows, `layout` to merge into the generated layout, `metric` where
 a payload carries several, and `theme` (see below).
 
+`filterRegion` always receives the name being filtered first, but its second
+argument is the record the builder is walking, and that differs by figure: a
+row of the payload's own array for most of them, a node or a call for
+`buildCallgraphFigure`, and the region's statistics object for
+`buildRegionSummaryFigure` and `buildComparisonFigure`.
+
+`buildGanttFigure` also takes `laneBy`: the default `"region"` gives each
+region and rank its own lane, which is the only way a nested profile stays
+legible; `"rank"` gives the compact one-row-per-rank view, which suits a flat
+profile compared across many ranks.
+
+The region_statistics builders take `metric` as either a short name or the
+stored field: `SUMMARY_METRICS` maps `avg`, `min`, `max`, `total`, `first`,
+`last`, `std` and `count` to the fields a document stores them under, and a
+name in neither spelling is rejected rather than drawn as an empty chart.
+
 The two efficiency curves store their y column under the same name, so which
 reading a payload gets comes from the document's own `plot` field rather than
-its rows. `buildScalingEfficiencyFigure` is for a *strong*-scaling study, where
+its rows. `buildScalingEfficiencyFigure` is for a _strong_-scaling study, where
 the problem size is fixed and the ideal is a speedup proportional to the rank
 count; `buildWeakScalingEfficiencyFigure` is for one that grows the problem
 with the machine, where the ideal is constant runtime.
+
+## Rendering and redrawing
+
+`renderFigure(plotly, element, figure, config)` draws a figure with any
+Plotly-compatible bundle. `updateFigure(...)` takes the same arguments but
+redraws into an element that already holds a plot, using Plotly's `react`, so
+the viewer's zoom and pan survive. Use it for anything that rebuilds a figure
+the viewer is already looking at -- a theme toggle, a changed filter, a new
+metric -- and keep `renderFigure` for the first draw.
+
+```js
+setTheme(darkMode ? "dark" : "light");
+await updateFigure(Plotly, element, buildFigure(payload));
+```
 
 ## Themes
 

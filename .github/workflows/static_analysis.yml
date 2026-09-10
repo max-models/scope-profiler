@@ -70,6 +70,34 @@ jobs:
           pip install "ruff>=0.16,<0.17"
           ruff check .
 
+  # The one JavaScript package in the repo. Its formatting had drifted for
+  # want of a gate, and `no-unused-vars` catches the class of mistake that let
+  # two builders destructure a helper and never call it.
+  plotly:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/plotly
+    steps:
+      - name: Checkout the code
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dev dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Lint and check formatting
+        run: npm run lint
+
+      - name: Type-check the declarations
+        run: npm run check:types
+
+      - name: Test
+        run: npm test
+
   # Type checking runs in the "Testing" workflow's `typing` job, against the
   # module list in [tool.mypy]. It is a hard gate there, so it is not
   # duplicated here.
