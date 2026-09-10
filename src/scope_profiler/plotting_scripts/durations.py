@@ -22,6 +22,7 @@ from scope_profiler.plotting_scripts._utils import (
 )
 from scope_profiler.plotting_scripts.statistics import (
     _common_region_names,
+    _pooled_first_last_duration,
     _region_duration_values,
     _stats_from_values,
 )
@@ -34,7 +35,14 @@ _DURATION_METRICS: dict[str, tuple[str, str]] = {
     "min": ("min_duration_seconds", "Minimum duration per call (seconds)"),
     "max": ("max_duration_seconds", "Maximum duration per call (seconds)"),
     "total": ("total_duration_seconds", "Total duration (seconds)"),
+    "first": ("first_duration_seconds", "First call duration (seconds)"),
+    "last": ("last_duration_seconds", "Last call duration (seconds)"),
 }
+
+# Metrics that come from call order rather than from the pooled duration
+# array, and so are read off the region's own first/last call instead of
+# being computed by ``_stats_from_values``.
+_FIRST_LAST_STATS = {"first_duration_seconds": 0, "last_duration_seconds": 1}
 
 # Metrics whose bar is a sum over calls, and so can be split into self time
 # plus one segment per child region (see ``plot_durations(stack_children=)``).
@@ -58,6 +66,14 @@ def _pooled_metric_value(
     the same way it would be if the member regions' calls had all been
     recorded under one region name.
     """
+    if stat_key in _FIRST_LAST_STATS:
+        pair = _pooled_first_last_duration(
+            [run.get_region(name) for name in member_names],
+            ranks,
+        )
+        value = pair[_FIRST_LAST_STATS[stat_key]]
+        return float("nan") if value is None else float(value)
+
     parts = [
         _region_duration_values(run.get_region(name), ranks=ranks)
         for name in member_names
@@ -359,6 +375,7 @@ def plot_durations(
     exclude: list[str] | str | None = None,
     labels: Sequence[str] | None = None,
     metric: str = "total",
+    metrics: Sequence[str] | None = None,
     sort_by: str | None = None,
     top_n: int | None = None,
     combine_regions: dict[str, list[str] | str] | None = None,
@@ -385,7 +402,16 @@ def plot_durations(
         or more regex patterns (matched like ``include``); a region matching
         several groups is claimed by whichever group is listed first.
     metric : str
-        Duration metric to render (``avg``, ``min``, ``max`` or ``total``).
+        Duration metric to render (``avg``, ``min``, ``max``, ``total``,
+        ``first`` or ``last``). ``first``/``last`` are the durations of the
+        chronologically first and last call, which show how much of a
+        region's cost is one-off warmup rather than steady state.
+    metrics : Sequence[str], optional
+        Render several metrics instead of one. Each gets its own figure --
+        ``filepath`` is suffixed with the metric name, as it always was for
+        multiple metrics -- but a single ``data_filepath`` holds them all,
+        with the metric named per row, so one export can back a chart whose
+        metric the viewer switches. Overrides ``metric`` when given.
     stack_children : bool
         Split each bar into the region's own (exclusive) time plus one
         segment per region called directly from it, stacked on top of each
@@ -406,6 +432,8 @@ def plot_durations(
     -------
     list[str]
         List of filepaths that were written (empty if filepath is None).
+        With ``return_fig``, the rendered figure, or the list of figures
+        when several metrics were requested.
     """
     Canvas = _ps._get_canvas()
     runs = _as_runs(profiling_data)
@@ -414,7 +442,9 @@ def plot_durations(
         return []
     ranks = _normalize_ranks(ranks)
 
-    metric_keys = [metric]
+    metric_keys = [metric] if metrics is None else list(metrics)
+    if not metric_keys:
+        raise ValueError("metrics must name at least one duration metric.")
 
     unknown_metrics = [key for key in metric_keys if key not in _DURATION_METRICS]
     if unknown_metrics:
@@ -716,5 +746,5 @@ def plot_durations(
             _write_csv(data_filepath, header, data_rows)
 
     if return_fig:
-        return rendered_figures[0]
+        return rendered_figures if len(metric_keys) > 1 else rendered_figures[0]
     return saved_paths

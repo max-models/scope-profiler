@@ -69,6 +69,7 @@ optional-dependencies.notebook = [
 ]
 
 optional-dependencies.pproc = [
+  "flameprof",
   "ipykernel",
   "jupyterlab",
   "matplotlib",

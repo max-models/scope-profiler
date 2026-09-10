@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- `--metrics` with more than one statistic kept only the last one. Every
+  metric was plotted by its own `plot_durations` call, and each was handed the
+  same `durations_data.json` path and the same image path, so each overwrote
+  what the one before it had written. The metrics are now rendered in one
+  call, which exports all of them and gives each figure its own
+  `durations_plot_<metric>.png`.
 - The HDF5 guide now identifies schema 3 as the current Python output schema,
   and a test keeps the documented HDF5, JSON, and native format versions tied
   to their implementation constants.
@@ -50,6 +56,44 @@
 
 ### Added
 
+- **Weak-scaling efficiency.** `plot_weak_scaling_efficiency()` (and
+  `scope-profiler plot weak_scaling_efficiency`) plots baseline runtime over
+  runtime at each scale, against a flat ideal of 1.0. This is the reading a
+  weak-scaling study needs, and the existing `plot_scaling_efficiency` is not
+  it: that one divides by an ideal speedup proportional to the rank count,
+  which is right for a fixed problem size and reports a near-zero efficiency
+  that means nothing when the problem grows with the machine. Pass
+  `work_per_rank` -- one value per file, in any unit -- to have the runs
+  checked for the constant work per rank the plot assumes, rather than
+  silently comparing runs that did different amounts of it. The npm package
+  builds it as `buildWeakScalingEfficiencyFigure`.
+- `plot_durations()` takes `metrics=[...]` for several statistics in one call.
+  Each still gets its own figure, but they share one data export with the
+  metric named per row, so a single JSON can back a chart whose metric the
+  viewer switches.
+- `first` and `last` join `avg`/`min`/`max`/`total` as duration metrics, in
+  `plot_durations()` and `--metrics`: the chronologically first and last
+  call's duration, which separate one-off warmup -- JIT, allocation, the first
+  device transfer -- from steady state. `write_region_statistics_json` already
+  reported both; now they can be plotted.
+- `export_flamegraph_svg()` and `scope-profiler export flamegraph` render the
+  reconstructed call tree to a standalone SVG through
+  [flameprof](https://pypi.org/project/flameprof/) (added to the `pproc`
+  extra): the aggregated flame graph as a self-contained document with no
+  JavaScript, for a static site or a report. It carries a `viewBox` rather
+  than flameprof's fixed pixel width, so a page can inline it -- which is also
+  the only way the per-frame tooltips survive -- and scale it; `--fixed-width`
+  keeps the standalone form.
+- The npm package takes a `theme`: `"light"`, `"dark"`, or your own tokens,
+  per build call or once through `setTheme()`. It colours text, gridlines, the
+  hover surface and the dashed ideal lines. The default `auto` is what every
+  figure did before -- no text colour, a grey grid that reads on any
+  background -- so nothing changes for a page that does not ask.
+- `buildComparisonFigure` puts two runs of a `region_statistics` document side
+  by side over the regions both recorded, vertically and without a top-N cap:
+  the "what changed between these two runs?" reading of
+  `buildRegionSummaryFigure`, which grew `files`, `orientation`,
+  `commonRegionsOnly` and short metric names (`total`, `avg`, …) to serve it.
 - CI now runs the ordinary test suite on every supported Python version
   (3.10--3.14) and adds a native macOS job for portable functionality. The
   macOS environment includes Open MPI and mpi4py so it also exercises the

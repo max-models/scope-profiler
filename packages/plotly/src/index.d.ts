@@ -22,11 +22,20 @@ export type PlotKind =
   | "speedup"
   | "weak_scaling"
   | "scaling_efficiency"
+  | "weak_scaling_efficiency"
   | "rank_heatmap"
   | "histogram"
   | "imbalance"
   | "likwid"
   | "region_statistics";
+export type ThemeName = "auto" | "light" | "dark";
+export interface ThemeTokens {
+  text?: string;
+  muted?: string;
+  grid?: string;
+  hoverBg?: string;
+  neutral?: string;
+}
 export interface BuildOptions {
   colors?: Record<string, string>;
   filterRegion?: (region: string, row: object) => boolean;
@@ -36,7 +45,12 @@ export interface BuildOptions {
   ideal?: boolean;
   rootLabel?: string;
   plot?: PlotKind;
+  theme?: ThemeName | ThemeTokens;
 }
+export function setTheme(theme?: ThemeName | ThemeTokens): void;
+export function resolveTheme(
+  theme?: ThemeName | ThemeTokens,
+): Required<ThemeTokens>;
 export function buildGanttFigure(
   payload: object,
   options?: BuildOptions,
@@ -58,6 +72,10 @@ export function buildWeakScalingFigure(
   options?: BuildOptions,
 ): Figure;
 export function buildScalingEfficiencyFigure(
+  payload: object,
+  options?: BuildOptions,
+): Figure;
+export function buildWeakScalingEfficiencyFigure(
   payload: object,
   options?: BuildOptions,
 ): Figure;
@@ -84,9 +102,19 @@ export function buildImbalanceFigure(
   payload: object,
   options?: BuildOptions,
 ): Figure;
+export interface SummaryOptions {
+  topN?: number;
+  files?: (string | number)[];
+  orientation?: "h" | "v";
+  commonRegionsOnly?: boolean;
+}
 export function buildRegionSummaryFigure(
   payload: object,
-  options?: BuildOptions & { topN?: number },
+  options?: BuildOptions & SummaryOptions,
+): Figure;
+export function buildComparisonFigure(
+  payload: object,
+  options?: BuildOptions & SummaryOptions,
 ): Figure;
 export function buildCallgraphFigure(
   payload: object,

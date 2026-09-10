@@ -80,6 +80,7 @@ if TYPE_CHECKING:
     from scope_profiler.inspection import collect_file_metadata, inspect_file
     from scope_profiler.plotting_scripts import (
         collect_region_statistics,
+        collect_roofline_points,
         plot_duration_timeseries,
         plot_durations,
         plot_flame,
@@ -88,12 +89,19 @@ if TYPE_CHECKING:
         plot_gantt,
         plot_perf_events,
         plot_rank_heatmap,
+        plot_roofline,
         plot_scaling_efficiency,
         plot_speedup,
         plot_weak_scaling,
+        plot_weak_scaling_efficiency,
         write_region_statistics_json,
     )
-    from scope_profiler.prof_export import export_prof, load_prof, to_pstats
+    from scope_profiler.prof_export import (
+        export_flamegraph_svg,
+        export_prof,
+        load_prof,
+        to_pstats,
+    )
     from scope_profiler.speedscope_export import export_speedscope
 
 __all__ = [
@@ -122,8 +130,10 @@ __all__ = [
     "call_stack_roots",
     "collect_file_metadata",
     "collect_region_statistics",
+    "collect_roofline_points",
     "create_html_report",
     "export_chrome_trace",
+    "export_flamegraph_svg",
     "export_json",
     "export_prof",
     "export_speedscope",
@@ -143,9 +153,11 @@ __all__ = [
     "plot_gantt",
     "plot_perf_events",
     "plot_rank_heatmap",
+    "plot_roofline",
     "plot_scaling_efficiency",
     "plot_speedup",
     "plot_weak_scaling",
+    "plot_weak_scaling_efficiency",
     "profile",
     "profile_mpi4py",
     "profile_mpi_comm",
@@ -168,6 +180,7 @@ def __getattr__(name: str) -> Any:
     """Load optional top-level helpers only when they are first used."""
     if name in {
         "collect_region_statistics",
+        "collect_roofline_points",
         "plot_duration_timeseries",
         "plot_durations",
         "plot_flame",
@@ -175,15 +188,21 @@ def __getattr__(name: str) -> Any:
         "plot_flame_graph",
         "plot_gantt",
         "plot_rank_heatmap",
+        "plot_roofline",
         "plot_perf_events",
         "plot_scaling_efficiency",
         "plot_speedup",
         "plot_weak_scaling",
+        "plot_weak_scaling_efficiency",
         "write_region_statistics_json",
     }:
         from scope_profiler import plotting_scripts
 
         return getattr(plotting_scripts, name)
+    if name == "export_flamegraph_svg":
+        from scope_profiler.prof_export import export_flamegraph_svg
+
+        return export_flamegraph_svg
     if name == "export_prof":
         from scope_profiler.prof_export import export_prof
 

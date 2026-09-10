@@ -411,7 +411,7 @@ scope-profiler plot perf_events perf_events_example.h5 \
 
 | Flag                 | Plot(s)    | Description                                      |
 | -------------------- | ---------- | ------------------------------------------------- |
-| `--metrics`          | durations  | Duration statistics to draw as bar columns: any of `avg`, `min`, `max`, `total` (default: `total`) |
+| `--metrics`          | durations  | Duration statistics to draw as bar columns: any of `avg`, `min`, `max`, `total`, `first`, `last` (default: `total`). `first` and `last` are the chronologically first and last call's duration, which separate one-off warmup -- JIT, allocation, the first device transfer -- from steady state |
 | `--sort-by`           | durations, likwid | Order the bar chart's regions by this statistic, descending (`name` sorts alphabetically). Default: order of first appearance |
 | `--top-n`             | durations, likwid | Keep only the top N regions after `--sort-by` |
 | `--combine-regions`   | durations  | Merge several regions into one bar: `NAME=PATTERN1,PATTERN2` (repeat once per group). Region names are matched against the comma-separated regexes like `--include`; a region matched by more than one group is claimed by whichever group is listed first |
@@ -420,7 +420,8 @@ scope-profiler plot perf_events perf_events_example.h5 \
 | `--bins`             | histogram  | Number of duration bins (default: 30) |
 | `--metric`           | imbalance  | Per-call duration statistic plotted per rank: any of `avg`, `min`, `max`, `total` (default: `total`) |
 | `--metric`           | likwid     | Name of the LIKWID derived metric or raw event to plot, e.g. `CPI`, `MFlops/s` |
-| `--x`                | speedup    | X-axis: `num_ranks` (default), `omp_num_threads`, `total_cores`, or any other metadata field |
+| `--x`                | speedup, weak_scaling, weak_scaling_efficiency, scaling_efficiency | X-axis: `num_ranks` (default), `omp_num_threads`, `total_cores`, or any other metadata field |
+| `--work-per-rank`    | weak_scaling_efficiency | Work per rank in each file, in the order the files are given, in any unit (grid cells, particles, unknowns). Checked to be equal across the files: weak-scaling efficiency compares runs that each do the same work, so unequal values are an error rather than a misleading curve |
 
 When `-o/--output` is supplied, the CLI saves one `<name>_plot.png` per plot
 selected by the plot kind or preset (`durations_plot.png` becomes one
@@ -431,7 +432,8 @@ passed. With `--backend plotly` the plots are written as `.html` instead of
 `.png`.
 
 The `plotext` backend is available for simple plots (`durations`, `timeseries`,
-`speedup`, `weak_scaling`, `scaling_efficiency`, `histogram`, and `imbalance`).
+`speedup`, `weak_scaling`, `weak_scaling_efficiency`, `scaling_efficiency`,
+`histogram`, and `imbalance`).
 It writes plain terminal renderings as `.txt` files. Complex plots such as
 Gantt charts, flame charts, flame graphs, heatmaps, and LIKWID charts remain on the
 Matplotlib or Plotly backends.
@@ -496,6 +498,38 @@ reconstructed from timestamp containment, exactly as the flame chart does. So:
 
 The same data is available in memory, without writing a file, through
 `scope_profiler.to_pstats()`, which returns a `pstats.Stats` per rank.
+
+### Exporting a flame graph as SVG
+
+`export flamegraph` renders the same reconstructed call tree as a standalone
+SVG, through [flameprof](https://pypi.org/project/flameprof/) (part of the
+`pproc` extra):
+
+```bash
+scope-profiler export flamegraph profiling_data.h5 -o figures
+```
+
+This is the aggregated view --- every call of a region below one parent is a
+single frame, sized by cumulative time --- the same thing `plot flame_graph`
+draws, but as a self-contained document with no JavaScript and no plotting
+stack, which is what a static site or an emailed report wants. Hovering a
+frame reports its percentage, call count, `tottime` and `cumtime`.
+
+One file is written per exported rank (`flamegraph_rank0.svg`, …; only the
+ranks selected with `-r/--ranks`, default rank 0), prefixed with the input
+file's stem when several HDF5 files are passed. `--no-call-paths` merges every
+call of a region into one frame, as for `export prof`.
+
+By default the SVG carries a `viewBox` rather than a fixed pixel size, and no
+XML prolog, so a page can inline it and scale it to whatever element holds it
+--- inlining being the only way the per-frame tooltips survive, since an
+`<img>` renders the SVG without its hover handlers. Pass `--fixed-width` for a
+standalone file instead, `--width` to change the aspect ratio and the point at
+which frame labels are elided, and `--threshold` to drop frames below a share
+of total time (default: 0.1%).
+
+The same rendering is available from Python as
+`scope_profiler.export_flamegraph_svg()`.
 
 ### Exporting to JSON
 
