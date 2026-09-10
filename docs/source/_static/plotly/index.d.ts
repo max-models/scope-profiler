@@ -136,7 +136,10 @@ export const PLOT_BUILDERS: Record<
   (payload: object, options?: BuildOptions) => Figure
 >;
 export function inferPlotKind(payload: object): PlotKind | undefined;
-export function validatePlotData(payload: object, options?: BuildOptions): PlotKind;
+export function validatePlotData(
+  payload: object,
+  options?: BuildOptions,
+): PlotKind;
 export function buildFigure(payload: object, options?: BuildOptions): Figure;
 export function renderFigure(
   plotly: PlotlyLike,

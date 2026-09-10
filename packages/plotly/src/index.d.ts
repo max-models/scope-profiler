@@ -190,7 +190,10 @@ export interface HeatmapPayload extends PayloadBase {
   points: HeatmapPoint[];
 }
 export type ScalingKind =
-  "speedup" | "weak_scaling" | "scaling_efficiency" | "weak_scaling_efficiency";
+  | "speedup"
+  | "weak_scaling"
+  | "scaling_efficiency"
+  | "weak_scaling_efficiency";
 export interface ScalingPayload extends PayloadBase {
   plot?: ScalingKind;
   points: ScalingPoint[];

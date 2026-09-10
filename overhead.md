@@ -1,5 +1,3 @@
-
-
 # Profiling overhead
 
 > **Install for this page:** `pip install "scope-profiler[pproc]"`; the
@@ -15,7 +13,7 @@ The benchmark script (`examples/benchmark_overhead.py`) times a small
 workload function through each profiling mode and subtracts the bare
 function-call baseline to isolate the overhead.
 
-``` bash
+```bash
 python examples/benchmark_overhead.py          # save figure
 python examples/benchmark_overhead.py --show   # display interactively
 ```
@@ -26,13 +24,13 @@ type](../_static/figures/benchmark_overhead.png)
 ## Results summary
 
 | Region type      | Overhead / call |
-|------------------|----------------:|
+| ---------------- | --------------: |
 | **Disabled**     |         ~0.1 µs |
 | **TimeOnly**     |        ~0.33 µs |
 | **LineProfiler** |          ~50 µs |
 
-*(Numbers measured on an Apple M-series CPU; absolute values will vary,
-but the relative ordering is stable.)*
+_(Numbers measured on an Apple M-series CPU; absolute values will vary,
+but the relative ordering is stable.)_
 
 ## What this means for HPC
 
@@ -62,17 +60,17 @@ The numbers above are benchmarks. What keeps them from drifting is a
 separate set of budgets in the test suite, run with the `overhead`
 marker:
 
-``` bash
+```bash
 pytest -m overhead                 # per-call, write, and read budgets
 pytest -s -m overhead              # ...printing every measurement
 pytest src/scope_profiler/tests/test_storage_size.py -s   # file size
 ```
 
-| module | covers |
-|----|----|
-| `test_overhead.py` | per-call cost of each region type, region lookup, source capture, buffer growth, nesting depth |
-| `test_overhead_io.py` | `finalize()` write cost, publication packing, read cost, summary-only reads, the timestamp codec |
-| `test_storage_size.py` | bytes per event, the fixed floor, scaling in events/ranks/regions, compression ratios |
+| module                 | covers                                                                                           |
+| ---------------------- | ------------------------------------------------------------------------------------------------ |
+| `test_overhead.py`     | per-call cost of each region type, region lookup, source capture, buffer growth, nesting depth   |
+| `test_overhead_io.py`  | `finalize()` write cost, publication packing, read cost, summary-only reads, the timestamp codec |
+| `test_storage_size.py` | bytes per event, the fixed floor, scaling in events/ranks/regions, compression ratios            |
 
 The budgets sit roughly an order of magnitude above what an idle laptop
 measures, so a loaded CI machine still passes while a structural
@@ -84,7 +82,7 @@ estimator for a cost: noise can only ever add time.
 The **scaling** assertions matter more than the absolute ones, and are
 the reason the suite catches things a benchmark would not. An absolute
 budget can only catch a change large enough to blow it; a ratio between
-the same measurement at two sizes catches a change in the *shape* of the
+the same measurement at two sizes catches a change in the _shape_ of the
 cost. For example, a summary-only read of a ten-times-larger profile
 must cost about the same (measured: 1.0x), which is what proves it never
 touches the event columns.
@@ -100,7 +98,7 @@ so a write that scales badly stalls every rank.
 Measured on an idle laptop, jittered synthetic data:
 
 |                                      |                       cost |
-|--------------------------------------|---------------------------:|
+| ------------------------------------ | -------------------------: |
 | write, 100,000 events                |               ~93 ns/event |
 | write, 10,000 events                 |              ~510 ns/event |
 | write with `hdf5_compression="auto"` |        ~2x the plain write |
@@ -113,7 +111,7 @@ Measured on an idle laptop, jittered synthetic data:
 `examples/benchmark_io.py` measures all of these, and `--scaling` sweeps
 the rank count so the per-rank cost can be checked for flatness:
 
-``` bash
+```bash
 python examples/benchmark_io.py --scaling 8,32,128
 python examples/benchmark_io.py --json          # to diff between revisions
 ```

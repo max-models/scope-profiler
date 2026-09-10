@@ -121,7 +121,7 @@
   `test_storage_size.py` covers bytes per event, the fixed floor, and how both
   scale with events, ranks and regions; file size is deterministic, so its
   budgets are tight rather than an order of magnitude clear. Alongside the
-  absolute budgets each module asserts *scaling* --- a ratio between the same
+  absolute budgets each module asserts _scaling_ --- a ratio between the same
   measurement at two sizes --- which is what catches a change in the shape of
   a cost rather than only one large enough to blow a budget.
 - `hdf5_compression="auto"` compresses a run's event columns only once it is

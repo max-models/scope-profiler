@@ -14,8 +14,11 @@ colors when more categories need distinct hues than the eight-color palette.
 
 ```js
 import {
-  createFigureBuilder, createColorRegistry, getPointIdentity,
-  updateFigure, disposeFigure,
+  createFigureBuilder,
+  createColorRegistry,
+  getPointIdentity,
+  updateFigure,
+  disposeFigure,
 } from "@scope-profiler/plotly";
 
 const build = createFigureBuilder({

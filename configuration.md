@@ -1,5 +1,3 @@
-
-
 # Configuration
 
 > **Install for this page:** `pip install scope-profiler`. The
@@ -18,7 +16,7 @@ sessions](#multiple-sessions).
 Instantiate a manager when two profiling sessions need to coexist. Calls
 must be made through the manager that should receive the event:
 
-``` python
+```python
 from scope_profiler import ProfileManager
 
 compute_profiler = ProfileManager()
@@ -40,7 +38,7 @@ session.
 The sessions above coexist by nesting distinct managers in one execution
 thread. Setting up and finalizing a session is still a single-threaded
 operation: do not enter or finalize profiling sessions concurrently from
-Python threads. Profiling *regions* from several threads is supported —
+Python threads. Profiling _regions_ from several threads is supported —
 see {doc}`concurrency` — but that is a property of `track_threads`, not
 of multiple managers.
 
@@ -52,11 +50,11 @@ their existing behavior.
 
 ## `ProfileManager.setup()` parameters
 
-| Parameter | Type | Default | Description |
-|----|----|----|----|
-| `deactivate_profiling` | `bool` | `False` | Master switch. When `True`, all regions become no-ops with near-zero cost. |
-| `use_likwid` | `bool` | `False` | Wrap regions with LIKWID marker API calls for hardware counter collection. Requires `pylikwid`. |
-| `perf_events` | `list[str]` or `None` | `None` | Collect selected Linux `perf_event_open` counts per region. |
+| Parameter              | Type                  | Default | Description                                                                                     |
+| ---------------------- | --------------------- | ------- | ----------------------------------------------------------------------------------------------- |
+| `deactivate_profiling` | `bool`                | `False` | Master switch. When `True`, all regions become no-ops with near-zero cost.                      |
+| `use_likwid`           | `bool`                | `False` | Wrap regions with LIKWID marker API calls for hardware counter collection. Requires `pylikwid`. |
+| `perf_events`          | `list[str]` or `None` | `None`  | Collect selected Linux `perf_event_open` counts per region.                                     |
 
 For the richer counter backend, install `scope-profiler[perf-events]`.
 It uses `py-perf-event` when every selected event is supported by that
@@ -111,7 +109,7 @@ The settings in the table above are also the fields of
 `ProfilingOptions`, which holds a set of them so they can be built away
 from the call site and reused across runs:
 
-``` python
+```python
 from scope_profiler import ProfileManager, ProfilingOptions
 
 options = ProfilingOptions(use_likwid=True, buffer_limit=8192)
@@ -126,7 +124,7 @@ on it, which in turn wins over a `config_path` TOML file.
 The settings that share a prefix – the Memray, GPU and HDF5 ones – can
 also be given as groups, which spell them without the prefix:
 
-``` python
+```python
 from scope_profiler import GPUOptions, HDF5Options, MemrayOptions, ProfilingOptions
 
 options = ProfilingOptions(
@@ -145,7 +143,7 @@ raises `ValueError` rather than picking a winner.
 `setup(config_path=...)` reads the same settings from a `[profiling]`
 table, flat or grouped into the matching sub-tables:
 
-``` toml
+```toml
 [profiling]
 file_path = "run.h5"
 buffer_limit = 8192
@@ -166,7 +164,7 @@ to keep the write cheap rather than the file small.
 **Small profiles are packed on publication.** HDF5 gives every growable
 dataset chunked storage, and a full chunk plus its index is allocated as
 soon as the first element is written — which for a profile with a
-handful of events *is* the file. The finished file is rewritten with
+handful of events _is_ the file. The finished file is rewritten with
 those datasets stored contiguously, which takes a one-region run from
 193 KiB to 17 KiB. Nothing to configure; files too large for it to
 matter are left alone.
@@ -182,7 +180,7 @@ effective here.
 once it is large enough for the saving to repay the write CPU, and
 leaves small ones alone:
 
-``` python
+```python
 ProfileManager.setup(hdf5_compression="auto")
 ```
 
@@ -192,7 +190,7 @@ Two numbers describe any profile: a fixed cost that does not depend on
 the run, and a marginal cost per recorded call.
 
 |                                      |        size |
-|--------------------------------------|------------:|
+| ------------------------------------ | ----------: |
 | fixed floor (one region, one call)   |   ~15.7 KiB |
 | per event, uncompressed              | ~16.3 bytes |
 | per event, `hdf5_compression="auto"` |  ~3.1 bytes |
@@ -213,7 +211,7 @@ Measured end to end on a 100,000-event profile, against 3313 KiB for the
 same run before any of this:
 
 |                           | size     |      |
-|---------------------------|----------|------|
+| ------------------------- | -------- | ---- |
 | default                   | 3180 KiB | 1.0x |
 | `hdf5_compression="auto"` | 142 KiB  | 23x  |
 
@@ -236,7 +234,7 @@ call actually stores. Compressed, it steps down sharply once the run
 crosses the threshold at which `"auto"` starts applying a filter — below
 it the two curves are the same file. Regenerate it with:
 
-``` bash
+```bash
 python examples/benchmark_io.py --scaling 2,8,32,128 --figure figures
 ```
 
@@ -257,7 +255,7 @@ The default remains contiguous and uncompressed, which minimizes write
 CPU cost for small profiles. Large traces can trade some CPU time for
 smaller files and chunk-addressable reads:
 
-``` python
+```python
 ProfileManager.setup(
     hdf5_compression="gzip",
     hdf5_compression_level=4,
@@ -271,11 +269,11 @@ compresses less. Both use HDF5’s byte-shuffle filter, which is
 particularly effective for nearby `int64` timestamps. Zstandard is
 available through the optional filter plugin:
 
-``` bash
+```bash
 pip install "scope-profiler[compression]"
 ```
 
-``` python
+```python
 ProfileManager.setup(
     hdf5_compression="zstd",
     hdf5_compression_level=3,
@@ -306,10 +304,10 @@ is created – not once per region, and not on any later call. Measured
 cost tracks that file’s **total size**, not the size or number of the
 regions it defines:
 
-| File | Cost, 1 rank | Cost per rank, 64 ranks (shared, oversubscribed node) |
-|----|----|----|
-| Typical, a few hundred lines | \< 1 ms | a few ms |
-| ~10,000 lines, ~1,000 regions (one spanning 3,000 lines) | ~0.3 s | ~2.9 s |
+| File                                                     | Cost, 1 rank | Cost per rank, 64 ranks (shared, oversubscribed node) |
+| -------------------------------------------------------- | ------------ | ----------------------------------------------------- |
+| Typical, a few hundred lines                             | \< 1 ms      | a few ms                                              |
+| ~10,000 lines, ~1,000 regions (one spanning 3,000 lines) | ~0.3 s       | ~2.9 s                                                |
 
 The per-region text itself is cheap to extract even when huge (~0.1 ms
 for a 3,000-line block) – the file-wide parse dominates. Every rank pays
@@ -318,7 +316,7 @@ idle cores it compounds under contention; at rank counts within the idle
 core count (1–8 ranks, above), it stays flat. For a typical, modestly
 sized codebase this is negligible either way – turn it on with:
 
-``` python
+```python
 ProfileManager.setup(capture_region_source=True)
 ```
 
@@ -328,7 +326,7 @@ Post-processing names a run after its output file: `run_a.h5` becomes
 `run_a` in chart legends, summary headings and the JSON statistics.
 `label` overrides that with something you choose:
 
-``` python
+```python
 ProfileManager.setup(file_path="run_a.h5", label="128 ranks")
 ```
 
@@ -345,14 +343,14 @@ post-processing actually prints.
 ## Profiling modes
 
 Every active region records nanosecond timestamps; the remaining flags
-decide what it records *on top* of them. This **strategy dispatch**
+decide what it records _on top_ of them. This **strategy dispatch**
 picks the region class once, at `setup()`, so there are no runtime
 conditionals in the hot path:
 
 | Flags                  | Region class            | What it records           |
-|------------------------|-------------------------|---------------------------|
+| ---------------------- | ----------------------- | ------------------------- |
 | `deactivate_profiling` | `DisabledProfileRegion` | Nothing (profiling off)   |
-| *(defaults)*           | `TimeOnlyProfileRegion` | Timestamps                |
+| _(defaults)_           | `TimeOnlyProfileRegion` | Timestamps                |
 | `use_likwid`           | `FullProfileRegion`     | Timestamps + LIKWID       |
 | `use_line_profiler`    | `LineProfilerRegion`    | Timestamps + line-by-line |
 | `use_nvtx`             | `NVTXProfileRegion`     | Timestamps + NVTX ranges  |
@@ -390,7 +388,7 @@ was only ever one sensible answer:
 With the default class-level manager, you can leave all instrumentation
 in place and simply flip the master switch:
 
-``` python
+```python
 import os
 from scope_profiler import ProfileManager
 
@@ -404,7 +402,7 @@ ProfileManager.setup(
 Set `recursive_profile=True` to record Python function calls made inside
 decorated functions:
 
-``` python
+```python
 ProfileManager.setup(recursive_profile=True)
 
 @ProfileManager.profile("entry")
@@ -426,7 +424,7 @@ trivial no-ops, adding only the cost of a Python function call (~0.1
 Calling `setup()` again resets all existing regions and applies the new
 configuration:
 
-``` python
+```python
 ProfileManager.setup(file_path="run_a.h5")
 # ... profile some code ...
 ProfileManager.finalize()
