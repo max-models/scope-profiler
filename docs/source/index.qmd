@@ -71,6 +71,7 @@ guide/hdf5_and_python_api
 guide/plot_cli
 guide/plotly_package
 guide/dashboard
+guide/try_it
 guide/mcp
 guide/notebook_magics
 guide/mpi

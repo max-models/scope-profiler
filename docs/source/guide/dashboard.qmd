@@ -10,7 +10,8 @@ a filter box.
 
 Nothing here is a framework. The output is static JSON and the input is a
 `<div>`, so the same recipe works under Astro, Eleventy, Next, or a hand-written
-`index.html` served from a bucket.
+`index.html` served from a bucket. See {doc}`try_it` for the smallest possible
+version: a drag-and-drop page with no build step at all.
 
 ## One command for a run's data
 
