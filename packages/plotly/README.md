@@ -1,5 +1,100 @@
 # @scope-profiler/plotly
 
+## Validation, updates, and linked charts
+
+Builders validate consumed records, including finite numbers and interval order.
+Errors identify the array, row index, and field. `validatePlotData()` also checks
+the envelope; unknown additional fields remain compatible. Present format
+versions must be positive integers. Duplicate heatmap/bar cells and call IDs
+are errors; aggregate repeated measurements before building a figure.
+
+`createColorRegistry(names, overrides)` returns an immutable name-to-color map.
+Default colors are also stable across filtering and row ordering. Use explicit
+colors when more categories need distinct hues than the eight-color palette.
+
+```js
+import {
+  createFigureBuilder, createColorRegistry, getPointIdentity,
+  updateFigure, disposeFigure,
+} from "@scope-profiler/plotly";
+
+const build = createFigureBuilder({
+  theme: "dark",
+  colors: createColorRegistry(["solve", "assemble"]),
+  layout: { uirevision: "profile-123" },
+});
+await updateFigure(Plotly, element, build(payload));
+element.on("plotly_click", ({ points }) => {
+  const identity = getPointIdentity(points[0]);
+  // identity: { region, file, rank, call_id }; unavailable fields are null.
+  if (identity) console.log(identity.region);
+});
+// On unmount:
+disposeFigure(Plotly, element);
+```
+
+`createFigureBuilder()` snapshots defaults without modifying global theme state.
+Nested layout objects merge, while arrays replace. Keep `layout.uirevision`
+constant to retain zoom during `updateFigure()`; change it to reset the view.
+The fallback to `newPlot()` for bundles without `react()` cannot preserve zoom.
+`disposeFigure()` requires a bundle with `purge()`.
+
+Data-bearing traces expose `customdata.identity`; existing numeric hover
+fields are available as numeric keys on the same object. Reference/ideal lines
+have no selection identity. Imbalance means and time-series variability traces
+share their measured series' legend group.
+
+## Variability and comparisons
+
+`buildDurationTimeseriesFigure(payload, { variability: "band" })` displays a
+min/max band; `"error"` displays asymmetric error bars. Missing bounds produce
+gaps, and the default `"none"` retains the mean curve alone.
+
+`buildComparisonFigure(payload, { comparison: "absolute" | "percent" })`
+subtracts the first selected run from the second. `files` selects exactly two
+runs, `metric` selects a statistic, and `sortBy: "regression"` (default) sorts
+largest increases first; `"name"` sorts alphabetically. Percentage changes use
+the first run as denominator. Missing measurements and zero percentage
+baselines produce null values and `figure.diagnostics`, never invented zeros.
+The default `"side-by-side"` mode retains grouped bars. Higher values are not
+necessarily worse for every metric; interpret the sign for your chosen metric.
+
+## Graph and density semantics
+
+Flame figures reject ancestry cycles. Sankey figures remove edges that would
+introduce a cycle after region aggregation and report them in
+`figure.diagnostics`. Compact graph edges prefer `edge[valueKey]`, then
+`edge.value`. A child total is used only when the original graph has exactly
+one incoming non-self edge, with an explicit inference diagnostic. Unattributable
+weights are omitted with a diagnostic. Zero measured weights stay zero.
+
+Density figures with unequal grids use separate lane traces and exact bin
+edges; gaps remain empty and overlapping bins are rejected. Raw-seconds traces
+share one color range across lanes.
+
+## Development checks
+
+```sh
+npm ci
+npm run lint
+npm run check:types
+npm run test:coverage # Node 24 (CI runtime)
+npx playwright install chromium
+npm run test:browser
+npm run sync:asset
+```
+
+The browser suite renders exporter fixtures in light/dark themes and checks
+hover text, zoom retention, teardown, and a deterministic large timeline. It
+writes screenshots and build/render/heap measurements to `test-results`.
+The broad timing limits detect catastrophic regressions, not small speedups.
+
+For measured optimization, run the repository benchmark workflow using
+`packages/plotly/benchmarks/benchmark.toml`. It performs warmups and five runs,
+records medians and variation, and runs the package tests as correctness checks.
+`npm run benchmark` also prints per-build timings and process memory for the
+fixed 8,192-cell workload. Keep optimizations only after comparison says `keep`.
+
 Pure, framework-neutral Plotly figure builders for JSON written by
 `scope-profiler export plot-data --format json`. The package does not import
 Plotly; applications choose their own Plotly bundle.

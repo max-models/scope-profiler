@@ -2004,6 +2004,108 @@ def test_post_processing_cli_export_plot_data_without_images(tmp_path):
     assert list(output_dir.glob("*.png")) == []
 
 
+def test_plot_data_with_writes_the_companion_exports_a_dashboard_embeds(tmp_path):
+    """`--with` saves a second and third pass over the same profiles.
+
+    A page that shows a call tree and a timeline next to the charts used to
+    need three `scope-profiler export` invocations reading the same files.
+    """
+    profile = tmp_path / "run.h5"
+    output_dir = tmp_path / "figures"
+    # The .prof and speedscope exports reconstruct a call tree, so the sample
+    # has to be properly nested; the flat one raises NestingError by design.
+    _write_sample_h5(profile, _nested_file_data(2))
+
+    export_main(
+        [
+            "plot-data",
+            str(profile),
+            "-o",
+            str(output_dir),
+            "--format",
+            "json",
+            "--plots",
+            "gantt",
+            "--with",
+            "prof",
+            "speedscope",
+        ],
+    )
+
+    assert (output_dir / "gantt_data.json").exists()
+    assert (output_dir / "profile.speedscope.json").exists()
+    assert list(output_dir.glob("profile*.prof")), "no .prof written"
+    # A companion is opt-in: the same export without --with writes plot data
+    # only, which is what every existing caller relies on.
+    plain = tmp_path / "plain"
+    export_main(
+        [
+            "plot-data",
+            str(profile),
+            "-o",
+            str(plain),
+            "--format",
+            "json",
+            "--plots",
+            "gantt",
+        ],
+    )
+    assert not list(plain.glob("profile*"))
+
+
+def test_plot_data_with_all_skips_a_companion_whose_extra_is_missing(
+    tmp_path, monkeypatch
+):
+    """Asking for everything means whatever this install can produce.
+
+    The flame graph needs the `pproc` extra. Letting its ImportError escape
+    would throw away the plot data already written, so a bare `--with` reports
+    the skip; naming the companion outright still fails, because then the
+    caller asked for that file specifically.
+    """
+    profile = tmp_path / "run.h5"
+    _write_sample_h5(profile, _nested_file_data(2))
+
+    def refuse(*args, **kwargs):
+        raise ImportError("export_flamegraph_svg needs flameprof")
+
+    monkeypatch.setattr(post_processing, "export_flamegraph_svg", refuse)
+
+    output_dir = tmp_path / "figures"
+    export_main(
+        [
+            "plot-data",
+            str(profile),
+            "-o",
+            str(output_dir),
+            "--format",
+            "json",
+            "--plots",
+            "gantt",
+            "--with",
+        ],
+    )
+    assert (output_dir / "gantt_data.json").exists()
+    assert (output_dir / "profile.speedscope.json").exists()
+    assert not (output_dir / "flamegraph.svg").exists()
+
+    with pytest.raises(ImportError):
+        export_main(
+            [
+                "plot-data",
+                str(profile),
+                "-o",
+                str(tmp_path / "named"),
+                "--format",
+                "json",
+                "--plots",
+                "gantt",
+                "--with",
+                "flamegraph",
+            ],
+        )
+
+
 def test_every_plot_data_document_carries_the_format_envelope(tmp_path):
     """The envelope is what lets a consumer dispatch on the file itself.
 

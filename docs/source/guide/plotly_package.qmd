@@ -246,6 +246,10 @@ Plotly bakes colours into the layout, so a theme change means rebuilding the
 figures, not restyling them in place. The categorical series palette is not
 themed: those eight hues are chosen to read on both backgrounds.
 
+Rebuilding means knowing which containers hold a figure and what each was built
+from. `@scope-profiler/plotly/dashboard` keeps that bookkeeping, along with a
+filter syntax for the `filterRegion` predicate -- see {doc}`dashboard`.
+
 ## Payloads with more than one run
 
 `export plot-data` accepts several profiles at once, and every row of the

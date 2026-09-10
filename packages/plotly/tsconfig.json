@@ -9,5 +9,5 @@
     "skipLibCheck": true,
     "types": []
   },
-  "include": ["src/index.d.ts", "test/types/**/*.ts"]
+  "include": ["src/index.d.ts", "src/dashboard.d.ts", "test/types/**/*.ts"]
 }

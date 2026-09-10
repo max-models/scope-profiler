@@ -15,6 +15,10 @@
     ".": {
       "types": "./src/index.d.ts",
       "default": "./src/index.js"
+    },
+    "./dashboard": {
+      "types": "./src/dashboard.d.ts",
+      "default": "./src/dashboard.js"
     }
   },
   "engines": {
@@ -33,10 +37,17 @@
     "test": "node --test test/*.test.js",
     "lint": "eslint src test && prettier --check src test",
     "format": "prettier --write src test",
-    "check:types": "tsc --noEmit -p tsconfig.json"
+    "check:types": "tsc --noEmit -p tsconfig.json",
+    "test:browser": "playwright test",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=src/index.js --test-coverage-lines=99 test/*.test.js",
+    "benchmark": "node benchmarks/build.mjs",
+    "sync:asset": "node scripts/sync-asset.js"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "eslint": "^9.13.0",
+    "plotly.js-dist-min": "4.1.0",
+    "plotly3": "npm:plotly.js-dist-min@3.7.0",
     "prettier": "^3.3.3",
     "typescript": "^5.6.0"
   },

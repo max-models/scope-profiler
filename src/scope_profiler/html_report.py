@@ -1148,6 +1148,8 @@ const highlightFigure = (chart, figure, region) => {
 
 const regionFromPoint = (chart, point) => {
   const regions = payloadRegions(chart.payload);
+  const identity = point.customdata?.identity;
+  if (identity && regions.has(identity.region)) return identity.region;
   const candidates = [point.label, point.x, point.y, point.data?.name,
     point.source?.label, point.target?.label];
   for (const candidate of candidates) {
@@ -1162,6 +1164,7 @@ const regionFromPoint = (chart, point) => {
 };
 
 const runFromPoint = (chart, point, region) => {
+  if (point.customdata?.identity?.file != null) return point.customdata.identity.file;
   if (Array.isArray(point.customdata) && typeof point.customdata[0] === "string") {
     return point.customdata[0];
   }

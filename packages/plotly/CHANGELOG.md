@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Validate row fields, format versions, call ancestry, and duplicate cells with
+  actionable errors. Preserve nested layout defaults and isolate theme presets.
+- Use stable colors; add `createColorRegistry()` and scoped `createFigureBuilder()`.
+- Add time-series variability bands/error bars and absolute/percent comparison
+  deltas, including diagnostics for missing or zero baselines.
+- Add `customdata.identity`, `getPointIdentity()`, linked legend groups, and
+  `disposeFigure()`. Custom data now uses objects with numeric metric keys;
+  consumers accessing raw custom data should migrate to `getPointIdentity()`.
+- Preserve unequal density-bin boundaries, reject overlaps, and retain gaps.
+- Detect cycles after Sankey aggregation, prefer measured edge weights, expose
+  omitted/inferred edges, and hide traces with no usable links.
+- Ship typed payloads and a discriminated `PlotData` union with consumer checks.
+- Add browser rendering/interaction tests, JavaScript coverage enforcement,
+  deterministic benchmark configuration, and bundled-asset synchronization.
+
 ## 0.4.0
 
 ### Fixed

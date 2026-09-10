@@ -504,7 +504,10 @@ test("region summary ranks by the pooled metric and keeps the head of the list",
   const figure = buildRegionSummaryFigure(payload, { topN: 2 });
   assert.deepEqual(figure.data[0].y, ["big", "middle"]);
   assert.deepEqual(figure.data[0].x, [9, 5]);
-  assert.deepEqual(figure.data[0].customdata, [4, 2]);
+  assert.deepEqual(
+    figure.data[0].customdata.map((row) => row[0]),
+    [4, 2],
+  );
   assert.deepEqual(
     buildRegionSummaryFigure(payload, { metric: "count" }).data[0].y,
     ["big", "middle", "small"],
@@ -786,9 +789,12 @@ test("density puts every cell at its own bin centre", () => {
     })),
   ];
   const figure = buildDensityFigure({ points });
-  assert.deepEqual(figure.data[0].x, [0.5, 1.5, 2.5, 5, 15, 25]);
+  assert.deepEqual(figure.data[0].x, [0, 1, 2, 3]);
+  assert.deepEqual(figure.data[1].x, [0, 10, 20, 30]);
   // Every point lands in a cell; none is dropped onto another run's centres.
-  const filled = figure.data[0].z.flat().filter((value) => value !== null);
+  const filled = figure.data
+    .flatMap((trace) => trace.z.flat())
+    .filter((value) => value !== null);
   assert.equal(filled.length, points.length);
 });
 
