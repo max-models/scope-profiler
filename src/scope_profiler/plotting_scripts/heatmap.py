@@ -12,6 +12,7 @@ from scope_profiler.plotting_scripts._utils import (
     _normalize_ranks,
     _write_csv,
     _write_json,
+    _write_parquet,
 )
 from scope_profiler.results import ProfilingResults
 
@@ -85,7 +86,8 @@ def plot_rank_heatmap(
                 plot="rank_heatmap",
             )
         else:
-            _write_csv(data_filepath, header, all_records)
+            writer = _write_parquet if data_format == "parquet" else _write_csv
+            writer(data_filepath, header, all_records)
 
     fig_width = max(10.0, 0.8 * max(len(item[2]) for item in prepared) + 3.0)
     fig_height = max(3.5, 1.0 + 0.35 * sum(len(item[1]) for item in prepared))

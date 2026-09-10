@@ -17,6 +17,7 @@ from scope_profiler.plotting_scripts._utils import (
     _unique_labels,
     _write_csv,
     _write_json,
+    _write_parquet,
 )
 from scope_profiler.plotting_scripts.statistics import _region_duration_values
 from scope_profiler.results import ProfilingResults
@@ -194,6 +195,7 @@ def plot_duration_histogram(
                 plot="histogram",
             )
         else:
-            _write_csv(data_filepath, header, data_rows)
+            writer = _write_parquet if data_format == "parquet" else _write_csv
+            writer(data_filepath, header, data_rows)
 
     _ps._render(canvas, filepath, show, backend)

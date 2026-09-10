@@ -667,6 +667,31 @@ test("comparison keeps every shared region, vertically, for the two runs named",
   );
 });
 
+test("comparison without an explicit files option covers every run in the document", () => {
+  const payload = {
+    files: [
+      {
+        label: "one",
+        region_statistics: { solve: { total_duration_seconds: 9 } },
+      },
+      {
+        label: "two",
+        region_statistics: { solve: { total_duration_seconds: 4 } },
+      },
+      {
+        label: "three",
+        region_statistics: { solve: { total_duration_seconds: 1 } },
+      },
+    ],
+  };
+  const figure = buildComparisonFigure(payload);
+  assert.equal(figure.data.length, 3);
+  assert.deepEqual(
+    figure.data.map((trace) => trace.name),
+    ["one", "two", "three"],
+  );
+});
+
 test("a theme colours the chrome, and auto leaves it to the host page", () => {
   const payload = {
     options: { x_label: "MPI ranks" },

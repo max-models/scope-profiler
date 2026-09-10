@@ -19,6 +19,7 @@ from scope_profiler.plotting_scripts._utils import (
     _unique_labels,
     _write_csv,
     _write_json,
+    _write_parquet,
 )
 from scope_profiler.plotting_scripts.statistics import (
     _common_region_names,
@@ -743,7 +744,8 @@ def plot_durations(
             header = ["file", "region", "metric", "value_seconds"]
             if stack_children:
                 header = ["file", "region", "metric", "segment", "value_seconds"]
-            _write_csv(data_filepath, header, data_rows)
+            writer = _write_parquet if data_format == "parquet" else _write_csv
+            writer(data_filepath, header, data_rows)
 
     if return_fig:
         return rendered_figures if len(metric_keys) > 1 else rendered_figures[0]

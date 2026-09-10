@@ -56,6 +56,36 @@
 
 ### Added
 
+- **A drag-and-drop "try it" page.** The `docs/source/guide/try_it.qmd` guide
+  page renders any `scope-profiler export plot-data --format json` file in the
+  browser, with no build step and nothing uploaded anywhere: drop the files
+  onto the page and `@scope-profiler/plotly`'s `buildFigure` dispatches each
+  one to its figure by the `plot` field it carries. It is the smallest
+  possible version of the recipe in the `dashboard` guide.
+- **A baseline/candidate comparison chart in `scope-profiler report`.** A
+  report built from exactly two profiles now includes a "Change" chart: one
+  signed bar per region, the percent change in total duration from the first
+  run to the second, for the regions both recorded. `plot_durations()`'s
+  grouped bars already answer "where did each run spend its time?"; this
+  answers "what changed?" without a viewer subtracting two bars by eye -- the
+  reading the optimization workflow in `AGENTS.md` needs to tell a real
+  speedup from noise.
+- **`export plot-data --format parquet`.** Every tabular exporter (`gantt`,
+  `durations`, `callgraph`, `flame_chart`, `flame_graph`, `histogram`,
+  `density`, `imbalance`, `rank_heatmap`, `likwid`, `roofline`, and the
+  `speedup`/`weak_scaling`/`scaling_efficiency` family) joins `csv` and `json`
+  with a columnar Parquet file, for a typed load into pandas, polars, or
+  DuckDB without parsing delimited text. `region_statistics.json` stays JSON
+  regardless of `--format`: it is a nested per-region document, not a table.
+  Requires a Parquet engine (`pip install "scope-profiler[pproc]"`, which now
+  pulls in `pyarrow`, or `pip install pyarrow` directly).
+- `buildComparisonFigure`'s side-by-side reading (the default, without
+  `comparison: "percent" | "absolute"`) now compares every run in a
+  `region_statistics` document by default, matching
+  `buildRegionSummaryFigure`. It previously defaulted to only the first two
+  runs (`options.files ?? [0, 1]`), so a payload with three or more runs
+  silently dropped everything past the second unless a caller listed every
+  index by hand.
 - **Weak-scaling efficiency.** `plot_weak_scaling_efficiency()` (and
   `scope-profiler plot weak_scaling_efficiency`) plots baseline runtime over
   runtime at each scale, against a flat ideal of 1.0. This is the reading a

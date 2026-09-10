@@ -33,6 +33,35 @@ def _write_csv(
         writer.writerows(rows)
 
 
+def _write_parquet(
+    filepath: str | Path,
+    header: Sequence[str],
+    rows: Sequence[Sequence],
+) -> None:
+    """Write the same rows ``_write_csv`` would to a columnar Parquet file.
+
+    Same tabular shape as the CSV export, for a caller that wants a typed,
+    columnar file to load with pandas/polars/DuckDB rather than parse a
+    delimited text file.
+    """
+    try:
+        import pandas as pd
+    except ImportError as exc:
+        raise ImportError(
+            "Parquet export requires pandas and a Parquet engine: "
+            "pip install 'scope-profiler[pproc]' pyarrow",
+        ) from exc
+    output_path = Path(filepath)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    frame = pd.DataFrame.from_records(list(rows), columns=list(header))
+    try:
+        frame.to_parquet(output_path, index=False)
+    except ImportError as exc:
+        raise ImportError(
+            "Parquet export requires a Parquet engine: pip install pyarrow",
+        ) from exc
+
+
 def _write_json(filepath: str | Path, payload: dict, plot: str) -> None:
     """Write the exact data behind a plot to a JSON file.
 

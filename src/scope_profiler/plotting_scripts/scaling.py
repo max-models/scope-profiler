@@ -15,6 +15,7 @@ from scope_profiler.plotting_scripts._utils import (
     _to_hex,
     _write_csv,
     _write_json,
+    _write_parquet,
 )
 from scope_profiler.plotting_scripts.statistics import (
     _common_region_names,
@@ -235,7 +236,8 @@ def plot_speedup(
                 plot="speedup",
             )
         else:
-            _write_csv(data_filepath, ["region", x_field, "speedup"], data_rows)
+            writer = _write_parquet if data_format == "parquet" else _write_csv
+            writer(data_filepath, ["region", x_field, "speedup"], data_rows)
 
     x_label = _x_label(x_field)
 
@@ -419,7 +421,8 @@ def _weak_scaling_curve(
                 plot=kind,
             )
         else:
-            _write_csv(
+            writer = _write_parquet if data_format == "parquet" else _write_csv
+            writer(
                 data_filepath,
                 ["region", x_field, spec["y_key"]],
                 data_rows,
@@ -716,7 +719,8 @@ def plot_scaling_efficiency(
                 plot="scaling_efficiency",
             )
         else:
-            _write_csv(data_filepath, header, data_rows)
+            writer = _write_parquet if data_format == "parquet" else _write_csv
+            writer(data_filepath, header, data_rows)
 
     canvas.set_xticks(x_keys)
     canvas.add_line(

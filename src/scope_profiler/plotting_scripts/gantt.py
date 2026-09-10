@@ -18,6 +18,7 @@ from scope_profiler.plotting_scripts._utils import (
     _unique_labels,
     _write_csv,
     _write_json,
+    _write_parquet,
 )
 from scope_profiler.results import ProfilingResults
 
@@ -273,7 +274,8 @@ def plot_gantt(
                                     end - first_start_time,
                                 ],
                             )
-            _write_csv(
+            writer = _write_parquet if data_format == "parquet" else _write_csv
+            writer(
                 data_filepath,
                 ["file", "rank", "region", "start_seconds", "end_seconds"],
                 rows,

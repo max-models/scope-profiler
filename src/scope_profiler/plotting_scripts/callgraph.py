@@ -13,6 +13,7 @@ from scope_profiler.plotting_scripts._utils import (
     _get_cmap_colors,
     _write_csv,
     _write_json,
+    _write_parquet,
 )
 from scope_profiler.results import ProfilingResults
 
@@ -309,7 +310,8 @@ def plot_callgraph(
                     plot="callgraph",
                 )
             else:
-                _write_csv(data_filepath, ["parent", "child"], edges)
+                writer = _write_parquet if data_format == "parquet" else _write_csv
+                writer(data_filepath, ["parent", "child"], edges)
         else:
             rows = [
                 [node["call_id"], node["parent_id"], node["name"], node["depth"]]
@@ -327,7 +329,8 @@ def plot_callgraph(
                     plot="callgraph",
                 )
             else:
-                _write_csv(
+                writer = _write_parquet if data_format == "parquet" else _write_csv
+                writer(
                     data_filepath,
                     ["call_id", "parent_id", "name", "depth"],
                     rows,
