@@ -15,6 +15,7 @@ from scope_profiler.plotting_scripts._utils import (
     _to_hex,
     _write_csv,
     _write_json,
+    _write_parquet,
 )
 from scope_profiler.plotting_scripts.statistics import (
     _common_region_names,
@@ -235,7 +236,8 @@ def plot_speedup(
                 plot="speedup",
             )
         else:
-            _write_csv(data_filepath, ["region", x_field, "speedup"], data_rows)
+            writer = _write_parquet if data_format == "parquet" else _write_csv
+            writer(data_filepath, ["region", x_field, "speedup"], data_rows)
 
     x_label = _x_label(x_field)
 
@@ -263,33 +265,38 @@ def plot_speedup(
     return rendered if return_fig else None
 
 
-def plot_weak_scaling(
+def _weak_scaling_curve(
     profiling_data: ProfilingResults | Sequence[ProfilingResults],
-    x_field: str = "num_ranks",
-    ranks: list[int] | int | None = None,
-    include: list[str] | str | None = None,
-    exclude: list[str] | str | None = None,
-    filepath: str | None = None,
-    show: bool = False,
-    verbose: bool = True,
-    cmap: str = DEFAULT_CMAP,
-    data_filepath: str | Path | None = None,
-    data_format: str = "csv",
-    backend: str = "matplotlib",
-    return_fig: bool = False,
+    *,
+    kind: str,
+    x_field: str,
+    ranks: list[int] | int | None,
+    include: list[str] | str | None,
+    exclude: list[str] | str | None,
+    filepath: str | None,
+    show: bool,
+    verbose: bool,
+    cmap: str,
+    data_filepath: str | Path | None,
+    data_format: str,
+    backend: str,
+    return_fig: bool,
+    extra_options: dict | None = None,
 ) -> object | None:
-    """Plot weak-scaling runtime versus a chosen parallelism/metadata field.
+    """Draw one of the two weak-scaling curves.
 
-    Runtime is normalized to the smallest scale, so ideal weak scaling is a
-    horizontal line at 1.0. Lower values are not inherently better here: the
-    useful signal is how closely each region stays near that line.
+    Weak-scaling runtime and weak-scaling efficiency are reciprocals of each
+    other -- the same durations, normalized to the baseline scale in either
+    direction, against the same flat ideal line at 1.0 -- so both are drawn
+    from here and differ only by :data:`_WEAK_SCALING_KINDS`.
     """
+    spec = _WEAK_SCALING_KINDS[kind]
     Canvas = _ps._get_canvas()
     runs = _as_runs(profiling_data)
     if not runs:
         return
     if len(runs) < 2:
-        raise ValueError("Weak scaling plot requires at least two profiling files.")
+        raise ValueError(f"{spec['noun']} requires at least two profiling files.")
 
     region_names = _common_region_names(runs, include=include, exclude=exclude)
     if not region_names:
@@ -305,7 +312,7 @@ def plot_weak_scaling(
 
     if verbose:
         print(
-            f"Plotting weak scaling comparison using x_field={x_field!r}, values: "
+            f"Plotting {spec['gerund']} using x_field={x_field!r}, values: "
             + ", ".join(map(str, x_keys)),
         )
 
@@ -348,7 +355,7 @@ def plot_weak_scaling(
 
         plot_x = []
         plot_keys = []
-        runtimes = []
+        y_values = []
         means = []
         for key in x_keys:
             samples = region_values.get(key, [])
@@ -360,7 +367,7 @@ def plot_weak_scaling(
             plot_x.append(x_position[key])
             plot_keys.append(key)
             means.append(mean_duration)
-            runtimes.append(mean_duration / baseline_duration)
+            y_values.append(spec["value"](baseline_duration, mean_duration))
 
         if not plot_x:
             continue
@@ -372,31 +379,31 @@ def plot_weak_scaling(
                 region_name,
                 x_field,
                 plot_keys,
-                runtimes,
-                "normalized runtime",
+                y_values,
+                spec["hover_label"],
                 means,
                 ranks,
             )
         canvas.add_line(
             plot_x,
-            runtimes,
+            y_values,
             linewidth=1.8,
             color=_to_hex(colors[idx]),
             label=region_name,
             hover=line_hover,
         )
         if data_filepath:
-            for key, runtime in zip(plot_keys, runtimes):
-                data_rows.append([region_name, key, runtime])
+            for key, value in zip(plot_keys, y_values):
+                data_rows.append([region_name, key, value])
 
     if plotted == 0:
-        raise ValueError("No valid weak-scaling data could be computed.")
+        raise ValueError(f"No valid {spec['data_noun']} data could be computed.")
 
     if data_filepath:
         if data_format == "json":
             points = [
-                {"region": region, x_field: key, "normalized_runtime": runtime}
-                for region, key, runtime in data_rows
+                {"region": region, x_field: key, spec["y_key"]: value}
+                for region, key, value in data_rows
             ]
             colors_map = {
                 name: _to_hex(color) for name, color in zip(region_names, colors)
@@ -406,21 +413,24 @@ def plot_weak_scaling(
                 {
                     "points": points,
                     "colors": colors_map,
-                    "options": _scaling_options(x_field, baseline_key),
+                    "options": {
+                        **_scaling_options(x_field, baseline_key),
+                        **(extra_options or {}),
+                    },
                 },
-                plot="weak_scaling",
+                plot=kind,
             )
         else:
-            _write_csv(
+            writer = _write_parquet if data_format == "parquet" else _write_csv
+            writer(
                 data_filepath,
-                ["region", x_field, "normalized_runtime"],
+                ["region", x_field, spec["y_key"]],
                 data_rows,
             )
 
     x_label = _x_label(x_field)
     if is_scaling:
-        x_line = np.array(x_keys, dtype=float)
-        canvas.set_xticks(x_line)
+        canvas.set_xticks(np.array(x_keys, dtype=float))
     else:
         canvas.set_xticks(list(range(len(x_keys))), labels=[str(key) for key in x_keys])
     canvas.add_line(
@@ -429,16 +439,171 @@ def plot_weak_scaling(
         linestyle="--",
         color="black",
         linewidth=1.5,
-        label="Ideal weak scaling",
+        label=spec["ideal_label"],
     )
     canvas.set_xlabel(x_label)
-    canvas.set_ylabel("Normalized runtime")
-    canvas.set_title(f"Weak scaling (baseline: {x_label} = {baseline_key})")
+    canvas.set_ylabel(spec["ylabel"])
+    canvas.set_title(f"{spec['title']} (baseline: {x_label} = {baseline_key})")
+    if spec["ylim"] is not None:
+        canvas.set_ylim(*spec["ylim"])
     canvas.set_grid(True)
     canvas.set_legend()
 
     rendered = _ps._render(canvas, filepath, show, backend, return_fig=return_fig)
     return rendered if return_fig else None
+
+
+_WEAK_SCALING_KINDS: dict[str, dict] = {
+    "weak_scaling": {
+        "noun": "Weak scaling plot",
+        "data_noun": "weak-scaling",
+        "gerund": "weak scaling comparison",
+        # Runtime relative to the baseline scale: 2.0 means the same work per
+        # rank took twice as long once the run was scaled up.
+        "value": lambda baseline, duration: duration / baseline,
+        "y_key": "normalized_runtime",
+        "hover_label": "normalized runtime",
+        "ylabel": "Normalized runtime",
+        "title": "Weak scaling",
+        "ideal_label": "Ideal weak scaling",
+        "ylim": None,
+    },
+    "weak_scaling_efficiency": {
+        "noun": "Weak scaling efficiency",
+        "data_noun": "weak-scaling-efficiency",
+        "gerund": "weak scaling efficiency",
+        # The reciprocal, read as a fraction of ideal: 0.5 means half the
+        # work per rank is being lost to the cost of scaling up.
+        "value": lambda baseline, duration: baseline / duration,
+        "y_key": "efficiency",
+        "hover_label": "efficiency",
+        "ylabel": "Weak-scaling efficiency",
+        "title": "Weak-scaling efficiency",
+        "ideal_label": "Ideal efficiency",
+        "ylim": (0, 1.05),
+    },
+}
+
+
+def plot_weak_scaling(
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
+    x_field: str = "num_ranks",
+    ranks: list[int] | int | None = None,
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+    filepath: str | None = None,
+    show: bool = False,
+    verbose: bool = True,
+    cmap: str = DEFAULT_CMAP,
+    data_filepath: str | Path | None = None,
+    data_format: str = "csv",
+    backend: str = "matplotlib",
+    return_fig: bool = False,
+) -> object | None:
+    """Plot weak-scaling runtime versus a chosen parallelism/metadata field.
+
+    Runtime is normalized to the smallest scale, so ideal weak scaling is a
+    horizontal line at 1.0. Lower values are not inherently better here: the
+    useful signal is how closely each region stays near that line.
+
+    See :func:`plot_weak_scaling_efficiency` for the same data read as a
+    fraction of ideal instead.
+    """
+    return _weak_scaling_curve(
+        profiling_data,
+        kind="weak_scaling",
+        x_field=x_field,
+        ranks=ranks,
+        include=include,
+        exclude=exclude,
+        filepath=filepath,
+        show=show,
+        verbose=verbose,
+        cmap=cmap,
+        data_filepath=data_filepath,
+        data_format=data_format,
+        backend=backend,
+        return_fig=return_fig,
+    )
+
+
+def plot_weak_scaling_efficiency(
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
+    x_field: str = "num_ranks",
+    ranks: list[int] | int | None = None,
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+    work_per_rank: Sequence[float] | None = None,
+    filepath: str | None = None,
+    show: bool = False,
+    verbose: bool = True,
+    cmap: str = DEFAULT_CMAP,
+    data_filepath: str | Path | None = None,
+    data_format: str = "csv",
+    backend: str = "matplotlib",
+    return_fig: bool = False,
+) -> object | None:
+    """Plot weak-scaling efficiency: baseline runtime over runtime at each scale.
+
+    A weak-scaling study grows the problem with the machine, so every run
+    does the same work per rank and ideal efficiency is a flat 1.0. A region
+    at 0.6 on 64 ranks is spending 40% of its time on costs that only appear
+    at that scale -- communication, load imbalance, or contention.
+
+    This differs from :func:`plot_scaling_efficiency`, which is for a
+    *strong*-scaling study: there the problem size is fixed, so the ideal is
+    a speedup proportional to the rank count and efficiency divides the
+    measured speedup by that. Here the ideal is constant runtime, so no such
+    division applies -- using the strong-scaling plot on weak-scaling runs
+    reports a near-zero efficiency that means nothing.
+
+    Parameters
+    ----------
+    work_per_rank : Sequence[float], optional
+        Work per rank for each profiling run, in whatever unit suits the
+        problem (grid cells, particles, unknowns). Only the caller can know
+        this -- it is a property of the problem, not of the profile -- so it
+        is optional, but when given it is checked: the runs must agree, and
+        a mismatch raises rather than plotting an efficiency that silently
+        compares runs doing different amounts of work. The value is recorded
+        in the exported plot data.
+    """
+    extra_options = None
+    if work_per_rank is not None:
+        work = [float(value) for value in work_per_rank]
+        if len(work) != len(_as_runs(profiling_data)):
+            raise ValueError(
+                "work_per_rank must have one value per profiling file.",
+            )
+        if not work or work[0] <= 0:
+            raise ValueError("work_per_rank values must be positive.")
+        if any(
+            not np.isclose(value, work[0], rtol=1e-9, atol=0.0) for value in work[1:]
+        ):
+            raise ValueError(
+                "Weak-scaling efficiency requires the same work per rank in "
+                f"every run, but got {work}. These runs are not a weak-scaling "
+                "study; use plot_scaling_efficiency for a fixed problem size.",
+            )
+        extra_options = {"work_per_rank": work[0]}
+
+    return _weak_scaling_curve(
+        profiling_data,
+        kind="weak_scaling_efficiency",
+        x_field=x_field,
+        ranks=ranks,
+        include=include,
+        exclude=exclude,
+        filepath=filepath,
+        show=show,
+        verbose=verbose,
+        cmap=cmap,
+        data_filepath=data_filepath,
+        data_format=data_format,
+        backend=backend,
+        return_fig=return_fig,
+        extra_options=extra_options,
+    )
 
 
 def plot_scaling_efficiency(
@@ -554,7 +719,8 @@ def plot_scaling_efficiency(
                 plot="scaling_efficiency",
             )
         else:
-            _write_csv(data_filepath, header, data_rows)
+            writer = _write_parquet if data_format == "parquet" else _write_csv
+            writer(data_filepath, header, data_rows)
 
     canvas.set_xticks(x_keys)
     canvas.add_line(

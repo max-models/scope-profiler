@@ -203,6 +203,31 @@ df = results.likwid_to_dataframe()
 df.groupby("region")["CPI"].mean()
 ```
 
+## Roofline analysis
+
+For a FLOPS LIKWID group that records a FLOP-rate metric and `Memory
+bandwidth`, place every `(rank, region)` on a roofline directly from the saved
+counters:
+
+```bash
+scope-profiler plot roofline profiling_data.h5 \
+  --peak-flops 2400 --peak-bandwidth 320 -o roofline.png
+```
+
+[`examples/ex_roofline.py`](../../../examples/ex_roofline.py) profiles a
+compute-bound matrix multiplication and a streaming update, then writes both
+the figure and Plotly-ready JSON. Run it under `likwid-perfctr` with a FLOPS
+group and replace its example peak values with measurements from your machine.
+
+Rates are summed across the participating hardware threads for each region.
+The point's arithmetic intensity is `attained GFLOP/s / attained GB/s`, which
+is FLOP/byte. Specify machine ceilings in GFLOP/s and GB/s for a true roofline;
+without either ceiling, the plot uses and labels empirical ceilings from the
+selected observations. Use `--flops-metric` and `--bandwidth-metric` when
+automatic metric selection is ambiguous. `scope-profiler export plot-data
+--plots roofline --format json` exports the points and roof curve for Plotly or
+other downstream tools.
+
 ## Profiling modes
 
 `use_likwid=True` selects `FullProfileRegion`, which records timestamps *and*

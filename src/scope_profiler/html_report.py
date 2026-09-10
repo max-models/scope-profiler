@@ -826,6 +826,12 @@ def _chart_description(title: str, payload: dict) -> str:
                 "Grouped bars compare each region's total recorded duration "
                 "across the profiled runs."
             )
+    elif title.startswith("Change:"):
+        text = (
+            "Percent change in each region's total duration, candidate over "
+            "baseline. Bars above zero got slower; a region measured in only "
+            "one run leaves a gap rather than reading as a 100% change."
+        )
     elif title == "Rank heatmap":
         text = (
             "This heatmap uses exclusive timings. Exclusive duration is the time "
@@ -878,6 +884,7 @@ def _chart_sections(runs, include, exclude, ranks, charts_cdn: bool = False) -> 
 
         from scope_profiler.plotting_scripts import (
             available_likwid_metrics,
+            collect_region_statistics,
             plot_callgraph,
             plot_duration_timeseries,
             plot_durations,
@@ -895,10 +902,17 @@ def _chart_sections(runs, include, exclude, ranks, charts_cdn: bool = False) -> 
             "above remain available without it.</p></section>"
         )
 
-    charts: list[tuple[str, dict]] = []
+    charts: list[tuple[str, dict, dict]] = []
     failures: list[str] = []
 
-    def collect(title, plotter, path: Path, *args, **kwargs) -> None:
+    def collect(
+        title,
+        plotter,
+        path: Path,
+        *args,
+        chart_options: dict | None = None,
+        **kwargs,
+    ) -> None:
         try:
             plotter(
                 *args,
@@ -916,7 +930,9 @@ def _chart_sections(runs, include, exclude, ranks, charts_cdn: bool = False) -> 
         except (ImportError, ValueError) as exc:
             failures.append(f"{title}: {exc}")
             return
-        charts.append((title, json.loads(path.read_text(encoding="utf-8"))))
+        charts.append(
+            (title, json.loads(path.read_text(encoding="utf-8")), chart_options or {}),
+        )
 
     with tempfile.TemporaryDirectory(prefix="scope-profiler-report-") as directory:
         payload_dir = Path(directory)
@@ -945,6 +961,26 @@ def _chart_sections(runs, include, exclude, ranks, charts_cdn: bool = False) -> 
             # one Cartesian axis would merge equal segment names across runs.
             stack_children=len(runs) == 1,
         )
+        if len(runs) == 2:
+            # The grouped bars above answer "where did each run spend its
+            # time?"; a baseline/candidate pair also wants "what changed?",
+            # which reads better as one signed bar per region than as two
+            # bars a viewer has to subtract by eye.
+            statistics = collect_region_statistics(
+                runs,
+                ranks=ranks,
+                include=include,
+                exclude=exclude,
+            )
+            if statistics["files"]:
+                baseline, candidate = (file["label"] for file in statistics["files"])
+                charts.append(
+                    (
+                        f"Change: {candidate} vs {baseline}",
+                        {"plot": "region_statistics", **statistics},
+                        {"comparison": "percent"},
+                    ),
+                )
         collect(
             "Duration over time",
             plot_duration_timeseries,
@@ -1039,7 +1075,7 @@ def _chart_sections(runs, include, exclude, ranks, charts_cdn: bool = False) -> 
 
     fragments = []
     chart_documents = []
-    for index, (title, payload) in enumerate(charts):
+    for index, (title, payload, chart_options) in enumerate(charts):
         chart_id = f"scope-profiler-chart-{index}"
         is_duration_chart = payload.get("plot") == "durations"
         chart_class = "chart chart-duration" if is_duration_chart else "chart"
@@ -1054,7 +1090,11 @@ def _chart_sections(runs, include, exclude, ranks, charts_cdn: bool = False) -> 
             {
                 "id": chart_id,
                 "payload": payload,
-                "options": {"layout": {"height": 680}} if is_duration_chart else {},
+                "options": (
+                    {**chart_options, "layout": {"height": 680}}
+                    if is_duration_chart
+                    else chart_options
+                ),
             },
         )
 
@@ -1148,6 +1188,8 @@ const highlightFigure = (chart, figure, region) => {
 
 const regionFromPoint = (chart, point) => {
   const regions = payloadRegions(chart.payload);
+  const identity = point.customdata?.identity;
+  if (identity && regions.has(identity.region)) return identity.region;
   const candidates = [point.label, point.x, point.y, point.data?.name,
     point.source?.label, point.target?.label];
   for (const candidate of candidates) {
@@ -1162,6 +1204,7 @@ const regionFromPoint = (chart, point) => {
 };
 
 const runFromPoint = (chart, point, region) => {
+  if (point.customdata?.identity?.file != null) return point.customdata.identity.file;
   if (Array.isArray(point.customdata) && typeof point.customdata[0] === "string") {
     return point.customdata[0];
   }

@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- `--metrics` with more than one statistic kept only the last one. Every
+  metric was plotted by its own `plot_durations` call, and each was handed the
+  same `durations_data.json` path and the same image path, so each overwrote
+  what the one before it had written. The metrics are now rendered in one
+  call, which exports all of them and gives each figure its own
+  `durations_plot_<metric>.png`.
 - The HDF5 guide now identifies schema 3 as the current Python output schema,
   and a test keeps the documented HDF5, JSON, and native format versions tied
   to their implementation constants.
@@ -50,6 +56,74 @@
 
 ### Added
 
+- **A drag-and-drop "try it" page.** The `docs/source/guide/try_it.qmd` guide
+  page renders any `scope-profiler export plot-data --format json` file in the
+  browser, with no build step and nothing uploaded anywhere: drop the files
+  onto the page and `@scope-profiler/plotly`'s `buildFigure` dispatches each
+  one to its figure by the `plot` field it carries. It is the smallest
+  possible version of the recipe in the `dashboard` guide.
+- **A baseline/candidate comparison chart in `scope-profiler report`.** A
+  report built from exactly two profiles now includes a "Change" chart: one
+  signed bar per region, the percent change in total duration from the first
+  run to the second, for the regions both recorded. `plot_durations()`'s
+  grouped bars already answer "where did each run spend its time?"; this
+  answers "what changed?" without a viewer subtracting two bars by eye -- the
+  reading the optimization workflow in `AGENTS.md` needs to tell a real
+  speedup from noise.
+- **`export plot-data --format parquet`.** Every tabular exporter (`gantt`,
+  `durations`, `callgraph`, `flame_chart`, `flame_graph`, `histogram`,
+  `density`, `imbalance`, `rank_heatmap`, `likwid`, `roofline`, and the
+  `speedup`/`weak_scaling`/`scaling_efficiency` family) joins `csv` and `json`
+  with a columnar Parquet file, for a typed load into pandas, polars, or
+  DuckDB without parsing delimited text. `region_statistics.json` stays JSON
+  regardless of `--format`: it is a nested per-region document, not a table.
+  Requires a Parquet engine (`pip install "scope-profiler[pproc]"`, which now
+  pulls in `pyarrow`, or `pip install pyarrow` directly).
+- `buildComparisonFigure`'s side-by-side reading (the default, without
+  `comparison: "percent" | "absolute"`) now compares every run in a
+  `region_statistics` document by default, matching
+  `buildRegionSummaryFigure`. It previously defaulted to only the first two
+  runs (`options.files ?? [0, 1]`), so a payload with three or more runs
+  silently dropped everything past the second unless a caller listed every
+  index by hand.
+- **Weak-scaling efficiency.** `plot_weak_scaling_efficiency()` (and
+  `scope-profiler plot weak_scaling_efficiency`) plots baseline runtime over
+  runtime at each scale, against a flat ideal of 1.0. This is the reading a
+  weak-scaling study needs, and the existing `plot_scaling_efficiency` is not
+  it: that one divides by an ideal speedup proportional to the rank count,
+  which is right for a fixed problem size and reports a near-zero efficiency
+  that means nothing when the problem grows with the machine. Pass
+  `work_per_rank` -- one value per file, in any unit -- to have the runs
+  checked for the constant work per rank the plot assumes, rather than
+  silently comparing runs that did different amounts of it. The npm package
+  builds it as `buildWeakScalingEfficiencyFigure`.
+- `plot_durations()` takes `metrics=[...]` for several statistics in one call.
+  Each still gets its own figure, but they share one data export with the
+  metric named per row, so a single JSON can back a chart whose metric the
+  viewer switches.
+- `first` and `last` join `avg`/`min`/`max`/`total` as duration metrics, in
+  `plot_durations()` and `--metrics`: the chronologically first and last
+  call's duration, which separate one-off warmup -- JIT, allocation, the first
+  device transfer -- from steady state. `write_region_statistics_json` already
+  reported both; now they can be plotted.
+- `export_flamegraph_svg()` and `scope-profiler export flamegraph` render the
+  reconstructed call tree to a standalone SVG through
+  [flameprof](https://pypi.org/project/flameprof/) (added to the `pproc`
+  extra): the aggregated flame graph as a self-contained document with no
+  JavaScript, for a static site or a report. It carries a `viewBox` rather
+  than flameprof's fixed pixel width, so a page can inline it -- which is also
+  the only way the per-frame tooltips survive -- and scale it; `--fixed-width`
+  keeps the standalone form.
+- The npm package takes a `theme`: `"light"`, `"dark"`, or your own tokens,
+  per build call or once through `setTheme()`. It colours text, gridlines, the
+  hover surface and the dashed ideal lines. The default `auto` is what every
+  figure did before -- no text colour, a grey grid that reads on any
+  background -- so nothing changes for a page that does not ask.
+- `buildComparisonFigure` puts two runs of a `region_statistics` document side
+  by side over the regions both recorded, vertically and without a top-N cap:
+  the "what changed between these two runs?" reading of
+  `buildRegionSummaryFigure`, which grew `files`, `orientation`,
+  `commonRegionsOnly` and short metric names (`total`, `avg`, …) to serve it.
 - CI now runs the ordinary test suite on every supported Python version
   (3.10--3.14) and adds a native macOS job for portable functionality. The
   macOS environment includes Open MPI and mpi4py so it also exercises the
@@ -77,7 +151,7 @@
   `test_storage_size.py` covers bytes per event, the fixed floor, and how both
   scale with events, ranks and regions; file size is deterministic, so its
   budgets are tight rather than an order of magnitude clear. Alongside the
-  absolute budgets each module asserts *scaling* --- a ratio between the same
+  absolute budgets each module asserts _scaling_ --- a ratio between the same
   measurement at two sizes --- which is what catches a change in the shape of
   a cost rather than only one large enough to blow a budget.
 - `hdf5_compression="auto"` compresses a run's event columns only once it is

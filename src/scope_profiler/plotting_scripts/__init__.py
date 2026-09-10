@@ -31,6 +31,7 @@ from scope_profiler.plotting_scripts._utils import (
     _unique_labels,
     _write_csv,
     _write_json,
+    _write_parquet,
 )
 from scope_profiler.plotting_scripts.callgraph import plot_callgraph
 from scope_profiler.plotting_scripts.duration_timeseries import (
@@ -64,10 +65,15 @@ from scope_profiler.plotting_scripts.perf_events import (
     available_perf_event_metrics,
     plot_perf_events,
 )
+from scope_profiler.plotting_scripts.roofline import (
+    collect_roofline_points,
+    plot_roofline,
+)
 from scope_profiler.plotting_scripts.scaling import (
     plot_scaling_efficiency,
     plot_speedup,
     plot_weak_scaling,
+    plot_weak_scaling_efficiency,
 )
 from scope_profiler.plotting_scripts.statistics import (
     collect_region_statistics,
@@ -108,9 +114,11 @@ __all__ = [
     "_unique_labels",
     "_write_csv",
     "_write_json",
+    "_write_parquet",
     "available_likwid_metrics",
     "available_perf_event_metrics",
     "collect_region_statistics",
+    "collect_roofline_points",
     "plot_callgraph",
     "plot_duration_histogram",
     "plot_duration_timeseries",
@@ -123,9 +131,11 @@ __all__ = [
     "plot_likwid",
     "plot_perf_events",
     "plot_rank_heatmap",
+    "plot_roofline",
     "plot_scaling_efficiency",
     "plot_speedup",
     "plot_timeline_density",
     "plot_weak_scaling",
+    "plot_weak_scaling_efficiency",
     "write_region_statistics_json",
 ]

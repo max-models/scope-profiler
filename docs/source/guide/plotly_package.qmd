@@ -199,14 +199,56 @@ instead; pass `{ plot: "gantt" }` to settle the case by hand.
 | `buildImbalanceFigure(payload)` | `imbalance_data.json` | Per-rank duration imbalance |
 | `buildDensityFigure(payload)` | `timeline_density_data.json` | Binned timeline occupancy, for traces too large to draw call by call |
 | `buildCallgraphFigure(payload)` | `callgraph_data.json` | Sankey call graph, from either callgraph shape |
-| `buildRegionSummaryFigure(payload, { metric, topN })` | `region_statistics.json` | The slowest regions of a run, ranked |
+| `buildRegionSummaryFigure(payload, { metric, topN, files, orientation })` | `region_statistics.json` | The slowest regions of a run, ranked |
+| `buildComparisonFigure(payload, { files, metric })` | `region_statistics.json` | Every run side by side, over the regions they all recorded; `{ comparison: "percent" \| "absolute" }` draws a single delta bar instead, for exactly two runs |
 | `buildLikwidFigure(payload)` | `likwid_data.json` | One LIKWID hardware-counter metric |
+| `buildRooflineFigure(payload)` | `roofline_data.json` | Per-region LIKWID roofline placement |
 | `buildWeakScalingFigure(payload)` | `weak_scaling_data.json` | Weak-scaling curve |
-| `buildScalingEfficiencyFigure(payload)` | `scaling_efficiency_data.json` | Parallel-efficiency curve |
+| `buildScalingEfficiencyFigure(payload)` | `scaling_efficiency_data.json` | Strong-scaling parallel-efficiency curve |
+| `buildWeakScalingEfficiencyFigure(payload)` | `weak_scaling_efficiency_data.json` | Weak-scaling efficiency curve |
 | `buildFigure(payload)` | any of the above | Dispatch on the document's own `plot` kind |
 
 Use `renderFigure(Plotly, element, figure)` as a convenience, or pass
 `figure.data` and `figure.layout` to `Plotly.newPlot` directly.
+
+Both efficiency curves store their y column as `efficiency`, so which reading
+a payload gets is decided by the document's own `plot` field, not by its rows:
+`buildFigure` gets it right on its own, and a direct call needs the right
+builder. They measure against different ideals. `scaling_efficiency` is for a
+*strong*-scaling study, where the problem size is fixed and the ideal is a
+speedup proportional to the rank count. `weak_scaling_efficiency` is for a
+study that grows the problem with the machine, where every run does the same
+work per rank and the ideal is constant runtime.
+
+## Themes
+
+Every builder paints its chrome -- text, gridlines, hover surface, the dashed
+ideal lines -- from a theme. The default, `auto`, leaves the text colour unset
+and draws gridlines in a half-transparent grey that reads on any background,
+so a figure inherits whatever the host page does.
+
+A page that knows which theme it is in gets better contrast by saying so:
+
+```js
+import { setTheme, buildDurationsFigure } from "@scope-profiler/plotly";
+
+// Once per theme change, then rebuild the figures on the page.
+setTheme(document.documentElement.dataset.theme === "dark" ? "dark" : "light");
+
+// Or per call, which wins over the default.
+buildDurationsFigure(payload, { theme: "dark" });
+
+// Or with your own tokens, over any of the three.
+buildDurationsFigure(payload, { theme: { text: "#f5f5f5", grid: "#333" } });
+```
+
+Plotly bakes colours into the layout, so a theme change means rebuilding the
+figures, not restyling them in place. The categorical series palette is not
+themed: those eight hues are chosen to read on both backgrounds.
+
+Rebuilding means knowing which containers hold a figure and what each was built
+from. `@scope-profiler/plotly/dashboard` keeps that bookkeeping, along with a
+filter syntax for the `filterRegion` predicate -- see {doc}`dashboard`.
 
 ## Payloads with more than one run
 
