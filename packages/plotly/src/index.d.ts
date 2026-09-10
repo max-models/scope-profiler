@@ -22,6 +22,7 @@ export type PlotKind =
   | "speedup"
   | "weak_scaling"
   | "scaling_efficiency"
+  | "weak_scaling_efficiency"
   | "rank_heatmap"
   | "histogram"
   | "imbalance"
@@ -45,9 +46,12 @@ export interface BuildOptions {
   ideal?: boolean;
   rootLabel?: string;
   plot?: PlotKind;
+  theme?: ThemeName | ThemeTokens;
 }
-export function resolveTheme(theme?: ThemeName | ThemeTokens): ThemeTokens;
 export function setTheme(theme?: ThemeName | ThemeTokens): void;
+export function resolveTheme(
+  theme?: ThemeName | ThemeTokens,
+): Required<ThemeTokens>;
 export function buildGanttFigure(
   payload: object,
   options?: BuildOptions,
@@ -69,6 +73,10 @@ export function buildWeakScalingFigure(
   options?: BuildOptions,
 ): Figure;
 export function buildScalingEfficiencyFigure(
+  payload: object,
+  options?: BuildOptions,
+): Figure;
+export function buildWeakScalingEfficiencyFigure(
   payload: object,
   options?: BuildOptions,
 ): Figure;
@@ -95,9 +103,19 @@ export function buildImbalanceFigure(
   payload: object,
   options?: BuildOptions,
 ): Figure;
+export interface SummaryOptions {
+  topN?: number;
+  files?: (string | number)[];
+  orientation?: "h" | "v";
+  commonRegionsOnly?: boolean;
+}
 export function buildRegionSummaryFigure(
   payload: object,
-  options?: BuildOptions & { topN?: number },
+  options?: BuildOptions & SummaryOptions,
+): Figure;
+export function buildComparisonFigure(
+  payload: object,
+  options?: BuildOptions & SummaryOptions,
 ): Figure;
 export function buildCallgraphFigure(
   payload: object,
@@ -118,7 +136,6 @@ export const PLOT_BUILDERS: Record<
   (payload: object, options?: BuildOptions) => Figure
 >;
 export function inferPlotKind(payload: object): PlotKind | undefined;
-export function validatePlotData(payload: object, options?: BuildOptions): PlotKind;
 export function buildFigure(payload: object, options?: BuildOptions): Figure;
 export function renderFigure(
   plotly: PlotlyLike,

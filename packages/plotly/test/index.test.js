@@ -14,13 +14,14 @@ import {
   buildRooflineFigure,
   buildRankHeatmapFigure,
   buildRegionSummaryFigure,
+  buildComparisonFigure,
   buildScalingEfficiencyFigure,
   buildSpeedupFigure,
+  buildWeakScalingEfficiencyFigure,
   buildWeakScalingFigure,
   inferPlotKind,
   resolveTheme,
   setTheme,
-  validatePlotData,
 } from "../src/index.js";
 
 test("gantt gives each region and rank a lane, and honours supplied colors", () => {
@@ -544,24 +545,136 @@ test("likwid groups one hardware-counter metric by series", () => {
   assert.equal(figure.layout.yaxis.type, "log");
 });
 
-test("roofline plots attained points, ceilings, and efficiency context", () => {
+test("roofline keeps region points and its machine ceiling distinct", () => {
   const figure = buildRooflineFigure({
-    points: [{ file: "run", region: "solve", rank: 0, arithmetic_intensity_flops_per_byte: 2, performance_gflops: 80, bandwidth_gbs: 40 }],
-    roofline: [{ arithmetic_intensity_flops_per_byte: 1, performance_gflops: 40 }],
-    empirical_ceilings: true,
+    colors: { run: "#123456" },
+    points: [
+      {
+        file: "run",
+        region: "solve",
+        rank: 0,
+        arithmetic_intensity_flops_per_byte: 2,
+        performance_gflops: 80,
+        bandwidth_gbs: 40,
+      },
+    ],
+    roofline: [
+      { arithmetic_intensity_flops_per_byte: 1, performance_gflops: 40 },
+      { arithmetic_intensity_flops_per_byte: 4, performance_gflops: 100 },
+    ],
   });
+  assert.equal(figure.data[0].type, "scatter");
   assert.deepEqual(figure.data[0].x, [2]);
-  assert.equal(figure.data[1].name, "empirical roof");
+  assert.equal(figure.data[1].name, "roofline");
   assert.equal(figure.layout.xaxis.type, "log");
-  assert.equal(inferPlotKind({ points: [{ arithmetic_intensity_flops_per_byte: 1 }] }), "roofline");
+  assert.equal(
+    inferPlotKind({
+      points: [{ arithmetic_intensity_flops_per_byte: 2, rank: 0 }],
+    }),
+    "roofline",
+  );
 });
 
-test("themes and validation protect builders from malformed plot-data", () => {
+test("weak-scaling efficiency shares the efficiency column but not its title", () => {
+  const points = [
+    { region: "solve", num_ranks: 2, efficiency: 1 },
+    { region: "solve", num_ranks: 4, efficiency: 0.7 },
+  ];
+  const figure = buildWeakScalingEfficiencyFigure({
+    options: { baseline: 2 },
+    points,
+  });
+  assert.deepEqual(figure.data[0].y, [1, 0.7]);
+  assert.equal(figure.layout.yaxis.title, "Weak-scaling efficiency");
+  // Its ideal is flat, not the rank-proportional line speedup draws.
+  assert.deepEqual(figure.data[1].y, [1, 1]);
+
+  // The document's own kind has to pick the reading, since the rows cannot:
+  // both efficiencies are stored under the same column.
+  assert.equal(
+    buildFigure({ plot: "weak_scaling_efficiency", options: {}, points }).layout
+      .yaxis.title,
+    "Weak-scaling efficiency",
+  );
+  // Without one, an efficiency payload still infers the strong-scaling
+  // reading it always did.
+  assert.equal(inferPlotKind({ points }), "scaling_efficiency");
+});
+
+test("comparison keeps every shared region, vertically, for the two runs named", () => {
+  const payload = {
+    files: [
+      {
+        label: "before",
+        region_statistics: {
+          solve: { count: 2, total_duration_seconds: 9 },
+          setup: { count: 1, total_duration_seconds: 1 },
+          only_before: { count: 1, total_duration_seconds: 5 },
+        },
+      },
+      {
+        label: "after",
+        region_statistics: {
+          solve: { count: 2, total_duration_seconds: 4 },
+          setup: { count: 1, total_duration_seconds: 1 },
+        },
+      },
+      { label: "unrelated", region_statistics: { solve: {} } },
+    ],
+  };
+  const figure = buildComparisonFigure(payload, { files: ["before", "after"] });
+  assert.equal(figure.data.length, 2);
+  assert.equal(figure.data[0].name, "before");
+  assert.equal(figure.data[1].name, "after");
+  // Vertical bars, and a region only one run recorded is dropped rather than
+  // drawn as a zero against a real measurement.
+  assert.equal(figure.data[0].orientation, undefined);
+  assert.deepEqual(figure.data[0].x, ["solve", "setup"]);
+  assert.deepEqual(figure.data[0].y, [9, 1]);
+  assert.deepEqual(figure.data[1].y, [4, 1]);
+
+  // Short metric names resolve to the fields region_statistics stores.
+  assert.deepEqual(
+    buildComparisonFigure(payload, { files: [0, 1], metric: "total" }).data[0]
+      .y,
+    [9, 1],
+  );
+});
+
+test("a theme colours the chrome, and auto leaves it to the host page", () => {
+  const payload = {
+    options: { x_label: "MPI ranks" },
+    points: [{ region: "solve", num_ranks: 2, speedup: 1 }],
+  };
+  const auto = buildSpeedupFigure(payload);
+  assert.equal(auto.layout.font.color, undefined);
+  assert.equal(typeof auto.layout.xaxis.title, "string");
+
+  const dark = buildSpeedupFigure(payload, { theme: "dark" });
+  assert.equal(dark.layout.font.color, resolveTheme("dark").text);
+  assert.equal(dark.layout.hoverlabel.bgcolor, resolveTheme("dark").hoverBg);
+  assert.equal(dark.layout.xaxis.gridcolor, resolveTheme("dark").grid);
+  // An axis title passed as a bare string still picks up the muted colour.
+  assert.equal(dark.layout.xaxis.title.text, "MPI ranks");
+  assert.equal(dark.layout.xaxis.title.font.color, resolveTheme("dark").muted);
+
+  // A page with a toggle sets the default once instead of passing it around.
   setTheme("dark");
-  assert.equal(resolveTheme("dark").text, "#e8eaed");
-  const figure = buildLikwidFigure({ bars: [] });
-  assert.equal(figure.layout.font.color, "#e8eaed");
-  assert.equal(validatePlotData({ plot: "roofline", points: [] }), "roofline");
-  assert.throws(() => validatePlotData({ plot: "roofline" }), /points array/);
-  setTheme();
+  try {
+    assert.equal(buildSpeedupFigure(payload).layout.font.color, "#e5e7eb");
+    // Per-call options still win over the default.
+    assert.equal(
+      buildSpeedupFigure(payload, { theme: "light" }).layout.font.color,
+      resolveTheme("light").text,
+    );
+    // And a caller can supply its own tokens.
+    assert.equal(
+      buildSpeedupFigure(payload, { theme: { text: "#abcdef" } }).layout.font
+        .color,
+      "#abcdef",
+    );
+  } finally {
+    setTheme("auto");
+  }
+  assert.equal(buildSpeedupFigure(payload).layout.font.color, undefined);
 });

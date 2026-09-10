@@ -9,6 +9,7 @@ from scope_profiler.call_stack import build_call_arrays
 from scope_profiler.post_processing import export_main
 from scope_profiler.prof_export import (
     build_pstats_dict,
+    export_flamegraph_svg,
     export_prof,
     load_prof,
     to_pstats,
@@ -602,3 +603,71 @@ def test_exported_prof_loads_in_snakeviz(tmp_path):
     assert set(tree["~:0(main > solve)"]["children"]) == {
         "~:0(main > solve > assemble)",
     }
+
+
+def test_export_flamegraph_svg_scales_to_its_container_by_default(tmp_path):
+    pytest.importorskip("flameprof")
+    profile = tmp_path / "profile.h5"
+    _write_sample_h5(profile, _nested_file_data())
+
+    written = export_flamegraph_svg(
+        read_h5(profile),
+        tmp_path / "flamegraph.svg",
+        verbose=False,
+    )
+
+    assert [path.name for path in written] == ["flamegraph_rank0.svg"]
+    svg = written[0].read_text(encoding="utf-8")
+    # A viewBox instead of a fixed width, and no XML prolog, so the graph can
+    # be inlined in a page and scaled to it -- inlining being the only way
+    # flameprof's per-frame tooltips survive.
+    assert svg.startswith('<svg version="1.1" viewBox="0 0 1200 ')
+    assert "<?xml" not in svg
+    assert "width=" not in svg.split(">", 1)[0]
+    # It is a flame graph of the reconstructed call tree, not of the profiler.
+    assert "solve" in svg
+    assert "assemble" in svg
+
+
+def test_export_flamegraph_svg_can_write_a_standalone_document(tmp_path):
+    pytest.importorskip("flameprof")
+    profile = tmp_path / "profile.h5"
+    _write_sample_h5(profile, _nested_file_data())
+
+    written = export_flamegraph_svg(
+        read_h5(profile),
+        tmp_path / "flamegraph.svg",
+        scalable=False,
+        verbose=False,
+    )
+
+    svg = written[0].read_text(encoding="utf-8")
+    assert svg.startswith("<?xml ")
+    assert '<svg version="1.1" width="1200"' in svg
+
+
+def test_export_flamegraph_cli_writes_one_svg_per_rank(tmp_path):
+    pytest.importorskip("flameprof")
+    profile = tmp_path / "profile.h5"
+    _write_sample_h5(
+        profile,
+        {rank: _nested_file_data()[0] for rank in range(2)},
+    )
+    output = tmp_path / "out"
+
+    export_main(
+        [
+            "flamegraph",
+            str(profile),
+            "-o",
+            str(output),
+            "--ranks",
+            "0",
+            "1",
+        ],
+    )
+
+    assert sorted(path.name for path in output.glob("*.svg")) == [
+        "flamegraph_rank0.svg",
+        "flamegraph_rank1.svg",
+    ]

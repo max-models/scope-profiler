@@ -11,17 +11,6 @@ const DEFAULT_COLORS = [
   "#e34948",
 ];
 const NEUTRAL = "#898781";
-const THEMES = {
-  auto: {}, light: { text: "#202124", muted: "#5f6368", grid: "rgba(32, 33, 36, 0.16)", hoverBg: "#ffffff", neutral: NEUTRAL },
-  dark: { text: "#e8eaed", muted: "#bdc1c6", grid: "rgba(232, 234, 237, 0.2)", hoverBg: "#202124", neutral: "#b8b6b0" },
-};
-let activeTheme = THEMES.auto;
-export function resolveTheme(theme = "auto") {
-  if (typeof theme === "string") { if (!THEMES[theme]) throw new TypeError(`Unknown theme ${JSON.stringify(theme)}.`); return { ...THEMES[theme] }; }
-  if (!theme || typeof theme !== "object") throw new TypeError("theme must be auto, light, dark, or a token object.");
-  return { ...THEMES.auto, ...theme };
-}
-export function setTheme(theme = "auto") { activeTheme = resolveTheme(theme); }
 
 function colorMap(names, supplied = {}) {
   const map = new Map();
@@ -44,27 +33,118 @@ function values(payload, key) {
   return payload[key];
 }
 
-function baseLayout(overrides = {}) {
-  const themed = activeTheme;
+// Chrome colours (text, gridlines, hover surface, the dashed ideal lines)
+// for each theme a host page can be in. "auto" commits to nothing: it leaves
+// the text colour unset and paints gridlines in a half-transparent grey that
+// reads on either background, which is what every figure did before themes
+// existed and so stays the default. A host that knows which theme it is in
+// passes "light" or "dark" -- or its own token object -- and gets chrome that
+// matches, since a grey that works on both is never the best on either.
+const THEMES = {
+  auto: {
+    text: undefined,
+    muted: undefined,
+    grid: "rgba(128, 128, 128, 0.2)",
+    hoverBg: undefined,
+    neutral: "#777",
+  },
+  light: {
+    text: "#111827",
+    muted: "#6b7280",
+    grid: "#e1e0d9",
+    hoverBg: "#ffffff",
+    neutral: "#777",
+  },
+  dark: {
+    text: "#e5e7eb",
+    muted: "#9ca3af",
+    grid: "#2a2f3a",
+    hoverBg: "#171a21",
+    neutral: "#8b8b8b",
+  },
+};
+
+let defaultTheme = "auto";
+
+/** Set the theme every builder uses when its options do not name one.
+ *
+ * A page with a dark-mode toggle sets this once per toggle and rebuilds its
+ * figures, instead of threading the theme through every build call.
+ * Accepts a theme name or an object of token overrides.
+ */
+export function setTheme(theme) {
+  defaultTheme = theme ?? "auto";
+}
+
+/** The theme tokens currently in effect, or those a build option resolves to. */
+export function resolveTheme(theme = defaultTheme) {
+  if (theme && typeof theme === "object") return { ...THEMES.auto, ...theme };
+  return THEMES[theme] ?? THEMES.auto;
+}
+
+// Builders take their layout helpers from here rather than calling the
+// module-level ones, so a theme reaches every layout and axis in a figure
+// without being passed down to each call.
+function palette(options) {
+  const theme = resolveTheme(options?.theme);
+  return {
+    theme,
+    baseLayout: (overrides = {}) => baseLayout(overrides, theme),
+    axis: (overrides = {}) => axis(overrides, theme),
+  };
+}
+
+function baseLayout(overrides = {}, theme = resolveTheme()) {
   return {
     paper_bgcolor: "transparent",
     plot_bgcolor: "transparent",
-    font: { family: "Inter, ui-sans-serif, system-ui, sans-serif", size: 12, ...(themed.text ? { color: themed.text } : {}) },
+    font: {
+      family: "Inter, ui-sans-serif, system-ui, sans-serif",
+      size: 12,
+      ...(theme.text ? { color: theme.text } : {}),
+    },
     hovermode: "closest",
-    hoverlabel: { namelength: -1, ...(themed.hoverBg ? { bgcolor: themed.hoverBg } : {}) },
+    hoverlabel: {
+      namelength: -1,
+      ...(theme.hoverBg
+        ? {
+            bgcolor: theme.hoverBg,
+            bordercolor: theme.grid,
+            font: { color: theme.text },
+          }
+        : {}),
+    },
     margin: { l: 100, r: 24, t: 32, b: 64 },
-    legend: { orientation: "h", y: -0.2, x: 0 },
+    legend: {
+      orientation: "h",
+      y: -0.2,
+      x: 0,
+      ...(theme.muted ? { font: { color: theme.muted } } : {}),
+    },
     ...overrides,
   };
 }
 
-function axis(overrides = {}) {
-  return {
+function axis(overrides = {}, theme = resolveTheme()) {
+  const styled = {
     automargin: true,
-    gridcolor: activeTheme.grid ?? "rgba(128, 128, 128, 0.2)",
+    gridcolor: theme.grid,
     zeroline: false,
+    ...(theme.text ? { zerolinecolor: theme.grid, linecolor: theme.grid } : {}),
+    ...(theme.muted ? { tickfont: { color: theme.muted } } : {}),
     ...overrides,
   };
+  // Builders pass an axis title as a bare string. Keep that spelling but give
+  // it the theme's muted colour, which a plain string cannot carry.
+  if (theme.muted && styled.title != null)
+    styled.title =
+      typeof styled.title === "string"
+        ? { text: styled.title, font: { color: theme.muted } }
+        : {
+            ...styled.title,
+            font: { color: theme.muted, ...styled.title.font },
+          };
+  return styled;
 }
 
 function withEmptyState(layout, hasData) {
@@ -137,6 +217,7 @@ const FILE_PATTERNS = ["", "/", "\\", "x", "-"];
  * flat profile compared across many ranks.
  */
 export function buildGanttFigure(payload, options = {}) {
+  const { baseLayout, axis } = palette(options);
   const intervals = filtered(values(payload, "intervals"), options);
   const byRegion = groupBy(intervals, (row) => row.region);
   const colors = colorMap(byRegion.keys(), options.colors ?? payload.colors);
@@ -187,6 +268,7 @@ export function buildGanttFigure(payload, options = {}) {
 
 /** Build an icicle flame chart using scope-profiler's explicit call IDs. */
 export function buildFlameFigure(payload, options = {}) {
+  const { baseLayout, axis } = palette(options);
   const allCalls = values(payload, "calls");
   const calls = filtered(allCalls, options);
   const regions = [...new Set(calls.map((call) => call.region))];
@@ -259,6 +341,7 @@ export function buildFlameFigure(payload, options = {}) {
 }
 
 export function buildDurationsFigure(payload, options = {}) {
+  const { baseLayout, axis } = palette(options);
   const metric =
     options.metric ??
     payload.options?.metric ??
@@ -326,6 +409,17 @@ const SCALING_KINDS = {
     idealName: "Ideal efficiency",
     ideal: () => 1,
   },
+  // Shares its y column with scaling_efficiency, so it has to be named --
+  // by the document's own `plot` field, or options.plot -- rather than
+  // recognised from the rows. Listed after it so a payload with neither
+  // still infers the strong-scaling reading it always did.
+  weak_scaling_efficiency: {
+    yKey: "efficiency",
+    title: "Weak-scaling efficiency",
+    suffix: "",
+    idealName: "Ideal efficiency",
+    ideal: () => 1,
+  },
 };
 
 function scalingKind(payload, options) {
@@ -353,6 +447,7 @@ function scalingKind(payload, options) {
 
 /** Build a scaling curve: speedup, weak scaling, or parallel efficiency. */
 export function buildSpeedupFigure(payload, options = {}) {
+  const { theme, baseLayout, axis } = palette(options);
   const kind = scalingKind(payload, options);
   const xField = options.xField ?? payload.options?.x_field ?? "num_ranks";
   const points = filtered(values(payload, "points"), options);
@@ -389,7 +484,7 @@ export function buildSpeedupFigure(payload, options = {}) {
       name: kind.idealName,
       x: xValues,
       y: xValues.map((value) => kind.ideal(value, baseline)),
-      line: { color: "#777", dash: "dash" },
+      line: { color: theme.neutral, dash: "dash" },
       hoverinfo: "skip",
     });
   const layout = baseLayout({
@@ -418,8 +513,22 @@ export function buildScalingEfficiencyFigure(payload, options = {}) {
   });
 }
 
+/** Build a weak-scaling efficiency curve (baseline runtime over runtime).
+ *
+ * For a study that grows the problem with the machine, where the ideal is
+ * constant runtime -- not the rank-proportional speedup
+ * `buildScalingEfficiencyFigure` measures against.
+ */
+export function buildWeakScalingEfficiencyFigure(payload, options = {}) {
+  return buildSpeedupFigure(payload, {
+    ...options,
+    plot: "weak_scaling_efficiency",
+  });
+}
+
 /** Build mean call duration over time, one trace per region. */
 export function buildDurationTimeseriesFigure(payload, options = {}) {
+  const { baseLayout, axis } = palette(options);
   const points = filtered(values(payload, "points"), options);
   const runs = runAware(points);
   const colors = colorMap(
@@ -466,6 +575,7 @@ export function buildDurationTimeseriesFigure(payload, options = {}) {
 
 /** Build duration distributions from histogram bin records. */
 export function buildHistogramFigure(payload, options = {}) {
+  const { baseLayout, axis } = palette(options);
   const bins = filtered(values(payload, "bins"), options);
   const runs = runAware(bins);
   const colors = colorMap(
@@ -510,6 +620,7 @@ export function buildHistogramFigure(payload, options = {}) {
 
 /** Build a rank × region heatmap from duration records. */
 export function buildRankHeatmapFigure(payload, options = {}) {
+  const { baseLayout, axis } = palette(options);
   const points = filtered(values(payload, "points"), options);
   const regions = [...new Set(points.map((point) => point.region))];
   const multi = new Set(points.map((point) => point.file ?? "run")).size > 1;
@@ -561,6 +672,7 @@ export function buildRankHeatmapFigure(payload, options = {}) {
 
 /** Build per-rank duration lines, with a dashed rank mean for each region. */
 export function buildImbalanceFigure(payload, options = {}) {
+  const { baseLayout, axis } = palette(options);
   const points = filtered(values(payload, "points"), options);
   const runs = runAware(points);
   const colors = colorMap(
@@ -614,6 +726,7 @@ export function buildImbalanceFigure(payload, options = {}) {
 
 /** Build a timeline-occupancy heatmap from binned density records. */
 export function buildDensityFigure(payload, options = {}) {
+  const { baseLayout, axis } = palette(options);
   const points = filtered(values(payload, "points"), options);
   const lane = (point) => `${point.file ?? "run"} / ${point.region}`;
   const lanes = [...new Set(points.map(lane))];
@@ -686,21 +799,62 @@ const SUMMARY_LABELS = {
   total_duration_seconds: "Total duration (s)",
 };
 
+// The short metric names the CLI and the durations export use, mapped to the
+// field they are stored under in a region_statistics document, so a caller
+// can say "total" wherever it says "total" everywhere else.
+const SUMMARY_METRIC_ALIASES = {
+  avg: "average_duration_seconds",
+  min: "min_duration_seconds",
+  max: "max_duration_seconds",
+  total: "total_duration_seconds",
+  first: "first_duration_seconds",
+  last: "last_duration_seconds",
+  std: "std_duration_seconds",
+  count: "count",
+};
+
+// Pick the runs to draw, in the order asked for. `files` names them by label
+// (or by index), which is how a page lets a viewer compare two runs out of a
+// document that holds many.
+function selectFiles(files, selection) {
+  if (!Array.isArray(selection)) return files;
+  return selection
+    .map((wanted) =>
+      typeof wanted === "number"
+        ? files[wanted]
+        : files.find((file) => (file.label ?? "run") === wanted),
+    )
+    .filter(Boolean);
+}
+
 /** Build a ranked region bar chart from a region_statistics document. */
 export function buildRegionSummaryFigure(payload, options = {}) {
-  const files = values(payload, "files");
-  const metric = options.metric ?? "total_duration_seconds";
+  const { baseLayout, axis } = palette(options);
+  const files = selectFiles(values(payload, "files"), options.files);
+  const metric =
+    SUMMARY_METRIC_ALIASES[options.metric] ??
+    options.metric ??
+    "total_duration_seconds";
   const limit = options.topN ?? 20;
+  const horizontal = (options.orientation ?? "h") === "h";
   const keep =
     typeof options.filterRegion === "function"
       ? options.filterRegion
+      : () => true;
+  // Comparing runs is only meaningful over the regions they share: a region
+  // one run never entered would otherwise draw as a bar of zero against a
+  // real one, which reads as "got faster" rather than "not measured here".
+  const common =
+    options.commonRegionsOnly && files.length > 1
+      ? (region) =>
+          files.every((file) => (file.region_statistics ?? {})[region] != null)
       : () => true;
   const totals = new Map();
   for (const file of files) {
     for (const [region, stats] of Object.entries(
       file.region_statistics ?? {},
     )) {
-      if (!keep(region, stats)) continue;
+      if (!keep(region, stats) || !common(region)) continue;
       totals.set(region, (totals.get(region) ?? 0) + (stats[metric] ?? 0));
     }
   }
@@ -713,35 +867,72 @@ export function buildRegionSummaryFigure(payload, options = {}) {
   const labels = files.map((file) => file.label ?? "run");
   const colors = colorMap(labels, options.colors ?? payload.colors);
   const unit = metric === "count" ? "" : " s";
+  const values_ = (stats) =>
+    regions.map((region) => stats[region]?.[metric] ?? null);
   const data = files.map((file, index) => {
     const stats = file.region_statistics ?? {};
+    const magnitudes = values_(stats);
     return {
       type: "bar",
-      orientation: "h",
+      ...(horizontal
+        ? { orientation: "h", y: regions, x: magnitudes }
+        : { x: regions, y: magnitudes }),
       name: labels[index],
-      y: regions,
-      x: regions.map((region) => stats[region]?.[metric] ?? null),
       marker: {
         color: colors.get(labels[index]),
         line: { color: "rgba(0, 0, 0, 0.22)", width: 0.5 },
       },
       customdata: regions.map((region) => stats[region]?.count ?? null),
-      hovertemplate: `<b>%{y}</b><br>${labels[index]}: %{x:.6g}${unit}<br>calls: %{customdata}<extra></extra>`,
+      hovertemplate: horizontal
+        ? `<b>%{y}</b><br>${labels[index]}: %{x:.6g}${unit}<br>calls: %{customdata}<extra></extra>`
+        : `<b>%{x}</b><br>${labels[index]}: %{y:.6g}${unit}<br>calls: %{customdata}<extra></extra>`,
     };
+  });
+  const magnitudeAxis = axis({ title: SUMMARY_LABELS[metric] ?? metric });
+  const categoryAxis = axis({
+    categoryorder: "array",
+    // A horizontal bar chart fills from the bottom up, so the ranking has to
+    // be reversed to read top-down; a vertical one already reads left to right.
+    categoryarray: horizontal ? [...regions].reverse() : regions,
+    showgrid: false,
+    ...(horizontal ? {} : { tickangle: -35 }),
   });
   const layout = baseLayout({
     barmode: "group",
-    height: Math.max(320, 26 * regions.length + 160),
+    ...(horizontal
+      ? {
+          height: Math.max(320, 26 * regions.length + 160),
+          xaxis: magnitudeAxis,
+          yaxis: categoryAxis,
+        }
+      : {
+          height: Math.max(360, 26 * regions.length + 200),
+          margin: { l: 100, r: 24, t: 32, b: 140 },
+          xaxis: categoryAxis,
+          yaxis: magnitudeAxis,
+        }),
     showlegend: files.length > 1,
-    xaxis: axis({ title: SUMMARY_LABELS[metric] ?? metric }),
-    yaxis: axis({
-      categoryorder: "array",
-      categoryarray: [...regions].reverse(),
-      showgrid: false,
-    }),
     ...options.layout,
   });
   return { data, layout: withEmptyState(layout, regions.length > 0) };
+}
+
+/** Build a side-by-side comparison of two runs in a region_statistics document.
+ *
+ * The same bars as `buildRegionSummaryFigure`, narrowed to the runs named in
+ * `options.files` and to the regions both of them recorded, and drawn
+ * vertically with every shared region kept rather than a ranked top slice --
+ * the reading for "what changed between these two runs?" rather than "where
+ * did this run spend its time?".
+ */
+export function buildComparisonFigure(payload, options = {}) {
+  return buildRegionSummaryFigure(payload, {
+    orientation: "v",
+    topN: Infinity,
+    commonRegionsOnly: true,
+    ...options,
+    files: options.files ?? [0, 1],
+  });
 }
 
 /** Build a Sankey call graph from either callgraph export shape.
@@ -752,6 +943,7 @@ export function buildRegionSummaryFigure(payload, options = {}) {
  * recursion in full.
  */
 export function buildCallgraphFigure(payload, options = {}) {
+  const { baseLayout, axis } = palette(options);
   const compact = Array.isArray(payload?.regions);
   if (!compact && !Array.isArray(payload?.calls))
     throw new TypeError(
@@ -835,6 +1027,7 @@ export function buildCallgraphFigure(payload, options = {}) {
 
 /** Build a grouped bar chart of one LIKWID hardware-counter metric. */
 export function buildLikwidFigure(payload, options = {}) {
+  const { baseLayout, axis } = palette(options);
   const bars = filtered(values(payload, "bars"), options);
   const series = groupBy(bars, (bar) => bar.series);
   const regions = [...new Set(bars.map((bar) => bar.region))];
@@ -870,29 +1063,49 @@ export function buildLikwidFigure(payload, options = {}) {
 
 /** Build a log-log roofline plot from per-region LIKWID-derived rates. */
 export function buildRooflineFigure(payload, options = {}) {
+  const { baseLayout, axis } = palette(options);
   const points = filtered(values(payload, "points"), options);
   const series = groupBy(points, (point) => point.file ?? "run");
   const colors = colorMap(series.keys(), options.colors ?? payload.colors);
   const data = [...series].map(([name, rows]) => ({
-    type: "scatter", mode: "markers", name,
+    type: "scatter",
+    mode: "markers",
+    name,
     x: rows.map((point) => point.arithmetic_intensity_flops_per_byte),
     y: rows.map((point) => point.performance_gflops),
     marker: { color: colors.get(name), size: 9 },
-    customdata: rows.map((point) => [point.region, point.rank, point.bandwidth_gbs]),
-    hovertemplate: "<b>%{customdata[0]}</b> (rank %{customdata[1]})" + "<br>intensity: %{x:.6g} FLOP/byte" + "<br>performance: %{y:.6g} GFLOP/s" + "<br>bandwidth: %{customdata[2]:.6g} GB/s<extra></extra>",
+    customdata: rows.map((point) => [
+      point.region,
+      point.rank,
+      point.bandwidth_gbs,
+    ]),
+    hovertemplate:
+      "<b>%{customdata[0]}</b> (rank %{customdata[1]})" +
+      "<br>intensity: %{x:.6g} FLOP/byte" +
+      "<br>performance: %{y:.6g} GFLOP/s" +
+      "<br>bandwidth: %{customdata[2]:.6g} GB/s<extra></extra>",
   }));
   const roof = payload.roofline ?? [];
-  if (roof.length) data.push({
-    type: "scatter", mode: "lines", name: payload.empirical_ceilings ? "empirical roof" : "roofline",
-    x: roof.map((point) => point.arithmetic_intensity_flops_per_byte), y: roof.map((point) => point.performance_gflops),
-    line: { color: activeTheme.neutral ?? "#111", width: 2, dash: "dash" },
-    hovertemplate: "intensity: %{x:.6g} FLOP/byte<br>ceiling: %{y:.6g} GFLOP/s<extra></extra>",
-  });
+  if (roof.length) {
+    data.push({
+      type: "scatter",
+      mode: "lines",
+      name: payload.empirical_ceilings ? "empirical roof" : "roofline",
+      x: roof.map((point) => point.arithmetic_intensity_flops_per_byte),
+      y: roof.map((point) => point.performance_gflops),
+      line: { color: "#111", width: 2, dash: "dash" },
+      hovertemplate:
+        "intensity: %{x:.6g} FLOP/byte<br>ceiling: %{y:.6g} GFLOP/s<extra></extra>",
+    });
+  }
   const layout = baseLayout({
-    title: payload.empirical_ceilings ? "Roofline analysis (empirical ceilings)" : "Roofline analysis",
+    title: payload.empirical_ceilings
+      ? "Roofline analysis (empirical ceilings)"
+      : "Roofline analysis",
     xaxis: axis({ title: "Arithmetic intensity [FLOP/byte]", type: "log" }),
     yaxis: axis({ title: "Attained performance [GFLOP/s]", type: "log" }),
-    showlegend: series.size > 1 || roof.length > 0, ...options.layout,
+    showlegend: series.size > 1 || roof.length > 0,
+    ...options.layout,
   });
   return { data, layout: withEmptyState(layout, points.length > 0) };
 }
@@ -913,6 +1126,7 @@ export const PLOT_BUILDERS = {
   speedup: buildSpeedupFigure,
   weak_scaling: buildSpeedupFigure,
   scaling_efficiency: buildSpeedupFigure,
+  weak_scaling_efficiency: buildSpeedupFigure,
   rank_heatmap: buildRankHeatmapFigure,
   histogram: buildHistogramFigure,
   imbalance: buildImbalanceFigure,
@@ -947,18 +1161,6 @@ export function inferPlotKind(payload) {
   return undefined;
 }
 
-/** Validate an envelope and the minimum data shape required for its builder. */
-export function validatePlotData(payload, options = {}) {
-  if (!payload || typeof payload !== "object") throw new TypeError("plot-data must be an object.");
-  if (payload.format != null && payload.format !== PLOT_DATA_FORMAT) throw new TypeError(`Expected a ${PLOT_DATA_FORMAT} document, got ${JSON.stringify(payload.format)}.`);
-  if (typeof payload.format_version === "number" && payload.format_version > SUPPORTED_FORMAT_VERSION) throw new TypeError(`Plot-data format version ${payload.format_version} is newer than this package supports (${SUPPORTED_FORMAT_VERSION}); upgrade @scope-profiler/plotly.`);
-  const kind = options.plot ?? payload.plot ?? inferPlotKind(payload);
-  if (!kind || !PLOT_BUILDERS[kind]) throw new TypeError(kind ? `No figure builder for plot kind ${JSON.stringify(kind)}.` : "Could not determine the plot kind; pass options.plot.");
-  const keys = { gantt: "intervals", density: "points", flame: "calls", flame_chart: "calls", flame_graph: "calls", callgraph: "calls", durations: "bars", timeseries: "points", speedup: "points", weak_scaling: "points", scaling_efficiency: "points", rank_heatmap: "points", histogram: "bins", imbalance: "points", likwid: "bars", roofline: "points", region_statistics: "files" };
-  if (!Array.isArray(payload[keys[kind]])) throw new TypeError(`Plot kind ${JSON.stringify(kind)} requires a ${keys[kind]} array.`);
-  return kind;
-}
-
 /** Build the right figure for any plot-data document, without naming a builder.
  *
  * Dispatches on the document's own `plot` field, falling back to the payload
@@ -966,8 +1168,23 @@ export function validatePlotData(payload, options = {}) {
  * kind.
  */
 export function buildFigure(payload, options = {}) {
-  const kind = validatePlotData(payload, options);
-  const builder = PLOT_BUILDERS[kind];
+  if (payload?.format != null && payload.format !== PLOT_DATA_FORMAT)
+    throw new TypeError(
+      `Expected a ${PLOT_DATA_FORMAT} document, got ${JSON.stringify(payload.format)}.`,
+    );
+  const version = payload?.format_version;
+  if (typeof version === "number" && version > SUPPORTED_FORMAT_VERSION)
+    throw new TypeError(
+      `Plot-data format version ${version} is newer than this package supports (${SUPPORTED_FORMAT_VERSION}); upgrade @scope-profiler/plotly.`,
+    );
+  const kind = options.plot ?? payload?.plot ?? inferPlotKind(payload);
+  const builder = kind && PLOT_BUILDERS[kind];
+  if (!builder)
+    throw new TypeError(
+      kind
+        ? `No figure builder for plot kind ${JSON.stringify(kind)}.`
+        : "Could not determine the plot kind; pass options.plot.",
+    );
   return builder(payload, { plot: kind, ...options });
 }
 

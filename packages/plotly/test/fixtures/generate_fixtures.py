@@ -6,6 +6,11 @@ its hand-written test payload had only one run. Run this after changing an
 exporter payload::
 
     python packages/plotly/test/fixtures/generate_fixtures.py
+    npx prettier --write packages/plotly/test/fixtures/*.json
+
+The prettier pass is what keeps the checked-in files stable: json.dumps and
+prettier disagree about short arrays, so skipping it leaves a diff in files
+this script did not change.
 
 The runs are synthetic and deterministic -- two files, three ranks, three
 regions with several calls each -- so the fixtures stay small and a rerun
@@ -48,6 +53,7 @@ PLOTS = [
     "callgraph",
     "speedup",
     "weak_scaling",
+    "weak_scaling_efficiency",
     "scaling_efficiency",
 ]
 
