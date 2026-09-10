@@ -9,8 +9,7 @@ import h5py
 import numpy as np
 import pytest
 
-import scope_profiler.post_processing as post_processing
-from scope_profiler import read_h5
+from scope_profiler import post_processing, read_h5
 from scope_profiler.call_stack import build_call_stack
 from scope_profiler.h5writer import ProfilingWriter
 from scope_profiler.likwid_data import LikwidRegionResult
