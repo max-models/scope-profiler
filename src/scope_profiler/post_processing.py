@@ -22,13 +22,15 @@ from scope_profiler.plotting_scripts import (
     plot_likwid,
     plot_perf_events,
     plot_rank_heatmap,
+    plot_roofline,
     plot_scaling_efficiency,
     plot_speedup,
     plot_timeline_density,
     plot_weak_scaling,
+    plot_weak_scaling_efficiency,
     write_region_statistics_json,
 )
-from scope_profiler.prof_export import export_prof
+from scope_profiler.prof_export import export_flamegraph_svg, export_prof
 from scope_profiler.profile_io import read_profile
 from scope_profiler.speedscope_export import export_speedscope
 
@@ -46,11 +48,19 @@ _PLOT_CATALOG: dict[str, tuple[str, bool]] = {
     "timeseries": ("duration per call over wall-clock time", False),
     "speedup": ("scaling across multiple files (2+ files only)", False),
     "weak_scaling": ("weak scaling across multiple files (2+ files only)", False),
+    "weak_scaling_efficiency": (
+        "weak-scaling efficiency, for runs of constant work per rank",
+        False,
+    ),
     "rank_heatmap": ("total duration by rank and region", False),
     "scaling_efficiency": ("measured versus ideal parallel efficiency", False),
     "histogram": ("call-duration distribution per region", False),
     "imbalance": ("per-rank duration comparison, to spot stragglers", False),
     "likwid": ("one LIKWID hardware-counter metric (needs --likwid-metric)", False),
+    "roofline": (
+        "LIKWID FLOP/byte roofline (needs FLOP-rate and bandwidth metrics)",
+        False,
+    ),
     "perf_events": (
         "one Linux perf-event metric (needs --metric, e.g. ipc)",
         False,
@@ -68,6 +78,7 @@ _PLOTEXT_SIMPLE_PLOTS = frozenset(
         "timeseries",
         "speedup",
         "weak_scaling",
+        "weak_scaling_efficiency",
         "scaling_efficiency",
         "histogram",
         "imbalance",
@@ -286,10 +297,14 @@ def _add_duration_args(parser: argparse.ArgumentParser) -> None:
         "--metrics",
         nargs="*",
         type=str,
-        choices=["avg", "min", "max", "total"],
+        choices=["avg", "min", "max", "total", "first", "last"],
         default=["total"],
-        metavar="{avg,min,max,total}",
-        help="Duration statistics to draw/export (default: total).",
+        metavar="{avg,min,max,total,first,last}",
+        help=(
+            "Duration statistics to draw/export (default: total). "
+            "first/last are the chronologically first and last call's "
+            "duration, which separate one-off warmup from steady state."
+        ),
     )
     parser.add_argument(
         "--sort-by",
@@ -327,6 +342,31 @@ def _add_log_scale_arg(parser: argparse.ArgumentParser) -> None:
         "--log-scale",
         action="store_true",
         help="Use a logarithmic y-axis where the plot supports it.",
+    )
+
+
+def _add_roofline_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--flops-metric",
+        metavar="NAME",
+        help="LIKWID FLOP-rate metric; auto-detected when omitted.",
+    )
+    parser.add_argument(
+        "--bandwidth-metric",
+        metavar="NAME",
+        help="LIKWID memory-bandwidth metric; auto-detected when omitted.",
+    )
+    parser.add_argument(
+        "--peak-flops",
+        type=float,
+        metavar="GFLOP/S",
+        help="Machine compute ceiling in GFLOP/s (otherwise empirical).",
+    )
+    parser.add_argument(
+        "--peak-bandwidth",
+        type=float,
+        metavar="GB/S",
+        help="Machine memory ceiling in GB/s (otherwise empirical).",
     )
 
 
@@ -423,7 +463,12 @@ def build_parser() -> argparse.ArgumentParser:
             )
         elif kind == "timeseries":
             _add_log_scale_arg(plot_parser)
-        elif kind in {"speedup", "weak_scaling", "scaling_efficiency"}:
+        elif kind in {
+            "speedup",
+            "weak_scaling",
+            "weak_scaling_efficiency",
+            "scaling_efficiency",
+        }:
             plot_parser.add_argument(
                 "--x",
                 type=str,
@@ -431,6 +476,20 @@ def build_parser() -> argparse.ArgumentParser:
                 metavar="FIELD",
                 help="Scaling x-axis field.",
             )
+            if kind == "weak_scaling_efficiency":
+                plot_parser.add_argument(
+                    "--work-per-rank",
+                    nargs="*",
+                    type=float,
+                    default=None,
+                    metavar="WORK",
+                    help=(
+                        "Work per rank in each file, in the order the files "
+                        "are given (grid cells, particles, unknowns -- any "
+                        "unit). Checked to be equal across the files, since "
+                        "weak-scaling efficiency is meaningless otherwise."
+                    ),
+                )
         elif kind == "histogram":
             plot_parser.add_argument(
                 "--bins",
@@ -464,6 +523,8 @@ def build_parser() -> argparse.ArgumentParser:
             )
             plot_parser.add_argument("--top-n", type=int, default=None, metavar="N")
             _add_log_scale_arg(plot_parser)
+        elif kind == "roofline":
+            _add_roofline_args(plot_parser)
         elif kind == "perf_events":
             plot_parser.add_argument(
                 "--metric",
@@ -483,6 +544,7 @@ def build_export_parser() -> argparse.ArgumentParser:
 
     for kind, description in {
         "prof": "Export cProfile/pstats files.",
+        "flamegraph": "Export standalone SVG flame graphs (needs flameprof).",
         "speedscope": "Export speedscope JSON files.",
         "chrome-trace": "Export Chrome Trace Event JSON files for Perfetto.",
         "json": "Export the whole run as a JSON profile.",
@@ -490,13 +552,43 @@ def build_export_parser() -> argparse.ArgumentParser:
         export_parser = subparsers.add_parser(kind, help=description)
         export_parser.set_defaults(export_kind=kind)
         _add_common_export_args(export_parser)
-        if kind == "prof":
+        if kind in {"prof", "flamegraph"}:
             export_parser.add_argument(
                 "--no-call-paths",
                 action="store_true",
                 help=(
                     "Aggregate every call of a region into one entry, instead "
                     "of keeping 'parent > child' paths apart."
+                ),
+            )
+        if kind == "flamegraph":
+            export_parser.add_argument(
+                "--width",
+                type=int,
+                default=1200,
+                metavar="PX",
+                help=(
+                    "Document width in pixels (default: 1200). Sets the "
+                    "aspect ratio and label elision even when the SVG scales."
+                ),
+            )
+            export_parser.add_argument(
+                "--threshold",
+                type=float,
+                default=0.1,
+                metavar="PERCENT",
+                help=(
+                    "Drop frames taking less than this share of total time "
+                    "(default: 0.1%%)."
+                ),
+            )
+            export_parser.add_argument(
+                "--fixed-width",
+                action="store_true",
+                help=(
+                    "Keep flameprof's fixed pixel size and XML prolog, for a "
+                    "standalone file, instead of a viewBox that scales to the "
+                    "element the SVG is inlined into."
                 ),
             )
         if kind == "json":
@@ -523,6 +615,7 @@ def build_export_parser() -> argparse.ArgumentParser:
     _add_timeline_args(plot_data)
     _add_data_export_args(plot_data)
     _add_callgraph_args(plot_data)
+    _add_roofline_args(plot_data)
     plot_data.add_argument(
         "--plots",
         "-p",
@@ -648,7 +741,7 @@ def _selected_plots(args: argparse.Namespace) -> set[str]:
         return set(_QUICK_PLOTS)
     if kind == "all":
         plots = set(_PLOT_CATALOG)
-        plots.difference_update({"likwid", "perf_events"})
+        plots.difference_update({"likwid", "perf_events", "roofline"})
         return plots
     return {kind}
 
@@ -727,6 +820,7 @@ def _plot_options(args: argparse.Namespace, name: str):
         ),
         "perf_event_metric": metric if name == "perf_events" else None,
         "speedup_x_field": getattr(args, "x", "num_ranks"),
+        "work_per_rank": getattr(args, "work_per_rank", None),
         "start_time": getattr(args, "start_time", None),
         "end_time": getattr(args, "end_time", None),
         "min_duration": getattr(args, "min_duration", 0.0),
@@ -860,6 +954,17 @@ def _render_selected_plots(
         if len(runs) > 1
         else None
     )
+    weak_scaling_efficiency_data_path = (
+        _data_path(
+            data_output_dir,
+            selected_plots,
+            "weak_scaling_efficiency",
+            "weak_scaling_efficiency_data",
+            data_format,
+        )
+        if len(runs) > 1
+        else None
+    )
     scaling_efficiency_data_path = _data_path(
         data_output_dir,
         selected_plots,
@@ -893,6 +998,13 @@ def _render_selected_plots(
         selected_plots,
         "likwid",
         "likwid_data",
+        data_format,
+    )
+    roofline_data_path = _data_path(
+        data_output_dir,
+        selected_plots,
+        "roofline",
+        "roofline_data",
         data_format,
     )
 
@@ -988,28 +1100,27 @@ def _render_selected_plots(
 
     if "durations" in selected_plots:
         path = image_path("durations", "durations_plot")
-        durations_paths = []
-        for metric in options["duration_metrics"]:
-            durations_paths.extend(
-                plot_durations(
-                    runs,
-                    metric=metric,
-                    filepath=path,
-                    show=args.show,
-                    include=args.include,
-                    exclude=args.exclude,
-                    ranks=args.ranks,
-                    sort_by=options["sort_by"],
-                    top_n=options["top_n"],
-                    combine_regions=options["combine_regions"],
-                    stack_children=options["stack_children"],
-                    cmap=args.cmap,
-                    log_scale=options["log_scale"],
-                    data_filepath=durations_data_path,
-                    data_format=data_format,
-                    backend=args.backend,
-                ),
-            )
+        # One call for every metric, not one call per metric: they share a
+        # single data export, and a call per metric would have each rewrite
+        # that file, leaving only the last metric's bars in it.
+        durations_paths = plot_durations(
+            runs,
+            metrics=options["duration_metrics"],
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            sort_by=options["sort_by"],
+            top_n=options["top_n"],
+            combine_regions=options["combine_regions"],
+            stack_children=options["stack_children"],
+            cmap=args.cmap,
+            log_scale=options["log_scale"],
+            data_filepath=durations_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
         saved.extend(str(path) for path in durations_paths if path)
         if durations_data_path:
             saved.append(durations_data_path)
@@ -1085,6 +1196,26 @@ def _render_selected_plots(
         )
         saved.extend(path for path in (path, likwid_data_path) if path)
 
+    if "roofline" in selected_plots:
+        path = image_path("roofline", "roofline_plot")
+        plot_roofline(
+            runs,
+            flops_metric=getattr(args, "flops_metric", None),
+            bandwidth_metric=getattr(args, "bandwidth_metric", None),
+            peak_flops=getattr(args, "peak_flops", None),
+            peak_bandwidth=getattr(args, "peak_bandwidth", None),
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=args.ranks,
+            cmap=args.cmap,
+            data_filepath=roofline_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
+        saved.extend(path for path in (path, roofline_data_path) if path)
+
     if "perf_events" in selected_plots:
         path = image_path("perf_events", "perf_events_plot")
         plot_perf_events(
@@ -1134,6 +1265,29 @@ def _render_selected_plots(
             backend=args.backend,
         )
         saved.extend(path for path in (path, weak_scaling_data_path) if path)
+
+    if len(runs) > 1 and "weak_scaling_efficiency" in selected_plots:
+        path = image_path(
+            "weak_scaling_efficiency",
+            "weak_scaling_efficiency_plot",
+        )
+        plot_weak_scaling_efficiency(
+            runs,
+            x_field=options["speedup_x_field"],
+            ranks=args.ranks,
+            work_per_rank=options["work_per_rank"],
+            filepath=path,
+            show=args.show,
+            include=args.include,
+            exclude=args.exclude,
+            cmap=args.cmap,
+            data_filepath=weak_scaling_efficiency_data_path,
+            data_format=data_format,
+            backend=args.backend,
+        )
+        saved.extend(
+            path for path in (path, weak_scaling_efficiency_data_path) if path
+        )
 
     if "rank_heatmap" in selected_plots:
         path = image_path("rank_heatmap", "rank_heatmap_plot")
@@ -1246,7 +1400,21 @@ def export_main(argv: list[str] | None = None):
     os.makedirs(args.output, exist_ok=True)
 
     saved: list[str] = []
-    if args.export_kind == "prof":
+    if args.export_kind == "flamegraph":
+        svg_paths = export_flamegraph_svg(
+            profiling_data=runs,
+            filepath=os.path.join(args.output, "flamegraph.svg"),
+            ranks=args.ranks,
+            include=args.include,
+            exclude=args.exclude,
+            call_paths=not args.no_call_paths,
+            width=args.width,
+            threshold=args.threshold / 100,
+            scalable=not args.fixed_width,
+            verbose=False,
+        )
+        saved.extend(str(path) for path in svg_paths)
+    elif args.export_kind == "prof":
         prof_paths = export_prof(
             profiling_data=runs,
             filepath=os.path.join(args.output, "profile.prof"),
@@ -1335,6 +1503,11 @@ def export_main(argv: list[str] | None = None):
         print(
             f"\nView {saved[0]} at https://www.speedscope.app "
             "(or: npx speedscope <file>)",
+        )
+    if args.export_kind == "flamegraph" and saved:
+        print(
+            f"\nOpen {saved[0]} in a browser, or inline it in a page to keep "
+            "its per-frame tooltips",
         )
     if args.export_kind == "chrome-trace" and saved:
         print(f"\nOpen {saved[0]} with https://ui.perfetto.dev or chrome://tracing")

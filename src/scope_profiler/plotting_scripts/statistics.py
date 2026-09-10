@@ -56,26 +56,40 @@ def _region_duration_values(
     return np.concatenate(durations)
 
 
-def _first_last_duration(
-    region,
+def _pooled_first_last_duration(
+    regions,
     ranks: list[int] | None = None,
 ) -> tuple[float | None, float | None]:
-    """Duration of the chronologically first and last call, across ranks.
+    """Duration of the chronologically first and last call, over several regions.
 
-    Pooling durations across ranks loses call order, so first/last are found
-    from each rank's own first/last call instead -- the earliest-starting
-    rank supplies "first", the latest-ending rank supplies "last".
+    Pooling durations loses call order, so first/last are found from each
+    rank's own first/last call instead -- the earliest-starting rank of any
+    of the regions supplies "first", the latest-ending one supplies "last".
+    Several regions are pooled the same way a ``combine_regions`` bar pools
+    its members: the group's first call is whichever member started first.
     """
-    if ranks is None:
-        selected = region.regions.values()
-    else:
-        selected = (region.regions[rank] for rank in ranks if rank in region.regions)
-    timed = [data for data in selected if data.has_timing]
+    timed = []
+    for region in regions:
+        if ranks is None:
+            selected = region.regions.values()
+        else:
+            selected = (
+                region.regions[rank] for rank in ranks if rank in region.regions
+            )
+        timed.extend(data for data in selected if data.has_timing)
     if not timed:
         return None, None
     first = min(timed, key=lambda data: data.first_start_time).first_duration
     last = max(timed, key=lambda data: data.last_end_time).last_duration
     return first, last
+
+
+def _first_last_duration(
+    region,
+    ranks: list[int] | None = None,
+) -> tuple[float | None, float | None]:
+    """Duration of the chronologically first and last call of one region."""
+    return _pooled_first_last_duration([region], ranks)
 
 
 def _stats_from_values(

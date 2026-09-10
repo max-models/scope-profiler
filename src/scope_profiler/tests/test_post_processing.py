@@ -25,6 +25,7 @@ from scope_profiler.plotting_scripts import (
     _stacked_segments,
     available_likwid_metrics,
     available_perf_event_metrics,
+    collect_roofline_points,
     collect_region_statistics,
     plot_duration_histogram,
     plot_duration_timeseries,
@@ -36,12 +37,15 @@ from scope_profiler.plotting_scripts import (
     plot_likwid,
     plot_perf_events,
     plot_rank_heatmap,
+    plot_roofline,
     plot_scaling_efficiency,
     plot_speedup,
     plot_timeline_density,
     plot_weak_scaling,
+    plot_weak_scaling_efficiency,
 )
-from scope_profiler.post_processing import _PLOT_CATALOG, export_main, main
+import scope_profiler.post_processing as post_processing
+from scope_profiler.post_processing import _PLOT_CATALOG, build_parser, export_main, main
 from scope_profiler.profile_manager import RankPayload
 from scope_profiler.results import ProfilingResults
 
@@ -803,6 +807,65 @@ def test_plot_flame_graph_aggregates_repeated_call_paths(tmp_path):
     assert list(frame.base) == [0.0, 0.0]
 
 
+def test_plot_durations_exports_every_metric_to_one_file(tmp_path):
+    profile = tmp_path / "run.h5"
+    # Three calls of rising duration, so first and last differ from each
+    # other and from min/max/avg.
+    _write_sample_h5(profile, {0: {"solve": ([0, 10, 30], [1, 15, 90])}})
+    run = read_h5(profile)
+    data_file = tmp_path / "durations_data.json"
+    out_file = tmp_path / "durations_plot.png"
+
+    written = plot_durations(
+        run,
+        metrics=["total", "first", "last"],
+        filepath=str(out_file),
+        data_filepath=data_file,
+        data_format="json",
+        show=False,
+        verbose=False,
+    )
+
+    # One figure per metric, each under its own name: a shared name would
+    # have every metric overwrite the last.
+    assert [Path(path).name for path in written] == [
+        "durations_plot_total.png",
+        "durations_plot_first.png",
+        "durations_plot_last.png",
+    ]
+    document = json.loads(data_file.read_text())
+    assert document["metrics"] == ["total", "first", "last"]
+    values = {
+        bar["metric"]: bar["value_seconds"]
+        for bar in document["bars"]
+        if bar["region"] == "solve"
+    }
+    assert values["first"] == pytest.approx(1e-9)
+    assert values["last"] == pytest.approx(60e-9)
+    assert values["total"] == pytest.approx(66e-9)
+
+
+def test_plot_durations_rejects_an_unknown_or_empty_metric_list(tmp_path):
+    profile = tmp_path / "run.h5"
+    _write_sample_h5(profile, {0: {"solve": ([0], [10])}})
+    run = read_h5(profile)
+
+    with pytest.raises(ValueError, match="Unknown metric"):
+        plot_durations(run, metrics=["total", "median"], show=False, verbose=False)
+    with pytest.raises(ValueError, match="at least one duration metric"):
+        plot_durations(run, metrics=[], show=False, verbose=False)
+    # first/last are a statistic over calls, not a sum, so they cannot be
+    # decomposed into self time plus children.
+    with pytest.raises(ValueError, match="stack_children does not apply"):
+        plot_durations(
+            run,
+            metrics=["first"],
+            stack_children=True,
+            show=False,
+            verbose=False,
+        )
+
+
 def test_plot_speedup(tmp_path):
     file_one = tmp_path / "run_1.h5"
     file_two = tmp_path / "run_2.h5"
@@ -850,6 +913,76 @@ def test_plot_weak_scaling(tmp_path):
     assert out_file.exists()
     points = json.loads(data_file.read_text())["points"]
     assert {point["normalized_runtime"] for point in points} == {1.0}
+
+
+def test_plot_weak_scaling_efficiency(tmp_path):
+    paths = [tmp_path / f"run_{n}.h5" for n in (1, 2, 4)]
+    # The same work per rank at every scale, taking 100, 125 and 200 units:
+    # ideal weak scaling would have held at 100 throughout.
+    for path, ranks, duration in zip(paths, (1, 2, 4), (100, 125, 200)):
+        _write_sample_h5(path, _sample_file_data(ranks, 10, duration))
+    runs = [read_h5(path) for path in paths]
+    data_file = tmp_path / "weak_efficiency.json"
+    out_file = tmp_path / "weak_efficiency.png"
+
+    plot_weak_scaling_efficiency(
+        runs,
+        filepath=out_file,
+        data_filepath=data_file,
+        data_format="json",
+        show=False,
+        verbose=False,
+    )
+
+    assert out_file.exists()
+    document = json.loads(data_file.read_text())
+    assert document["plot"] == "weak_scaling_efficiency"
+    efficiencies = {
+        point["num_ranks"]: point["efficiency"]
+        for point in document["points"]
+        if point["region"] == "solve"
+    }
+    # Baseline runtime over runtime -- no division by an ideal speedup, which
+    # is what separates this from plot_scaling_efficiency.
+    assert efficiencies == {1: 1.0, 2: 0.8, 4: 0.5}
+
+
+def test_weak_scaling_efficiency_rejects_unequal_work_per_rank(tmp_path):
+    paths = [tmp_path / f"run_{n}.h5" for n in (1, 2)]
+    for path, ranks in zip(paths, (1, 2)):
+        _write_sample_h5(path, _sample_file_data(ranks, 10, 100))
+    runs = [read_h5(path) for path in paths]
+
+    # A study that kept the problem fixed is a strong-scaling study; plotting
+    # it as weak-scaling efficiency would silently compare unlike runs.
+    with pytest.raises(ValueError, match="same work per rank"):
+        plot_weak_scaling_efficiency(
+            runs,
+            work_per_rank=[1000, 500],
+            data_format="json",
+            show=False,
+            verbose=False,
+        )
+
+    with pytest.raises(ValueError, match="one value per profiling file"):
+        plot_weak_scaling_efficiency(
+            runs,
+            work_per_rank=[1000],
+            show=False,
+            verbose=False,
+        )
+
+    # Equal work passes, and is recorded for whoever reads the export.
+    data_file = tmp_path / "weak_efficiency.json"
+    plot_weak_scaling_efficiency(
+        runs,
+        work_per_rank=[1000, 1000],
+        data_filepath=data_file,
+        data_format="json",
+        show=False,
+        verbose=False,
+    )
+    assert json.loads(data_file.read_text())["options"]["work_per_rank"] == 1000
 
 
 def test_plot_rank_heatmap(tmp_path):
@@ -1477,6 +1610,36 @@ def _likwid_results(rank_values: dict[int, float]) -> ProfilingResults:
     )
 
 
+def _roofline_results() -> ProfilingResults:
+    return ProfilingResults(
+        regions={},
+        num_ranks=1,
+        likwid={
+            0: {
+                "solve": LikwidRegionResult(
+                    tag="solve",
+                    group_name="FLOPS_DP",
+                    cpus=[0, 1],
+                    times=np.array([1.0, 2.0]),
+                    call_counts=np.array([1, 1]),
+                    metric_names=["DP [MFLOP/s]", "Memory bandwidth [MBytes/s]"],
+                    metrics=np.array([[1000.0, 2000.0], [500.0, 500.0]]),
+                ),
+                "setup": LikwidRegionResult(
+                    tag="setup",
+                    group_name="FLOPS_DP",
+                    cpus=[0],
+                    times=np.array([0.5]),
+                    call_counts=np.array([1]),
+                    metric_names=["DP [MFLOP/s]", "Memory bandwidth [MBytes/s]"],
+                    metrics=np.array([[500.0], [1000.0]]),
+                ),
+            },
+        },
+        file_path="synthetic.h5",
+    )
+
+
 def test_available_likwid_metrics_lists_metrics_and_events():
     results = _likwid_results({0: 500.0, 1: 550.0})
 
@@ -1571,6 +1734,140 @@ def test_plot_likwid_without_likwid_data_raises(tmp_path):
 
     with pytest.raises(ValueError, match="LIKWID"):
         plot_likwid(results, metric="MFlops/s", show=False, verbose=False)
+
+
+def test_roofline_derives_per_region_intensity_and_exports_json(tmp_path):
+    results = _roofline_results()
+    points = collect_roofline_points(results)
+    solve = next(point for point in points if point["region"] == "solve")
+    assert solve["performance_gflops"] == pytest.approx(3.0)
+    assert solve["bandwidth_gbs"] == pytest.approx(1.0)
+    assert solve["arithmetic_intensity_flops_per_byte"] == pytest.approx(3.0)
+    assert solve["runtime_seconds"] == pytest.approx(2.0)
+
+    data_file = tmp_path / "roofline_data.json"
+    payload = plot_roofline(
+        results,
+        peak_flops=10.0,
+        peak_bandwidth=4.0,
+        filepath=tmp_path / "roofline.png",
+        show=False,
+        verbose=False,
+        data_filepath=data_file,
+        data_format="json",
+    )
+    assert (tmp_path / "roofline.png").stat().st_size > 0
+    assert payload["empirical_ceilings"] is False
+    assert payload["roofline"][-1]["performance_gflops"] == pytest.approx(10.0)
+    document = json.loads(data_file.read_text(encoding="utf-8"))
+    assert document["plot"] == "roofline"
+    assert len(document["points"]) == 2
+
+
+def test_roofline_filters_and_rejects_missing_or_invalid_metrics():
+    results = _roofline_results()
+    assert [point["region"] for point in collect_roofline_points(results, include="solve")] == [
+        "solve"
+    ]
+    assert collect_roofline_points(results, flops_metric="missing") == []
+    with pytest.raises(ValueError, match="No LIKWID roofline points"):
+        plot_roofline(results, flops_metric="missing", show=False, verbose=False)
+    with pytest.raises(ValueError, match="peak_flops"):
+        plot_roofline(results, peak_flops=0, show=False, verbose=False)
+
+
+def test_roofline_metric_detection_units_and_empirical_csv_export(tmp_path):
+    from scope_profiler.plotting_scripts.roofline import (
+        _find_metric,
+        _metric_value,
+        _rate_to_giga,
+    )
+
+    result = next(iter(_roofline_results().get_likwid_regions(0).values()))
+    assert _metric_value(result, "missing") is None
+    assert _find_metric(result, "missing", "flops") is None
+    assert _find_metric(result, None, "unavailable") is None
+    assert _rate_to_giga(1, "DP [GFLOP/s]", "flops") == pytest.approx(1)
+    assert _rate_to_giga(1, "DP [MFLOP/s]", "flops") == pytest.approx(1e-3)
+    assert _rate_to_giga(1, "DP [KFLOP/s]", "flops") == pytest.approx(1e-6)
+    assert _rate_to_giga(1, "DP [FLOP/s]", "flops") == pytest.approx(1e-9)
+    assert _rate_to_giga(1, "CPI", "flops") is None
+    assert _rate_to_giga(1, "Memory bandwidth [GBytes/s]", "bandwidth") == pytest.approx(1)
+    assert _rate_to_giga(1, "Memory bandwidth [KBytes/s]", "bandwidth") == pytest.approx(1e-6)
+    assert _rate_to_giga(1, "Memory bandwidth [Bytes/s]", "bandwidth") == pytest.approx(1e-9)
+    assert _rate_to_giga(1, "Memory bandwidth [GiBytes/s]", "bandwidth") == pytest.approx(2**30 / 1e9)
+    assert _rate_to_giga(1, "Memory bandwidth [GB/s]", "bandwidth") is None
+    assert collect_roofline_points(_roofline_results(), ranks=[9]) == []
+
+    csv_file = tmp_path / "roofline_data.csv"
+    payload = plot_roofline(
+        _roofline_results(), data_filepath=csv_file, show=False, verbose=True
+    )
+    assert payload["empirical_ceilings"] is True
+    assert csv_file.read_text(encoding="utf-8").startswith("file,region,rank,")
+
+
+def test_roofline_cli_accepts_ceilings_and_metric_overrides():
+    args = build_parser().parse_args(
+        [
+            "roofline",
+            "run.h5",
+            "--flops-metric",
+            "DP [MFLOP/s]",
+            "--bandwidth-metric",
+            "Memory bandwidth [MBytes/s]",
+            "--peak-flops",
+            "1000",
+            "--peak-bandwidth",
+            "500",
+        ],
+    )
+    assert args.peak_flops == 1000.0
+    assert args.peak_bandwidth == 500.0
+
+
+def test_roofline_helpers_are_available_from_the_top_level_api():
+    import scope_profiler
+
+    assert scope_profiler.collect_roofline_points is collect_roofline_points
+    assert scope_profiler.plot_roofline is plot_roofline
+
+
+def test_post_processing_cli_dispatches_roofline_and_plot_data(tmp_path, monkeypatch):
+    profile = tmp_path / "run.h5"
+    _write_sample_h5(profile, _sample_file_data(1, 10, 20))
+    calls = []
+
+    def fake_roofline(runs, **kwargs):
+        calls.append((runs, kwargs))
+        return {"points": []}
+
+    monkeypatch.setattr(post_processing, "plot_roofline", fake_roofline)
+    main(
+        [
+            "roofline",
+            str(profile),
+            "--peak-flops",
+            "1000",
+            "--peak-bandwidth",
+            "500",
+            "-o",
+            str(tmp_path / "roofline.png"),
+        ],
+    )
+    export_main(
+        [
+            "plot-data",
+            str(profile),
+            "--plots",
+            "roofline",
+            "-o",
+            str(tmp_path / "data"),
+        ],
+    )
+    assert calls[0][1]["peak_flops"] == 1000.0
+    assert calls[0][1]["peak_bandwidth"] == 500.0
+    assert calls[1][1]["data_filepath"].endswith("roofline_data.csv")
 
 
 def test_post_processing_cli_plots_likwid_requires_metric(tmp_path):
@@ -1755,6 +2052,50 @@ def test_every_plot_data_document_carries_the_format_envelope(tmp_path):
     } <= kinds
 
 
+def test_pproc_keeps_every_requested_metric_in_one_durations_export(tmp_path):
+    """Several --metrics used to leave only the last one in the export.
+
+    Each metric was plotted by its own call, and every call was handed the
+    same durations_data path and the same image path, so each rewrote the
+    file the one before it had written.
+    """
+    profile = tmp_path / "run.h5"
+    _write_sample_h5(profile, {0: {"solve": ([0, 10, 30], [1, 15, 90])}})
+    output = tmp_path / "figures"
+    metrics = ["total", "avg", "first", "last"]
+
+    main(["durations", str(profile), "-o", str(output), "--metrics", *metrics])
+    export_main(
+        [
+            "plot-data",
+            str(profile),
+            "-o",
+            str(output),
+            "--format",
+            "json",
+            "--plots",
+            "durations",
+            "--metrics",
+            *metrics,
+        ],
+    )
+
+    document = json.loads((output / "durations_data.json").read_text())
+    assert document["metrics"] == ["total", "avg", "first", "last"]
+    assert {bar["metric"] for bar in document["bars"]} == {
+        "total",
+        "avg",
+        "first",
+        "last",
+    }
+    assert sorted(path.name for path in output.glob("*.png")) == [
+        "durations_plot_avg.png",
+        "durations_plot_first.png",
+        "durations_plot_last.png",
+        "durations_plot_total.png",
+    ]
+
+
 def test_the_plotly_package_has_a_builder_for_every_exported_kind(tmp_path):
     """The JS package must keep up with the kinds the exporter can write.
 
@@ -1795,7 +2136,7 @@ def test_the_plotly_package_has_a_builder_for_every_exported_kind(tmp_path):
     kinds = [
         name
         for name in _PLOT_CATALOG
-        if name not in {"perf_events", "likwid", "callgraph"}
+        if name not in {"perf_events", "likwid", "roofline", "callgraph"}
     ]
     export_main(
         [

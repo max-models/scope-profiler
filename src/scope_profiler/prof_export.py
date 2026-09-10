@@ -17,8 +17,10 @@ call path (or, on request, per region name).
 from __future__ import annotations
 
 import cProfile
+import io
 import marshal
 import pstats
+import re
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -429,6 +431,127 @@ def to_pstats(
         )
         for label, rank, calls in prepared
     }
+
+
+# The header flameprof emits: a fixed-width document, with an XML prolog and
+# a DOCTYPE before it.
+_SVG_HEADER = re.compile(
+    r'''^.*?<svg version="1.1" width="(?P<width>[\d.]+)" height="(?P<height>[\d.]+)"''',
+    re.DOTALL,
+)
+
+
+def _scalable_svg(svg: str) -> str:
+    """Rewrite a fixed-width flameprof SVG to scale to its container.
+
+    flameprof sizes its document in pixels, so a page embedding it gets a
+    1200px-wide graph whatever the space it has. Trading the width/height
+    attributes for the equivalent ``viewBox`` lets CSS scale it. The XML
+    prolog and DOCTYPE go too: the point of scaling one of these is to inline
+    it in a page -- which is also the only way flameprof's per-frame hover
+    tooltips survive -- and there only the ``<svg>`` element is meaningful.
+    """
+    match = _SVG_HEADER.match(svg)
+    if match is None:
+        # A future flameprof with a different header: better an unscaled
+        # graph than a corrupted one.
+        return svg
+    return (
+        f'<svg version="1.1" viewBox="0 0 {match["width"]} {match["height"]}"'
+        + svg[match.end() :]
+    )
+
+
+def export_flamegraph_svg(
+    profiling_data: ProfilingResults | Sequence[ProfilingResults],
+    filepath: str | Path,
+    ranks: list[int] | int | None = None,
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+    call_paths: bool = True,
+    width: int = 1200,
+    threshold: float = 0.001,
+    scalable: bool = True,
+    verbose: bool = True,
+) -> list[Path]:
+    """Render per-rank flame graphs to standalone SVG files with flameprof.
+
+    The aggregated, call-stack view of the same reconstruction
+    :func:`export_prof` writes: every call of a region below one parent is
+    one frame, sized by cumulative time. :func:`~scope_profiler.plot_flame`
+    draws the same thing through the plotting stack; this goes through
+    ``pstats`` instead, so the result is a self-contained SVG with no
+    JavaScript, which is what a static site or an emailed report wants.
+
+    Requires ``flameprof`` (``pip install "scope-profiler[pproc]"``).
+
+    Parameters
+    ----------
+    filepath : str | Path
+        Base output path, e.g. ``figures/flamegraph.svg``; a ``_rank<N>``
+        suffix is appended per rank, as for :func:`export_prof`.
+    width : int
+        Width of the rendered document in pixels. With ``scalable`` this only
+        sets the aspect ratio and the point at which frame labels are elided.
+    threshold : float
+        Smallest fraction of total time a frame must take to be drawn
+        (flameprof's own default, 0.001, is a tenth of a percent).
+    scalable : bool
+        Replace the fixed pixel size with a ``viewBox`` so the graph scales to
+        whatever element it is placed in, and drop the XML prolog so it can be
+        inlined in an HTML page. Set ``False`` for a standalone SVG file.
+
+    Returns
+    -------
+    list[Path]
+        The files written, in the order they were written.
+    """
+    try:
+        import flameprof
+    except ImportError as error:  # pragma: no cover - depends on the install
+        raise ImportError(
+            "export_flamegraph_svg needs flameprof: "
+            'pip install "scope-profiler[pproc]"',
+        ) from error
+
+    prepared, multiple_files = _prepare_calls(profiling_data, ranks, include, exclude)
+    if not prepared:
+        return []
+
+    base_path = Path(filepath)
+    suffix = base_path.suffix or ".svg"
+
+    written = []
+    for label, rank, calls in prepared:
+        parts = [base_path.stem]
+        if multiple_files:
+            parts.append(_filename_slug(label))
+        parts.append(f"rank{rank}")
+        out_path = base_path.with_name("_".join(parts) + suffix)
+
+        stats = build_pstats(
+            calls,
+            root_name=f"<{label} rank {rank}>",
+            call_paths=call_paths,
+        )
+        buffer = io.StringIO()
+        # flameprof renders the raw pstats mapping, not the Stats wrapper.
+        flameprof.render(
+            stats.stats,
+            buffer,
+            threshold=threshold,
+            width=width,
+        )
+        svg = buffer.getvalue()
+        out_path.write_text(
+            _scalable_svg(svg) if scalable else svg,
+            encoding="utf-8",
+        )
+        written.append(out_path)
+        if verbose:
+            print(f"Wrote {out_path}")
+
+    return written
 
 
 def export_prof(

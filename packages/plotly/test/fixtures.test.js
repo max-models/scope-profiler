@@ -52,8 +52,16 @@ for (const name of fixtures) {
   test(`${name} keeps its kind without the envelope`, () => {
     const { format, format_version, plot, ...bare } = load(name);
     const guessed = inferPlotKind(bare);
-    // flame_chart and flame_graph share a payload shape and a builder.
-    const expected = plot === "flame_graph" ? "flame" : plot;
+    // Two kinds cannot be told apart by shape alone, and do not need to be:
+    // flame_chart and flame_graph share a payload shape and a builder, and
+    // both efficiency curves store their y column as `efficiency`. Inference
+    // is only a fallback for files written before the envelope existed, and
+    // weak_scaling_efficiency has never been written without one.
+    const shared = {
+      flame_graph: "flame",
+      weak_scaling_efficiency: "scaling_efficiency",
+    };
+    const expected = shared[plot] ?? plot;
     assert.equal(
       guessed,
       expected,

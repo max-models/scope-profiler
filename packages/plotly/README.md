@@ -49,13 +49,31 @@ inferred from the payload shape, and `{ plot: "gantt" }` settles it by hand.
 `buildGanttFigure`, `buildFlameFigure`, `buildCallgraphFigure`,
 `buildDensityFigure`, `buildDurationsFigure`, `buildDurationTimeseriesFigure`,
 `buildHistogramFigure`, `buildRankHeatmapFigure`, `buildImbalanceFigure`,
-`buildRegionSummaryFigure`, `buildLikwidFigure`, `buildSpeedupFigure`,
-`buildWeakScalingFigure` and `buildScalingEfficiencyFigure` each take
-`(payload, options)` and return a plain `{ data, layout }` figure.
+`buildRegionSummaryFigure`, `buildComparisonFigure`, `buildLikwidFigure`,
+`buildSpeedupFigure`, `buildWeakScalingFigure`,
+`buildScalingEfficiencyFigure` and `buildWeakScalingEfficiencyFigure` each
+take `(payload, options)` and return a plain `{ data, layout }` figure.
 
 Common options: `colors` (region or series name to color), `filterRegion(name,
-row)` to drop rows, `layout` to merge into the generated layout, and `metric`
-where a payload carries several.
+row)` to drop rows, `layout` to merge into the generated layout, `metric` where
+a payload carries several, and `theme` (see below).
+
+The two efficiency curves store their y column under the same name, so which
+reading a payload gets comes from the document's own `plot` field rather than
+its rows. `buildScalingEfficiencyFigure` is for a *strong*-scaling study, where
+the problem size is fixed and the ideal is a speedup proportional to the rank
+count; `buildWeakScalingEfficiencyFigure` is for one that grows the problem
+with the machine, where the ideal is constant runtime.
+
+## Themes
+
+Chrome -- text, gridlines, hover surface, the dashed ideal lines -- comes from
+a theme. The default `auto` sets no text colour and uses a half-transparent
+grey grid that reads on any background, so a figure inherits the host page.
+Pass `theme: "light" | "dark"`, or your own token object, to a builder, or call
+`setTheme(...)` once to change the default for every later build. Plotly bakes
+colours into the layout, so a theme change means rebuilding the figures. The
+categorical series palette is not themed: those hues read on both backgrounds.
 
 ## More than one run in a payload
 
