@@ -1,29 +1,55 @@
 {
   "name": "@scope-profiler/plotly",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "Framework-neutral Plotly figure builders for scope-profiler plot-data JSON.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/max-models/scope-profiler.git"
+    "url": "git+https://github.com/max-models/scope-profiler.git",
+    "directory": "packages/plotly"
   },
   "type": "module",
+  "sideEffects": false,
+  "types": "./src/index.d.ts",
   "exports": {
     ".": {
       "types": "./src/index.d.ts",
       "default": "./src/index.js"
+    },
+    "./dashboard": {
+      "types": "./src/dashboard.d.ts",
+      "default": "./src/dashboard.js"
     }
+  },
+  "engines": {
+    "node": ">=20.11"
   },
   "files": [
     "src",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE.txt"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test test/*.test.js",
+    "lint": "eslint src test && prettier --check src test",
+    "format": "prettier --write src test",
+    "check:types": "tsc --noEmit -p tsconfig.json",
+    "test:browser": "playwright test",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=src/index.js --test-coverage-lines=99 test/*.test.js",
+    "benchmark": "node benchmarks/build.mjs",
+    "sync:asset": "node scripts/sync-asset.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "eslint": "^9.13.0",
+    "plotly.js-dist-min": "4.1.0",
+    "plotly3": "npm:plotly.js-dist-min@3.7.0",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.0"
   },
   "keywords": [
     "scope-profiler",

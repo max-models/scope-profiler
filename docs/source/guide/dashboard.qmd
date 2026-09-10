@@ -1,0 +1,138 @@
+# Deploying a profiling dashboard
+
+> **Install for this page:** `pip install scope-profiler` to write the data;
+> `npm install @scope-profiler/plotly` plus a Plotly bundle to render it.
+
+{doc}`plotly_package` covers the figure builders one at a time. This page is
+the whole loop: one command that writes everything a page needs, and the
+browser-side glue that keeps a page of figures in step with a theme toggle and
+a filter box.
+
+Nothing here is a framework. The output is static JSON and the input is a
+`<div>`, so the same recipe works under Astro, Eleventy, Next, or a hand-written
+`index.html` served from a bucket. See {doc}`try_it` for the smallest possible
+version: a drag-and-drop page with no build step at all.
+
+## One command for a run's data
+
+`export plot-data` writes the plot JSON. `--with` adds the three files a page
+usually embeds next to the charts, so a site generator makes one pass over the
+profiles instead of three:
+
+```sh
+scope-profiler export plot-data run*.h5 \
+  -o site/public/figures \
+  --format json \
+  --plots gantt durations timeseries flame_graph speedup \
+  --with
+```
+
+That writes, into `site/public/figures/`:
+
+| File | What renders it |
+| --- | --- |
+| `<kind>_data.json` | `@scope-profiler/plotly`, one file per `--plots` entry |
+| `region_statistics.json` | the summary and comparison builders, and any HTML table |
+| `profile.prof` | any pstats viewer (`snakeviz`), offered as a download |
+| `profile.speedscope.json` | [speedscope](https://www.speedscope.app), embedded in an iframe |
+| `flamegraph.svg` | inlined into the page, so its per-frame tooltips work |
+
+Name the companions to pick a subset -- `--with prof speedscope`. A bare
+`--with` means "everything this install can produce": the flame graph needs the
+`pproc` extra, and without it that one export is reported and skipped rather
+than failing the run. Naming `--with flamegraph` outright still fails, because
+then you asked for that file specifically.
+
+## A page of figures
+
+Every figure on a real page shares two problems. Plotly bakes colours into the
+layout, so a theme toggle means rebuilding every figure -- which means knowing
+which containers hold one and what each was built from. And a filter box needs
+a syntax, which the builders deliberately do not have: `filterRegion` takes a
+predicate, because a library should not decide how a user spells a filter.
+
+`@scope-profiler/plotly/dashboard` is a second entry point holding exactly that
+glue. It is separate because it reaches for `document` and `window`; importing
+`@scope-profiler/plotly` itself never does, and stays usable server-side.
+
+```js
+import Plotly from "plotly.js-dist-min";
+import { createFigureRegistry } from "@scope-profiler/plotly/dashboard";
+
+const figures = createFigureRegistry(Plotly);
+
+// Rebuild everything when the page's theme toggle fires. The registry reads
+// `data-theme` off the document element by default.
+figures.watch();
+
+const payload = await fetch("/figures/durations_data.json").then((r) => r.json());
+await figures.render(document.querySelector("#durations"), payload, {
+  metric: "total",
+  regionFilter: filterBox.value,
+});
+```
+
+`render` dispatches on the document's own `plot` field, so one call handles any
+payload. Call it again on the same container -- a new metric, an edited filter
+-- and the figure is redrawn through Plotly's `react`, so the reader keeps the
+zoom and pan they had.
+
+For a figure no plot kind names, pass the builder:
+
+```js
+import { buildComparisonFigure } from "@scope-profiler/plotly";
+
+await figures.render(element, statistics, {
+  build: buildComparisonFigure,
+  files: ["baseline", "candidate"],
+});
+```
+
+`figures.forget(element)` stops tracking one container and purges its plot;
+`figures.clear()` does the same for all of them. Both matter in a
+single-page app, where a route change leaves Plotly's handlers attached to
+nodes the page has finished with.
+
+## The filter syntax
+
+A filter is a comma-separated list of terms, each matched case-insensitively as
+a substring of the region name. A leading `^` anchors a term to the start,
+which is how a dashboard separates a group of regions from the regions that
+merely mention it:
+
+| Filter | Keeps |
+| --- | --- |
+| `solve` | every region whose name contains "solve" |
+| `prop:, setup: total` | both groups |
+| `^prop:` | `prop: push`, but not `setup prop: push` |
+| *(empty)* | every region -- no predicate is built at all |
+
+The same three functions drive a chart and an HTML table, so a page can filter
+both from one box:
+
+```js
+import {
+  matchesRegionFilter,
+  parseRegionFilter,
+  regionFilter,
+} from "@scope-profiler/plotly/dashboard";
+
+// For a figure, via the registry's `regionFilter` option, or by hand:
+buildDurationsFigure(payload, { filterRegion: regionFilter(box.value) });
+
+// For a table of the same regions:
+const terms = parseRegionFilter(box.value);
+for (const row of tbody.querySelectorAll("tr[data-region]"))
+  row.hidden = terms.length && !matchesRegionFilter(row.dataset.region, terms);
+```
+
+`regionFilter` returns `undefined` for an empty box rather than a predicate
+that accepts everything, which is both faster and what the builders document.
+
+## What stays in your site
+
+The registry and the filter are the parts every deployment needs. Everything
+that makes a dashboard *yours* stays in it: how runs are grouped into cases,
+what a run's metadata means, which regions the filter boxes start out
+prefilled with, and the pages themselves. `scope-profiler` has no opinion about
+any of that, and a page is a better place to decide it than a profiler is.

@@ -20,9 +20,15 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+      - name: Install dev dependencies
+        working-directory: packages/plotly
+        run: npm install --no-audit --no-fund
       - name: Test package
         working-directory: packages/plotly
-        run: npm test
+        run: |
+          npm run lint
+          npm run check:types
+          npm test
       - name: Check if version already published
         id: version-check
         working-directory: packages/plotly

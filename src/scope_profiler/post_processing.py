@@ -386,6 +386,54 @@ def _add_common_plot_args(parser: argparse.ArgumentParser) -> None:
     _add_timeline_args(parser)
 
 
+#: What `export plot-data --with` can add to a plot-data export. These are the
+#: files a browser dashboard embeds alongside the plot JSON -- a call tree for
+#: a pstats viewer, a speedscope timeline, an inlinable flame graph -- and each
+#: previously meant a second and third `scope-profiler export` invocation over
+#: the same profiles.
+COMPANION_EXPORTS = ("prof", "speedscope", "flamegraph")
+
+
+def _export_companion(kind: str, args: argparse.Namespace, runs) -> list[str]:
+    """Write one companion export, with the dedicated subcommand's defaults.
+
+    `plot-data` does not carry ``--width``, ``--threshold`` or
+    ``--no-call-paths``, so each is read defensively: a companion asked for
+    from plot-data gets what the standalone subcommand's defaults produce.
+    """
+    common = {
+        "profiling_data": runs,
+        "ranks": args.ranks,
+        "include": args.include,
+        "exclude": args.exclude,
+        "verbose": False,
+    }
+    call_paths = not getattr(args, "no_call_paths", False)
+    if kind == "prof":
+        paths = export_prof(
+            filepath=os.path.join(args.output, "profile.prof"),
+            call_paths=call_paths,
+            **common,
+        )
+    elif kind == "speedscope":
+        paths = export_speedscope(
+            filepath=os.path.join(args.output, "profile.speedscope.json"),
+            **common,
+        )
+    elif kind == "flamegraph":
+        paths = export_flamegraph_svg(
+            filepath=os.path.join(args.output, "flamegraph.svg"),
+            call_paths=call_paths,
+            width=getattr(args, "width", 1200),
+            threshold=getattr(args, "threshold", 0.1) / 100,
+            scalable=not getattr(args, "fixed_width", False),
+            **common,
+        )
+    else:  # pragma: no cover - argparse restricts the choices
+        raise ValueError(f"Unknown companion export {kind!r}.")
+    return [str(path) for path in paths]
+
+
 def _add_common_export_args(parser: argparse.ArgumentParser) -> None:
     _add_input_args(parser)
     _add_selection_args(parser)
@@ -646,6 +694,19 @@ def build_export_parser() -> argparse.ArgumentParser:
         metavar="FIELD",
         help="Speedup x-axis field.",
     )
+    plot_data.add_argument(
+        "--with",
+        dest="companions",
+        nargs="*",
+        choices=[*COMPANION_EXPORTS, "all"],
+        default=None,
+        metavar="KIND",
+        help=(
+            "Also write the non-plot exports a dashboard embeds alongside the "
+            "plot JSON: prof, speedscope, flamegraph, or all. Bare --with "
+            "means all."
+        ),
+    )
     return parser
 
 
@@ -816,7 +877,13 @@ def _plot_options(args: argparse.Namespace, name: str):
             metric if name == "imbalance" and metric else imbalance_metric
         ),
         "likwid_metric": (
-            metric if name == "likwid" else getattr(args, "likwid_metric", None)
+            # `plot likwid` spells it --metric, `export plot-data` spells it
+            # --likwid-metric. Without the `and metric` guard the export always
+            # resolved to None, so `plot-data --plots likwid --likwid-metric X`
+            # passed the argument check and then failed as if X were missing.
+            metric
+            if name == "likwid" and metric
+            else getattr(args, "likwid_metric", None)
         ),
         "perf_event_metric": metric if name == "perf_events" else None,
         "speedup_x_field": getattr(args, "x", "num_ranks"),
@@ -1491,6 +1558,28 @@ def export_main(argv: list[str] | None = None):
             exclude=args.exclude,
         )
         saved.append(statistics_path)
+        # Bare `--with` means every companion; `--with prof speedscope` means
+        # those two. Written after the plot data, so a failure in the slowest
+        # export still leaves the figures a page needs most.
+        requested = getattr(args, "companions", None)
+        if requested is not None:
+            everything = not requested or "all" in requested
+            wanted = (
+                COMPANION_EXPORTS
+                if everything
+                else [kind for kind in COMPANION_EXPORTS if kind in requested]
+            )
+            for kind in wanted:
+                try:
+                    saved.extend(_export_companion(kind, args, runs))
+                except ImportError as error:
+                    # The flame graph needs the pproc extra. Asking for
+                    # everything means "whatever this install can produce", so
+                    # say what was skipped and carry on; naming a companion
+                    # outright is a request for that file, and still fails.
+                    if not everything:
+                        raise
+                    print(f"Skipping the {kind} export: {error}")
 
     print("Outputs saved to:\n  " + "\n  ".join(saved))
     if args.export_kind == "prof" and saved:

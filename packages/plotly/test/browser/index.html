@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><title>Plotly regression harness</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+    }
+    #chart {
+      width: 1000px;
+      min-height: 500px;
+    }
+  </style>
+  <main id="chart" aria-label="Profile chart"></main>
+  <script type="module">
+    import * as builders from "/src/index.js";
+    const runtime = document.createElement("script");
+    const bundle =
+      new URLSearchParams(location.search).get("bundle") === "plotly3"
+        ? "plotly3"
+        : "plotly.js-dist-min";
+    runtime.src = `/node_modules/${bundle}/plotly.min.js`;
+    await new Promise((resolve, reject) => {
+      runtime.onload = resolve;
+      runtime.onerror = reject;
+      document.head.append(runtime);
+    });
+    window.builders = builders;
+    window.ready = true;
+  </script>
+</html>

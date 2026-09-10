@@ -1,0 +1,154 @@
+{
+  "format": "scope-profiler-plot-data",
+  "format_version": 1,
+  "plot": "likwid",
+  "metric": "MFlops/s",
+  "bars": [
+    {
+      "series": "run_3ranks (rank 0)",
+      "region": "exchange",
+      "value": 94.05
+    },
+    {
+      "series": "run_3ranks (rank 0)",
+      "region": "setup",
+      "value": 405.9
+    },
+    {
+      "series": "run_3ranks (rank 0)",
+      "region": "solve",
+      "value": 1168.2
+    },
+    {
+      "series": "run_3ranks (rank 1)",
+      "region": "exchange",
+      "value": 86.28440366972475
+    },
+    {
+      "series": "run_3ranks (rank 1)",
+      "region": "setup",
+      "value": 372.3853211009174
+    },
+    {
+      "series": "run_3ranks (rank 1)",
+      "region": "solve",
+      "value": 1071.743119266055
+    },
+    {
+      "series": "run_3ranks (rank 2)",
+      "region": "exchange",
+      "value": 79.70338983050848
+    },
+    {
+      "series": "run_3ranks (rank 2)",
+      "region": "setup",
+      "value": 343.98305084745766
+    },
+    {
+      "series": "run_3ranks (rank 2)",
+      "region": "solve",
+      "value": 990.0
+    },
+    {
+      "series": "run_6ranks (rank 0)",
+      "region": "exchange",
+      "value": 94.05
+    },
+    {
+      "series": "run_6ranks (rank 0)",
+      "region": "setup",
+      "value": 405.9
+    },
+    {
+      "series": "run_6ranks (rank 0)",
+      "region": "solve",
+      "value": 1168.2
+    },
+    {
+      "series": "run_6ranks (rank 1)",
+      "region": "exchange",
+      "value": 86.28440366972475
+    },
+    {
+      "series": "run_6ranks (rank 1)",
+      "region": "setup",
+      "value": 372.3853211009174
+    },
+    {
+      "series": "run_6ranks (rank 1)",
+      "region": "solve",
+      "value": 1071.743119266055
+    },
+    {
+      "series": "run_6ranks (rank 2)",
+      "region": "exchange",
+      "value": 79.70338983050848
+    },
+    {
+      "series": "run_6ranks (rank 2)",
+      "region": "setup",
+      "value": 343.98305084745766
+    },
+    {
+      "series": "run_6ranks (rank 2)",
+      "region": "solve",
+      "value": 990.0
+    },
+    {
+      "series": "run_6ranks (rank 3)",
+      "region": "exchange",
+      "value": 74.05511811023622
+    },
+    {
+      "series": "run_6ranks (rank 3)",
+      "region": "setup",
+      "value": 319.6062992125984
+    },
+    {
+      "series": "run_6ranks (rank 3)",
+      "region": "solve",
+      "value": 919.8425196850394
+    },
+    {
+      "series": "run_6ranks (rank 4)",
+      "region": "exchange",
+      "value": 69.15441176470588
+    },
+    {
+      "series": "run_6ranks (rank 4)",
+      "region": "setup",
+      "value": 298.4558823529412
+    },
+    {
+      "series": "run_6ranks (rank 4)",
+      "region": "solve",
+      "value": 858.9705882352941
+    },
+    {
+      "series": "run_6ranks (rank 5)",
+      "region": "exchange",
+      "value": 64.86206896551724
+    },
+    {
+      "series": "run_6ranks (rank 5)",
+      "region": "setup",
+      "value": 279.9310344827586
+    },
+    {
+      "series": "run_6ranks (rank 5)",
+      "region": "solve",
+      "value": 805.6551724137931
+    }
+  ],
+  "colors": {
+    "run_3ranks (rank 0)": "#1f77b4",
+    "run_3ranks (rank 1)": "#ff7f0e",
+    "run_3ranks (rank 2)": "#98df8a",
+    "run_6ranks (rank 0)": "#ff9896",
+    "run_6ranks (rank 1)": "#8c564b",
+    "run_6ranks (rank 2)": "#e377c2",
+    "run_6ranks (rank 3)": "#c7c7c7",
+    "run_6ranks (rank 4)": "#dbdb8d",
+    "run_6ranks (rank 5)": "#9edae5"
+  }
+}

@@ -17,11 +17,21 @@ const fixtures = readdirSync(directory).filter((name) =>
 );
 const load = (name) => JSON.parse(readFileSync(join(directory, name), "utf8"));
 
-test("the fixtures cover every plot kind the exporter can write", () => {
-  assert.ok(fixtures.length >= 14, `only ${fixtures.length} fixtures found`);
+// `plot flame_chart` and `plot flame_graph` stamp their documents "flame" and
+// "flame_graph"; `flame_chart` is a builder alias the exporter never writes,
+// so it is the one kind that cannot have a fixture of its own.
+const ALIAS_KINDS = new Set(["flame_chart"]);
+
+test("every builder has a fixture the exporter really wrote", () => {
   const kinds = new Set(fixtures.map((name) => load(name).plot));
   for (const kind of kinds)
     assert.ok(PLOT_BUILDERS[kind], `no builder for ${kind}`);
+  // A count was the floor here before, and it passed while two of eighteen
+  // builders had no fixture at all. Enumerate the builders instead.
+  const uncovered = Object.keys(PLOT_BUILDERS).filter(
+    (kind) => !kinds.has(kind) && !ALIAS_KINDS.has(kind),
+  );
+  assert.deepEqual(uncovered, [], `builders with no fixture: ${uncovered}`);
   assert.ok(
     kinds.has("region_statistics"),
     "every export writes region_statistics",
@@ -127,11 +137,11 @@ test("the gantt gives every run, rank and region its own lane", () => {
   // One lane per rank would stack a nested profile onto a single row, where
   // the outermost region hides everything inside it.
   assert.equal(
-    new Set(figure.layout.yaxis.categoryarray).size,
+    new Set(figure.layout.yaxis.ticktext).size,
     new Set(
       payload.intervals.map((row) => `${row.file}/${row.rank}/${row.region}`),
     ).size,
   );
-  for (const lane of figure.layout.yaxis.categoryarray)
+  for (const lane of figure.layout.yaxis.ticktext)
     assert.match(lane, /\(rank \d+\)$/);
 });

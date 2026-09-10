@@ -1,0 +1,87 @@
+# Try it: drag and drop a profile
+
+Drop one or more plot-data JSON files below and see them rendered, without
+installing anything or writing any code. This page runs entirely in your
+browser -- files you drop here are never uploaded anywhere.
+
+Export the files with:
+
+```sh
+scope-profiler export plot-data run*.h5 -o figures --format json --with
+```
+
+Then drag `figures/*.json` (or a single file) onto the box below. Each file
+gets its own figure, in the order you dropped them; `region_statistics.json`
+renders as a summary table instead of a chart.
+
+```{=html}
+<div id="scope-plotly-dropzone"
+     style="border: 2px dashed var(--color-foreground-border, #999); border-radius: 8px; padding: 2.5rem 1rem; text-align: center; cursor: pointer; transition: border-color 0.15s, background-color 0.15s;">
+  <p style="margin: 0;">Drop plot-data <code>.json</code> files here, or click to choose</p>
+  <input id="scope-plotly-dropzone-input" type="file" accept="application/json,.json" multiple style="display: none;" />
+</div>
+<div id="scope-plotly-dropzone-errors" style="margin-top: 0.75rem; color: #c0392b;"></div>
+<div id="scope-plotly-dropzone-figures" style="display: grid; gap: 1.5rem; margin: 1.5rem 0;"></div>
+<script src="https://cdn.plot.ly/plotly-3.7.0.min.js"></script>
+<script type="module">
+  const { buildFigure, renderFigure } = await import("../_static/plotly/index.js");
+  const zone = document.getElementById("scope-plotly-dropzone");
+  const input = document.getElementById("scope-plotly-dropzone-input");
+  const errors = document.getElementById("scope-plotly-dropzone-errors");
+  const figures = document.getElementById("scope-plotly-dropzone-figures");
+  const setActive = (active) => {
+    zone.style.borderColor = active ? "#2a78d6" : "";
+    zone.style.backgroundColor = active ? "rgba(42, 120, 214, 0.08)" : "";
+  };
+  async function handleFiles(fileList) {
+    errors.textContent = "";
+    for (const file of fileList) {
+      const card = document.createElement("div");
+      const title = document.createElement("strong");
+      title.textContent = file.name;
+      const plot = document.createElement("div");
+      plot.style.minHeight = "360px";
+      card.append(title, plot);
+      figures.append(card);
+      try {
+        const payload = JSON.parse(await file.text());
+        const figure = buildFigure(payload);
+        await renderFigure(window.Plotly, plot, figure);
+      } catch (error) {
+        card.remove();
+        const message = document.createElement("p");
+        message.textContent = `${file.name}: ${error.message}`;
+        errors.append(message);
+      }
+    }
+  }
+  zone.addEventListener("click", () => input.click());
+  input.addEventListener("change", () => handleFiles(input.files));
+  for (const event of ["dragenter", "dragover"]) {
+    zone.addEventListener(event, (e) => {
+      e.preventDefault();
+      setActive(true);
+    });
+  }
+  for (const event of ["dragleave", "drop"]) {
+    zone.addEventListener(event, (e) => {
+      e.preventDefault();
+      setActive(false);
+    });
+  }
+  zone.addEventListener("drop", (e) => handleFiles(e.dataTransfer.files));
+</script>
+```
+
+## Under the hood
+
+This is the same recipe as {doc}`dashboard`, minus the build step: `buildFigure`
+reads the `plot` field each exported JSON file carries and dispatches to the
+matching builder, so one drop zone handles every plot kind without naming any
+of them. Nothing here needs a server -- the same `<div>` and `<script type="module">`
+work in a plain `index.html` served from a bucket, which is the point of
+shipping `@scope-profiler/plotly` as a dependency-free package in the first
+place.
+
+For a page that keeps several figures in sync with a theme toggle or a filter
+box across repeated renders, see {doc}`dashboard`.
