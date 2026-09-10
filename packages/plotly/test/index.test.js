@@ -11,12 +11,16 @@ import {
   buildHistogramFigure,
   buildImbalanceFigure,
   buildLikwidFigure,
+  buildRooflineFigure,
   buildRankHeatmapFigure,
   buildRegionSummaryFigure,
   buildScalingEfficiencyFigure,
   buildSpeedupFigure,
   buildWeakScalingFigure,
   inferPlotKind,
+  resolveTheme,
+  setTheme,
+  validatePlotData,
 } from "../src/index.js";
 
 test("gantt gives each region and rank a lane, and honours supplied colors", () => {
@@ -538,4 +542,26 @@ test("likwid groups one hardware-counter metric by series", () => {
   assert.deepEqual(figure.data[0].x, ["solve"]);
   assert.equal(figure.layout.yaxis.title, "DP MFLOP/s");
   assert.equal(figure.layout.yaxis.type, "log");
+});
+
+test("roofline plots attained points, ceilings, and efficiency context", () => {
+  const figure = buildRooflineFigure({
+    points: [{ file: "run", region: "solve", rank: 0, arithmetic_intensity_flops_per_byte: 2, performance_gflops: 80, bandwidth_gbs: 40 }],
+    roofline: [{ arithmetic_intensity_flops_per_byte: 1, performance_gflops: 40 }],
+    empirical_ceilings: true,
+  });
+  assert.deepEqual(figure.data[0].x, [2]);
+  assert.equal(figure.data[1].name, "empirical roof");
+  assert.equal(figure.layout.xaxis.type, "log");
+  assert.equal(inferPlotKind({ points: [{ arithmetic_intensity_flops_per_byte: 1 }] }), "roofline");
+});
+
+test("themes and validation protect builders from malformed plot-data", () => {
+  setTheme("dark");
+  assert.equal(resolveTheme("dark").text, "#e8eaed");
+  const figure = buildLikwidFigure({ bars: [] });
+  assert.equal(figure.layout.font.color, "#e8eaed");
+  assert.equal(validatePlotData({ plot: "roofline", points: [] }), "roofline");
+  assert.throws(() => validatePlotData({ plot: "roofline" }), /points array/);
+  setTheme();
 });

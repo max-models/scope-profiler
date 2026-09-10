@@ -26,7 +26,16 @@ export type PlotKind =
   | "histogram"
   | "imbalance"
   | "likwid"
+  | "roofline"
   | "region_statistics";
+export type ThemeName = "auto" | "light" | "dark";
+export interface ThemeTokens {
+  text?: string;
+  muted?: string;
+  grid?: string;
+  hoverBg?: string;
+  neutral?: string;
+}
 export interface BuildOptions {
   colors?: Record<string, string>;
   filterRegion?: (region: string, row: object) => boolean;
@@ -37,6 +46,8 @@ export interface BuildOptions {
   rootLabel?: string;
   plot?: PlotKind;
 }
+export function resolveTheme(theme?: ThemeName | ThemeTokens): ThemeTokens;
+export function setTheme(theme?: ThemeName | ThemeTokens): void;
 export function buildGanttFigure(
   payload: object,
   options?: BuildOptions,
@@ -96,6 +107,10 @@ export function buildLikwidFigure(
   payload: object,
   options?: BuildOptions & { logScale?: boolean },
 ): Figure;
+export function buildRooflineFigure(
+  payload: object,
+  options?: BuildOptions,
+): Figure;
 export const PLOT_DATA_FORMAT: string;
 export const SUPPORTED_FORMAT_VERSION: number;
 export const PLOT_BUILDERS: Record<
@@ -103,6 +118,7 @@ export const PLOT_BUILDERS: Record<
   (payload: object, options?: BuildOptions) => Figure
 >;
 export function inferPlotKind(payload: object): PlotKind | undefined;
+export function validatePlotData(payload: object, options?: BuildOptions): PlotKind;
 export function buildFigure(payload: object, options?: BuildOptions): Figure;
 export function renderFigure(
   plotly: PlotlyLike,

@@ -11,6 +11,19 @@ const DEFAULT_COLORS = [
   "#e34948",
 ];
 const NEUTRAL = "#898781";
+const THEMES = {
+  auto: {}, light: { text: "#202124", muted: "#5f6368", grid: "rgba(32, 33, 36, 0.16)", hoverBg: "#ffffff", neutral: NEUTRAL },
+  dark: { text: "#e8eaed", muted: "#bdc1c6", grid: "rgba(232, 234, 237, 0.2)", hoverBg: "#202124", neutral: "#b8b6b0" },
+};
+let activeTheme = THEMES.auto;
+
+export function resolveTheme(theme = "auto") {
+  if (typeof theme === "string") { if (!THEMES[theme]) throw new TypeError(`Unknown theme ${JSON.stringify(theme)}.`); return { ...THEMES[theme] }; }
+  if (!theme || typeof theme !== "object") throw new TypeError("theme must be auto, light, dark, or a token object.");
+  return { ...THEMES.auto, ...theme };
+}
+
+export function setTheme(theme = "auto") { activeTheme = resolveTheme(theme); }
 
 function colorMap(names, supplied = {}) {
   const map = new Map();
@@ -34,12 +47,13 @@ function values(payload, key) {
 }
 
 function baseLayout(overrides = {}) {
+  const themed = activeTheme;
   return {
     paper_bgcolor: "transparent",
     plot_bgcolor: "transparent",
-    font: { family: "Inter, ui-sans-serif, system-ui, sans-serif", size: 12 },
+    font: { family: "Inter, ui-sans-serif, system-ui, sans-serif", size: 12, ...(themed.text ? { color: themed.text } : {}) },
     hovermode: "closest",
-    hoverlabel: { namelength: -1 },
+    hoverlabel: { namelength: -1, ...(themed.hoverBg ? { bgcolor: themed.hoverBg } : {}) },
     margin: { l: 100, r: 24, t: 32, b: 64 },
     legend: { orientation: "h", y: -0.2, x: 0 },
     ...overrides,
@@ -49,7 +63,7 @@ function baseLayout(overrides = {}) {
 function axis(overrides = {}) {
   return {
     automargin: true,
-    gridcolor: "rgba(128, 128, 128, 0.2)",
+    gridcolor: activeTheme.grid ?? "rgba(128, 128, 128, 0.2)",
     zeroline: false,
     ...overrides,
   };
@@ -856,6 +870,35 @@ export function buildLikwidFigure(payload, options = {}) {
   return { data, layout: withEmptyState(layout, bars.length > 0) };
 }
 
+/** Build a log-log roofline plot from per-region LIKWID-derived rates. */
+export function buildRooflineFigure(payload, options = {}) {
+  const points = filtered(values(payload, "points"), options);
+  const series = groupBy(points, (point) => point.file ?? "run");
+  const colors = colorMap(series.keys(), options.colors ?? payload.colors);
+  const data = [...series].map(([name, rows]) => ({
+    type: "scatter", mode: "markers", name,
+    x: rows.map((point) => point.arithmetic_intensity_flops_per_byte),
+    y: rows.map((point) => point.performance_gflops),
+    marker: { color: colors.get(name), size: 9 },
+    customdata: rows.map((point) => [point.region, point.rank, point.bandwidth_gbs]),
+    hovertemplate: "<b>%{customdata[0]}</b> (rank %{customdata[1]})" + "<br>intensity: %{x:.6g} FLOP/byte" + "<br>performance: %{y:.6g} GFLOP/s" + "<br>bandwidth: %{customdata[2]:.6g} GB/s<extra></extra>",
+  }));
+  const roof = payload.roofline ?? [];
+  if (roof.length) data.push({
+    type: "scatter", mode: "lines", name: payload.empirical_ceilings ? "empirical roof" : "roofline",
+    x: roof.map((point) => point.arithmetic_intensity_flops_per_byte), y: roof.map((point) => point.performance_gflops),
+    line: { color: activeTheme.neutral ?? "#111", width: 2, dash: "dash" },
+    hovertemplate: "intensity: %{x:.6g} FLOP/byte<br>ceiling: %{y:.6g} GFLOP/s<extra></extra>",
+  });
+  const layout = baseLayout({
+    title: payload.empirical_ceilings ? "Roofline analysis (empirical ceilings)" : "Roofline analysis",
+    xaxis: axis({ title: "Arithmetic intensity [FLOP/byte]", type: "log" }),
+    yaxis: axis({ title: "Attained performance [GFLOP/s]", type: "log" }),
+    showlegend: series.size > 1 || roof.length > 0, ...options.layout,
+  });
+  return { data, layout: withEmptyState(layout, points.length > 0) };
+}
+
 export const PLOT_DATA_FORMAT = "scope-profiler-plot-data";
 export const SUPPORTED_FORMAT_VERSION = 1;
 
@@ -876,6 +919,7 @@ export const PLOT_BUILDERS = {
   histogram: buildHistogramFigure,
   imbalance: buildImbalanceFigure,
   likwid: buildLikwidFigure,
+  roofline: buildRooflineFigure,
   region_statistics: buildRegionSummaryFigure,
 };
 
@@ -900,8 +944,21 @@ export function inferPlotKind(payload) {
   if (point.speedup != null) return "speedup";
   if (point.normalized_runtime != null) return "weak_scaling";
   if (point.efficiency != null) return "scaling_efficiency";
+  if (point.arithmetic_intensity_flops_per_byte != null) return "roofline";
   if (point.rank != null) return "rank_heatmap";
   return undefined;
+}
+
+/** Validate an envelope and the minimum data shape required for its builder. */
+export function validatePlotData(payload, options = {}) {
+  if (!payload || typeof payload !== "object") throw new TypeError("plot-data must be an object.");
+  if (payload.format != null && payload.format !== PLOT_DATA_FORMAT) throw new TypeError(`Expected a ${PLOT_DATA_FORMAT} document, got ${JSON.stringify(payload.format)}.`);
+  if (typeof payload.format_version === "number" && payload.format_version > SUPPORTED_FORMAT_VERSION) throw new TypeError(`Plot-data format version ${payload.format_version} is newer than this package supports (${SUPPORTED_FORMAT_VERSION}); upgrade @scope-profiler/plotly.`);
+  const kind = options.plot ?? payload.plot ?? inferPlotKind(payload);
+  if (!kind || !PLOT_BUILDERS[kind]) throw new TypeError(kind ? `No figure builder for plot kind ${JSON.stringify(kind)}.` : "Could not determine the plot kind; pass options.plot.");
+  const keys = { gantt: "intervals", density: "points", flame: "calls", flame_chart: "calls", flame_graph: "calls", callgraph: "calls", durations: "bars", timeseries: "points", speedup: "points", weak_scaling: "points", scaling_efficiency: "points", rank_heatmap: "points", histogram: "bins", imbalance: "points", likwid: "bars", roofline: "points", region_statistics: "files" };
+  if (!Array.isArray(payload[keys[kind]])) throw new TypeError(`Plot kind ${JSON.stringify(kind)} requires a ${keys[kind]} array.`);
+  return kind;
 }
 
 /** Build the right figure for any plot-data document, without naming a builder.
@@ -911,23 +968,8 @@ export function inferPlotKind(payload) {
  * kind.
  */
 export function buildFigure(payload, options = {}) {
-  if (payload?.format != null && payload.format !== PLOT_DATA_FORMAT)
-    throw new TypeError(
-      `Expected a ${PLOT_DATA_FORMAT} document, got ${JSON.stringify(payload.format)}.`,
-    );
-  const version = payload?.format_version;
-  if (typeof version === "number" && version > SUPPORTED_FORMAT_VERSION)
-    throw new TypeError(
-      `Plot-data format version ${version} is newer than this package supports (${SUPPORTED_FORMAT_VERSION}); upgrade @scope-profiler/plotly.`,
-    );
-  const kind = options.plot ?? payload?.plot ?? inferPlotKind(payload);
-  const builder = kind && PLOT_BUILDERS[kind];
-  if (!builder)
-    throw new TypeError(
-      kind
-        ? `No figure builder for plot kind ${JSON.stringify(kind)}.`
-        : "Could not determine the plot kind; pass options.plot.",
-    );
+  const kind = validatePlotData(payload, options);
+  const builder = PLOT_BUILDERS[kind];
   return builder(payload, { plot: kind, ...options });
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "@scope-profiler/plotly",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Framework-neutral Plotly figure builders for scope-profiler plot-data JSON.",
   "license": "MIT",
   "repository": {
