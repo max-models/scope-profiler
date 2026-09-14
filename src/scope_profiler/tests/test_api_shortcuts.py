@@ -131,7 +131,9 @@ def test_setup_can_finalize_automatically_at_process_exit(tmp_path, monkeypatch)
     registered = []
     unregistered = []
     monkeypatch.setattr(profile_manager_module.atexit, "register", registered.append)
-    monkeypatch.setattr(profile_manager_module.atexit, "unregister", unregistered.append)
+    monkeypatch.setattr(
+        profile_manager_module.atexit, "unregister", unregistered.append
+    )
 
     output = tmp_path / "automatic.h5"
     sp.setup(file_path=str(output), auto_finalize=True)
@@ -173,7 +175,9 @@ def test_explicit_finalize_cancels_automatic_finalization(tmp_path, monkeypatch)
     registered = []
     unregistered = []
     monkeypatch.setattr(profile_manager_module.atexit, "register", registered.append)
-    monkeypatch.setattr(profile_manager_module.atexit, "unregister", unregistered.append)
+    monkeypatch.setattr(
+        profile_manager_module.atexit, "unregister", unregistered.append
+    )
 
     sp.setup(file_path=str(tmp_path / "manual.h5"), auto_finalize=True)
     sp.finalize(verbose=False)
