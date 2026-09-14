@@ -1459,6 +1459,22 @@ class ProfileManager:
             nothing, so the script above needs no rank guard. See
             :attr:`~scope_profiler.results.ProfilingResults.is_root`.
         """
+        # A lazily resolved default config is not a profiling run. In
+        # particular, decorators call get_config() while they are declared,
+        # so the presence of a config alone cannot be used to decide whether
+        # finalize() should create an output file. setup()/session() replace
+        # the disabled region strategy through set_config().
+        never_activated = cls._region_cls is DisabledProfileRegion and (
+            cls._config is None or not cls._config.deactivate_profiling
+        )
+        if never_activated:
+            if return_results:
+                from scope_profiler.results import ProfilingResults
+
+                file_path = cls._config.file_path if cls._config is not None else ""
+                return ProfilingResults({}, file_path=file_path)
+            return None
+
         config = cls.get_config()
 
         # Read on the same clock as start_time_ns, and as the very first
