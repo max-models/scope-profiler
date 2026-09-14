@@ -84,6 +84,33 @@ scope-profiler plot default profiling_data.h5 -o figures
 scope-profiler report profiling_data.h5 -o report.html
 ```
 
+The runner also activates regions already defined in the script, so
+application code can keep its instrumentation without owning the
+profiling lifecycle:
+
+```python
+import scope_profiler as sp
+
+@sp.profile("main")
+def main():
+    with sp.region("iteration"):
+        work()
+
+main()
+```
+
+Run it through Scope Profiler to collect those regions and finalize the
+output:
+
+```bash
+scope-profiler run app.py
+```
+
+Running the same file with `python app.py` leaves profiling disabled and
+creates no output file. Existing `session()`, `setup()`, and
+`finalize()` workflows remain available when application code needs
+direct lifecycle control.
+
 ## Profile a pytest suite
 
 The installed package provides an opt-in pytest plugin. It records one

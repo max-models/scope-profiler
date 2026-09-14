@@ -2,7 +2,7 @@
 
 import pytest
 
-from scope_profiler import __version__
+from scope_profiler import ProfileManager, __version__, read_h5
 from scope_profiler.__main__ import _COMMANDS
 from scope_profiler.__main__ import main as cli_main
 from scope_profiler.post_processing import _DEFAULT_PLOTS, _PLOT_CATALOG
@@ -185,6 +185,35 @@ def test_run_can_disable_automatic_mpi_call_profiling(tmp_path, monkeypatch):
 
     assert events == ["run", "finalize"]
     assert calls["setup"]["profile_mpi_calls"] is False
+
+
+def test_run_activates_regions_without_an_in_source_session(tmp_path):
+    script = tmp_path / "instrumented.py"
+    output = tmp_path / "profile.h5"
+    script.write_text(
+        """\
+import scope_profiler as sp
+
+@sp.profile("main")
+def main():
+    for _ in range(3):
+        with sp.region("iteration"):
+            pass
+
+main()
+""",
+        encoding="utf-8",
+    )
+
+    ProfileManager._reset()
+    try:
+        cli_main(["run", "-q", "-o", str(output), str(script)])
+        results = read_h5(output)
+
+        assert results["main"].num_calls == 1
+        assert results["iteration"].num_calls == 3
+    finally:
+        ProfileManager._reset()
 
 
 def test_run_toml_config_is_passed_to_setup(tmp_path, monkeypatch):
