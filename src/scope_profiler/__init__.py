@@ -61,8 +61,12 @@ from scope_profiler.results import ProfilingResults, merge_results
 #: extra frame there is measurable overhead. They act on the same global
 #: manager state the class methods do.
 finalize = ProfileManager.finalize
+is_active = ProfileManager.is_active
+is_configured = ProfileManager.is_configured
 profile = ProfileManager.profile
+recorded_regions = ProfileManager.recorded_regions
 region = ProfileManager.region
+registered_regions = ProfileManager.registered_regions
 session = ProfileManager.session
 setup = ProfileManager.setup
 
@@ -140,6 +144,8 @@ __all__ = [
     "finalize",
     "format_mpi_region",
     "inspect_file",
+    "is_active",
+    "is_configured",
     "load",
     "load_prof",
     "merge_results",
@@ -165,7 +171,9 @@ __all__ = [
     "read_h5_summary",
     "read_json",
     "read_profile",
+    "recorded_regions",
     "region",
+    "registered_regions",
     "session",
     "setup",
     "sniff_profile_format",

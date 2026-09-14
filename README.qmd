@@ -105,6 +105,25 @@ Running the same file with `python app.py` leaves profiling disabled and creates
 no output file. Existing `session()`, `setup()`, and `finalize()` workflows
 remain available when application code needs direct lifecycle control.
 
+For a one-line in-source lifecycle, setup can finalize automatically at normal
+process exit:
+
+```python
+sp.setup(file_path="profile.h5", auto_finalize=True)
+```
+
+Or apply a session directly to the application entry point:
+
+```python
+@sp.session(file_path="profile.h5")
+def main():
+    ...
+```
+
+`sp.is_configured()` and `sp.is_active()` report lifecycle state.
+`sp.registered_regions()` lists known instrumentation points, while
+`sp.recorded_regions()` includes only regions that have measured calls.
+
 ## Profile a pytest suite
 
 The installed package provides an opt-in pytest plugin. It records one region

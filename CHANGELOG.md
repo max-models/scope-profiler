@@ -56,6 +56,13 @@
 
 ### Added
 
+- `setup(auto_finalize=True)` can finalize a script at normal interpreter
+  exit, and `session()` can now decorate an application entry point as well as
+  serving as a context manager. Explicit finalization cancels the exit hook.
+- `is_configured()` and `is_active()` expose profiler lifecycle state, while
+  `registered_regions()` and `recorded_regions()` distinguish known
+  instrumentation points from regions that have collected calls. All four are
+  also available from the package root.
 - **A drag-and-drop "try it" page.** The `docs/source/guide/try_it.qmd` guide
   page renders any `scope-profiler export plot-data --format json` file in the
   browser, with no build step and nothing uploaded anywhere: drop the files

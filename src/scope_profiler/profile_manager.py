@@ -1,5 +1,6 @@
 """Managers for creating, configuring, and finalizing profiling regions."""
 
+import atexit
 import functools
 import os
 import runpy
@@ -9,7 +10,8 @@ import sysconfig
 import threading
 import warnings
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import ContextDecorator, contextmanager
+from enum import Enum, auto
 from time import perf_counter_ns
 from types import FrameType
 from typing import TYPE_CHECKING, ClassVar, NamedTuple
@@ -142,7 +144,15 @@ class RankPayload(NamedTuple):
     """
 
 
-class _ProfilingSession:
+class _LifecycleState(Enum):
+    """Internal lifecycle state, independent of lazy config resolution."""
+
+    INACTIVE = auto()
+    ACTIVE = auto()
+    FINALIZED = auto()
+
+
+class _ProfilingSession(ContextDecorator):
     """Context manager backing :meth:`ProfileManager.session`."""
 
     ROOT_REGION_NAME = "scope_profiler.session"
@@ -164,6 +174,17 @@ class _ProfilingSession:
         self._native_traces = native_traces
         self.results = None
         self._root_region = None
+
+    def _recreate_cm(self):
+        """Give every decorated invocation its own session state."""
+        return type(self)(
+            self._manager,
+            self._setup_kwargs,
+            self._verbose,
+            self._verbose_line_profiler,
+            self._return_results,
+            self._native_traces,
+        )
 
     def __enter__(self):
         self._manager.setup(**self._setup_kwargs)
@@ -338,6 +359,9 @@ class ProfileManager:
     # child process of a rank that happens to import the library, including
     # the one LIKWID's counter read-back forks. See get_config().
     _config: ProfilingConfig | None = None
+    _configured = False
+    _lifecycle_state = _LifecycleState.INACTIVE
+    _auto_finalize_callback = None
     _mpi_profile_context = None
     _region_cls = DisabledProfileRegion
     _decorators: ClassVar[dict[str, list]] = {}  # name -> [(func, _bound), ...]
@@ -494,6 +518,9 @@ class ProfileManager:
                 "_regions": {},
                 "_next_call_id": 0,
                 "_config": None,
+                "_configured": False,
+                "_lifecycle_state": _LifecycleState.INACTIVE,
+                "_auto_finalize_callback": None,
                 "_mpi_profile_context": None,
                 "_region_cls": DisabledProfileRegion,
                 "_decorators": {},
@@ -1459,15 +1486,9 @@ class ProfileManager:
             nothing, so the script above needs no rank guard. See
             :attr:`~scope_profiler.results.ProfilingResults.is_root`.
         """
-        # A lazily resolved default config is not a profiling run. In
-        # particular, decorators call get_config() while they are declared,
-        # so the presence of a config alone cannot be used to decide whether
-        # finalize() should create an output file. setup()/session() replace
-        # the disabled region strategy through set_config().
-        never_activated = cls._region_cls is DisabledProfileRegion and (
-            cls._config is None or not cls._config.deactivate_profiling
-        )
-        if never_activated:
+        # Decorators resolve a default config while they are declared, so
+        # config presence is not evidence that setup() started a run.
+        if not cls._configured:
             if return_results:
                 from scope_profiler.results import ProfilingResults
 
@@ -1489,6 +1510,8 @@ class ProfileManager:
         config.stop_memory_profiling()
 
         if config.deactivate_profiling:
+            cls._lifecycle_state = _LifecycleState.FINALIZED
+            cls._cancel_auto_finalize()
             if return_results:
                 from scope_profiler.results import ProfilingResults
 
@@ -1633,6 +1656,10 @@ class ProfileManager:
                 if isinstance(region, LineProfilerRegion):
                     region.print_stats()
 
+        # finalize() is intentionally still a checkpoint: existing callers
+        # may record more events and finalize again without another setup().
+        cls._lifecycle_state = _LifecycleState.FINALIZED
+        cls._cancel_auto_finalize()
         if return_results:
             return results
         return None
@@ -1789,6 +1816,57 @@ class ProfileManager:
         return cls._regions
 
     @classmethod
+    def registered_regions(cls) -> tuple[str, ...]:
+        """Names of all instrumentation points known to this manager."""
+        return tuple(cls._regions)
+
+    @classmethod
+    def recorded_regions(cls) -> tuple[str, ...]:
+        """Names of regions that have recorded at least one call."""
+        return tuple(
+            name for name, region in cls._regions.items() if region.num_calls > 0
+        )
+
+    @classmethod
+    def is_configured(cls) -> bool:
+        """Whether explicit setup has configured this manager."""
+        return cls._configured
+
+    @classmethod
+    def is_active(cls) -> bool:
+        """Whether instrumentation currently records calls."""
+        return (
+            cls._configured
+            and cls._config is not None
+            and not cls._config.deactivate_profiling
+            and cls._lifecycle_state
+            in {_LifecycleState.ACTIVE, _LifecycleState.FINALIZED}
+        )
+
+    @classmethod
+    def _cancel_auto_finalize(cls) -> None:
+        """Remove this manager's pending process-exit finalizer, if any."""
+        callback = cls._auto_finalize_callback
+        cls._auto_finalize_callback = None
+        if callback is not None:
+            atexit.unregister(callback)
+
+    @classmethod
+    def _register_auto_finalize(cls) -> None:
+        """Arrange one guarded finalization at normal interpreter exit."""
+        cls._cancel_auto_finalize()
+
+        def finalize_at_exit():
+            # Clear first so finalize() knows it is running from the hook and
+            # cannot unregister or repeat itself.
+            cls._auto_finalize_callback = None
+            if cls._configured:
+                cls.finalize()
+
+        cls._auto_finalize_callback = finalize_at_exit
+        atexit.register(finalize_at_exit)
+
+    @classmethod
     def _stop_mpi_call_profiling(cls) -> None:
         """Restore mpi4py globals if this manager installed their proxies."""
         context = cls._mpi_profile_context
@@ -1801,6 +1879,7 @@ class ProfileManager:
         cls,
         options: ProfilingOptions | None = None,
         *,
+        auto_finalize: bool = False,
         config_path: str | os.PathLike[str] | None = None,
         **overrides: "Unpack[SetupOptions]",
     ):
@@ -1824,6 +1903,11 @@ class ProfileManager:
             TOML file containing a ``[profiling]`` table with these settings.
             Values passed directly to ``setup()`` take precedence. See
             :func:`~scope_profiler.profile_config.load_profiling_config`.
+        auto_finalize : bool, optional
+            Finalize once at normal interpreter exit, unless ``finalize()``
+            is called explicitly first (default: False). This is convenient
+            for scripts that want setup without a surrounding session. Avoid
+            it when MPI ranks may not exit together.
         **overrides
             Any of the settings below, passed as keyword arguments::
 
@@ -1997,6 +2081,8 @@ class ProfileManager:
             **settings,
         )
         cls.set_config(config=config)
+        if auto_finalize:
+            cls._register_auto_finalize()
 
     @classmethod
     def session(
@@ -2064,6 +2150,7 @@ class ProfileManager:
         config : ProfilingConfig
             The new profiling configuration to apply.
         """
+        cls._cancel_auto_finalize()
         cls._stop_mpi_call_profiling()
         cls._regions.clear()  # Clear old regions
         # A new run gets a fresh id space; ids stay unique only within one.
@@ -2077,6 +2164,12 @@ class ProfileManager:
         if previous is not None:
             previous.stop_memory_profiling()
         cls._config = config  # Update the config
+        cls._configured = True
+        cls._lifecycle_state = (
+            _LifecycleState.INACTIVE
+            if config.deactivate_profiling
+            else _LifecycleState.ACTIVE
+        )
         if config.profile_mpi_calls and not config.deactivate_profiling:
             from scope_profiler.mpi_wrappers import profile_mpi4py
 
@@ -2134,6 +2227,7 @@ class ProfileManager:
         The next ``get_config()`` builds a fresh default one; nothing is
         constructed here, so a reset cannot pull MPI in either.
         """
+        cls._cancel_auto_finalize()
         cls._stop_mpi_call_profiling()
         ProfilingConfig.reset()
         if cls._config is not None and cls._config.tracker is not None:
@@ -2141,6 +2235,8 @@ class ProfileManager:
         if cls._config is not None:
             cls._config.stop_memory_profiling()
         cls._config = None
+        cls._configured = False
+        cls._lifecycle_state = _LifecycleState.INACTIVE
 
     @classmethod
     def _reset(cls) -> None:
