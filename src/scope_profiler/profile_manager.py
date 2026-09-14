@@ -2089,6 +2089,11 @@ class ProfileManager:
         MPI job -- fatal in a process forked from a rank, which is exactly
         what the LIKWID counter read-back does.
 
+        Resolving defaults is not itself setup. Regions remain disabled until
+        :meth:`setup` (directly or through :meth:`session`) installs a config
+        with :meth:`set_config`. This lets applications declare decorators at
+        import time without accidentally starting a profiling run.
+
         Returns
         -------
         ProfilingConfig
@@ -2096,8 +2101,6 @@ class ProfileManager:
         """
         if cls._config is None:
             cls._config = ProfilingConfig()
-            # Direct attribute read below, not get_config(): _config is set.
-            cls._update_region_cls()
         return cls._config
 
     @classmethod

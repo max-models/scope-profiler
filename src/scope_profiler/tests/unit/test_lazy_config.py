@@ -75,6 +75,30 @@ def test_get_config_creates_one_and_keeps_it():
     assert ProfileManager._config is None
 
 
+def test_instrumentation_stays_disabled_until_setup_is_called():
+    """Declaring and running instrumented code does not implicitly opt in."""
+    from scope_profiler.region_profiler import DisabledProfileRegion
+
+    ProfileManager._reset()
+    try:
+
+        @ProfileManager.profile("main")
+        def main():
+            for _ in range(10):
+                with ProfileManager.region("iteration"):
+                    pass
+
+        main()
+
+        regions = ProfileManager.get_all_regions()
+        assert isinstance(regions["main"], DisabledProfileRegion)
+        assert isinstance(regions["iteration"], DisabledProfileRegion)
+        assert regions["main"].num_calls == 0
+        assert regions["iteration"].num_calls == 0
+    finally:
+        ProfileManager._reset()
+
+
 def test_reset_restores_the_state_a_fresh_import_leaves():
     """A reset is indistinguishable from never having configured anything."""
     from scope_profiler.region_profiler import DisabledProfileRegion
