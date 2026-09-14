@@ -121,14 +121,14 @@ def _parse_run_args(argv):
         "--mpi-calls",
         dest="mpi_calls",
         action="store_true",
-        default=True,
-        help="Profile mpi4py calls without changing the target script (default)",
+        default=None,
+        help="Profile mpi4py calls without changing the target script",
     )
     mpi_calls.add_argument(
         "--no-mpi-calls",
         dest="mpi_calls",
         action="store_false",
-        help="Do not profile mpi4py communication calls",
+        help="Do not profile mpi4py communication calls (default)",
     )
     parser.add_argument("script", help="Script to run and profile")
     parser.add_argument(

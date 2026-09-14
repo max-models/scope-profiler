@@ -421,7 +421,7 @@ def profile_mpi4py(
     """Temporarily profile mpi4py's predefined communicators.
 
     When *lazy* is true, mpi4py is wrapped only if the target imports it. This
-    lets ``scope-profiler run`` enable MPI-call profiling by default without
+    lets ``scope-profiler run --mpi-calls`` enable MPI-call profiling without
     importing or initializing MPI for an ordinary serial program. Both globals
     and Python's import function are restored even when the program raises.
     """
