@@ -107,7 +107,7 @@ def test_run_line_profile_flag_is_passed_to_setup(tmp_path, monkeypatch):
     assert calls["setup"]["use_line_profiler"] is True
     assert calls["setup"]["use_memray"] is True
     assert calls["setup"]["recursive_profile"] is True
-    assert calls["setup"]["profile_mpi_calls"] is True
+    assert calls["setup"]["profile_mpi_calls"] is None
     assert calls["run_script"] == {
         "path": str(script),
         "script_args": ["arg"],
@@ -116,7 +116,7 @@ def test_run_line_profile_flag_is_passed_to_setup(tmp_path, monkeypatch):
     assert calls["finalize"] == {"verbose": False}
 
 
-def test_run_enables_mpi_calls_in_profiling_options(tmp_path, monkeypatch):
+def test_run_does_not_enable_mpi_calls_by_default(tmp_path, monkeypatch):
     script = tmp_path / "script.py"
     script.write_text("pass\n", encoding="utf-8")
     calls = {}
@@ -135,6 +135,30 @@ def test_run_enables_mpi_calls_in_profiling_options(tmp_path, monkeypatch):
     )
 
     cli_main(["run", str(script)])
+
+    # None lets setup() use its False default, or a config file opt in.
+    assert calls["setup"]["profile_mpi_calls"] is None
+
+
+def test_run_can_enable_automatic_mpi_call_profiling(tmp_path, monkeypatch):
+    script = tmp_path / "script.py"
+    script.write_text("pass\n", encoding="utf-8")
+    calls = {}
+
+    monkeypatch.setattr(
+        "scope_profiler.__main__.ProfileManager.setup",
+        lambda **kwargs: calls.update(setup=kwargs),
+    )
+    monkeypatch.setattr(
+        "scope_profiler.__main__.ProfileManager.run_script",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "scope_profiler.__main__.ProfileManager.finalize",
+        lambda **kwargs: None,
+    )
+
+    cli_main(["run", "--mpi-calls", str(script)])
 
     assert calls["setup"]["profile_mpi_calls"] is True
 

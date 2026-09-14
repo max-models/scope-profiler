@@ -100,18 +100,17 @@ timeline.
 For an unchanged script, launch it through the regular profiler command:
 
 ```bash
-mpirun -n 4 scope-profiler run simulation.py
+mpirun -n 4 scope-profiler run --mpi-calls simulation.py
 ```
 
-MPI-call profiling is enabled by default. The runner waits for the target to
-import mpi4py, so a serial program that does not use MPI still neither imports
-nor initializes it. It then temporarily replaces mpi4py's `COMM_WORLD` and
+MPI-call profiling is opt-in. With `--mpi-calls`, the runner waits for the
+target to import mpi4py, then temporarily replaces mpi4py's `COMM_WORLD` and
 `COMM_SELF` globals with transparent profiling proxies and restores them at
-shutdown. Communicators returned by common constructors such as `Split`, `Dup`,
-`Create_cart`, and `Create_intercomm` remain wrapped automatically.
+shutdown. Communicators returned by common constructors such as `Split`,
+`Dup`, `Create_cart`, and `Create_intercomm` remain wrapped automatically.
 Communicators obtained through an unrecognized third-party API can still be
-passed to `profile_mpi_comm()` explicitly. Use `--no-mpi-calls` to
-disable this behavior.
+passed to `profile_mpi_comm()` explicitly. `--no-mpi-calls` is accepted when
+an explicit config file enables the feature and the command should override it.
 
 For a normal profiling session, enable the same behavior through
 `ProfilingOptions` and obtain the communicator inside the session:
@@ -205,8 +204,8 @@ Output:
 
 ### Unmodified NumPy/mpi4py program
 
-This file contains no scope-profiler imports. The regular `scope-profiler run`
-command enables MPI-call instrumentation before running it.
+This file contains no scope-profiler imports. Running it with
+`scope-profiler run --mpi-calls` enables MPI-call instrumentation first.
 
 ```{eval-rst}
 .. literalinclude:: ../../../examples/ex_mpi_numpy_wrappers.py
