@@ -89,6 +89,24 @@ usage: scope-profiler run [-h] [-o OUTFILE] [-q] [--all] [--line-profile] [--mem
 scope-profiler run my_script.py [script args...]
 ```
 
+The runner performs setup before loading the script and finalizes it afterward.
+This means explicitly instrumented scripts do not need an in-source session:
+
+```python
+import scope_profiler as sp
+
+@sp.profile("main")
+def main():
+    with sp.region("iteration"):
+        work()
+
+main()
+```
+
+`python my_script.py` leaves these instrumentation points disabled and writes
+nothing; `scope-profiler run my_script.py` activates and records them. The
+explicit `session()`, `setup()`, and `finalize()` APIs remain unchanged.
+
 ### Output formats
 
 The extension of `-o` chooses what is written, and HDF5 remains the default:

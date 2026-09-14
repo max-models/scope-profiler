@@ -8,6 +8,8 @@ These cover the four surfaces added on top of the original
 
 import gzip
 import json
+import subprocess
+import sys
 
 import pytest
 
@@ -17,6 +19,7 @@ from scope_profiler import (
     MemrayOptions,
     ProfileManager,
     ProfilingOptions,
+    read_h5,
 )
 from scope_profiler.profile_config import (
     _CONFIG_FIELDS,
@@ -48,6 +51,10 @@ def test_module_level_names_are_the_manager_methods():
     assert sp.region.__func__ is ProfileManager.region.__func__
     assert sp.session.__func__ is ProfileManager.session.__func__
     assert sp.profile.__func__ is ProfileManager.profile.__func__
+    assert sp.is_active.__func__ is ProfileManager.is_active.__func__
+    assert sp.is_configured.__func__ is ProfileManager.is_configured.__func__
+    assert sp.registered_regions.__func__ is ProfileManager.registered_regions.__func__
+    assert sp.recorded_regions.__func__ is ProfileManager.recorded_regions.__func__
 
 
 def test_a_whole_run_through_the_module_level_api(tmp_path):
@@ -68,6 +75,115 @@ def test_a_whole_run_through_the_module_level_api(tmp_path):
 
     assert "solve" in run.results.region_names
     assert "decorated" in run.results.region_names
+
+
+def test_session_can_decorate_a_function(tmp_path):
+    import scope_profiler as sp
+
+    output = tmp_path / "decorated-session.h5"
+
+    @sp.session(file_path=str(output), verbose=False)
+    def application():
+        with sp.region("work"):
+            pass
+        return 42
+
+    assert application() == 42
+    assert read_h5(output)["work"].num_calls == 1
+
+
+def test_lifecycle_and_region_queries_distinguish_definition_from_recording(
+    tmp_path,
+):
+    import scope_profiler as sp
+
+    assert not sp.is_configured()
+    assert not sp.is_active()
+
+    @sp.profile("work")
+    def work():
+        pass
+
+    work()
+    assert sp.registered_regions() == ("work",)
+    assert sp.recorded_regions() == ()
+    assert not sp.is_configured()
+    assert not sp.is_active()
+
+    sp.setup(file_path=str(tmp_path / "lifecycle.h5"))
+    assert sp.is_configured()
+    assert sp.is_active()
+    assert sp.registered_regions() == ("work",)
+
+    work()
+    assert sp.recorded_regions() == ("work",)
+    sp.finalize(verbose=False)
+
+    # Explicit finalize remains a checkpoint for backward compatibility.
+    assert sp.is_configured()
+    assert sp.is_active()
+
+
+def test_setup_can_finalize_automatically_at_process_exit(tmp_path, monkeypatch):
+    import scope_profiler as sp
+    from scope_profiler import profile_manager as profile_manager_module
+
+    registered = []
+    unregistered = []
+    monkeypatch.setattr(profile_manager_module.atexit, "register", registered.append)
+    monkeypatch.setattr(
+        profile_manager_module.atexit, "unregister", unregistered.append
+    )
+
+    output = tmp_path / "automatic.h5"
+    sp.setup(file_path=str(output), auto_finalize=True)
+    with sp.region("work"):
+        pass
+
+    assert len(registered) == 1
+    assert not output.exists()
+
+    registered[0]()
+
+    assert read_h5(output)["work"].num_calls == 1
+    assert ProfileManager._auto_finalize_callback is None
+
+
+def test_auto_finalize_writes_during_normal_interpreter_exit(tmp_path):
+    output = tmp_path / "at-exit.h5"
+    script = tmp_path / "automatic.py"
+    script.write_text(
+        f"""\
+import scope_profiler as sp
+
+sp.setup(file_path={str(output)!r}, auto_finalize=True)
+with sp.region("work"):
+    pass
+""",
+        encoding="utf-8",
+    )
+
+    subprocess.run([sys.executable, str(script)], check=True, timeout=120)
+
+    assert read_h5(output)["work"].num_calls == 1
+
+
+def test_explicit_finalize_cancels_automatic_finalization(tmp_path, monkeypatch):
+    import scope_profiler as sp
+    from scope_profiler import profile_manager as profile_manager_module
+
+    registered = []
+    unregistered = []
+    monkeypatch.setattr(profile_manager_module.atexit, "register", registered.append)
+    monkeypatch.setattr(
+        profile_manager_module.atexit, "unregister", unregistered.append
+    )
+
+    sp.setup(file_path=str(tmp_path / "manual.h5"), auto_finalize=True)
+    sp.finalize(verbose=False)
+
+    assert unregistered == registered
+    assert ProfileManager._auto_finalize_callback is None
 
 
 # --- region / profile_region ------------------------------------------------
