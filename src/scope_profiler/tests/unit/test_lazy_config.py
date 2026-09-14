@@ -10,6 +10,7 @@ import.
 
 import subprocess
 import sys
+from pathlib import Path
 
 from scope_profiler import ProfileManager
 from scope_profiler.mpi_launch import LAUNCHER_ENV_VARS
@@ -75,10 +76,11 @@ def test_get_config_creates_one_and_keeps_it():
     assert ProfileManager._config is None
 
 
-def test_instrumentation_stays_disabled_until_setup_is_called():
-    """Declaring and running instrumented code does not implicitly opt in."""
+def test_instrumentation_stays_disabled_until_setup_is_called(tmp_path, monkeypatch):
+    """Implicit instrumentation records nothing and creates no output file."""
     from scope_profiler.region_profiler import DisabledProfileRegion
 
+    monkeypatch.chdir(tmp_path)
     ProfileManager._reset()
     try:
 
@@ -95,6 +97,11 @@ def test_instrumentation_stays_disabled_until_setup_is_called():
         assert isinstance(regions["iteration"], DisabledProfileRegion)
         assert regions["main"].num_calls == 0
         assert regions["iteration"].num_calls == 0
+
+        output_path = Path(ProfileManager.get_config().file_path)
+        assert not output_path.exists()
+        ProfileManager.finalize(verbose=False)
+        assert not output_path.exists()
     finally:
         ProfileManager._reset()
 
