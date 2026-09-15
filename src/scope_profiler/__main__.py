@@ -65,13 +65,19 @@ def _parse_run_args(argv):
         prog="scope-profiler run",
         description="Run a script with explicit regions enabled.",
     )
-    parser.add_argument(
+    output_group = parser.add_mutually_exclusive_group()
+    output_group.add_argument(
         "-o",
         "--outfile",
         default=None,
         help="Path of the output file (default: profiling_data.h5). The "
         "extension picks the format: .h5 for HDF5, .json / .json.gz for a "
         "JSON profile, .html for a rendered report",
+    )
+    output_group.add_argument(
+        "--no-output",
+        action="store_true",
+        help="Keep results in memory and do not write a profile file",
     )
     parser.add_argument(
         "--config",
@@ -84,11 +90,18 @@ def _parse_run_args(argv):
         action="store_true",
         help="Suppress the per-region summary printed after the run",
     )
-    parser.add_argument(
+    recursive = parser.add_mutually_exclusive_group()
+    recursive.add_argument(
         "--recursive",
         action="store_true",
         default=None,
         help="Profile every Python function in the script (default: explicit regions only)",
+    )
+    recursive.add_argument(
+        "--no-recursive",
+        dest="recursive",
+        action="store_false",
+        help="Disable recursive tracing, overriding the configuration file",
     )
     parser.add_argument(
         "--all",
@@ -120,6 +133,11 @@ def _parse_run_args(argv):
         action="store_true",
         default=None,
         help="Record aggregate timing statistics only; omit per-call timeline events.",
+    )
+    parser.add_argument(
+        "--label",
+        default=None,
+        help="Short label stored with the profile for comparison and reporting",
     )
     mpi_calls = parser.add_mutually_exclusive_group()
     mpi_calls.add_argument(
@@ -208,18 +226,23 @@ def _run(argv):
     # within one directory, and so a read-only $TMPDIR cannot break the run.
     profile_path = args.outfile + ".scope-profiler.h5" if convert else args.outfile
 
-    ProfileManager.setup(
-        replace=True,
-        recursive_profile=True if args.recursive or args.all else None,
-        use_likwid=None,
-        use_line_profiler=args.line_profile,
-        use_memray=args.memory_profile,
-        buffer_limit=args.buffer_limit,
-        aggregation_mode=args.aggregation_mode,
-        profile_mpi_calls=args.mpi_calls,
-        file_path=profile_path,
-        config_path=args.config,
-    )
+    setup_kwargs = {
+        "replace": True,
+        "recursive_profile": True if args.recursive or args.all else args.recursive,
+        "use_likwid": None,
+        "use_line_profiler": args.line_profile,
+        "use_memray": args.memory_profile,
+        "buffer_limit": args.buffer_limit,
+        "aggregation_mode": args.aggregation_mode,
+        "profile_mpi_calls": args.mpi_calls,
+        "label": args.label,
+        "config_path": args.config,
+    }
+    if args.no_output:
+        setup_kwargs["deactivate_file_output"] = True
+    else:
+        setup_kwargs["file_path"] = profile_path
+    ProfileManager.setup(**setup_kwargs)
 
     try:
         ProfileManager.run_script(
@@ -232,7 +255,10 @@ def _run(argv):
         # The summary names the file it came from, so with a conversion still
         # to come it is printed afterwards, against the file the user asked
         # for, rather than against a temporary that is about to be deleted.
-        ProfileManager.finalize(verbose=not args.quiet and not convert)
+        finalize_kwargs = {"verbose": not args.quiet and not convert}
+        if args.no_output:
+            finalize_kwargs["return_results"] = True
+        ProfileManager.finalize(**finalize_kwargs)
         if convert:
             _convert_run_output(profile_path, args.outfile, quiet=args.quiet)
 

@@ -53,6 +53,17 @@ def test_run_help_lists_memory_profile_flag(capsys):
     assert "--memory-profile" in capsys.readouterr().out
 
 
+def test_run_help_lists_low_touch_options(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main(["run", "--help"])
+
+    assert exc_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "--no-recursive" in output
+    assert "--no-output" in output
+    assert "--label" in output
+
+
 def test_run_help_lists_mpi_call_flags(capsys):
     with pytest.raises(SystemExit) as exc_info:
         cli_main(["run", "--help"])
@@ -145,6 +156,33 @@ def test_run_does_not_enable_mpi_calls_by_default(tmp_path, monkeypatch):
 
     # None lets setup() use its False default, or a config file opt in.
     assert calls["setup"]["profile_mpi_calls"] is None
+
+
+def test_run_can_disable_recursive_tracing_and_file_output(tmp_path, monkeypatch):
+    script = tmp_path / "script.py"
+    script.write_text("pass\n", encoding="utf-8")
+    calls = {}
+
+    monkeypatch.setattr(
+        "scope_profiler.__main__.ProfileManager.setup",
+        lambda **kwargs: calls.update(setup=kwargs),
+    )
+    monkeypatch.setattr(
+        "scope_profiler.__main__.ProfileManager.run_script",
+        lambda *args, **kwargs: calls.update(run_script=kwargs),
+    )
+    monkeypatch.setattr(
+        "scope_profiler.__main__.ProfileManager.finalize",
+        lambda **kwargs: calls.update(finalize=kwargs),
+    )
+
+    cli_main(["run", "--no-recursive", "--no-output", "--label", "trial", str(script)])
+
+    assert calls["setup"]["recursive_profile"] is False
+    assert calls["setup"]["deactivate_file_output"] is True
+    assert calls["setup"]["label"] == "trial"
+    assert calls["run_script"]["recursive"] is False
+    assert calls["finalize"] == {"verbose": True, "return_results": True}
 
 
 def test_run_can_enable_automatic_mpi_call_profiling(tmp_path, monkeypatch):

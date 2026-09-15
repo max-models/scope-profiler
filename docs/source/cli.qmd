@@ -70,7 +70,7 @@ enabled. Recursive function tracing is opt-in with `--recursive`; add `--all`
 to include standard-library and installed-package calls as well.
 
 ```text
-usage: scope-profiler run [-h] [-o OUTFILE] [-q] [--recursive] [--all] [--line-profile] [--memory-profile]
+usage: scope-profiler run [-h] [-o OUTFILE | --no-output] [-q] [--recursive | --no-recursive] [--all] [--label LABEL] [--line-profile] [--memory-profile]
                           [--buffer-limit BUFFER_LIMIT]
                           script ...
 ```
@@ -78,9 +78,12 @@ usage: scope-profiler run [-h] [-o OUTFILE] [-q] [--recursive] [--all] [--line-p
 | Flag                | Description                                                          |
 | -------------------- | --------------------------------------------------------------------- |
 | `-o`, `--outfile`    | Path of the output file (default: `profiling_data.h5`); the extension picks the format |
+| `--no-output`        | Keep results in memory and do not write a profile file                  |
 | `-q`, `--quiet`      | Suppress the per-region summary printed after the run                |
 | `--recursive`        | Trace every Python function in the script; explicit regions only by default |
+| `--no-recursive`     | Disable recursive tracing, overriding the configuration file         |
 | `--all`              | Recursively trace all calls, including standard-library and installed-package calls |
+| `--label`            | Store a short label with the run for comparison and reporting         |
 | `--line-profile`     | Also collect line-by-line timings via `line_profiler` (requires `scope-profiler[line-profiler]`) |
 | `--memory-profile`   | Record allocations with Memray in an adjacent `.memray.bin` file (requires `scope-profiler[extras]`) |
 | `--buffer-limit`     | Initial buffer capacity per region; grows as needed (default: 1024)     |
@@ -118,6 +121,11 @@ scope-profiler run -o profile.json my_script.py     # a JSON profile
 scope-profiler run -o profile.json.gz my_script.py  # the same, gzip-compressed
 scope-profiler run -o report.html my_script.py      # a rendered HTML report
 ```
+
+Use `--no-output` when only an in-memory summary is needed; it suppresses the
+default `profiling_data.h5` file. `--label` stores a short run name in the
+profile, which is useful when comparing several runs. `--no-recursive` can
+override a configuration file that enables recursive tracing.
 
 A JSON profile holds everything the HDF5 file does --- every call's
 timestamps, the lane tables, LIKWID counters, line-profiler records --- in
