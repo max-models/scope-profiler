@@ -97,6 +97,22 @@ def _parse_run_args(argv):
         default=None,
         help="Profile every Python function in the script (default: explicit regions only)",
     )
+    parser.add_argument(
+        "--include",
+        dest="include_patterns",
+        action="append",
+        default=[],
+        metavar="GLOB",
+        help="With recursive tracing, include only matching function names (repeatable)",
+    )
+    parser.add_argument(
+        "--exclude",
+        dest="exclude_patterns",
+        action="append",
+        default=[],
+        metavar="GLOB",
+        help="With recursive tracing, exclude matching function names (repeatable)",
+    )
     recursive.add_argument(
         "--no-recursive",
         dest="recursive",
@@ -138,6 +154,19 @@ def _parse_run_args(argv):
         "--label",
         default=None,
         help="Short label stored with the profile for comparison and reporting",
+    )
+    parser.add_argument(
+        "--tag",
+        dest="region_tags",
+        action="append",
+        default=None,
+        metavar="TAG",
+        help="Record only explicitly defined regions carrying this tag (repeatable)",
+    )
+    parser.add_argument(
+        "--entrypoint",
+        metavar="NAME",
+        help="Name the recursively traced entrypoint region",
     )
     mpi_calls = parser.add_mutually_exclusive_group()
     mpi_calls.add_argument(
@@ -228,7 +257,9 @@ def _run(argv):
 
     setup_kwargs = {
         "replace": True,
-        "recursive_profile": True if args.recursive or args.all else args.recursive,
+        "recursive_profile": (
+            True if args.recursive or args.all or args.entrypoint else args.recursive
+        ),
         "use_likwid": None,
         "use_line_profiler": args.line_profile,
         "use_memray": args.memory_profile,
@@ -236,6 +267,7 @@ def _run(argv):
         "aggregation_mode": args.aggregation_mode,
         "profile_mpi_calls": args.mpi_calls,
         "label": args.label,
+        "region_tags": args.region_tags,
         "config_path": args.config,
     }
     if args.no_output:
@@ -248,8 +280,13 @@ def _run(argv):
         ProfileManager.run_script(
             args.script,
             script_args=args.script_args,
-            recursive=args.all or ProfileManager.get_config().recursive_profile,
+            recursive=args.all
+            or args.entrypoint is not None
+            or ProfileManager.get_config().recursive_profile,
             only_user_code=not args.all,
+            include_patterns=args.include_patterns,
+            exclude_patterns=args.exclude_patterns,
+            entrypoint=args.entrypoint,
         )
     finally:
         # The summary names the file it came from, so with a conversion still

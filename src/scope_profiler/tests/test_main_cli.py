@@ -62,6 +62,10 @@ def test_run_help_lists_low_touch_options(capsys):
     assert "--no-recursive" in output
     assert "--no-output" in output
     assert "--label" in output
+    assert "--entrypoint" in output
+    assert "--include" in output
+    assert "--exclude" in output
+    assert "--tag" in output
 
 
 def test_run_help_lists_mpi_call_flags(capsys):
@@ -87,12 +91,18 @@ def test_run_line_profile_flag_is_passed_to_setup(tmp_path, monkeypatch):
         script_args=None,
         only_user_code=True,
         recursive=True,
+        include_patterns=(),
+        exclude_patterns=(),
+        entrypoint=None,
     ):
         calls["run_script"] = {
             "path": path,
             "script_args": script_args,
             "only_user_code": only_user_code,
             "recursive": recursive,
+            "include_patterns": include_patterns,
+            "exclude_patterns": exclude_patterns,
+            "entrypoint": entrypoint,
         }
 
     def fake_finalize(verbose=True):
@@ -130,6 +140,9 @@ def test_run_line_profile_flag_is_passed_to_setup(tmp_path, monkeypatch):
         "script_args": ["arg"],
         "only_user_code": False,
         "recursive": True,
+        "include_patterns": [],
+        "exclude_patterns": [],
+        "entrypoint": None,
     }
     assert calls["finalize"] == {"verbose": False}
 
@@ -258,6 +271,30 @@ main()
         assert set(results.region_names) == {"main", "iteration"}
         assert results["main"].num_calls == 1
         assert results["iteration"].num_calls == 3
+    finally:
+        ProfileManager._reset()
+
+
+def test_run_selects_explicit_regions_by_tag(tmp_path):
+    script = tmp_path / "tagged.py"
+    output = tmp_path / "tagged.h5"
+    script.write_text(
+        """\
+import scope_profiler as sp
+
+with sp.region("fast", tags=["hot"]):
+    pass
+with sp.region("slow", tags=["cold"]):
+    pass
+""",
+        encoding="utf-8",
+    )
+
+    ProfileManager._reset()
+    try:
+        cli_main(["run", "-q", "--tag", "hot", "-o", str(output), str(script)])
+        results = read_h5(output)
+        assert set(results.region_names) == {"fast"}
     finally:
         ProfileManager._reset()
 

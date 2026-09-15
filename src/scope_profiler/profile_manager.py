@@ -435,6 +435,7 @@ class ProfileManager:
             )
 
     _regions: ClassVar[dict] = {}
+    _region_tag_filter: frozenset[str] | None = None
     # Next call id to hand out, so ids stay unique across the repeated
     # finalize() calls of one run. Reset by setup(), which starts a new run.
     _next_call_id = 0
@@ -568,7 +569,12 @@ class ProfileManager:
             # Keep the overwhelmingly common untagged lookup on the original
             # hot path: tags are metadata, not per-event work.
             normalized_tags = () if tags is None else tuple(tags)
-            region = cls._region_cls(
+            region_cls = cls._region_cls
+            if cls._region_tag_filter is not None and not set(
+                normalized_tags
+            ).intersection(cls._region_tag_filter):
+                region_cls = DisabledProfileRegion
+            region = region_cls(
                 region_name,
                 config=cls.get_config(),
                 tags=normalized_tags or (),
@@ -609,6 +615,7 @@ class ProfileManager:
                 "_regions": {},
                 "_next_call_id": 0,
                 "_config": None,
+                "_region_tag_filter": None,
                 "_configured": False,
                 "_lifecycle_state": _LifecycleState.INACTIVE,
                 "_auto_finalize_callback": None,
@@ -700,6 +707,9 @@ class ProfileManager:
         prev_profiler,
         only_user_code: bool = False,
         active_calls: dict | None = None,
+        include_patterns=(),
+        exclude_patterns=(),
+        entrypoint: str | None = None,
     ):
         active_calls = {} if active_calls is None else active_calls
 
@@ -714,12 +724,28 @@ class ProfileManager:
                 elif only_user_code and not cls._is_user_code(frame.f_code):
                     pass
                 else:
-                    region = cls.profile_region(cls._frame_region_name(frame))
-                    if isinstance(region, LineProfilerRegion):
-                        region.enter_timing_only()
-                    else:
-                        region.__enter__()
-                    active_calls[frame] = region
+                    frame_name = cls._frame_region_name(frame)
+                    included = not include_patterns or any(
+                        fnmatch.fnmatch(frame_name, pattern)
+                        for pattern in include_patterns
+                    )
+                    excluded = any(
+                        fnmatch.fnmatch(frame_name, pattern)
+                        for pattern in exclude_patterns
+                    )
+                    if included and not excluded:
+                        region = cls.profile_region(
+                            (
+                                entrypoint
+                                if entrypoint and frame.f_code.co_name == entrypoint
+                                else frame_name
+                            ),
+                        )
+                        if isinstance(region, LineProfilerRegion):
+                            region.enter_timing_only()
+                        else:
+                            region.__enter__()
+                        active_calls[frame] = region
             elif event == "return":
                 region = active_calls.pop(frame, None)
                 if region is not None:
@@ -1047,6 +1073,9 @@ class ProfileManager:
         region_name: str | None = None,
         only_user_code: bool = True,
         recursive: bool = True,
+        include_patterns=(),
+        exclude_patterns=(),
+        entrypoint: str | None = None,
     ) -> None:
         """
         Run a script under recursive profiling, similar to ``python -m cProfile``.
@@ -1072,10 +1101,14 @@ class ProfileManager:
             installed-package frames, tracing only the script's own code.
             This keeps overhead low and the output focused. Set to False to
             trace everything, including third-party and stdlib calls.
-        recursive : bool, optional
+            recursive : bool, optional
             Trace Python function calls and add a region around the script
             (default: True). When False, run only explicitly instrumented
             ``profile`` decorators and ``region`` blocks.
+        include_patterns, exclude_patterns : iterable of str, optional
+            Glob filters for recursively traced function names.
+        entrypoint : str, optional
+            Function name to use as the root region when recursively tracing.
         """
         script_path = os.path.abspath(script_path)
         region_name = region_name or os.path.basename(script_path)
@@ -1098,6 +1131,9 @@ class ProfileManager:
             prev_profiler=prev_profiler,
             only_user_code=only_user_code,
             active_calls=active_calls,
+            include_patterns=include_patterns,
+            exclude_patterns=exclude_patterns,
+            entrypoint=entrypoint,
         )
         line_states = {}
 
@@ -2252,6 +2288,7 @@ class ProfileManager:
         auto_finalize: bool = False,
         output=_UNSET,
         replace: bool = False,
+        region_tags=None,
         config_path: str | os.PathLike[str] | None = None,
         **overrides: "Unpack[SetupOptions]",
     ):
@@ -2491,6 +2528,7 @@ class ProfileManager:
         config = ProfilingConfig(
             **settings,
         )
+        cls._region_tag_filter = None if region_tags is None else frozenset(region_tags)
         cls.set_config(config=config)
         cls._requested_output = requested_output
         if auto_finalize:
@@ -2662,6 +2700,7 @@ class ProfileManager:
         cls._last_results = None
         cls._requested_output = None
         cls._metadata_scopes = []
+        cls._region_tag_filter = None
         cls._configured = False
         cls._lifecycle_state = _LifecycleState.INACTIVE
 
