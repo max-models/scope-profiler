@@ -43,7 +43,12 @@ from scope_profiler.profile_io import (
     sniff_profile_format,
     write_profile,
 )
-from scope_profiler.profile_manager import ProfileManager, ProfilingRun, RegionHandle
+from scope_profiler.profile_manager import (
+    ProfileManager,
+    ProfilingRun,
+    RegionFactory,
+    RegionHandle,
+)
 from scope_profiler.region import EventDataUnavailableError, Region
 from scope_profiler.results import ProfilingResults, merge_results
 
@@ -64,14 +69,20 @@ finalize = ProfileManager.finalize
 define_region = ProfileManager.define_region
 is_active = ProfileManager.is_active
 is_configured = ProfileManager.is_configured
+instrument = ProfileManager.instrument
 last_results = ProfileManager.last_results
 metadata = ProfileManager.metadata
+profile_command = ProfileManager.profile_command
+profile_script = ProfileManager.profile_script
 profile = ProfileManager.profile
+region_factory = ProfileManager.region_factory
 recorded_regions = ProfileManager.recorded_regions
 region = ProfileManager.region
 registered_regions = ProfileManager.registered_regions
 session = ProfileManager.session
 setup = ProfileManager.setup
+setup_from_env = ProfileManager.setup_from_env
+run = ProfileManager.run
 
 try:
     __version__ = version("scope-profiler")
@@ -132,6 +143,7 @@ __all__ = [
     "ProfilingResults",
     "ProfilingRun",
     "Region",
+    "RegionFactory",
     "RegionHandle",
     "build_call_arrays",
     "build_call_stack",
@@ -150,6 +162,7 @@ __all__ = [
     "finalize",
     "format_mpi_region",
     "inspect_file",
+    "instrument",
     "is_active",
     "is_configured",
     "last_results",
@@ -173,17 +186,22 @@ __all__ = [
     "plot_weak_scaling",
     "plot_weak_scaling_efficiency",
     "profile",
+    "profile_command",
     "profile_mpi4py",
     "profile_mpi_comm",
+    "profile_script",
     "read_h5",
     "read_h5_summary",
     "read_json",
     "read_profile",
     "recorded_regions",
     "region",
+    "region_factory",
     "registered_regions",
+    "run",
     "session",
     "setup",
+    "setup_from_env",
     "sniff_profile_format",
     "to_pstats",
     "write_json",
