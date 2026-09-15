@@ -63,7 +63,7 @@ from scope_profiler.profile_manager import ProfileManager
 def _parse_run_args(argv):
     parser = argparse.ArgumentParser(
         prog="scope-profiler run",
-        description="Profile a script's function calls without modifying it.",
+        description="Run a script with explicit regions enabled.",
     )
     parser.add_argument(
         "-o",
@@ -85,10 +85,15 @@ def _parse_run_args(argv):
         help="Suppress the per-region summary printed after the run",
     )
     parser.add_argument(
+        "--recursive",
+        action="store_true",
+        default=None,
+        help="Profile every Python function in the script (default: explicit regions only)",
+    )
+    parser.add_argument(
         "--all",
         action="store_true",
-        help="Also instrument standard-library and installed-package calls "
-        "(default: only the script's own code)",
+        help="Recursively instrument all calls, including standard-library and installed packages",
     )
     parser.add_argument(
         "--line-profile",
@@ -204,9 +209,8 @@ def _run(argv):
     profile_path = args.outfile + ".scope-profiler.h5" if convert else args.outfile
 
     ProfileManager.setup(
-        # ``run`` historically enables recursive profiling.  A TOML file may
-        # override it, while the no-config path keeps that default.
-        recursive_profile=True if args.config is None else None,
+        replace=True,
+        recursive_profile=True if args.recursive or args.all else None,
         use_likwid=None,
         use_line_profiler=args.line_profile,
         use_memray=args.memory_profile,
@@ -221,6 +225,7 @@ def _run(argv):
         ProfileManager.run_script(
             args.script,
             script_args=args.script_args,
+            recursive=args.all or ProfileManager.get_config().recursive_profile,
             only_user_code=not args.all,
         )
     finally:

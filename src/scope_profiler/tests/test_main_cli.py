@@ -71,11 +71,17 @@ def test_run_line_profile_flag_is_passed_to_setup(tmp_path, monkeypatch):
     def fake_setup(**kwargs):
         calls["setup"] = kwargs
 
-    def fake_run_script(path, script_args=None, only_user_code=True):
+    def fake_run_script(
+        path,
+        script_args=None,
+        only_user_code=True,
+        recursive=True,
+    ):
         calls["run_script"] = {
             "path": path,
             "script_args": script_args,
             "only_user_code": only_user_code,
+            "recursive": recursive,
         }
 
     def fake_finalize(verbose=True):
@@ -112,6 +118,7 @@ def test_run_line_profile_flag_is_passed_to_setup(tmp_path, monkeypatch):
         "path": str(script),
         "script_args": ["arg"],
         "only_user_code": False,
+        "recursive": True,
     }
     assert calls["finalize"] == {"verbose": False}
 
@@ -210,6 +217,7 @@ main()
         cli_main(["run", "-q", "-o", str(output), str(script)])
         results = read_h5(output)
 
+        assert set(results.region_names) == {"main", "iteration"}
         assert results["main"].num_calls == 1
         assert results["iteration"].num_calls == 3
     finally:

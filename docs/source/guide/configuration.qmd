@@ -65,6 +65,8 @@ behavior.
 | --------------------- | ------ | --------------------- | ----------------------------------------------------------------------------------------------- |
 | `deactivate_profiling`| `bool` | `False`               | Master switch. When `True`, all regions become no-ops with near-zero cost.                      |
 | `auto_finalize`       | `bool` | `False`               | Finalize once at normal interpreter exit unless finalized explicitly first.                    |
+| `output`              | path or `None` | unset             | Direct output destination; format follows the extension, while `None` keeps the run in memory. |
+| `replace`             | `bool` | `False`               | Explicitly replace a configuration that is still active.                                       |
 | `use_likwid`          | `bool` | `False`               | Wrap regions with LIKWID marker API calls for hardware counter collection. Requires `pylikwid`. |
 | `perf_events`         | `list[str]` or `None` | `None` | Collect selected Linux `perf_event_open` counts per region. |
 

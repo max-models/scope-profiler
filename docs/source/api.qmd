@@ -36,7 +36,7 @@ output.
 
 ```{eval-rst}
 .. autoclass:: scope_profiler.profile_manager.ProfileManager
-   :members: setup, session, profile, region, profile_region, finalize, read_results, get_region, get_all_regions, registered_regions, recorded_regions, is_configured, is_active, get_config, set_config
+   :members: setup, session, profile, region, profile_region, define_region, metadata, finalize, read_results, last_results, get_region, get_all_regions, registered_regions, recorded_regions, is_configured, is_active, get_config, set_config
    :undoc-members:
 ```
 

@@ -36,6 +36,9 @@
 
 ### Changed
 
+- `scope-profiler run` now activates explicit regions by default. Recursive
+  Python-call tracing is opt-in with `--recursive`; `--all` implies recursive
+  tracing and additionally includes dependencies and the standard library.
 - **HDF5 schema 3.** A region's calls are stored as the gap since its previous
   call and the duration of each call, rather than two absolute nanosecond
   timestamps: `events/start_deltas` and `events/durations` replace
@@ -56,6 +59,13 @@
 
 ### Added
 
+- `define_region()` creates reusable handles that follow configuration changes;
+  `setup()` now returns a run handle, `last_results()` exposes the most recent
+  requested in-memory result, and `output=` provides direct HDF5/JSON/HTML or
+  in-memory output selection. Active setup replacement now requires
+  `replace=True`.
+- `metadata(**values)` attaches nested, scoped dictionaries to individual
+  recorded calls and preserves them through HDF5 and JSON round trips.
 - `setup(auto_finalize=True)` can finalize a script at normal interpreter
   exit, and `session()` can now decorate an application entry point as well as
   serving as a context manager. Explicit finalization cancels the exit hook.

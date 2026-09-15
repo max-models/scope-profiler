@@ -28,6 +28,7 @@ class Region:
         thread_ids: np.ndarray | None = None,
         task_ids: np.ndarray | None = None,
         await_times: np.ndarray | None = None,
+        event_metadata: list[dict] | tuple[dict, ...] | None = None,
         source_file: str | None = None,
         source_lineno: int | None = None,
         source_text: str | None = None,
@@ -77,6 +78,13 @@ class Region:
         self._await_times = (
             None if await_times is None else np.asarray(await_times, dtype=np.int64)
         )
+        self._event_metadata = (
+            tuple({} for _ in range(len(end_times)))
+            if event_metadata is None
+            else tuple(dict(values) for values in event_metadata)
+        )
+        if len(self._event_metadata) != len(end_times):
+            raise ValueError("event metadata must match the call count")
         # A Region does not know about other regions, so until it is attached
         # to ProfilingResults exclusive time defaults to inclusive time. The
         # array is built on first use: reconstructing the nesting is by far
@@ -234,8 +242,15 @@ class Region:
                 event["await_duration"] = float(
                     self._await_times[index] / NS_PER_SECOND,
                 )
+            if self._event_metadata[index]:
+                event["metadata"] = dict(self._event_metadata[index])
             events.append(event)
         return events
+
+    @property
+    def event_metadata(self) -> tuple[dict, ...]:
+        """Per-call scoped metadata, aligned with the event arrays."""
+        return self._event_metadata
 
     @property
     def thread_ids(self) -> "np.ndarray | None":

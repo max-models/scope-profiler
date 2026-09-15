@@ -55,6 +55,9 @@ def test_module_level_names_are_the_manager_methods():
     assert sp.is_configured.__func__ is ProfileManager.is_configured.__func__
     assert sp.registered_regions.__func__ is ProfileManager.registered_regions.__func__
     assert sp.recorded_regions.__func__ is ProfileManager.recorded_regions.__func__
+    assert sp.define_region.__func__ is ProfileManager.define_region.__func__
+    assert sp.last_results.__func__ is ProfileManager.last_results.__func__
+    assert sp.metadata.__func__ is ProfileManager.metadata.__func__
 
 
 def test_a_whole_run_through_the_module_level_api(tmp_path):
@@ -184,6 +187,115 @@ def test_explicit_finalize_cancels_automatic_finalization(tmp_path, monkeypatch)
 
     assert unregistered == registered
     assert ProfileManager._auto_finalize_callback is None
+
+
+def test_setup_returns_a_run_handle_and_last_results(tmp_path):
+    import scope_profiler as sp
+
+    run = sp.setup(output=None)
+    with sp.region("work"):
+        pass
+
+    results = run.finalize(verbose=False)
+
+    assert run.results is results
+    assert sp.last_results() is results
+    assert results["work"].num_calls == 1
+
+
+def test_defined_region_handle_survives_new_sessions(tmp_path):
+    import scope_profiler as sp
+
+    work = sp.define_region("work", tags=("persistent",))
+    assert sp.registered_regions() == ("work",)
+
+    outputs = [tmp_path / "first.h5", tmp_path / "second.h5"]
+    for output in outputs:
+        with sp.session(file_path=str(output), verbose=False):
+            with work:
+                pass
+
+    assert all(read_h5(output)["work"].num_calls == 1 for output in outputs)
+
+
+def test_output_alias_can_disable_files_and_rejects_ambiguous_spelling(
+    tmp_path,
+    monkeypatch,
+):
+    import scope_profiler as sp
+
+    monkeypatch.chdir(tmp_path)
+    sp.setup(output=None)
+    with sp.region("work"):
+        pass
+    sp.finalize(verbose=False)
+    assert not (tmp_path / "profiling_data.h5").exists()
+
+    with pytest.raises(TypeError, match="output cannot be combined"):
+        sp.setup(output=tmp_path / "unused.h5", file_path=tmp_path / "other.h5")
+
+
+def test_output_alias_dispatches_json_and_updates_the_run_handle(tmp_path):
+    import scope_profiler as sp
+
+    output = tmp_path / "profile.json"
+    run = sp.setup(output=output)
+    with sp.region("work"):
+        pass
+    results = run.finalize(verbose=False)
+
+    assert run.file_path == str(output)
+    assert output.exists()
+    assert not (tmp_path / "profile.json.scope-profiler.h5").exists()
+    assert results["work"].num_calls == 1
+    assert sp.read_profile(output)["work"].num_calls == 1
+
+
+def test_scoped_metadata_round_trips_per_call(tmp_path):
+    import scope_profiler as sp
+
+    output = tmp_path / "metadata.h5"
+    sp.setup(output=output)
+    with sp.metadata(step=1, phase="warmup"):
+        with sp.region("work"):
+            pass
+    with sp.metadata(step=2):
+        with sp.metadata(phase="solve"):
+            with sp.region("work"):
+                pass
+
+    results = sp.finalize(verbose=False, return_results=True)
+
+    expected = ({"step": 1, "phase": "warmup"}, {"step": 2, "phase": "solve"})
+    assert results["work"][0].event_metadata == expected
+    assert read_h5(output)["work"][0].event_metadata == expected
+    json_output = tmp_path / "metadata.json"
+    sp.write_profile(results, json_output)
+    assert sp.read_profile(json_output)["work"][0].event_metadata == expected
+
+
+def test_scoped_metadata_rejects_aggregation_mode():
+    import scope_profiler as sp
+
+    sp.setup(output=None, aggregation_mode=True)
+
+    with pytest.raises(RuntimeError, match="requires per-call data"):
+        with sp.metadata(step=1):
+            pass
+
+
+def test_setup_rejects_accidental_replacement(tmp_path):
+    import scope_profiler as sp
+
+    first = sp.setup(output=tmp_path / "first.h5")
+    with pytest.raises(RuntimeError, match="already configured"):
+        sp.setup(output=tmp_path / "second.h5")
+
+    sp.setup(output=tmp_path / "second.h5", replace=True)
+    assert ProfileManager.get_config().file_path == str(tmp_path / "second.h5")
+    assert not first.is_active
+    with pytest.raises(RuntimeError, match="run has been replaced"):
+        first.finalize(verbose=False)
 
 
 # --- region / profile_region ------------------------------------------------
