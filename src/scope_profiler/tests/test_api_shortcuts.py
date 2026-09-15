@@ -298,6 +298,87 @@ def test_setup_rejects_accidental_replacement(tmp_path):
         first.finalize(verbose=False)
 
 
+def test_run_callable_profiles_without_manual_lifecycle(tmp_path):
+    import scope_profiler as sp
+
+    output = tmp_path / "callable.h5"
+
+    def application():
+        with sp.region("work"):
+            return 42
+
+    assert sp.run(application, output=output) == 42
+    assert sp.load(output)["work"].num_calls == 1
+
+
+def test_profile_metadata_callback_and_outcome(tmp_path):
+    import scope_profiler as sp
+
+    output = tmp_path / "decorated.h5"
+    sp.setup(output=output)
+
+    @sp.profile(
+        "work",
+        metadata=lambda value: {"input": value},
+        record_outcome=True,
+    )
+    def work(value):
+        return value
+
+    assert work(3) == 3
+    sp.finalize(verbose=False)
+    assert sp.load(output)["work"][0].event_metadata[0] == {
+        "input": 3,
+        "status": "ok",
+    }
+
+
+def test_profile_script_and_command_helpers(tmp_path):
+    import scope_profiler as sp
+
+    script = tmp_path / "app.py"
+    script.write_text(
+        'import scope_profiler as sp\nwith sp.region("work"):\n    pass\n',
+        encoding="utf-8",
+    )
+    script_results = sp.profile_script(script, output=tmp_path / "script.h5")
+    assert script_results["work"].num_calls == 1
+
+    completed = sp.profile_command(
+        [sys.executable, str(script)],
+        output=tmp_path / "command.h5",
+    )
+    assert completed.returncode == 0
+    assert completed.profile_results["work"].num_calls == 1
+
+
+def test_instrument_region_factory_and_environment_setup(tmp_path, monkeypatch):
+    import types
+
+    import scope_profiler as sp
+
+    module = types.ModuleType("instrumented")
+
+    def work():
+        return 1
+
+    module.work = work
+    sp.setup(output=None)
+    sp.instrument(module, include=["work"])
+    assert module.work() == 1
+    assert sp.recorded_regions() == ("instrumented.work",)
+    sp.finalize(verbose=False)
+
+    ProfileManager._reset()
+    monkeypatch.setenv("SCOPE_PROFILER_OUTPUT", str(tmp_path / "env.h5"))
+    monkeypatch.setenv("SCOPE_PROFILER_AUTO_FINALIZE", "false")
+    sp.setup_from_env()
+    with sp.region_factory("iteration")(step=1):
+        pass
+    sp.finalize(verbose=False)
+    assert sp.load(tmp_path / "env.h5")["iteration"].num_calls == 1
+
+
 # --- region / profile_region ------------------------------------------------
 
 
