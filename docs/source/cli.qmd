@@ -65,13 +65,12 @@ optional TUI/plotting dependencies with `pip install "scope-profiler[pproc]"`.
 
 ## `scope-profiler run`
 
-Profile a script's function calls without modifying it, similar to
-`python -m cProfile`. By default only the script's own code is instrumented
-(the standard library and installed packages are skipped) to keep overhead
-low; pass `--all` to trace everything.
+Run a script with its explicit `@profile` and `region()` instrumentation
+enabled. Recursive function tracing is opt-in with `--recursive`; add `--all`
+to include standard-library and installed-package calls as well.
 
 ```text
-usage: scope-profiler run [-h] [-o OUTFILE] [-q] [--all] [--line-profile] [--memory-profile]
+usage: scope-profiler run [-h] [-o OUTFILE] [-q] [--recursive] [--all] [--line-profile] [--memory-profile]
                           [--buffer-limit BUFFER_LIMIT]
                           script ...
 ```
@@ -80,7 +79,8 @@ usage: scope-profiler run [-h] [-o OUTFILE] [-q] [--all] [--line-profile] [--mem
 | -------------------- | --------------------------------------------------------------------- |
 | `-o`, `--outfile`    | Path of the output file (default: `profiling_data.h5`); the extension picks the format |
 | `-q`, `--quiet`      | Suppress the per-region summary printed after the run                |
-| `--all`              | Also instrument standard-library/installed-package calls (default: only the script's own code) |
+| `--recursive`        | Trace every Python function in the script; explicit regions only by default |
+| `--all`              | Recursively trace all calls, including standard-library and installed-package calls |
 | `--line-profile`     | Also collect line-by-line timings via `line_profiler` (requires `scope-profiler[line-profiler]`) |
 | `--memory-profile`   | Record allocations with Memray in an adjacent `.memray.bin` file (requires `scope-profiler[extras]`) |
 | `--buffer-limit`     | Initial buffer capacity per region; grows as needed (default: 1024)     |
@@ -104,7 +104,8 @@ main()
 ```
 
 `python my_script.py` leaves these instrumentation points disabled and writes
-nothing; `scope-profiler run my_script.py` activates and records them. The
+nothing; `scope-profiler run my_script.py` activates and records them. Use
+`scope-profiler run --recursive my_script.py` for an uninstrumented script. The
 explicit `session()`, `setup()`, and `finalize()` APIs remain unchanged.
 
 ### Output formats

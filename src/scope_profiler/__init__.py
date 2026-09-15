@@ -43,7 +43,7 @@ from scope_profiler.profile_io import (
     sniff_profile_format,
     write_profile,
 )
-from scope_profiler.profile_manager import ProfileManager
+from scope_profiler.profile_manager import ProfileManager, ProfilingRun, RegionHandle
 from scope_profiler.region import EventDataUnavailableError, Region
 from scope_profiler.results import ProfilingResults, merge_results
 
@@ -61,8 +61,11 @@ from scope_profiler.results import ProfilingResults, merge_results
 #: extra frame there is measurable overhead. They act on the same global
 #: manager state the class methods do.
 finalize = ProfileManager.finalize
+define_region = ProfileManager.define_region
 is_active = ProfileManager.is_active
 is_configured = ProfileManager.is_configured
+last_results = ProfileManager.last_results
+metadata = ProfileManager.metadata
 profile = ProfileManager.profile
 recorded_regions = ProfileManager.recorded_regions
 region = ProfileManager.region
@@ -127,7 +130,9 @@ __all__ = [
     "ProfiledMPIRequest",
     "ProfilingOptions",
     "ProfilingResults",
+    "ProfilingRun",
     "Region",
+    "RegionHandle",
     "build_call_arrays",
     "build_call_stack",
     "call_stack_children",
@@ -136,6 +141,7 @@ __all__ = [
     "collect_region_statistics",
     "collect_roofline_points",
     "create_html_report",
+    "define_region",
     "export_chrome_trace",
     "export_flamegraph_svg",
     "export_json",
@@ -146,10 +152,12 @@ __all__ = [
     "inspect_file",
     "is_active",
     "is_configured",
+    "last_results",
     "load",
     "load_prof",
     "merge_results",
     "message_nbytes",
+    "metadata",
     "parse_mpi_region",
     "plot_duration_timeseries",
     "plot_durations",

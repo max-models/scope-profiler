@@ -318,6 +318,7 @@ def _read_columnar_regions(h5file) -> tuple[dict, list[str], dict]:
     source_files = index["source_files"][()]
     source_texts = index["source_texts"][()]
     tag_blobs = index["tags"][()]
+    metadata_blobs = index["event_metadata"][()] if "event_metadata" in index else None
     # Absent in files written before the run stored its own exclusive totals;
     # _NO_EXCLUSIVE_TOTAL marks a row whose writer did not compute one. Either
     # way the reader falls back to reconstructing the nesting on demand.
@@ -372,6 +373,13 @@ def _read_columnar_regions(h5file) -> tuple[dict, list[str], dict]:
         thread_ids = thread_column[event_slice] if thread_column is not None else None
         task_ids = task_column[event_slice] if task_column is not None else None
         await_times = await_column[event_slice] if await_column is not None else None
+        event_metadata = (
+            json.loads(_decode_attribute(metadata_blobs[row]) or "[]")
+            if metadata_blobs is not None
+            else None
+        )
+        if not event_metadata:
+            event_metadata = None
         source_line = int(source_lines[row])
         per_region[name][rank] = Region(
             row_starts,
@@ -382,6 +390,7 @@ def _read_columnar_regions(h5file) -> tuple[dict, list[str], dict]:
             thread_ids=thread_ids,
             task_ids=task_ids,
             await_times=await_times,
+            event_metadata=event_metadata,
             source_file=_decode_attribute(source_files[row]) or None,
             source_lineno=source_line if source_line >= 0 else None,
             source_text=_decode_attribute(source_texts[row]) or None,

@@ -340,7 +340,7 @@ def test_run_writes_json_and_leaves_no_hdf5_behind(tmp_path):
     """``-o name.json`` is the whole point of the extension dispatch."""
     output = tmp_path / "profile.json"
 
-    cli_main(["run", "-q", "-o", str(output), _script(tmp_path)])
+    cli_main(["run", "--recursive", "-q", "-o", str(output), _script(tmp_path)])
 
     assert output.exists()
     assert list(tmp_path.glob("*.h5")) == []
@@ -351,7 +351,7 @@ def test_run_writes_json_and_leaves_no_hdf5_behind(tmp_path):
 def test_run_writes_gzipped_json(tmp_path):
     output = tmp_path / "profile.json.gz"
 
-    cli_main(["run", "-q", "-o", str(output), _script(tmp_path)])
+    cli_main(["run", "--recursive", "-q", "-o", str(output), _script(tmp_path)])
 
     assert output.read_bytes()[:2] == b"\x1f\x8b"
     assert list(tmp_path.glob("*.h5")) == []
@@ -361,7 +361,7 @@ def test_run_writes_gzipped_json(tmp_path):
 def test_run_writes_an_html_report(tmp_path):
     output = tmp_path / "profile.html"
 
-    cli_main(["run", "-q", "-o", str(output), _script(tmp_path)])
+    cli_main(["run", "--recursive", "-q", "-o", str(output), _script(tmp_path)])
 
     assert "<html" in output.read_text(encoding="utf-8")
     assert list(tmp_path.glob("*.h5")) == []
@@ -370,7 +370,7 @@ def test_run_writes_an_html_report(tmp_path):
 def test_run_still_writes_hdf5_by_default(tmp_path):
     output = tmp_path / "profile.h5"
 
-    cli_main(["run", "-q", "-o", str(output), _script(tmp_path)])
+    cli_main(["run", "--recursive", "-q", "-o", str(output), _script(tmp_path)])
 
     assert read_h5(output).num_ranks == 1
 
@@ -378,7 +378,7 @@ def test_run_still_writes_hdf5_by_default(tmp_path):
 def test_run_summary_names_the_json_it_wrote(tmp_path, capsys):
     output = tmp_path / "profile.json"
 
-    cli_main(["run", "-o", str(output), _script(tmp_path)])
+    cli_main(["run", "--recursive", "-o", str(output), _script(tmp_path)])
 
     out = capsys.readouterr().out
     assert "profile.json" in out

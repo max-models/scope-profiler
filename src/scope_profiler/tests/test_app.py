@@ -149,6 +149,7 @@ def test_all_region_types():
     monkeypatch.setitem(sys.modules, "nvtx", fake_nvtx)
     try:
         ProfileManager.setup(
+            replace=True,
             use_nvtx=True,
             deactivate_file_output=True,
         )
@@ -162,6 +163,7 @@ def test_all_region_types():
     # CUDA-event timing region: CPU timing plus device elapsed duration.
     backend = FakeGPUTimingBackend()
     ProfileManager.setup(
+        replace=True,
         use_gpu_timing=True,
         gpu_timing_backend=backend,
         deactivate_file_output=True,
@@ -184,6 +186,7 @@ def test_all_region_types():
     try:
         backend = FakeGPUTimingBackend()
         ProfileManager.setup(
+            replace=True,
             use_gpu_timing=True,
             gpu_timing_backend=backend,
             use_nvtx=True,

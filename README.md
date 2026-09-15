@@ -75,10 +75,10 @@ for task in run.results.tasks[0]:
     print(task.name, task.running_time, task.awaiting_time)
 ```
 
-You can also profile a script without changing its source:
+You can also recursively profile a script without changing its source:
 
 ```bash
-scope-profiler run my_script.py
+scope-profiler run --recursive my_script.py
 scope-profiler inspect profiling_data.h5
 scope-profiler plot default profiling_data.h5 -o figures
 scope-profiler report profiling_data.h5 -o report.html
@@ -129,6 +129,23 @@ def main():
 `sp.is_configured()` and `sp.is_active()` report lifecycle state.
 `sp.registered_regions()` lists known instrumentation points, while
 `sp.recorded_regions()` includes only regions that have measured calls.
+
+Reusable handles stay bound to the current run across repeated sessions:
+
+```python
+iteration = sp.define_region("iteration", tags=["solver"])
+
+with iteration:
+    work()
+```
+
+Scoped metadata is stored per call:
+
+```python
+with sp.metadata(step=42, phase="solve"):
+    with iteration:
+        work()
+```
 
 ## Profile a pytest suite
 

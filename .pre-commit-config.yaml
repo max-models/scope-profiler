@@ -13,3 +13,26 @@ repos:
     rev: 0.8.1
     hooks:
       - id: nbstripout # remove jupyter notebook cell output
+
+  - repo: local
+    hooks:
+      - id: black
+        name: black
+        entry: black
+        language: python
+        additional_dependencies: ["black[jupyter]"]
+        types: [python]
+        args: [--check]
+      - id: isort
+        name: isort
+        entry: isort
+        language: python
+        additional_dependencies: ["isort>=9.0"]
+        types: [python]
+        args: [--check-only]
+      - id: mypy
+        name: mypy (core public API)
+        entry: mypy
+        language: python
+        additional_dependencies: ["mypy>=1.11"]
+        pass_filenames: false
