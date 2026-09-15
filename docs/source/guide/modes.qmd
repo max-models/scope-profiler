@@ -1,0 +1,148 @@
+# Profiling modes
+
+The quickstart covers the shortest path from a few regions to a profile. This
+page collects the options for choosing how much code to measure and how much
+data to retain. Start with explicit regions; enable broader modes only when
+the extra detail answers a specific question.
+
+## Explicit regions
+
+The default CLI mode activates regions already present in the application:
+
+```bash
+scope-profiler run app.py -o profile.h5
+```
+
+Use tags to select a subset of regions. A repeated `--tag` uses OR semantics:
+
+```python
+import scope_profiler as sp
+
+with sp.region("linear_solve", tags=["solver", "expensive"]):
+    solve()
+```
+
+```bash
+scope-profiler run --tag solver --tag io app.py
+```
+
+## Recursive tracing
+
+For code without explicit regions, or when function-level attribution is
+needed, opt in to recursive tracing:
+
+```bash
+scope-profiler run --recursive app.py
+```
+
+`--include` and `--exclude` accept shell-style globs for recursively traced
+function names. `--all` additionally includes installed packages and the
+standard library:
+
+```bash
+scope-profiler run --recursive \
+  --include 'my_app.solver.*' \
+  --exclude '*logging*' \
+  app.py
+```
+
+Use `--entrypoint main` to name the traced application entrypoint. Recursive
+tracing has more overhead than explicit regions, so filters are recommended
+for large applications.
+
+## Python lifecycle shortcuts
+
+The CLI is equivalent to a managed Python session. For a callable entrypoint,
+use `sp.run()`:
+
+```python
+import scope_profiler as sp
+
+sp.run(main, output="profile.h5")
+```
+
+Use the session decorator when the application should own its entrypoint:
+
+```python
+@sp.session(file_path="profile.h5")
+def main():
+    run_application()
+```
+
+For a script that cannot use a context manager, opt in to a guarded exit hook:
+
+```python
+sp.setup(file_path="profile.h5", auto_finalize=True)
+```
+
+## Output and summaries
+
+The output extension selects the format. `--no-output` is useful for checking
+regions or printing a summary without leaving a file behind:
+
+```bash
+scope-profiler run -o profile.h5 app.py
+scope-profiler run -o profile.json app.py
+scope-profiler run -o report.html app.py
+scope-profiler run --no-output app.py
+```
+
+Use `--label` to identify a run in comparisons:
+
+```bash
+scope-profiler run --label baseline app.py
+```
+
+## Concurrency
+
+Thread and asynchronous task tracking are opt-in Python API modes:
+
+```python
+with sp.session(track_threads=True):
+    run_parallel_work()
+
+with sp.session(track_async=True):
+    asyncio.run(main())
+```
+
+`track_async=True` also tracks task suspension time, so a region held across
+an `await` can be separated into running and awaiting time.
+
+## Reducing trace volume
+
+Aggregation mode stores counts and timing totals without per-call events:
+
+```bash
+scope-profiler run --aggregation-mode app.py
+```
+
+For periodic workloads, pause profiling between phases or use
+`sample_every()`:
+
+```python
+import scope_profiler as sp
+from scope_profiler import ProfileManager
+
+with sp.session(file_path="profile.h5"):
+    with ProfileManager.sample_every(10) as profile_step:
+        for step in range(steps):
+            with profile_step(step):
+                simulation.step()
+```
+
+See {doc}`configuration` for line profiling, GPU timing, NVTX, MPI, LIKWID,
+memory profiling, and HDF5 tuning options.
+
+## Notebook workflows
+
+Load the IPython magics when profiling from a notebook:
+
+```python
+%load_ext scope_profiler.ipython_magics
+```
+
+Use `%%scope` for a measured cell, `%%scope_recursive` when nothing is
+instrumented, `%%scope_line` for line timings, and `%%scope_agg` for very hot
+regions. `%scope_compare`, `%scope_load`, and `%scope_export` support the
+follow-up analysis workflow. See {doc}`notebook_magics` for the complete
+reference.
