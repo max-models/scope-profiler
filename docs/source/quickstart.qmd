@@ -4,11 +4,48 @@
 > install is sufficient through the text summary; `pproc` adds the plotted
 > example in step 4.
 
-This page walks through the core workflow: **session**, **instrument**, and
-**inspect**. A session sets up profiling and finalizes it automatically, even
-when the profiled code raises an exception.
+This page walks through the lowest-touch workflow first: **mark regions**,
+**run**, and **inspect**. It then shows the equivalent Python lifecycle API.
 
-## 1. Start a session
+## 1. Run an instrumented script
+
+Add regions where the application has meaningful phases; no in-source session
+or setup call is required:
+
+```python
+import scope_profiler as sp
+
+def main():
+    with sp.region("iteration", tags=["solver"]):
+        evolve()
+
+main()
+```
+
+Run the script through the CLI:
+
+```bash
+scope-profiler run example.py -o profile.h5
+```
+
+The same script run with `python example.py` leaves the regions disabled and
+writes no profile. To trace functions that were not explicitly marked, opt in
+to recursive tracing:
+
+```bash
+scope-profiler run --recursive example.py
+```
+
+You can select tagged regions and filter recursive function names without
+editing the script again:
+
+```bash
+scope-profiler run --tag solver --include 'my_app.*' example.py
+```
+
+For a named application entrypoint, use `--entrypoint main`.
+
+## 2. Start a session
 
 Use `ProfileManager.session()` as the default entry point. Configuration
 arguments are passed directly to the session:
@@ -24,7 +61,19 @@ with ProfileManager.session():
 All regions created inside the session --- even in other modules --- share its
 configuration.
 
-## 2. Instrument your code
+For a callable entrypoint, `sp.run()` provides the same setup/finalize safety
+without a context-manager block:
+
+```python
+import scope_profiler as sp
+
+sp.run(run_application, output="profile.h5")
+```
+
+Use `sp.setup(auto_finalize=True)` when a long-running script needs one startup
+call and cannot wrap its whole application in a `with` block.
+
+## 3. Instrument your code
 
 ### Decorator
 
@@ -69,7 +118,7 @@ for step in range(num_steps):
 
 The two styles can be mixed freely.
 
-## 3. Finish the session
+## 4. Finish the session
 
 When the `with` block exits, the session writes all buffered data, merges
 per-rank HDF5 files, and prints a summary. Use `return_results=True` to keep
@@ -92,7 +141,7 @@ Output:
 The same table is available from `ProfilingResults.print_summary()` and from
 `scope-profiler inspect`; pass `verbose=False` to `finalize()` to suppress it.
 
-## 4. Inspect the data
+## 5. Inspect the data
 
 After finalization the timing data is saved to `profiling_data.h5` (default).
 Use the built-in CLI to generate a Gantt chart:

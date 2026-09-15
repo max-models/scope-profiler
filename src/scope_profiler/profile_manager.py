@@ -1,15 +1,21 @@
 """Managers for creating, configuring, and finalizing profiling regions."""
 
+import atexit
+import fnmatch
 import functools
+import inspect
 import os
 import runpy
 import site
+import subprocess
 import sys
 import sysconfig
 import threading
 import warnings
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import ContextDecorator, contextmanager
+from contextvars import ContextVar
+from enum import Enum, auto
 from time import perf_counter_ns
 from types import FrameType
 from typing import TYPE_CHECKING, ClassVar, NamedTuple
@@ -55,6 +61,7 @@ if TYPE_CHECKING:  # imported lazily in read_results() to keep imports cheap
 # Tag for the payload messages, on a communicator of our own (see finalize).
 _PAYLOAD_TAG = 0x5C09
 _WRITE_TOKEN_TAG = 0x5C0A
+_UNSET = object()
 
 
 class _WriteToken(NamedTuple):
@@ -94,6 +101,8 @@ class RankPayload(NamedTuple):
     sources: dict | None = None
 
     tags: dict | None = None
+
+    event_metadata: dict | None = None
 
     line_profile: list | None = None
 
@@ -142,7 +151,93 @@ class RankPayload(NamedTuple):
     """
 
 
-class _ProfilingSession:
+class _LifecycleState(Enum):
+    """Internal lifecycle state, independent of lazy config resolution."""
+
+    INACTIVE = auto()
+    ACTIVE = auto()
+    FINALIZED = auto()
+
+
+class ProfilingRun:
+    """Handle returned by :meth:`ProfileManager.setup`."""
+
+    def __init__(self, manager, config, output=None) -> None:
+        self._manager = manager
+        self._config = config
+        self._file_path = output or config.file_path
+        self.results = None
+
+    @property
+    def file_path(self):
+        """Configured output path for this run."""
+        return self._file_path
+
+    @property
+    def is_active(self) -> bool:
+        """Whether this run's manager currently records calls."""
+        return self._manager._config is self._config and self._manager.is_active()
+
+    def finalize(self, **kwargs):
+        """Finalize through the owning manager and retain the results."""
+        if self._manager._config is not self._config:
+            raise RuntimeError("this profiling run has been replaced")
+        kwargs.setdefault("return_results", True)
+        self.results = self._manager.finalize(**kwargs)
+        return self.results
+
+
+class RegionHandle:
+    """Persistent region definition that follows manager reconfiguration."""
+
+    def __init__(self, manager, name, functions=None, tags=None) -> None:
+        self._manager = manager
+        self.name = name
+        self._functions = None if functions is None else tuple(functions)
+        self._tags = None if tags is None else tuple(tags)
+        self._stack = ContextVar(f"scope_profiler_region_{id(self)}", default=())
+
+    def __enter__(self):
+        region = self._manager.region(
+            self.name,
+            functions=self._functions,
+            tags=self._tags,
+        )
+        entered = region.__enter__()
+        self._stack.set((*self._stack.get(), region))
+        return entered
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        stack = self._stack.get()
+        region = stack[-1]
+        self._stack.set(stack[:-1])
+        return region.__exit__(exc_type, exc_value, traceback)
+
+
+class RegionFactory:
+    """Callable region definition for repeated scopes with metadata."""
+
+    def __init__(self, manager, name, tags=None):
+        self._manager = manager
+        self.name = name
+        self._tags = tags
+
+    def __call__(self, **metadata):
+        @contextmanager
+        def scope():
+            with (
+                self._manager.metadata(**metadata),
+                self._manager.region(
+                    self.name,
+                    tags=self._tags,
+                ),
+            ):
+                yield
+
+        return scope()
+
+
+class _ProfilingSession(ContextDecorator):
     """Context manager backing :meth:`ProfileManager.session`."""
 
     ROOT_REGION_NAME = "scope_profiler.session"
@@ -164,6 +259,17 @@ class _ProfilingSession:
         self._native_traces = native_traces
         self.results = None
         self._root_region = None
+
+    def _recreate_cm(self):
+        """Give every decorated invocation its own session state."""
+        return type(self)(
+            self._manager,
+            self._setup_kwargs,
+            self._verbose,
+            self._verbose_line_profiler,
+            self._return_results,
+            self._native_traces,
+        )
 
     def __enter__(self):
         self._manager.setup(**self._setup_kwargs)
@@ -279,6 +385,7 @@ class ProfileManager:
                     thread_ids=thread_ids,
                     task_ids=task_ids,
                     await_times=await_times,
+                    event_metadata=(payload.event_metadata or {}).get(name),
                     source_file=source_file,
                     source_lineno=source_lineno,
                     source_text=source_text,
@@ -328,6 +435,7 @@ class ProfileManager:
             )
 
     _regions: ClassVar[dict] = {}
+    _region_tag_filter: frozenset[str] | None = None
     # Next call id to hand out, so ids stay unique across the repeated
     # finalize() calls of one run. Reset by setup(), which starts a new run.
     _next_call_id = 0
@@ -338,9 +446,17 @@ class ProfileManager:
     # child process of a rank that happens to import the library, including
     # the one LIKWID's counter read-back forks. See get_config().
     _config: ProfilingConfig | None = None
+    _configured = False
+    _lifecycle_state = _LifecycleState.INACTIVE
+    _auto_finalize_callback = None
+    _last_results = None
+    _requested_output = None
+    _metadata_context = ContextVar("scope_profiler_metadata", default=None)
+    _metadata_scopes: ClassVar[list] = []
     _mpi_profile_context = None
     _region_cls = DisabledProfileRegion
     _decorators: ClassVar[dict[str, list]] = {}  # name -> [(func, _bound), ...]
+    _region_definitions: ClassVar[dict[str, tuple]] = {}
     _decorated_codes: ClassVar[set] = set()
     _recursive_state = threading.local()
     _user_code_cache: ClassVar[dict[object, bool]] = {}
@@ -453,7 +569,12 @@ class ProfileManager:
             # Keep the overwhelmingly common untagged lookup on the original
             # hot path: tags are metadata, not per-event work.
             normalized_tags = () if tags is None else tuple(tags)
-            region = cls._region_cls(
+            region_cls = cls._region_cls
+            if cls._region_tag_filter is not None and not set(
+                normalized_tags
+            ).intersection(cls._region_tag_filter):
+                region_cls = DisabledProfileRegion
+            region = region_cls(
                 region_name,
                 config=cls.get_config(),
                 tags=normalized_tags or (),
@@ -494,9 +615,21 @@ class ProfileManager:
                 "_regions": {},
                 "_next_call_id": 0,
                 "_config": None,
+                "_region_tag_filter": None,
+                "_configured": False,
+                "_lifecycle_state": _LifecycleState.INACTIVE,
+                "_auto_finalize_callback": None,
+                "_last_results": None,
+                "_requested_output": None,
+                "_metadata_context": ContextVar(
+                    f"scope_profiler_metadata_{id(object())}",
+                    default=None,
+                ),
+                "_metadata_scopes": [],
                 "_mpi_profile_context": None,
                 "_region_cls": DisabledProfileRegion,
                 "_decorators": {},
+                "_region_definitions": {},
                 "_decorated_codes": set(),
                 "_recursive_state": threading.local(),
                 "__module__": cls.__module__,
@@ -574,6 +707,9 @@ class ProfileManager:
         prev_profiler,
         only_user_code: bool = False,
         active_calls: dict | None = None,
+        include_patterns=(),
+        exclude_patterns=(),
+        entrypoint: str | None = None,
     ):
         active_calls = {} if active_calls is None else active_calls
 
@@ -588,12 +724,28 @@ class ProfileManager:
                 elif only_user_code and not cls._is_user_code(frame.f_code):
                     pass
                 else:
-                    region = cls.profile_region(cls._frame_region_name(frame))
-                    if isinstance(region, LineProfilerRegion):
-                        region.enter_timing_only()
-                    else:
-                        region.__enter__()
-                    active_calls[frame] = region
+                    frame_name = cls._frame_region_name(frame)
+                    included = not include_patterns or any(
+                        fnmatch.fnmatch(frame_name, pattern)
+                        for pattern in include_patterns
+                    )
+                    excluded = any(
+                        fnmatch.fnmatch(frame_name, pattern)
+                        for pattern in exclude_patterns
+                    )
+                    if included and not excluded:
+                        region = cls.profile_region(
+                            (
+                                entrypoint
+                                if entrypoint and frame.f_code.co_name == entrypoint
+                                else frame_name
+                            ),
+                        )
+                        if isinstance(region, LineProfilerRegion):
+                            region.enter_timing_only()
+                        else:
+                            region.__enter__()
+                        active_calls[frame] = region
             elif event == "return":
                 region = active_calls.pop(frame, None)
                 if region is not None:
@@ -665,6 +817,8 @@ class ProfileManager:
         cls,
         region_name: str | None = None,
         recursive: bool | None = None,
+        metadata=None,
+        record_outcome: bool = False,
     ) -> Callable:
         """
         Decorator factory for profiling a function.
@@ -678,6 +832,12 @@ class ProfileManager:
             If True, also profiles Python function calls made by the decorated
             function (excluding scope-profiler internals). If None, falls back
             to ``ProfileManager.setup(recursive_profile=...)``.
+        metadata : callable or dict, optional
+            Metadata to attach to each call. A callable receives the decorated
+            function's ``(*args, **kwargs)`` and must return a mapping.
+        record_outcome : bool, optional
+            Add ``status`` and, for failures, ``exception`` metadata to each
+            decorated call (default: False).
 
         Returns
         -------
@@ -701,6 +861,35 @@ class ProfileManager:
             _bound = [None, None]  # [region, wrapped_func]
             recursive_override = recursive
 
+            def invoke(*args, **kwargs):
+                if metadata is None:
+                    values = {}
+                else:
+                    values = (
+                        metadata(*args, **kwargs) if callable(metadata) else metadata
+                    )
+                if not record_outcome:
+                    return (
+                        _bound[1](*args, **kwargs)
+                        if not values
+                        else _invoke_with_metadata(values, args, kwargs)
+                    )
+                with cls.metadata(**values) as event_metadata:
+                    try:
+                        result = _bound[1](*args, **kwargs)
+                    except BaseException as error:
+                        event_metadata.update(
+                            status="error",
+                            exception=type(error).__name__,
+                        )
+                        raise
+                    event_metadata["status"] = "ok"
+                    return result
+
+            def _invoke_with_metadata(values, args, kwargs):
+                with cls.metadata(**values):
+                    return _bound[1](*args, **kwargs)
+
             cls._bind_decorated_region(name, func, _bound)
             cls._decorated_codes.add(func.__code__)
 
@@ -714,14 +903,14 @@ class ProfileManager:
                     recursive_enabled = recursive_override
 
                 if not recursive_enabled:
-                    return _bound[1](*args, **kwargs)
+                    return invoke(*args, **kwargs)
 
                 state = cls._recursive_state
                 depth = getattr(state, "depth", 0)
                 state.depth = depth + 1
                 if depth > 0:
                     try:
-                        return _bound[1](*args, **kwargs)
+                        return invoke(*args, **kwargs)
                     finally:
                         state.depth -= 1
 
@@ -732,7 +921,7 @@ class ProfileManager:
                 )
                 sys.setprofile(tracer)
                 try:
-                    return _bound[1](*args, **kwargs)
+                    return invoke(*args, **kwargs)
                 finally:
                     sys.setprofile(prev_profiler)
                     state.depth -= 1
@@ -748,12 +937,145 @@ class ProfileManager:
         return decorator
 
     @classmethod
+    def run(cls, func, *args, output=None, **kwargs):
+        """Run a callable inside a managed profiling session."""
+        session_options = dict(kwargs)
+        if output is not None:
+            session_options["output"] = output
+        session_options.setdefault("verbose", False)
+        session_options.setdefault("return_results", True)
+        with cls.session(**session_options) as run:
+            value = func(*args)
+        cls._last_results = run.results
+        return value
+
+    @classmethod
+    def profile_script(cls, script_path, *, script_args=None, output=None, **kwargs):
+        """Profile a script from Python using the CLI runner semantics."""
+        setup_kwargs = dict(kwargs)
+        if output is not None:
+            setup_kwargs["output"] = output
+        cls.setup(**setup_kwargs)
+        try:
+            cls.run_script(
+                script_path,
+                script_args=script_args,
+                recursive=cls.get_config().recursive_profile,
+                only_user_code=True,
+            )
+        finally:
+            results = cls.finalize(verbose=False, return_results=True)
+        return results
+
+    @classmethod
+    def profile_command(
+        cls,
+        command,
+        *,
+        output=None,
+        recursive=False,
+        all=False,
+        mpi_calls=False,
+    ):
+        """Run a command under ``scope-profiler run`` and return its result."""
+        command = [os.fspath(value) for value in command]
+        if command and (
+            command[0] == sys.executable
+            or os.path.basename(command[0]) in {"python", "python3"}
+        ):
+            command = command[1:]
+        if not command:
+            raise ValueError("profile_command() requires a Python script path")
+        output_path = os.fspath(output) if output is not None else "profiling_data.h5"
+        options = []
+        if recursive or all:
+            options.append("--recursive")
+        if all:
+            options.append("--all")
+        if mpi_calls:
+            options.append("--mpi-calls")
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "scope_profiler",
+                "run",
+                "-q",
+                "-o",
+                output_path,
+                *options,
+                *command,
+            ],
+            check=False,
+        )
+        completed.profile_results = None
+        if completed.returncode == 0:
+            from scope_profiler.profile_io import FORMAT_HTML, load, profile_format
+
+            if (
+                os.path.exists(output_path)
+                and profile_format(output_path) != FORMAT_HTML
+            ):
+                completed.profile_results = load(output_path)
+        return completed
+
+    @classmethod
+    def instrument(cls, module, *, include=("*",), exclude=(), prefix=None):
+        """Decorate matching module-level functions without editing source."""
+        changed = {}
+        module_name = getattr(module, "__name__", "module")
+        for name, function in list(vars(module).items()):
+            if not inspect.isfunction(function):
+                continue
+            if not any(fnmatch.fnmatch(name, pattern) for pattern in include):
+                continue
+            if any(fnmatch.fnmatch(name, pattern) for pattern in exclude):
+                continue
+            region_name = f"{prefix}.{name}" if prefix else f"{module_name}.{name}"
+            wrapped = cls.profile(region_name)(function)
+            setattr(module, name, wrapped)
+            changed[name] = wrapped
+        return changed
+
+    @classmethod
+    def region_factory(cls, region_name, *, tags=None) -> RegionFactory:
+        """Create reusable regions whose calls may carry dynamic metadata."""
+        cls.define_region(region_name, tags=tags)
+        return RegionFactory(cls, region_name, tags=tags)
+
+    @classmethod
+    def setup_from_env(cls, **overrides):
+        """Configure profiling from ``SCOPE_PROFILER_*`` environment variables."""
+
+        def env_bool(name):
+            value = os.environ.get(name)
+            return (
+                None if value is None else value.lower() in {"1", "true", "yes", "on"}
+            )
+
+        config_path = os.environ.get("SCOPE_PROFILER_CONFIG")
+        output = os.environ.get("SCOPE_PROFILER_OUTPUT")
+        if output is not None:
+            overrides.setdefault("output", output)
+        recursive = env_bool("SCOPE_PROFILER_RECURSIVE")
+        auto_finalize = env_bool("SCOPE_PROFILER_AUTO_FINALIZE")
+        if recursive is not None:
+            overrides.setdefault("recursive_profile", recursive)
+        if auto_finalize is not None:
+            overrides.setdefault("auto_finalize", auto_finalize)
+        return cls.setup(config_path=config_path, **overrides)
+
+    @classmethod
     def run_script(
         cls,
         script_path: str,
         script_args: list | None = None,
         region_name: str | None = None,
         only_user_code: bool = True,
+        recursive: bool = True,
+        include_patterns=(),
+        exclude_patterns=(),
+        entrypoint: str | None = None,
     ) -> None:
         """
         Run a script under recursive profiling, similar to ``python -m cProfile``.
@@ -779,6 +1101,14 @@ class ProfileManager:
             installed-package frames, tracing only the script's own code.
             This keeps overhead low and the output focused. Set to False to
             trace everything, including third-party and stdlib calls.
+            recursive : bool, optional
+            Trace Python function calls and add a region around the script
+            (default: True). When False, run only explicitly instrumented
+            ``profile`` decorators and ``region`` blocks.
+        include_patterns, exclude_patterns : iterable of str, optional
+            Glob filters for recursively traced function names.
+        entrypoint : str, optional
+            Function name to use as the root region when recursively tracing.
         """
         script_path = os.path.abspath(script_path)
         region_name = region_name or os.path.basename(script_path)
@@ -787,6 +1117,10 @@ class ProfileManager:
         script_dir = os.path.dirname(script_path)
         if script_dir not in sys.path:
             sys.path.insert(0, script_dir)
+
+        if not recursive:
+            runpy.run_path(script_path, run_name="__main__")
+            return
 
         region = cls.profile_region(region_name)
         prev_profiler = sys.getprofile()
@@ -797,6 +1131,9 @@ class ProfileManager:
             prev_profiler=prev_profiler,
             only_user_code=only_user_code,
             active_calls=active_calls,
+            include_patterns=include_patterns,
+            exclude_patterns=exclude_patterns,
+            entrypoint=entrypoint,
         )
         line_states = {}
 
@@ -1005,6 +1342,30 @@ class ProfileManager:
             for name in names
             if name in cls._regions
         }
+
+    @classmethod
+    def _snapshot_event_metadata(cls, snapshot) -> dict[str, list[dict]]:
+        """Attach completed metadata scopes to calls wholly inside them."""
+        if not cls._metadata_scopes:
+            return {}
+        scopes = sorted(
+            cls._metadata_scopes, key=lambda item: item[1] - item[0], reverse=True
+        )
+        result = {}
+        for name, arrays in snapshot.items():
+            starts, ends = arrays[:2]
+            rows = []
+            any_metadata = False
+            for start, end in zip(starts, ends):
+                values = {}
+                for scope_start, scope_end, metadata in scopes:
+                    if int(start) >= scope_start and int(end) <= scope_end:
+                        values.update(metadata)
+                rows.append(values)
+                any_metadata |= bool(values)
+            if any_metadata:
+                result[name] = rows
+        return result
 
     @classmethod
     def _merge_native_snapshot(cls, snapshot: dict, traces, config) -> dict:
@@ -1459,20 +1820,15 @@ class ProfileManager:
             nothing, so the script above needs no rank guard. See
             :attr:`~scope_profiler.results.ProfilingResults.is_root`.
         """
-        # A lazily resolved default config is not a profiling run. In
-        # particular, decorators call get_config() while they are declared,
-        # so the presence of a config alone cannot be used to decide whether
-        # finalize() should create an output file. setup()/session() replace
-        # the disabled region strategy through set_config().
-        never_activated = cls._region_cls is DisabledProfileRegion and (
-            cls._config is None or not cls._config.deactivate_profiling
-        )
-        if never_activated:
+        # Decorators resolve a default config while they are declared, so
+        # config presence is not evidence that setup() started a run.
+        if not cls._configured:
             if return_results:
                 from scope_profiler.results import ProfilingResults
 
                 file_path = cls._config.file_path if cls._config is not None else ""
-                return ProfilingResults({}, file_path=file_path)
+                cls._last_results = ProfilingResults({}, file_path=file_path)
+                return cls._last_results
             return None
 
         config = cls.get_config()
@@ -1489,10 +1845,13 @@ class ProfileManager:
         config.stop_memory_profiling()
 
         if config.deactivate_profiling:
+            cls._lifecycle_state = _LifecycleState.FINALIZED
+            cls._cancel_auto_finalize()
             if return_results:
                 from scope_profiler.results import ProfilingResults
 
-                return ProfilingResults({}, file_path=config.file_path)
+                cls._last_results = ProfilingResults({}, file_path=config.file_path)
+                return cls._last_results
             return None
 
         rank = config._rank
@@ -1526,6 +1885,11 @@ class ProfileManager:
         source_names = snapshot if not config.aggregation_mode else aggregate_stats
         sources = cls._snapshot_sources(source_names) if need_payload else {}
         tags = cls._snapshot_tags(source_names) if need_payload else {}
+        event_metadata = (
+            cls._snapshot_event_metadata(snapshot)
+            if need_payload and not config.aggregation_mode
+            else {}
+        )
         line_profile = cls._snapshot_line_profile() if need_payload else None
         tracker = config.tracker
         lanes = (
@@ -1541,6 +1905,7 @@ class ProfileManager:
         if write_file:
             for region in cls.get_all_regions().values():
                 region.mark_written()
+            cls._metadata_scopes = []
 
         # 2. Close the LIKWID markers and pick up this rank's counters, which
         # travel with the timings. Closing here also means the marker file
@@ -1585,6 +1950,7 @@ class ProfileManager:
             perf_events=perf_events,
             sources=sources,
             tags=tags,
+            event_metadata=event_metadata,
             line_profile=line_profile,
             exclusive_totals=exclusive_totals,
             aggregate_stats=aggregate_stats,
@@ -1609,13 +1975,35 @@ class ProfileManager:
             else:
                 results = cls._collect_payloads(payload, write_file, need_results)
 
+        rendered_results = None
+        requested_output = cls._requested_output
+        if (
+            write_file
+            and rank == 0
+            and requested_output is not None
+            and requested_output != config.file_path
+        ):
+            from pathlib import Path
+
+            from scope_profiler.profile_io import read_profile, write_profile
+
+            rendered_results = results or read_profile(config.file_path)
+            rendered_results._file_path = Path(requested_output)
+            write_profile(rendered_results, requested_output)
+            os.remove(config.file_path)
+            if results is not None:
+                results = rendered_results
+
         # 6. Summarize. With a file, it is read back so that the table has one
         # implementation; without one, the same table comes from the results.
         # Non-root ranks hold an empty result set, for which this does nothing.
         if verbose and rank == 0 and write_file:
-            from scope_profiler.h5reader import read_h5
+            if rendered_results is not None:
+                rendered_results.print_summary()
+            else:
+                from scope_profiler.h5reader import read_h5
 
-            read_h5(config.file_path).print_summary()
+                read_h5(config.file_path).print_summary()
         elif verbose and not write_file:
             rank_label = "rank" if size == 1 else "ranks"
             results.print_summary(
@@ -1633,7 +2021,12 @@ class ProfileManager:
                 if isinstance(region, LineProfilerRegion):
                     region.print_stats()
 
+        # finalize() is intentionally still a checkpoint: existing callers
+        # may record more events and finalize again without another setup().
+        cls._lifecycle_state = _LifecycleState.FINALIZED
+        cls._cancel_auto_finalize()
         if return_results:
+            cls._last_results = results
             return results
         return None
 
@@ -1757,9 +2150,9 @@ class ProfileManager:
             :meth:`finalize`, and only on rank 0 - guard the call with
             ``if ProfileManager.get_config()._rank == 0`` under MPI.
         """
-        from scope_profiler.h5reader import read_h5
+        from scope_profiler.profile_io import read_profile
 
-        return read_h5(cls.get_config().file_path)
+        return read_profile(cls._requested_output or cls.get_config().file_path)
 
     @classmethod
     def get_region(cls, region_name) -> BaseProfileRegion:
@@ -1789,6 +2182,97 @@ class ProfileManager:
         return cls._regions
 
     @classmethod
+    def define_region(cls, region_name, functions=None, tags=None) -> RegionHandle:
+        """Define a reusable region handle that survives later setup calls."""
+        definition = (
+            None if functions is None else tuple(functions),
+            None if tags is None else tuple(tags),
+        )
+        previous = cls._region_definitions.get(region_name)
+        if previous is not None and previous != definition:
+            raise ValueError(f"region {region_name!r} was already defined differently")
+        cls._region_definitions[region_name] = definition
+        cls.region(region_name, functions=functions, tags=tags)
+        return RegionHandle(cls, region_name, functions=functions, tags=tags)
+
+    @classmethod
+    @contextmanager
+    def metadata(cls, **values):
+        """Attach key/value metadata to calls completed inside this scope."""
+        if cls.is_active() and cls._config is not None and cls._config.aggregation_mode:
+            raise RuntimeError(
+                "scoped metadata requires per-call data and cannot be used in "
+                "aggregation mode",
+            )
+        current = cls._metadata_context.get() or {}
+        merged = {**current, **values}
+        token = cls._metadata_context.set(merged)
+        start = perf_counter_ns()
+        try:
+            yield merged
+        finally:
+            end = perf_counter_ns()
+            cls._metadata_context.reset(token)
+            if cls.is_active() and cls._config is not None:
+                cls._metadata_scopes.append((start, end, merged))
+
+    @classmethod
+    def registered_regions(cls) -> tuple[str, ...]:
+        """Names of all instrumentation points known to this manager."""
+        return tuple(cls._regions)
+
+    @classmethod
+    def recorded_regions(cls) -> tuple[str, ...]:
+        """Names of regions that have recorded at least one call."""
+        return tuple(
+            name for name, region in cls._regions.items() if region.num_calls > 0
+        )
+
+    @classmethod
+    def is_configured(cls) -> bool:
+        """Whether explicit setup has configured this manager."""
+        return cls._configured
+
+    @classmethod
+    def is_active(cls) -> bool:
+        """Whether instrumentation currently records calls."""
+        return (
+            cls._configured
+            and cls._config is not None
+            and not cls._config.deactivate_profiling
+            and cls._lifecycle_state
+            in {_LifecycleState.ACTIVE, _LifecycleState.FINALIZED}
+        )
+
+    @classmethod
+    def last_results(cls):
+        """Most recent in-memory results requested from this manager, if any."""
+        return cls._last_results
+
+    @classmethod
+    def _cancel_auto_finalize(cls) -> None:
+        """Remove this manager's pending process-exit finalizer, if any."""
+        callback = cls._auto_finalize_callback
+        cls._auto_finalize_callback = None
+        if callback is not None:
+            atexit.unregister(callback)
+
+    @classmethod
+    def _register_auto_finalize(cls) -> None:
+        """Arrange one guarded finalization at normal interpreter exit."""
+        cls._cancel_auto_finalize()
+
+        def finalize_at_exit():
+            # Clear first so finalize() knows it is running from the hook and
+            # cannot unregister or repeat itself.
+            cls._auto_finalize_callback = None
+            if cls._configured:
+                cls.finalize()
+
+        cls._auto_finalize_callback = finalize_at_exit
+        atexit.register(finalize_at_exit)
+
+    @classmethod
     def _stop_mpi_call_profiling(cls) -> None:
         """Restore mpi4py globals if this manager installed their proxies."""
         context = cls._mpi_profile_context
@@ -1801,6 +2285,10 @@ class ProfileManager:
         cls,
         options: ProfilingOptions | None = None,
         *,
+        auto_finalize: bool = False,
+        output=_UNSET,
+        replace: bool = False,
+        region_tags=None,
         config_path: str | os.PathLike[str] | None = None,
         **overrides: "Unpack[SetupOptions]",
     ):
@@ -1824,6 +2312,18 @@ class ProfileManager:
             TOML file containing a ``[profiling]`` table with these settings.
             Values passed directly to ``setup()`` take precedence. See
             :func:`~scope_profiler.profile_config.load_profiling_config`.
+        auto_finalize : bool, optional
+            Finalize once at normal interpreter exit, unless ``finalize()``
+            is called explicitly first (default: False). This is convenient
+            for scripts that want setup without a surrounding session. Avoid
+            it when MPI ranks may not exit together.
+        output : str, os.PathLike or None, optional
+            Direct spelling of the output destination. ``None`` keeps results
+            in memory and writes no file. This is an alias for ``file_path``
+            and ``deactivate_file_output``; do not combine those spellings.
+        replace : bool, optional
+            Replace an active configuration (default: False). Without this,
+            accidental setup of an already active manager raises.
         **overrides
             Any of the settings below, passed as keyword arguments::
 
@@ -1968,9 +2468,34 @@ class ProfileManager:
         :mod:`scope_profiler.mpi_launch` for detection and its
         ``SCOPE_PROFILER_MPI`` override.
         """
+        if (
+            cls._configured
+            and cls._lifecycle_state is _LifecycleState.ACTIVE
+            and not replace
+        ):
+            raise RuntimeError(
+                "profiling is already configured; finalize it first or "
+                "pass replace=True",
+            )
+
         unknown = set(overrides) - _CONFIG_FIELDS
         if unknown:
             raise TypeError(_unknown_setting_error(unknown))
+
+        if output is not _UNSET:
+            conflicts = {
+                name
+                for name in ("file_path", "deactivate_file_output")
+                if overrides.get(name) is not None
+            }
+            if conflicts:
+                names = ", ".join(sorted(conflicts))
+                raise TypeError(f"output cannot be combined with {names}")
+            if output is None:
+                overrides["deactivate_file_output"] = True
+            else:
+                overrides["file_path"] = os.fspath(output)
+                overrides["deactivate_file_output"] = False
 
         # Defaults live in ProfilingConfig.__init__ alone; only settings that
         # were actually asked for are passed on, so precedence is simply the
@@ -1983,6 +2508,13 @@ class ProfileManager:
         settings.update(
             {key: value for key, value in overrides.items() if value is not None},
         )
+        requested_output = None
+        if output is not _UNSET and output is not None:
+            from scope_profiler.profile_io import FORMAT_HDF5, profile_format
+
+            requested_output = os.fspath(output)
+            if profile_format(requested_output) != FORMAT_HDF5:
+                settings["file_path"] = requested_output + ".scope-profiler.h5"
 
         # Restore MPI globals before resolving the next run's native
         # communicator; otherwise get_comm() could retain the previous proxy.
@@ -1996,7 +2528,12 @@ class ProfileManager:
         config = ProfilingConfig(
             **settings,
         )
+        cls._region_tag_filter = None if region_tags is None else frozenset(region_tags)
         cls.set_config(config=config)
+        cls._requested_output = requested_output
+        if auto_finalize:
+            cls._register_auto_finalize()
+        return ProfilingRun(cls, config, requested_output)
 
     @classmethod
     def session(
@@ -2007,6 +2544,8 @@ class ProfileManager:
         verbose_line_profiler: bool = False,
         return_results: bool = False,
         native_traces=None,
+        output=_UNSET,
+        replace: bool = False,
         config_path: str | os.PathLike[str] | None = None,
         **overrides: "Unpack[SetupOptions]",
     ):
@@ -2041,6 +2580,10 @@ class ProfileManager:
             results = run.results
         """
         setup_kwargs: dict = dict(overrides)
+        if output is not _UNSET:
+            setup_kwargs["output"] = output
+        if replace:
+            setup_kwargs["replace"] = True
         if options is not None:
             setup_kwargs["options"] = options
         if config_path is not None:
@@ -2064,6 +2607,7 @@ class ProfileManager:
         config : ProfilingConfig
             The new profiling configuration to apply.
         """
+        cls._cancel_auto_finalize()
         cls._stop_mpi_call_profiling()
         cls._regions.clear()  # Clear old regions
         # A new run gets a fresh id space; ids stay unique only within one.
@@ -2077,6 +2621,15 @@ class ProfileManager:
         if previous is not None:
             previous.stop_memory_profiling()
         cls._config = config  # Update the config
+        cls._last_results = None
+        cls._requested_output = None
+        cls._metadata_scopes = []
+        cls._configured = True
+        cls._lifecycle_state = (
+            _LifecycleState.INACTIVE
+            if config.deactivate_profiling
+            else _LifecycleState.ACTIVE
+        )
         if config.profile_mpi_calls and not config.deactivate_profiling:
             from scope_profiler.mpi_wrappers import profile_mpi4py
 
@@ -2090,6 +2643,8 @@ class ProfileManager:
         for name, entries in cls._decorators.items():
             for func, _bound in entries:
                 cls._bind_decorated_region(name, func, _bound)
+        for name, (functions, tags) in cls._region_definitions.items():
+            cls.region(name, functions=functions, tags=tags)
 
     @classmethod
     def get_config(cls) -> ProfilingConfig:
@@ -2134,6 +2689,7 @@ class ProfileManager:
         The next ``get_config()`` builds a fresh default one; nothing is
         constructed here, so a reset cannot pull MPI in either.
         """
+        cls._cancel_auto_finalize()
         cls._stop_mpi_call_profiling()
         ProfilingConfig.reset()
         if cls._config is not None and cls._config.tracker is not None:
@@ -2141,6 +2697,12 @@ class ProfileManager:
         if cls._config is not None:
             cls._config.stop_memory_profiling()
         cls._config = None
+        cls._last_results = None
+        cls._requested_output = None
+        cls._metadata_scopes = []
+        cls._region_tag_filter = None
+        cls._configured = False
+        cls._lifecycle_state = _LifecycleState.INACTIVE
 
     @classmethod
     def _reset(cls) -> None:
@@ -2150,3 +2712,4 @@ class ProfileManager:
         # and regions disabled until setup() or get_config() says otherwise.
         cls._region_cls = DisabledProfileRegion
         cls._decorators.clear()
+        cls._region_definitions.clear()

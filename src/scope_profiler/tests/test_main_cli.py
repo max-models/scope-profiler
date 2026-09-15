@@ -2,7 +2,7 @@
 
 import pytest
 
-from scope_profiler import __version__
+from scope_profiler import ProfileManager, __version__, read_h5
 from scope_profiler.__main__ import _COMMANDS
 from scope_profiler.__main__ import main as cli_main
 from scope_profiler.post_processing import _DEFAULT_PLOTS, _PLOT_CATALOG
@@ -53,6 +53,21 @@ def test_run_help_lists_memory_profile_flag(capsys):
     assert "--memory-profile" in capsys.readouterr().out
 
 
+def test_run_help_lists_low_touch_options(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main(["run", "--help"])
+
+    assert exc_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "--no-recursive" in output
+    assert "--no-output" in output
+    assert "--label" in output
+    assert "--entrypoint" in output
+    assert "--include" in output
+    assert "--exclude" in output
+    assert "--tag" in output
+
+
 def test_run_help_lists_mpi_call_flags(capsys):
     with pytest.raises(SystemExit) as exc_info:
         cli_main(["run", "--help"])
@@ -71,11 +86,23 @@ def test_run_line_profile_flag_is_passed_to_setup(tmp_path, monkeypatch):
     def fake_setup(**kwargs):
         calls["setup"] = kwargs
 
-    def fake_run_script(path, script_args=None, only_user_code=True):
+    def fake_run_script(
+        path,
+        script_args=None,
+        only_user_code=True,
+        recursive=True,
+        include_patterns=(),
+        exclude_patterns=(),
+        entrypoint=None,
+    ):
         calls["run_script"] = {
             "path": path,
             "script_args": script_args,
             "only_user_code": only_user_code,
+            "recursive": recursive,
+            "include_patterns": include_patterns,
+            "exclude_patterns": exclude_patterns,
+            "entrypoint": entrypoint,
         }
 
     def fake_finalize(verbose=True):
@@ -112,6 +139,10 @@ def test_run_line_profile_flag_is_passed_to_setup(tmp_path, monkeypatch):
         "path": str(script),
         "script_args": ["arg"],
         "only_user_code": False,
+        "recursive": True,
+        "include_patterns": [],
+        "exclude_patterns": [],
+        "entrypoint": None,
     }
     assert calls["finalize"] == {"verbose": False}
 
@@ -138,6 +169,33 @@ def test_run_does_not_enable_mpi_calls_by_default(tmp_path, monkeypatch):
 
     # None lets setup() use its False default, or a config file opt in.
     assert calls["setup"]["profile_mpi_calls"] is None
+
+
+def test_run_can_disable_recursive_tracing_and_file_output(tmp_path, monkeypatch):
+    script = tmp_path / "script.py"
+    script.write_text("pass\n", encoding="utf-8")
+    calls = {}
+
+    monkeypatch.setattr(
+        "scope_profiler.__main__.ProfileManager.setup",
+        lambda **kwargs: calls.update(setup=kwargs),
+    )
+    monkeypatch.setattr(
+        "scope_profiler.__main__.ProfileManager.run_script",
+        lambda *args, **kwargs: calls.update(run_script=kwargs),
+    )
+    monkeypatch.setattr(
+        "scope_profiler.__main__.ProfileManager.finalize",
+        lambda **kwargs: calls.update(finalize=kwargs),
+    )
+
+    cli_main(["run", "--no-recursive", "--no-output", "--label", "trial", str(script)])
+
+    assert calls["setup"]["recursive_profile"] is False
+    assert calls["setup"]["deactivate_file_output"] is True
+    assert calls["setup"]["label"] == "trial"
+    assert calls["run_script"]["recursive"] is False
+    assert calls["finalize"] == {"verbose": True, "return_results": True}
 
 
 def test_run_can_enable_automatic_mpi_call_profiling(tmp_path, monkeypatch):
@@ -185,6 +243,60 @@ def test_run_can_disable_automatic_mpi_call_profiling(tmp_path, monkeypatch):
 
     assert events == ["run", "finalize"]
     assert calls["setup"]["profile_mpi_calls"] is False
+
+
+def test_run_activates_regions_without_an_in_source_session(tmp_path):
+    script = tmp_path / "instrumented.py"
+    output = tmp_path / "profile.h5"
+    script.write_text(
+        """\
+import scope_profiler as sp
+
+@sp.profile("main")
+def main():
+    for _ in range(3):
+        with sp.region("iteration"):
+            pass
+
+main()
+""",
+        encoding="utf-8",
+    )
+
+    ProfileManager._reset()
+    try:
+        cli_main(["run", "-q", "-o", str(output), str(script)])
+        results = read_h5(output)
+
+        assert set(results.region_names) == {"main", "iteration"}
+        assert results["main"].num_calls == 1
+        assert results["iteration"].num_calls == 3
+    finally:
+        ProfileManager._reset()
+
+
+def test_run_selects_explicit_regions_by_tag(tmp_path):
+    script = tmp_path / "tagged.py"
+    output = tmp_path / "tagged.h5"
+    script.write_text(
+        """\
+import scope_profiler as sp
+
+with sp.region("fast", tags=["hot"]):
+    pass
+with sp.region("slow", tags=["cold"]):
+    pass
+""",
+        encoding="utf-8",
+    )
+
+    ProfileManager._reset()
+    try:
+        cli_main(["run", "-q", "--tag", "hot", "-o", str(output), str(script)])
+        results = read_h5(output)
+        assert set(results.region_names) == {"fast"}
+    finally:
+        ProfileManager._reset()
 
 
 def test_run_toml_config_is_passed_to_setup(tmp_path, monkeypatch):

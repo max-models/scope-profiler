@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.7.0 - 2026-09-15
+
 ### Fixed
 
 - `--metrics` with more than one statistic kept only the last one. Every
@@ -36,6 +38,9 @@
 
 ### Changed
 
+- `scope-profiler run` now activates explicit regions by default. Recursive
+  Python-call tracing is opt-in with `--recursive`; `--all` implies recursive
+  tracing and additionally includes dependencies and the standard library.
 - **HDF5 schema 3.** A region's calls are stored as the gap since its previous
   call and the duration of each call, rather than two absolute nanosecond
   timestamps: `events/start_deltas` and `events/durations` replace
@@ -56,6 +61,20 @@
 
 ### Added
 
+- `define_region()` creates reusable handles that follow configuration changes;
+  `setup()` now returns a run handle, `last_results()` exposes the most recent
+  requested in-memory result, and `output=` provides direct HDF5/JSON/HTML or
+  in-memory output selection. Active setup replacement now requires
+  `replace=True`.
+- `metadata(**values)` attaches nested, scoped dictionaries to individual
+  recorded calls and preserves them through HDF5 and JSON round trips.
+- `setup(auto_finalize=True)` can finalize a script at normal interpreter
+  exit, and `session()` can now decorate an application entry point as well as
+  serving as a context manager. Explicit finalization cancels the exit hook.
+- `is_configured()` and `is_active()` expose profiler lifecycle state, while
+  `registered_regions()` and `recorded_regions()` distinguish known
+  instrumentation points from regions that have collected calls. All four are
+  also available from the package root.
 - **A drag-and-drop "try it" page.** The `docs/source/guide/try_it.qmd` guide
   page renders any `scope-profiler export plot-data --format json` file in the
   browser, with no build step and nothing uploaded anywhere: drop the files

@@ -456,7 +456,7 @@ def initialize_columnar_layout(
         dtype=_SUMMARY_DTYPE,
         chunks=index_chunk,
     )
-    for name in ("source_files", "source_texts", "tags"):
+    for name in ("source_files", "source_texts", "tags", "event_metadata"):
         index.create_dataset(
             name,
             shape=(0,),
@@ -766,6 +766,7 @@ def append_columnar_rank(
 
     sources = payload.sources or {}
     tags = payload.tags or {}
+    event_metadata = payload.event_metadata or {}
     names = list(payload.regions)
     counts = [len(payload.regions[name][0]) for name in names]
     # Regions are written back to back, so this rank's rows point at
@@ -854,6 +855,17 @@ def append_columnar_rank(
     _append(index["source_files"], [source[0] or "" for source in resolved_sources])
     _append(index["source_texts"], [source[2] or "" for source in resolved_sources])
     _append(index["tags"], [json.dumps(list(tags.get(name, ()))) for name in names])
+    if "event_metadata" not in index:
+        index.create_dataset(
+            "event_metadata",
+            shape=(len(index["ranks"]) - len(names),),
+            maxshape=(None,),
+            dtype=_STRING_DTYPE,
+        )
+    _append(
+        index["event_metadata"],
+        [json.dumps(event_metadata.get(name, [])) for name in names],
+    )
     _append(
         index["exclusive_totals"],
         [exclusive_totals.get(name, _NO_EXCLUSIVE_TOTAL) for name in names],
@@ -961,6 +973,7 @@ def payload_layout(payload) -> dict:
     """Return the small, array-free schema needed for collective creation."""
     sources = payload.sources or {}
     tags = payload.tags or {}
+    event_metadata = payload.event_metadata or {}
     exclusive_totals = payload.exclusive_totals or {}
     return {
         "regions": {
@@ -969,6 +982,7 @@ def payload_layout(payload) -> dict:
                 "has_gpu": len(arrays) > 2 and arrays[2] is not None,
                 "source": sources.get(name),
                 "tags": tuple(tags.get(name, ())),
+                "event_metadata": event_metadata.get(name, []),
                 "exclusive_total": int(exclusive_totals.get(name, _NO_EXCLUSIVE_TOTAL)),
                 "summary": _timing_summary(arrays),
             }
@@ -1066,10 +1080,14 @@ def write_parallel_payload(
         for *_, description in pairs
     ]
     tags = [json.dumps(list(description["tags"])) for *_, description in pairs]
+    event_metadata = [
+        json.dumps(description["event_metadata"]) for *_, description in pairs
+    ]
     encoded_names, names_dtype = fixed_string_data(region_names)
     encoded_source_files, source_files_dtype = fixed_string_data(source_files)
     encoded_source_texts, source_texts_dtype = fixed_string_data(source_texts)
     encoded_tags, tags_dtype = fixed_string_data(tags)
+    encoded_event_metadata, event_metadata_dtype = fixed_string_data(event_metadata)
 
     with h5py.File(file_path, "w", driver="mpio", comm=comm) as h5file:
         h5file.attrs[SCHEMA_ATTRIBUTE] = CURRENT_SCHEMA_VERSION
@@ -1101,6 +1119,7 @@ def write_parallel_payload(
             ("source_files", source_files_dtype),
             ("source_texts", source_texts_dtype),
             ("tags", tags_dtype),
+            ("event_metadata", event_metadata_dtype),
         ):
             pair_index.create_dataset(name, shape=(len(pairs),), dtype=dtype)
 
@@ -1146,6 +1165,7 @@ def write_parallel_payload(
             pair_index["source_files"][:] = encoded_source_files
             pair_index["source_texts"][:] = encoded_source_texts
             pair_index["tags"][:] = encoded_tags
+            pair_index["event_metadata"][:] = encoded_event_metadata
             pair_index["exclusive_totals"][:] = [
                 description.get("exclusive_total", _NO_EXCLUSIVE_TOTAL)
                 for *_, description in pairs

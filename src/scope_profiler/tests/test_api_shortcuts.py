@@ -8,6 +8,8 @@ These cover the four surfaces added on top of the original
 
 import gzip
 import json
+import subprocess
+import sys
 
 import pytest
 
@@ -17,6 +19,7 @@ from scope_profiler import (
     MemrayOptions,
     ProfileManager,
     ProfilingOptions,
+    read_h5,
 )
 from scope_profiler.profile_config import (
     _CONFIG_FIELDS,
@@ -48,6 +51,13 @@ def test_module_level_names_are_the_manager_methods():
     assert sp.region.__func__ is ProfileManager.region.__func__
     assert sp.session.__func__ is ProfileManager.session.__func__
     assert sp.profile.__func__ is ProfileManager.profile.__func__
+    assert sp.is_active.__func__ is ProfileManager.is_active.__func__
+    assert sp.is_configured.__func__ is ProfileManager.is_configured.__func__
+    assert sp.registered_regions.__func__ is ProfileManager.registered_regions.__func__
+    assert sp.recorded_regions.__func__ is ProfileManager.recorded_regions.__func__
+    assert sp.define_region.__func__ is ProfileManager.define_region.__func__
+    assert sp.last_results.__func__ is ProfileManager.last_results.__func__
+    assert sp.metadata.__func__ is ProfileManager.metadata.__func__
 
 
 def test_a_whole_run_through_the_module_level_api(tmp_path):
@@ -68,6 +78,305 @@ def test_a_whole_run_through_the_module_level_api(tmp_path):
 
     assert "solve" in run.results.region_names
     assert "decorated" in run.results.region_names
+
+
+def test_session_can_decorate_a_function(tmp_path):
+    import scope_profiler as sp
+
+    output = tmp_path / "decorated-session.h5"
+
+    @sp.session(file_path=str(output), verbose=False)
+    def application():
+        with sp.region("work"):
+            pass
+        return 42
+
+    assert application() == 42
+    assert read_h5(output)["work"].num_calls == 1
+
+
+def test_lifecycle_and_region_queries_distinguish_definition_from_recording(
+    tmp_path,
+):
+    import scope_profiler as sp
+
+    assert not sp.is_configured()
+    assert not sp.is_active()
+
+    @sp.profile("work")
+    def work():
+        pass
+
+    work()
+    assert sp.registered_regions() == ("work",)
+    assert sp.recorded_regions() == ()
+    assert not sp.is_configured()
+    assert not sp.is_active()
+
+    sp.setup(file_path=str(tmp_path / "lifecycle.h5"))
+    assert sp.is_configured()
+    assert sp.is_active()
+    assert sp.registered_regions() == ("work",)
+
+    work()
+    assert sp.recorded_regions() == ("work",)
+    sp.finalize(verbose=False)
+
+    # Explicit finalize remains a checkpoint for backward compatibility.
+    assert sp.is_configured()
+    assert sp.is_active()
+
+
+def test_setup_can_finalize_automatically_at_process_exit(tmp_path, monkeypatch):
+    import scope_profiler as sp
+    from scope_profiler import profile_manager as profile_manager_module
+
+    registered = []
+    unregistered = []
+    monkeypatch.setattr(profile_manager_module.atexit, "register", registered.append)
+    monkeypatch.setattr(
+        profile_manager_module.atexit, "unregister", unregistered.append
+    )
+
+    output = tmp_path / "automatic.h5"
+    sp.setup(file_path=str(output), auto_finalize=True)
+    with sp.region("work"):
+        pass
+
+    assert len(registered) == 1
+    assert not output.exists()
+
+    registered[0]()
+
+    assert read_h5(output)["work"].num_calls == 1
+    assert ProfileManager._auto_finalize_callback is None
+
+
+def test_auto_finalize_writes_during_normal_interpreter_exit(tmp_path):
+    output = tmp_path / "at-exit.h5"
+    script = tmp_path / "automatic.py"
+    script.write_text(
+        f"""\
+import scope_profiler as sp
+
+sp.setup(file_path={str(output)!r}, auto_finalize=True)
+with sp.region("work"):
+    pass
+""",
+        encoding="utf-8",
+    )
+
+    subprocess.run([sys.executable, str(script)], check=True, timeout=120)
+
+    assert read_h5(output)["work"].num_calls == 1
+
+
+def test_explicit_finalize_cancels_automatic_finalization(tmp_path, monkeypatch):
+    import scope_profiler as sp
+    from scope_profiler import profile_manager as profile_manager_module
+
+    registered = []
+    unregistered = []
+    monkeypatch.setattr(profile_manager_module.atexit, "register", registered.append)
+    monkeypatch.setattr(
+        profile_manager_module.atexit, "unregister", unregistered.append
+    )
+
+    sp.setup(file_path=str(tmp_path / "manual.h5"), auto_finalize=True)
+    sp.finalize(verbose=False)
+
+    assert unregistered == registered
+    assert ProfileManager._auto_finalize_callback is None
+
+
+def test_setup_returns_a_run_handle_and_last_results(tmp_path):
+    import scope_profiler as sp
+
+    run = sp.setup(output=None)
+    with sp.region("work"):
+        pass
+
+    results = run.finalize(verbose=False)
+
+    assert run.results is results
+    assert sp.last_results() is results
+    assert results["work"].num_calls == 1
+
+
+def test_defined_region_handle_survives_new_sessions(tmp_path):
+    import scope_profiler as sp
+
+    work = sp.define_region("work", tags=("persistent",))
+    assert sp.registered_regions() == ("work",)
+
+    outputs = [tmp_path / "first.h5", tmp_path / "second.h5"]
+    for output in outputs:
+        with sp.session(file_path=str(output), verbose=False):
+            with work:
+                pass
+
+    assert all(read_h5(output)["work"].num_calls == 1 for output in outputs)
+
+
+def test_output_alias_can_disable_files_and_rejects_ambiguous_spelling(
+    tmp_path,
+    monkeypatch,
+):
+    import scope_profiler as sp
+
+    monkeypatch.chdir(tmp_path)
+    sp.setup(output=None)
+    with sp.region("work"):
+        pass
+    sp.finalize(verbose=False)
+    assert not (tmp_path / "profiling_data.h5").exists()
+
+    with pytest.raises(TypeError, match="output cannot be combined"):
+        sp.setup(output=tmp_path / "unused.h5", file_path=tmp_path / "other.h5")
+
+
+def test_output_alias_dispatches_json_and_updates_the_run_handle(tmp_path):
+    import scope_profiler as sp
+
+    output = tmp_path / "profile.json"
+    run = sp.setup(output=output)
+    with sp.region("work"):
+        pass
+    results = run.finalize(verbose=False)
+
+    assert run.file_path == str(output)
+    assert output.exists()
+    assert not (tmp_path / "profile.json.scope-profiler.h5").exists()
+    assert results["work"].num_calls == 1
+    assert sp.read_profile(output)["work"].num_calls == 1
+
+
+def test_scoped_metadata_round_trips_per_call(tmp_path):
+    import scope_profiler as sp
+
+    output = tmp_path / "metadata.h5"
+    sp.setup(output=output)
+    with sp.metadata(step=1, phase="warmup"):
+        with sp.region("work"):
+            pass
+    with sp.metadata(step=2):
+        with sp.metadata(phase="solve"):
+            with sp.region("work"):
+                pass
+
+    results = sp.finalize(verbose=False, return_results=True)
+
+    expected = ({"step": 1, "phase": "warmup"}, {"step": 2, "phase": "solve"})
+    assert results["work"][0].event_metadata == expected
+    assert read_h5(output)["work"][0].event_metadata == expected
+    json_output = tmp_path / "metadata.json"
+    sp.write_profile(results, json_output)
+    assert sp.read_profile(json_output)["work"][0].event_metadata == expected
+
+
+def test_scoped_metadata_rejects_aggregation_mode():
+    import scope_profiler as sp
+
+    sp.setup(output=None, aggregation_mode=True)
+
+    with pytest.raises(RuntimeError, match="requires per-call data"):
+        with sp.metadata(step=1):
+            pass
+
+
+def test_setup_rejects_accidental_replacement(tmp_path):
+    import scope_profiler as sp
+
+    first = sp.setup(output=tmp_path / "first.h5")
+    with pytest.raises(RuntimeError, match="already configured"):
+        sp.setup(output=tmp_path / "second.h5")
+
+    sp.setup(output=tmp_path / "second.h5", replace=True)
+    assert ProfileManager.get_config().file_path == str(tmp_path / "second.h5")
+    assert not first.is_active
+    with pytest.raises(RuntimeError, match="run has been replaced"):
+        first.finalize(verbose=False)
+
+
+def test_run_callable_profiles_without_manual_lifecycle(tmp_path):
+    import scope_profiler as sp
+
+    output = tmp_path / "callable.h5"
+
+    def application():
+        with sp.region("work"):
+            return 42
+
+    assert sp.run(application, output=output) == 42
+    assert sp.load(output)["work"].num_calls == 1
+
+
+def test_profile_metadata_callback_and_outcome(tmp_path):
+    import scope_profiler as sp
+
+    output = tmp_path / "decorated.h5"
+    sp.setup(output=output)
+
+    @sp.profile(
+        "work",
+        metadata=lambda value: {"input": value},
+        record_outcome=True,
+    )
+    def work(value):
+        return value
+
+    assert work(3) == 3
+    sp.finalize(verbose=False)
+    assert sp.load(output)["work"][0].event_metadata[0] == {
+        "input": 3,
+        "status": "ok",
+    }
+
+
+def test_profile_script_and_command_helpers(tmp_path):
+    import scope_profiler as sp
+
+    script = tmp_path / "app.py"
+    script.write_text(
+        'import scope_profiler as sp\nwith sp.region("work"):\n    pass\n',
+        encoding="utf-8",
+    )
+    script_results = sp.profile_script(script, output=tmp_path / "script.h5")
+    assert script_results["work"].num_calls == 1
+
+    completed = sp.profile_command(
+        [sys.executable, str(script)],
+        output=tmp_path / "command.h5",
+    )
+    assert completed.returncode == 0
+    assert completed.profile_results["work"].num_calls == 1
+
+
+def test_instrument_region_factory_and_environment_setup(tmp_path, monkeypatch):
+    import types
+
+    import scope_profiler as sp
+
+    module = types.ModuleType("instrumented")
+
+    def work():
+        return 1
+
+    module.work = work
+    sp.setup(output=None)
+    sp.instrument(module, include=["work"])
+    assert module.work() == 1
+    assert sp.recorded_regions() == ("instrumented.work",)
+    sp.finalize(verbose=False)
+
+    ProfileManager._reset()
+    monkeypatch.setenv("SCOPE_PROFILER_OUTPUT", str(tmp_path / "env.h5"))
+    monkeypatch.setenv("SCOPE_PROFILER_AUTO_FINALIZE", "false")
+    sp.setup_from_env()
+    with sp.region_factory("iteration")(step=1):
+        pass
+    sp.finalize(verbose=False)
+    assert sp.load(tmp_path / "env.h5")["iteration"].num_calls == 1
 
 
 # --- region / profile_region ------------------------------------------------

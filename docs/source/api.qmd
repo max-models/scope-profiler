@@ -7,8 +7,8 @@
 
 ## Module-level shortcuts
 
-The five calls that make up everyday instrumentation are importable from the
-package root, so the common case needs no class name:
+The everyday lifecycle, instrumentation, and state-query calls are importable
+from the package root, so the common case needs no class name:
 
 ```python
 import scope_profiler as sp
@@ -20,10 +20,11 @@ with sp.session(file_path="run.h5", return_results=True) as run:
 results = run.results
 ```
 
-`sp.setup`, `sp.finalize`, `sp.session`, `sp.region` and `sp.profile` *are*
-the corresponding `ProfileManager` class methods rather than wrappers around
-them, and act on the same process-wide default manager. Use `ProfileManager`
-directly for everything else, and for independent manager instances.
+`sp.setup`, `sp.finalize`, `sp.session`, `sp.region`, `sp.profile`,
+`sp.is_active`, `sp.is_configured`, `sp.registered_regions`, and
+`sp.recorded_regions` *are* the corresponding `ProfileManager` class methods
+rather than wrappers around them, and act on the same process-wide default
+manager. Use `ProfileManager` directly for independent manager instances.
 
 ## ProfileManager
 
@@ -35,7 +36,7 @@ output.
 
 ```{eval-rst}
 .. autoclass:: scope_profiler.profile_manager.ProfileManager
-   :members: setup, session, profile, region, profile_region, finalize, read_results, get_region, get_all_regions, get_config, set_config
+   :members: setup, setup_from_env, session, run, profile_script, profile_command, profile, instrument, region, profile_region, define_region, region_factory, metadata, finalize, read_results, last_results, get_region, get_all_regions, registered_regions, recorded_regions, is_configured, is_active, get_config, set_config
    :undoc-members:
 ```
 

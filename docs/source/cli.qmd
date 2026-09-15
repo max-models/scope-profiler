@@ -65,13 +65,12 @@ optional TUI/plotting dependencies with `pip install "scope-profiler[pproc]"`.
 
 ## `scope-profiler run`
 
-Profile a script's function calls without modifying it, similar to
-`python -m cProfile`. By default only the script's own code is instrumented
-(the standard library and installed packages are skipped) to keep overhead
-low; pass `--all` to trace everything.
+Run a script with its explicit `@profile` and `region()` instrumentation
+enabled. Recursive function tracing is opt-in with `--recursive`; add `--all`
+to include standard-library and installed-package calls as well.
 
 ```text
-usage: scope-profiler run [-h] [-o OUTFILE] [-q] [--all] [--line-profile] [--memory-profile]
+usage: scope-profiler run [-h] [-o OUTFILE | --no-output] [-q] [--recursive | --no-recursive] [--include GLOB] [--exclude GLOB] [--all] [--label LABEL] [--tag TAG] [--entrypoint NAME] [--line-profile] [--memory-profile]
                           [--buffer-limit BUFFER_LIMIT]
                           script ...
 ```
@@ -79,8 +78,16 @@ usage: scope-profiler run [-h] [-o OUTFILE] [-q] [--all] [--line-profile] [--mem
 | Flag                | Description                                                          |
 | -------------------- | --------------------------------------------------------------------- |
 | `-o`, `--outfile`    | Path of the output file (default: `profiling_data.h5`); the extension picks the format |
+| `--no-output`        | Keep results in memory and do not write a profile file                  |
 | `-q`, `--quiet`      | Suppress the per-region summary printed after the run                |
-| `--all`              | Also instrument standard-library/installed-package calls (default: only the script's own code) |
+| `--recursive`        | Trace every Python function in the script; explicit regions only by default |
+| `--no-recursive`     | Disable recursive tracing, overriding the configuration file         |
+| `--all`              | Recursively trace all calls, including standard-library and installed-package calls |
+| `--label`            | Store a short label with the run for comparison and reporting         |
+| `--tag`              | Record only explicit regions carrying the given tag; repeatable      |
+| `--entrypoint`       | Name the recursively traced entrypoint region                       |
+| `--include`          | Include only recursively traced function names matching this glob; repeatable |
+| `--exclude`          | Exclude recursively traced function names matching this glob; repeatable |
 | `--line-profile`     | Also collect line-by-line timings via `line_profiler` (requires `scope-profiler[line-profiler]`) |
 | `--memory-profile`   | Record allocations with Memray in an adjacent `.memray.bin` file (requires `scope-profiler[extras]`) |
 | `--buffer-limit`     | Initial buffer capacity per region; grows as needed (default: 1024)     |
@@ -88,6 +95,25 @@ usage: scope-profiler run [-h] [-o OUTFILE] [-q] [--all] [--line-profile] [--mem
 ```bash
 scope-profiler run my_script.py [script args...]
 ```
+
+The runner performs setup before loading the script and finalizes it afterward.
+This means explicitly instrumented scripts do not need an in-source session:
+
+```python
+import scope_profiler as sp
+
+@sp.profile("main")
+def main():
+    with sp.region("iteration"):
+        work()
+
+main()
+```
+
+`python my_script.py` leaves these instrumentation points disabled and writes
+nothing; `scope-profiler run my_script.py` activates and records them. Use
+`scope-profiler run --recursive my_script.py` for an uninstrumented script. The
+explicit `session()`, `setup()`, and `finalize()` APIs remain unchanged.
 
 ### Output formats
 
@@ -99,6 +125,15 @@ scope-profiler run -o profile.json my_script.py     # a JSON profile
 scope-profiler run -o profile.json.gz my_script.py  # the same, gzip-compressed
 scope-profiler run -o report.html my_script.py      # a rendered HTML report
 ```
+
+Use `--no-output` when only an in-memory summary is needed; it suppresses the
+default `profiling_data.h5` file. `--label` stores a short run name in the
+profile, which is useful when comparing several runs. `--no-recursive` can
+override a configuration file that enables recursive tracing.
+
+Repeat `--tag` to select explicitly defined regions by tag; a region is kept
+when it has at least one of the requested tags. `--include` and `--exclude`
+apply to recursively traced function names and accept shell-style globs.
 
 A JSON profile holds everything the HDF5 file does --- every call's
 timestamps, the lane tables, LIKWID counters, line-profiler records --- in

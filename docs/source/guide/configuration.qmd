@@ -4,10 +4,24 @@
 > section additionally needs `pip install "scope-profiler[compression]"`.
 
 All profiling behaviour is controlled through `ProfileManager.setup()`.
-This must be called **once** before any regions are created. Calls made on the
-`ProfileManager` class use its process-wide default configuration. Independent
-`ProfileManager()` instances each have their own configuration and regions;
-see [Multiple sessions](#multiple-sessions).
+Decorators and disabled regions may be declared before setup; they become active
+when setup installs the run configuration. Calls made on the `ProfileManager`
+class use its process-wide default configuration. Independent `ProfileManager()`
+instances each have their own configuration and regions; see
+[Multiple sessions](#multiple-sessions).
+
+For a script that should finalize automatically on normal interpreter exit,
+opt in explicitly:
+
+```python
+import scope_profiler as sp
+
+sp.setup(file_path="run.h5", auto_finalize=True)
+```
+
+An explicit `finalize()` cancels the pending exit hook. Avoid automatic
+finalization for MPI programs whose ranks may not exit together; use
+`session()` or coordinated explicit finalization there.
 
 ## Multiple sessions
 
@@ -50,6 +64,9 @@ behavior.
 | Parameter             | Type   | Default               | Description                                                                                     |
 | --------------------- | ------ | --------------------- | ----------------------------------------------------------------------------------------------- |
 | `deactivate_profiling`| `bool` | `False`               | Master switch. When `True`, all regions become no-ops with near-zero cost.                      |
+| `auto_finalize`       | `bool` | `False`               | Finalize once at normal interpreter exit unless finalized explicitly first.                    |
+| `output`              | path or `None` | unset             | Direct output destination; format follows the extension, while `None` keeps the run in memory. |
+| `replace`             | `bool` | `False`               | Explicitly replace a configuration that is still active.                                       |
 | `use_likwid`          | `bool` | `False`               | Wrap regions with LIKWID marker API calls for hardware counter collection. Requires `pylikwid`. |
 | `perf_events`         | `list[str]` or `None` | `None` | Collect selected Linux `perf_event_open` counts per region. |
 
@@ -388,8 +405,9 @@ the cost of a Python function call (~0.1 µs).
 
 ## Re-configuring
 
-Calling `setup()` again resets all existing regions and applies the new
-configuration:
+After a run has been finalized, calling `setup()` starts a fresh session with
+new configuration. Calling it while a run is still active raises an error;
+pass `replace=True` when intentionally replacing that active run:
 
 ```python
 ProfileManager.setup(file_path="run_a.h5")

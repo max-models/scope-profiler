@@ -42,6 +42,7 @@ ARRAY_PROPERTIES = (
     "task_ids",
     "await_times",
     "await_times_ns",
+    "event_metadata",
 )
 SCALAR_PROPERTIES = (
     "has_timing",

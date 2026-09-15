@@ -149,6 +149,8 @@ def _region_row(name: str, rank: int, region: Region) -> dict:
 
     row["start_times_ns"] = _ints(region.start_times_ns)
     row["end_times_ns"] = _ints(region.end_times_ns)
+    if any(region.event_metadata):
+        row["event_metadata"] = list(region.event_metadata)
     for key, column in (
         ("gpu_durations_ns", region.gpu_durations_ns),
         ("call_ids", region.call_ids),
@@ -502,6 +504,7 @@ def _region_from_row(row: dict) -> Region:
         thread_ids=column("thread_ids"),
         task_ids=column("task_ids"),
         await_times=column("await_ns"),
+        event_metadata=row.get("event_metadata"),
         source_file=source_file,
         source_lineno=source_lineno,
         source_text=source_text,
