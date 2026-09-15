@@ -405,8 +405,9 @@ the cost of a Python function call (~0.1 µs).
 
 ## Re-configuring
 
-Calling `setup()` again resets all existing regions and applies the new
-configuration:
+After a run has been finalized, calling `setup()` starts a fresh session with
+new configuration. Calling it while a run is still active raises an error;
+pass `replace=True` when intentionally replacing that active run:
 
 ```python
 ProfileManager.setup(file_path="run_a.h5")

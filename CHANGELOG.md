@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.7.0 - 2026-09-15
+
 ### Fixed
 
 - `--metrics` with more than one statistic kept only the last one. Every

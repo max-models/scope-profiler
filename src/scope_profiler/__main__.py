@@ -8,11 +8,11 @@ the file name.
 
 The subcommands:
 
-- ``scope-profiler run script.py [args...]`` -- profiles a script's function
-  calls without requiring any decorators or context managers in the script
-  itself, similar to ``python -m cProfile``. By default only the script's
-  own code is instrumented (the standard library and installed packages are
-  skipped) to keep overhead low; pass ``--all`` to trace everything. The
+- ``scope-profiler run script.py [args...]`` -- activates explicit
+  ``scope_profiler.profile`` and ``scope_profiler.region`` instrumentation in
+  a script without requiring an in-source session. Pass ``--recursive`` for
+  function-call tracing similar to ``python -m cProfile``; add ``--all`` to
+  include standard-library and installed-package calls. The
   extension of ``-o`` picks the output format: HDF5 by default, a JSON
   profile for ``.json``/``.json.gz``, a rendered report for ``.html``.
 - ``scope-profiler plot <kind> file.h5 [...]`` -- reads merged HDF5 profiling
