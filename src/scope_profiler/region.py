@@ -224,7 +224,7 @@ class Region:
         events = []
         gpu_durations = self.gpu_durations
         for index, (start, end) in enumerate(zip(starts, ends)):
-            event = {
+            event: dict[str, Any] = {
                 "call_index": index,
                 "start": float(start),
                 "end": float(end),
