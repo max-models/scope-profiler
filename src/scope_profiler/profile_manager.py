@@ -1120,7 +1120,9 @@ class ProfileManager:
         """Attach completed metadata scopes to calls wholly inside them."""
         if not cls._metadata_scopes:
             return {}
-        scopes = sorted(cls._metadata_scopes, key=lambda item: item[1] - item[0], reverse=True)
+        scopes = sorted(
+            cls._metadata_scopes, key=lambda item: item[1] - item[0], reverse=True
+        )
         result = {}
         for name, arrays in snapshot.items():
             starts, ends = arrays[:2]

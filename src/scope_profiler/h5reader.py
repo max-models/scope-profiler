@@ -318,9 +318,7 @@ def _read_columnar_regions(h5file) -> tuple[dict, list[str], dict]:
     source_files = index["source_files"][()]
     source_texts = index["source_texts"][()]
     tag_blobs = index["tags"][()]
-    metadata_blobs = (
-        index["event_metadata"][()] if "event_metadata" in index else None
-    )
+    metadata_blobs = index["event_metadata"][()] if "event_metadata" in index else None
     # Absent in files written before the run stored its own exclusive totals;
     # _NO_EXCLUSIVE_TOTAL marks a row whose writer did not compute one. Either
     # way the reader falls back to reconstructing the nesting on demand.
