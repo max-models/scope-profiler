@@ -104,6 +104,21 @@ guide](https://max-models.github.io/scope-profiler/guide/modes.html) for
 output formats, filtering, concurrency, aggregation, pause/resume, and
 sampling.
 
+## Example plots
+
+Generate a duration summary and a timeline from the same profile:
+
+```bash
+scope-profiler plot durations profiling_data.h5 -o figures
+scope-profiler plot gantt profiling_data.h5 -o figures
+```
+
+![Duration
+summary](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/durations_plot.png)
+
+![Gantt
+timeline](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/gantt_plot.png)
+
 ## In a notebook
 
 Install the notebook extra and see the [notebook magics
