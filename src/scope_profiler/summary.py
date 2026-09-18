@@ -371,13 +371,18 @@ def region_rows(
     from scope_profiler.call_stack import NestingError
     from scope_profiler.region import EventDataUnavailableError
 
+    call_tree_available = True
     for rank in selected_ranks:
         try:
             calls = results.call_stack(rank=rank, include=include, exclude=exclude)
         except (NestingError, EventDataUnavailableError):
             # Keep summary output available for legacy profiles containing
-            # overlapping intervals that cannot form a call tree.
-            continue
+            # overlapping intervals that cannot form a call tree.  Do not
+            # mix partial path statistics with flat statistics from the
+            # failed rank: fall back to the complete per-name aggregate.
+            call_tree_available = False
+            calls_by_path.clear()
+            break
         for call in calls:
             name = call["name"]
             if name not in rows_by_name:
@@ -396,7 +401,8 @@ def region_rows(
             entry["recursive"] |= len(collapsed_path) != len(path)
 
     display_rows = []
-    for path, entry in calls_by_path.items():
+    path_entries = calls_by_path.items() if call_tree_available else ()
+    for path, entry in path_entries:
         calls_for_path = entry["calls"]
         durations = np.asarray(
             [call["duration"] for _, call in calls_for_path],
