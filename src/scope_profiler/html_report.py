@@ -549,6 +549,12 @@ def _region_table(results, rows, ranks, columns, region_ids=None) -> str:
                 if row["total"] is not None and session_total
                 else None
             )
+        elif key == "parent_percent":
+            value = (
+                100.0 * row["coverage"] / row["parent_coverage"]
+                if row.get("coverage") is not None and row.get("parent_coverage")
+                else None
+            )
         else:
             value = row[key]
         if key == "name":
@@ -566,6 +572,12 @@ def _region_table(results, rows, ranks, columns, region_ids=None) -> str:
             value = (
                 100.0 * row["total"] / session_total
                 if row["total"] is not None and session_total
+                else None
+            )
+        elif key == "parent_percent":
+            value = (
+                100.0 * row["coverage"] / row["parent_coverage"]
+                if row.get("coverage") is not None and row.get("parent_coverage")
                 else None
             )
         else:

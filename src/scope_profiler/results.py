@@ -628,8 +628,9 @@ class ProfilingResults:
             Where to write (default: stdout).
         columns : list of str or str, optional
             Region summary columns to print. Defaults to ``region``,
-            ``calls``, ``percent``, ``total`` and ``avg``. The
-            percentage is relative to ``scope_profiler.session``. Use
+            ``calls``, ``percent``, ``parent_percent``, ``total`` and
+            ``avg``. ``percent`` is relative to ``scope_profiler.session``;
+            ``parent_percent`` is relative to the enclosing call path. Use
             ``region`` for the region-name column.
         percentage_mode : {"coverage", "exclusive"}, optional
             Quantity used for ``% session``. Defaults to wall-clock coverage;
