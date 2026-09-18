@@ -66,6 +66,7 @@ _COLUMNS = (
     ("calls", "n"),
     ("total", "total [s]"),
     ("percent", "% session"),
+    ("parent_percent", "% parent"),
     ("avg", "avg [s]"),
     ("min", "min [s]"),
     ("max", "max [s]"),
@@ -84,6 +85,7 @@ DEFAULT_REGION_TABLE_COLUMNS = (
     "region",
     "calls",
     "percent",
+    "parent_percent",
     "total",
     "avg",
 )
@@ -468,6 +470,20 @@ def region_rows(
             )
             display_rows.append(fallback)
 
+    # Use the same wall-clock coverage quantity as ``% session``.  That
+    # counts overlapping recursive calls only once, so a child's share stays
+    # meaningful even when a scope recurses or otherwise overlaps itself.
+    rows_by_path = {
+        tuple(row["call_path"].split(" > ")): row
+        for row in display_rows
+        if "call_path" in row
+    }
+    for path, row in rows_by_path.items():
+        parent = rows_by_path.get(path[:-1])
+        row["parent_coverage"] = parent["coverage"] if parent else None
+    for row in display_rows:
+        row.setdefault("parent_coverage", None)
+
     rows = display_rows
 
     if sort == "start":
@@ -602,6 +618,10 @@ def print_region_table(
                 ),
                 session_total,
             ),
+            "parent_percent": _format_percentage(
+                row.get("coverage"),
+                row.get("parent_coverage"),
+            ),
             "avg": _format_duration(row["avg"]),
             "min": _format_duration(row["min"]),
             "max": _format_duration(row["max"]),
@@ -628,6 +648,7 @@ def print_region_table(
             # TOTAL is the run represented by the session root, rather than
             # the sum of the root and its nested contribution rows.
             "percent": _format_percentage(session_total, session_total),
+            "parent_percent": "",
             "avg": "",
             "min": "",
             "max": "",

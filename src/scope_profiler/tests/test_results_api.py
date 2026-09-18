@@ -177,6 +177,8 @@ def test_summary_percentage_uses_coverage_for_nested_regions(capsys):
     assert "100.00%" in output
     assert "80.00%" in output
     assert "60.00%" in output
+    assert "% parent" in output
+    assert "75.00%" in output
     assert "100.00%" in output
 
     results.print_summary(percentage_mode="exclusive")
