@@ -111,6 +111,40 @@ def test_summary_collapses_self_recursive_paths():
     assert rows[1]["calls"] == 3
 
 
+def test_summary_pools_same_named_regions_by_call_path(capsys):
+    """A child name used by two callers retains each caller's timings."""
+    results = ProfilingResults(
+        {
+            "first": MPIRegion("first", {0: Region(np.array([0]), np.array([100]))}),
+            "second": MPIRegion(
+                "second",
+                {0: Region(np.array([200]), np.array([300]))},
+            ),
+            "work": MPIRegion(
+                "work",
+                {0: Region(np.array([10, 210]), np.array([20, 260]))},
+            ),
+        },
+    )
+
+    from scope_profiler.summary import region_rows
+
+    rows = {row["call_path"]: row for row in region_rows(results)}
+
+    assert rows["first > work"]["total"] == pytest.approx(10 / NS)
+    assert rows["second > work"]["total"] == pytest.approx(50 / NS)
+    assert rows["first > work"]["calls"] == 1
+    assert rows["second > work"]["calls"] == 1
+
+    results.print_summary(suppress_notes=True)
+    work_lines = [
+        line for line in capsys.readouterr().out.splitlines() if "work" in line
+    ]
+    assert len(work_lines) == 2
+    assert "1.0e-08" in work_lines[0]
+    assert "5.0e-08" in work_lines[1]
+
+
 def test_summary_percentages_use_fixed_point_until_tiny():
     from scope_profiler.summary import _format_percentage
 
