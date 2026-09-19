@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+
+- `metadata_detail` setting (`"full"` by default, or `"minimal"`) controls how
+  much of the environment a profiling file records. `"minimal"` keeps only
+  versions, platform, CPU model and thread/rank counts, and leaves out the
+  user name, host name, working directory, loaded modules, environment
+  variables and `SLURM_*` variables; it also reduces the source file of each
+  region and line profile to its file name. The default is unchanged.
+- The "Run metadata" guide now lists what a profiling file can identify about
+  its author and machine, and where it flows into exports.
+
 ## 0.7.0 - 2026-09-15
 
 ### Fixed

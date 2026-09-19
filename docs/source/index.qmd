@@ -58,6 +58,7 @@ with ProfileManager.session():
 
 installation
 quickstart
+guide/modes
 ```
 
 ```{toctree}

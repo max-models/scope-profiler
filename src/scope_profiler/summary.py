@@ -66,6 +66,7 @@ _COLUMNS = (
     ("calls", "n"),
     ("total", "total [s]"),
     ("percent", "% session"),
+    ("parent_percent", "% parent"),
     ("avg", "avg [s]"),
     ("min", "min [s]"),
     ("max", "max [s]"),
@@ -84,6 +85,7 @@ DEFAULT_REGION_TABLE_COLUMNS = (
     "region",
     "calls",
     "percent",
+    "parent_percent",
     "total",
     "avg",
 )
@@ -358,57 +360,111 @@ def region_rows(
     ]
     rows_by_name = {row["name"]: row for row in rows}
 
-    # Build display rows from the call tree rather than from the flat region
-    # registry. A region can occur below multiple parents, in which case each
-    # distinct path gets its own row. Consecutive copies of the same name are
-    # one recursive call chain, not distinct aggregate rows: the timing values
-    # already include every invocation of that region.
-    display_rows = []
-    seen_paths = set()
-    display_by_path = {}
+    # Build display rows from calls, rather than copying values from the flat
+    # region registry.  A registry entry combines every invocation sharing a
+    # name, whereas the table is a call tree: ``A > work`` and ``B > work``
+    # must therefore pool their calls independently.  Adjacent identical
+    # names are collapsed into one path so recursion keeps its established
+    # single aggregate row.
+    calls_by_path = {}
     selected_ranks = range(results.num_ranks) if ranks is None else ranks
     from scope_profiler.call_stack import NestingError
     from scope_profiler.region import EventDataUnavailableError
 
+    call_tree_available = True
     for rank in selected_ranks:
         try:
             calls = results.call_stack(rank=rank, include=include, exclude=exclude)
         except (NestingError, EventDataUnavailableError):
             # Keep summary output available for legacy profiles containing
-            # overlapping intervals that cannot form a call tree.
-            continue
-        by_id = {call["call_id"]: call for call in calls}
+            # overlapping intervals that cannot form a call tree.  Do not
+            # mix partial path statistics with flat statistics from the
+            # failed rank: fall back to the complete per-name aggregate.
+            call_tree_available = False
+            calls_by_path.clear()
+            break
         for call in calls:
             name = call["name"]
             if name not in rows_by_name:
                 continue
-            path = []
-            parent = call
-            while parent is not None:
-                path.append(parent["name"])
-                parent_id = parent.get("parent")
-                parent = by_id.get(parent_id) if parent_id is not None else None
-            path = tuple(reversed(path))
+            path = tuple(call["call_path"].split(" > "))
             collapsed_path = tuple(
-                name
-                for index, name in enumerate(path)
-                if index == 0 or name != path[index - 1]
+                part
+                for index, part in enumerate(path)
+                if index == 0 or part != path[index - 1]
             )
-            if collapsed_path in seen_paths:
-                if len(collapsed_path) != len(path):
-                    display_by_path[collapsed_path]["recursive"] = True
-                continue
-            seen_paths.add(collapsed_path)
-            row = dict(rows_by_name[name])
-            row["depth"] = len(collapsed_path) - 1
-            row["recursive"] = len(collapsed_path) != len(path)
-            row["start"] = float(call["start"])
-            display_rows.append(row)
-            display_by_path[collapsed_path] = row
+            entry = calls_by_path.setdefault(
+                collapsed_path,
+                {"calls": [], "recursive": False},
+            )
+            entry["calls"].append((rank, call))
+            entry["recursive"] |= len(collapsed_path) != len(path)
+
+    display_rows = []
+    path_entries = calls_by_path.items() if call_tree_available else ()
+    for path, entry in path_entries:
+        calls_for_path = entry["calls"]
+        durations = np.asarray(
+            [call["duration"] for _, call in calls_for_path],
+            dtype=float,
+        )
+        by_rank = {}
+        for rank, call in calls_for_path:
+            by_rank.setdefault(rank, []).append(call)
+        coverage = 0.0
+        for rank_calls in by_rank.values():
+            intervals = sorted((call["start"], call["end"]) for call in rank_calls)
+            start, end = intervals[0]
+            for next_start, next_end in intervals[1:]:
+                if next_start <= end:
+                    end = max(end, next_end)
+                else:
+                    coverage += end - start
+                    start, end = next_start, next_end
+            coverage += end - start
+        totals_by_rank = [
+            sum(call["duration"] for call in rank_calls)
+            for rank_calls in by_rank.values()
+        ]
+        mean_rank_total = float(np.mean(totals_by_rank))
+        display_rows.append(
+            {
+                "name": path[-1],
+                "call_path": " > ".join(path),
+                "num_ranks": len(by_rank),
+                "calls": len(calls_for_path),
+                "total": float(np.sum(durations)),
+                "coverage": coverage,
+                "exclusive": float(
+                    sum(call["exclusive_duration"] for _, call in calls_for_path)
+                ),
+                "avg": float(np.mean(durations)),
+                "min": float(np.min(durations)),
+                "max": float(np.max(durations)),
+                "first": min(calls_for_path, key=lambda item: item[1]["start"])[1][
+                    "duration"
+                ],
+                "last": max(calls_for_path, key=lambda item: item[1]["end"])[1][
+                    "duration"
+                ],
+                "std": float(np.std(durations)),
+                "p50": float(np.percentile(durations, 50)),
+                "p95": float(np.percentile(durations, 95)),
+                "p99": float(np.percentile(durations, 99)),
+                "imbalance": (
+                    0.0
+                    if len(totals_by_rank) < 2
+                    else (max(totals_by_rank) / mean_rank_total - 1.0) * 100.0
+                ),
+                "depth": len(path) - 1,
+                "recursive": entry["recursive"],
+                "start": min(call["start"] for _, call in calls_for_path),
+            },
+        )
 
     # Keep regions with no reconstructable call tree in the summary.
     for row in rows:
-        if row["name"] not in seen_paths and not any(
+        if row["name"] not in {path[-1] for path in calls_by_path} and not any(
             display["name"] == row["name"] for display in display_rows
         ):
             fallback = dict(row)
@@ -419,6 +475,20 @@ def region_rows(
                 region.first_start_time if region.has_timing else float("inf")
             )
             display_rows.append(fallback)
+
+    # Use the same wall-clock coverage quantity as ``% session``.  That
+    # counts overlapping recursive calls only once, so a child's share stays
+    # meaningful even when a scope recurses or otherwise overlaps itself.
+    rows_by_path = {
+        tuple(row["call_path"].split(" > ")): row
+        for row in display_rows
+        if "call_path" in row
+    }
+    for path, row in rows_by_path.items():
+        parent = rows_by_path.get(path[:-1])
+        row["parent_coverage"] = parent["coverage"] if parent else None
+    for row in display_rows:
+        row.setdefault("parent_coverage", None)
 
     rows = display_rows
 
@@ -554,6 +624,10 @@ def print_region_table(
                 ),
                 session_total,
             ),
+            "parent_percent": _format_percentage(
+                row.get("coverage"),
+                row.get("parent_coverage"),
+            ),
             "avg": _format_duration(row["avg"]),
             "min": _format_duration(row["min"]),
             "max": _format_duration(row["max"]),
@@ -580,6 +654,7 @@ def print_region_table(
             # TOTAL is the run represented by the session root, rather than
             # the sum of the root and its nested contribution rows.
             "percent": _format_percentage(session_total, session_total),
+            "parent_percent": "",
             "avg": "",
             "min": "",
             "max": "",

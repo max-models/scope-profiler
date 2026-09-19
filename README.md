@@ -38,55 +38,8 @@ with ProfileManager.session():
         ...
 ```
 
-Create independent managers when two profiling sessions need to coexist.
-Each manager records only calls made through that manager and writes its
-own output:
-
-```python
-compute_profiler = ProfileManager()
-io_profiler = ProfileManager()
-
-with compute_profiler.session(file_path="compute.h5", verbose=False):
-    with io_profiler.session(file_path="io.h5", verbose=False):
-        with compute_profiler.region("solve"):
-            solve()
-        with io_profiler.region("checkpoint"):
-            write_checkpoint()
-```
-
-These are independent nested sessions. LIKWID’s marker state is
-process-global, so only one overlapping session may use
-`use_likwid=True`.
-
-Concurrency is a separate switch. `track_threads=True` gives every
-thread its own buffers and its own lane in the reconstructed call graph,
-and reports each thread’s name, lifetime and CPU time;
-`track_async=True` does the same for asyncio tasks and greenlets, and
-splits every call into the time its task held the thread and the time it
-spent awaiting:
-
-```python
-with ProfileManager.session(track_async=True, return_results=True) as run:
-    asyncio.run(main())
-
-fetch = run.results["fetch"][0]
-fetch.durations - fetch.await_times     # time actually spent running
-for task in run.results.tasks[0]:
-    print(task.name, task.running_time, task.awaiting_time)
-```
-
-You can also recursively profile a script without changing its source:
-
-```bash
-scope-profiler run --recursive my_script.py
-scope-profiler inspect profiling_data.h5
-scope-profiler plot default profiling_data.h5 -o figures
-scope-profiler report profiling_data.h5 -o report.html
-```
-
-The runner also activates regions already defined in the script, so
-application code can keep its instrumentation without owning the
-profiling lifecycle:
+For a script that already has regions, the CLI owns the profiling
+lifecycle:
 
 ```python
 import scope_profiler as sp
@@ -111,41 +64,11 @@ creates no output file. Existing `session()`, `setup()`, and
 `finalize()` workflows remain available when application code needs
 direct lifecycle control.
 
-For a one-line in-source lifecycle, setup can finalize automatically at
-normal process exit:
-
-```python
-sp.setup(file_path="profile.h5", auto_finalize=True)
-```
-
-Or apply a session directly to the application entry point:
-
-```python
-@sp.session(file_path="profile.h5")
-def main():
-    ...
-```
-
-`sp.is_configured()` and `sp.is_active()` report lifecycle state.
-`sp.registered_regions()` lists known instrumentation points, while
-`sp.recorded_regions()` includes only regions that have measured calls.
-
-Reusable handles stay bound to the current run across repeated sessions:
-
-```python
-iteration = sp.define_region("iteration", tags=["solver"])
-
-with iteration:
-    work()
-```
-
-Scoped metadata is stored per call:
-
-```python
-with sp.metadata(step=42, phase="solve"):
-    with iteration:
-        work()
-```
+See the
+[quickstart](https://max-models.github.io/scope-profiler/quickstart.html)
+and [profiling modes
+guide](https://max-models.github.io/scope-profiler/guide/modes.html) for
+recursive tracing, tags, concurrency, output formats, and advanced APIs.
 
 ## Profile a pytest suite
 
@@ -176,119 +99,16 @@ detailed function-level attribution is needed. With `pytest-xdist`, the
 plugin cannot yet be used: its workers must not write the same HDF5
 file.
 
-The extension of `-o` picks the output format. HDF5 is the default, and
-stays the better choice for a long run — it is read back column by
-column rather than whole. JSON holds exactly the same data — every call,
-in integer nanoseconds — for anything that would rather not open an HDF5
-file:
-
-```bash
-scope-profiler run -o profile.json my_script.py     # or .json.gz
-scope-profiler run -o report.html my_script.py      # rendered report
-scope-profiler export json profiling_data.h5 -o exports  # convert an existing run
-scope-profiler inspect profile.json                 # read one back anywhere
-```
-
-Profiling can be suspended around setup, I/O, or other phases that
-should not appear in the trace. Pause at scope boundaries and resume
-when measurement is needed again:
-
-```python
-ProfileManager.pause()
-simulation.prepare_output()
-ProfileManager.resume()
-```
-
-`pause()` and `resume()` are safe to call repeatedly. Pausing while a
-profiled scope is open raises an error, so a recorded interval can never
-silently span the paused period.
-
-For time-stepping simulations, `sample_every()` provides the same
-control with an explicit timestep number:
-
-```python
-with ProfileManager.sample_every(10) as profile_step:
-    for timestep in range(num_steps):
-        with profile_step(timestep):
-            simulation.step()
-```
-
-The equivalent fully manual form is useful when the simulation has
-additional conditions around profiling:
-
-```python
-for timestep in range(num_steps):
-    if timestep % 10 == 0:
-        ProfileManager.resume()
-    else:
-        ProfileManager.pause()
-
-    with ProfileManager.region("simulation.step"):
-        simulation.step()
-```
-
-Here only timesteps `0`, `10`, `20`, and so on are recorded. Call
-`ProfileManager.setup()` before the loop; the initial state is enabled,
-so the first `resume()` is optional but makes the intent explicit.
-
-Reports embed interactive timeline and duration charts when the optional
-post-processing dependencies are installed
-(`pip install "scope-profiler[pproc]"`).
-
-## Example output
-
-The plotting tools include duration summaries and timelines for finding
-expensive regions:
-
-For dense traces, the Gantt view supports time windows, duration
-filtering, call coalescing, and call-depth collapsing. A binned
-occupancy heatmap avoids drawing every short event:
-
-```bash
-scope-profiler plot gantt profiling_data.h5 -o figures \
-  --min-duration 0.001 --aggregate-calls 25 --collapse-depth 2
-scope-profiler plot density profiling_data.h5 -o figures \
-  --bins 200 --min-duration 0.0001 --start-time 0 --end-time 10
-```
-
-Use `--aggregation-mode` with `scope-profiler run` when only aggregate
-timing statistics are needed and the per-call timeline should not be
-recorded.
-
-![Duration
-summary](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/durations_plot.png)
-
-![Gantt
-chart](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/gantt_plot.png)
-
-The overhead benchmark measures the cost of each instrumentation mode:
-
-```bash
-python examples/benchmark_overhead.py
-```
-
-![Profiling overhead by region
-type](https://raw.githubusercontent.com/max-models/scope-profiler/refs/heads/devel/figures/benchmark_overhead.png)
+See the [profiling modes
+guide](https://max-models.github.io/scope-profiler/guide/modes.html) for
+output formats, filtering, concurrency, aggregation, pause/resume, and
+sampling.
 
 ## In a notebook
 
-`%load_ext scope_profiler.ipython_magics` adds magics for the
-measure/compare loop, so a notebook needs no `session()` boilerplate:
-
-```python
-%%scope_recursive
-result = solve(problem)     # every call recorded, nothing instrumented
-```
-
-```python
-%scope_compare baseline candidate
-```
-
-`%%scope` times a cell as one region, `%%scope_line` breaks a function
-down by line, `%%scope_agg` handles regions entered millions of times,
-and `%scope_load` pulls in an HDF5 run from an MPI job to compare
-against. See the [notebook magics
-guide](https://max-models.github.io/scope-profiler/guide/notebook_magics.html).
+Install the notebook extra and see the [notebook magics
+guide](https://max-models.github.io/scope-profiler/guide/notebook_magics.html)
+for cell profiling, recursive tracing, comparisons, and exports:
 
 ```bash
 pip install "scope-profiler[notebook]"

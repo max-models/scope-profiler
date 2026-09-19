@@ -473,6 +473,17 @@ class ProfileManager:
         return module_name in cls._internal_modules
 
     @classmethod
+    def _recorded_path(cls, filename: str) -> str:
+        """The form of a source path that is stored in the output.
+
+        ``metadata_detail="minimal"`` keeps only the file name: an absolute
+        path usually carries a user name and project directory.
+        """
+        if cls._config.metadata_detail == "minimal":
+            return os.path.basename(filename)
+        return filename
+
+    @classmethod
     def _capture_region_source(cls, region: BaseProfileRegion) -> None:
         """Record a freshly created region's call site, if it has one.
 
@@ -508,7 +519,7 @@ class ProfileManager:
         filename = frame.f_code.co_filename
         lineno = frame.f_lineno
         region.set_source(
-            filename,
+            cls._recorded_path(filename),
             lineno,
             (
                 call_site_source(filename, lineno)
@@ -803,11 +814,16 @@ class ProfileManager:
             if cls._config.capture_region_source:
                 source = function_source(func)
                 if source is not None:
-                    region.set_source(*source)
+                    filename, first_lineno, text = source
+                    region.set_source(cls._recorded_path(filename), first_lineno, text)
             else:
                 code = getattr(func, "__code__", None)
                 if code is not None:
-                    region.set_source(code.co_filename, code.co_firstlineno, None)
+                    region.set_source(
+                        cls._recorded_path(code.co_filename),
+                        code.co_firstlineno,
+                        None,
+                    )
         _bound[0] = region
         _bound[1] = region.wrap(func)
         return region
@@ -1718,6 +1734,7 @@ class ProfileManager:
             if not isinstance(region, LineProfilerRegion):
                 continue
             for record in region.manual_line_records(unit=1e-9):
+                record["filename"] = cls._recorded_path(record["filename"])
                 records.append({"region": region_name, **record})
             stats = region.get_stats()
             unit = float(getattr(stats, "unit", 1.0))
@@ -1727,7 +1744,7 @@ class ProfileManager:
                 records.append(
                     {
                         "region": region_name,
-                        "filename": str(filename),
+                        "filename": cls._recorded_path(str(filename)),
                         "function": str(function),
                         "first_lineno": int(first_lineno),
                         "line_numbers": np.asarray(
@@ -2423,6 +2440,15 @@ class ProfileManager:
             await time rather than charging it to the region. Per-task
             running and awaiting totals are available from
             :attr:`~scope_profiler.results.ProfilingResults.tasks`.
+        metadata_detail : {"full", "minimal"}, optional
+            How much of the run's environment is recorded (default:
+            ``"full"``). ``"minimal"`` leaves the user name, host name,
+            working directory, loaded modules, environment variables and
+            ``SLURM_*`` variables out of the run metadata, and stores only
+            the file name of each region's and line profile's source file.
+            Use it for files that will be shared outside the machine or
+            project they were recorded on. Region source *text* is
+            controlled separately by ``capture_region_source``.
         capture_region_source : bool, optional
             Record where each region is defined -- the ``with`` block or the
             decorated function -- once per distinct source file, the first
