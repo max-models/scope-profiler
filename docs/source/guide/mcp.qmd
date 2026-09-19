@@ -130,6 +130,10 @@ metadata grouped the same way (run info, hardware, MPI/OpenMP, Slurm), and a
 LIKWID hardware-counter summary when the run recorded one. Large,
 rarely-useful metadata (raw environment variables, unrecognized fields) is
 collapsed to a count by default; `full_metadata=True` returns everything.
+The run and Slurm sections are always returned, so they include the user name,
+host name, working directory and job variables a file holds; record files meant
+to be shared with `metadata_detail="minimal"` (see
+{doc}`hdf5_and_python_api`) to keep those out of the file in the first place.
 
 ### `compare_profiles`
 

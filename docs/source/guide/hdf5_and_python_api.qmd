@@ -107,6 +107,61 @@ Metadata is collected on every rank but only rank 0's copy is stored, so it
 describes the run as a whole. Per-task values such as `SLURM_PROCID` reflect
 rank 0.
 
+### Sharing a profile: what identifies you
+
+By default a profiling file records more than timings. Before you attach one to
+a bug report, commit it to a repository, or send it to a collaborator, know
+that it can contain:
+
+- **who and where**: `user`, `hostname` (also inside `uname`) and
+  `working_directory`;
+- **your software layout**: `PATH`, `LD_LIBRARY_PATH`, `VIRTUAL_ENV`, the
+  module variables and `modules`, which list directories under your home
+  directory, project names and site-specific install paths;
+- **your job**: every `SLURM_*` / `SLURMD_*` variable, including the job name,
+  account-related fields and node names;
+- **your code's location**: the absolute path of the file and line each region
+  is defined in (also carried into the JSON and Chrome-trace exports, the HTML
+  report and `.prof` files), and of every file in the line profile;
+- **your code**: the source text of each region, but only when you turned on
+  `capture_region_source=True`;
+- **your Memray capture path**, as `memory_profile_path`, when `use_memray` is
+  on.
+
+No other environment variable is read, so secrets held in variables such as
+`AWS_SECRET_ACCESS_KEY` are never stored. Region names, `label` and the names
+you give `metadata(...)` values are yours to choose and are stored as written.
+
+To record only what describes the run itself, set `metadata_detail="minimal"`:
+
+```python
+ProfileManager.setup(file_path="run.h5", metadata_detail="minimal")
+```
+
+| | `"full"` (default) | `"minimal"` |
+| --- | --- | --- |
+| `timestamp`, `platform`, `chip_information`, `python_version`, `scope_profiler_version` | recorded | recorded |
+| `omp_num_threads`, `mpi_size`, `total_cores` | recorded | recorded |
+| `label`, `start_time_ns`, `finalize_time_ns` | recorded | recorded |
+| `user`, `hostname`, `uname`, `working_directory`, `modules` | recorded | **left out** |
+| environment variables and `SLURM_*` / `SLURMD_*` | recorded | **left out** |
+| `memory_profile_path` | recorded | **left out** |
+| source file of a region or line profile | full path | **file name only** |
+| region source text | only with `capture_region_source` | only with `capture_region_source` |
+
+`"minimal"` still keeps everything the plotting and scaling tools use: the
+thread and rank counts are what `--x omp_num_threads` and
+`total_cores` read. What it cannot make private is what you put there
+yourself, so the source text of `capture_region_source`, region names and
+labels stay as you wrote them. It is applied when the file is recorded, so a
+file recorded with `"full"` cannot be reduced afterwards; every export,
+report and the terminal UI simply show what the file holds. The absolute path
+of the input file is the one thing the HTML report adds on its own (its
+`File:` line).
+
+The same setting can go in a TOML settings file (`metadata_detail = "minimal"`
+under `[profiling]`) or in a shared `ProfilingOptions`.
+
 ## Reading data with `read_h5`
 
 ```python

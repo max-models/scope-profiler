@@ -15,7 +15,7 @@ except ModuleNotFoundError:  # Python 3.10
 tomllib = _tomllib
 
 from scope_profiler.concurrency import ConcurrencyTracker
-from scope_profiler.metadata import collect_metadata
+from scope_profiler.metadata import check_metadata_detail, collect_metadata
 from scope_profiler.mpi_launch import get_comm
 
 if TYPE_CHECKING:
@@ -256,6 +256,13 @@ class ProfilingOptions:
         walk), so it stays under a millisecond for a typical file but can
         reach tenths of a second per rank for a single file with thousands
         of lines, paid independently by every rank.
+    metadata_detail : {"full", "minimal"} or None
+        How much of the run's environment is recorded (default: ``"full"``).
+        ``"minimal"`` drops the user name, host name, working directory,
+        loaded modules, environment variables and ``SLURM_*`` variables from
+        the run metadata, and stores only the file name (not the directory)
+        of each region's and line profile's source file. Use it for files
+        that will leave the machine they were recorded on.
     buffer_limit : int or None
         Initial number of profiling events preallocated per region (default:
         1024). Buffers grow on demand, so this is a starting size rather
@@ -307,6 +314,7 @@ class ProfilingOptions:
     track_threads: bool | None = None
     track_async: bool | None = None
     capture_region_source: bool | None = None
+    metadata_detail: str | None = None
     buffer_limit: int | None = None
     output_mode: str | None = None
     hdf5_compression: str | None = None
@@ -384,6 +392,7 @@ class SetupOptions(TypedDict, total=False):
     track_threads: bool
     track_async: bool
     capture_region_source: bool
+    metadata_detail: str
     buffer_limit: int
     output_mode: str
     hdf5_compression: str
@@ -645,6 +654,7 @@ class ProfilingConfig:
         track_threads: bool = False,
         track_async: bool = False,
         capture_region_source: bool = False,
+        metadata_detail: str = "full",
         buffer_limit: int = 1024,
         output_mode: str = "auto",
         hdf5_compression: str | None = None,
@@ -718,6 +728,14 @@ class ProfilingConfig:
             ranks, ~2.9s at 64, measured on a shared, oversubscribed login
             node with such a file). Set to True to enable it; for a typical,
             modestly sized codebase the cost is negligible.
+        metadata_detail : {"full", "minimal"}
+            How much of the run's environment is recorded. ``"full"``
+            (default) stores the user name, host name, working directory,
+            loaded modules, ``PATH``-like variables and ``SLURM_*``
+            variables. ``"minimal"`` stores only versions, platform, CPU
+            model and thread/rank counts, and reduces each region's and line
+            profile's source file to its bare file name. Region source *text*
+            is controlled separately by ``capture_region_source``.
         buffer_limit : int
             Initial number of in-memory records to preallocate per region.
             The buffers grow on demand, so this is a starting size, not a cap.
@@ -815,6 +833,7 @@ class ProfilingConfig:
         self._hdf5_compression_level = hdf5_compression_level
         self._hdf5_chunk_size = hdf5_chunk_size
         self._capture_region_source = capture_region_source
+        self._metadata_detail = check_metadata_detail(metadata_detail)
         if aggregation_mode and (
             use_line_profiler
             or use_gpu_timing
@@ -875,7 +894,10 @@ class ProfilingConfig:
         # Environment metadata (hostname, OpenMP threads, versions, ...).
         # Collected on every rank, but only rank 0's copy ends up persisted
         # (see ProfileManager.finalize), so it is treated as global for the run.
-        self._metadata = collect_metadata(mpi_size=self._size)
+        self._metadata = collect_metadata(
+            mpi_size=self._size,
+            detail=self._metadata_detail,
+        )
         # Persisted so post-processing can express timestamps relative to the
         # start of the run rather than to the first region entry.
         self._metadata["start_time_ns"] = self._start_time_ns
@@ -884,7 +906,7 @@ class ProfilingConfig:
         self._label = label or None
         if self._label is not None:
             self._metadata["label"] = self._label
-        if self._memory_profile_path is not None:
+        if self._memory_profile_path is not None and self._metadata_detail == "full":
             self._metadata["memory_profile_path"] = str(self._memory_profile_path)
 
         self._pylikwid: Any = None
@@ -1090,6 +1112,11 @@ class ProfilingConfig:
     def recursive_profile(self) -> bool:
         """Return whether recursive decorator profiling is enabled by default."""
         return self._recursive_profile
+
+    @property
+    def metadata_detail(self) -> str:
+        """``"full"`` or ``"minimal"``: how much environment metadata is recorded."""
+        return self._metadata_detail
 
     @property
     def capture_region_source(self) -> bool:

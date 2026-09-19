@@ -15,6 +15,12 @@ from datetime import datetime, timezone
 
 MetadataValue = str | int | list[str]
 
+#: The accepted ``metadata_detail`` levels. ``"full"`` records everything this
+#: module can collect. ``"minimal"`` keeps only what describes the run's shape
+#: and software (versions, platform, CPU model, thread and rank counts) and
+#: leaves out anything that names a person, a machine, a directory or a job.
+METADATA_DETAILS = ("full", "minimal")
+
 # Common OpenMP runtime library names across platforms/compilers.
 _OMP_LIBRARY_NAMES = (
     "libomp.so",
@@ -151,7 +157,19 @@ def _truncate(value: MetadataValue) -> MetadataValue:
     return value
 
 
-def collect_metadata(mpi_size: int = 1) -> dict[str, MetadataValue]:
+def check_metadata_detail(detail: str) -> str:
+    """Return ``detail`` if it is a known level, else raise ``ValueError``."""
+    if detail not in METADATA_DETAILS:
+        raise ValueError(
+            f"metadata_detail must be one of {METADATA_DETAILS}, got {detail!r}",
+        )
+    return detail
+
+
+def collect_metadata(
+    mpi_size: int = 1,
+    detail: str = "full",
+) -> dict[str, MetadataValue]:
     """Gather metadata describing the current run's environment.
 
     Parameters
@@ -160,6 +178,13 @@ def collect_metadata(mpi_size: int = 1) -> dict[str, MetadataValue]:
         Number of MPI ranks the run was launched with (default: 1). Used to
         derive ``total_cores`` (``mpi_size * omp_num_threads``), a single
         combined parallelism value useful as a scaling-plot x-axis.
+    detail : {"full", "minimal"}, optional
+        ``"full"`` (default) records everything below. ``"minimal"`` records
+        only ``timestamp``, ``platform``, ``chip_information``,
+        ``python_version``, ``scope_profiler_version``, ``omp_num_threads``,
+        ``mpi_size`` and ``total_cores``: no user name, host name (also part
+        of ``uname``), working directory, loaded modules, environment
+        variables or ``SLURM_*`` variables.
 
     Returns
     -------
@@ -170,6 +195,7 @@ def collect_metadata(mpi_size: int = 1) -> dict[str, MetadataValue]:
         upper-case names (``PATH``, ``SLURM_JOB_ID``, ...) and are only
         present when set.
     """
+    check_metadata_detail(detail)
     from importlib.metadata import PackageNotFoundError, version
 
     try:
@@ -183,19 +209,26 @@ def collect_metadata(mpi_size: int = 1) -> dict[str, MetadataValue]:
         # Wall-clock metadata is explicitly UTC. Timing data itself remains
         # on perf_counter_ns(), whose monotonic origin is process-local.
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "hostname": socket.gethostname(),
         "platform": platform.platform(),
-        "uname": " ".join(platform.uname()),
         "chip_information": _detect_chip_information(),
         "python_version": platform.python_version(),
         "scope_profiler_version": scope_profiler_version,
-        "working_directory": os.getcwd(),
         "omp_num_threads": omp_num_threads,
         "mpi_size": mpi_size,
         "total_cores": mpi_size * omp_num_threads,
-        "user": getpass.getuser(),
-        "modules": _loaded_modules(),
     }
-    metadata.update(_collect_environment_variables())
+    if detail == "full":
+        metadata.update(
+            {
+                "hostname": socket.gethostname(),
+                # platform.uname() includes the node name, so it is as
+                # identifying as ``hostname`` and belongs to the full level.
+                "uname": " ".join(platform.uname()),
+                "working_directory": os.getcwd(),
+                "user": getpass.getuser(),
+                "modules": _loaded_modules(),
+            },
+        )
+        metadata.update(_collect_environment_variables())
 
     return {key: _truncate(value) for key, value in metadata.items()}
