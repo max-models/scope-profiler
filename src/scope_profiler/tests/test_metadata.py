@@ -1,11 +1,13 @@
 """Tests for environment metadata collection and its HDF5 round-trip."""
 
 import getpass
+import os
 import platform
 import socket
 from datetime import datetime
 
 import h5py
+import pytest
 
 from scope_profiler import ProfileManager, read_h5
 from scope_profiler.metadata import (
@@ -175,3 +177,112 @@ def test_empty_modules_round_trip(tmp_path, monkeypatch):
         assert handle["metadata"].attrs["modules"].shape == (0,)
 
     assert read_h5(file_path).metadata["modules"] == []
+
+
+# Fields that identify a person, a machine, a directory or a job.
+IDENTIFYING_FIELDS = {
+    "user",
+    "hostname",
+    "uname",
+    "working_directory",
+    "modules",
+    *_ENVIRONMENT_VARIABLES,
+}
+
+MINIMAL_FIELDS = {
+    "timestamp",
+    "platform",
+    "chip_information",
+    "python_version",
+    "scope_profiler_version",
+    "omp_num_threads",
+    "mpi_size",
+    "total_cores",
+}
+
+
+def test_minimal_metadata_holds_only_run_shape_and_versions(monkeypatch):
+    _apply_environment(monkeypatch, SAMPLE_ENVIRONMENT)
+    _apply_environment(monkeypatch, SAMPLE_SLURM)
+
+    metadata = collect_metadata(mpi_size=4, detail="minimal")
+
+    assert set(metadata) == MINIMAL_FIELDS
+    assert metadata["mpi_size"] == 4
+    assert metadata["total_cores"] == 4 * metadata["omp_num_threads"]
+
+
+def test_full_metadata_is_the_default(monkeypatch):
+    _apply_environment(monkeypatch, SAMPLE_ENVIRONMENT)
+
+    assert collect_metadata().keys() == collect_metadata(detail="full").keys()
+    assert MINIMAL_FIELDS | IDENTIFYING_FIELDS <= set(collect_metadata())
+
+
+def test_unknown_metadata_detail_is_rejected():
+    with pytest.raises(ValueError, match="metadata_detail"):
+        collect_metadata(detail="everything")
+    with pytest.raises(ValueError, match="metadata_detail"):
+        ProfileManager.setup(metadata_detail="everything")
+
+
+def test_minimal_metadata_leaves_no_trace_in_the_written_file(tmp_path, monkeypatch):
+    _apply_environment(monkeypatch, SAMPLE_ENVIRONMENT)
+    _apply_environment(monkeypatch, SAMPLE_SLURM)
+
+    file_path = tmp_path / "profiling_data.h5"
+    ProfileManager.setup(
+        file_path=str(file_path),
+        label="scaling",
+        metadata_detail="minimal",
+    )
+    with ProfileManager.profile_region("region"):
+        pass
+    ProfileManager.finalize(verbose=False)
+
+    metadata = read_h5(file_path).metadata
+
+    assert not IDENTIFYING_FIELDS & set(metadata)
+    assert not [key for key in metadata if key.startswith("SLURM")]
+    assert MINIMAL_FIELDS <= set(metadata)
+    # The run's own bookkeeping and the user's chosen label survive.
+    assert metadata["label"] == "scaling"
+    assert "start_time_ns" in metadata
+
+    # Nothing identifying anywhere in the file's bytes, either.
+    raw = file_path.read_bytes()
+    # (Skip names too short to be distinguishable from arbitrary bytes.)
+    for needle in (getpass.getuser(), socket.gethostname(), str(tmp_path)):
+        if len(needle) >= 6:
+            assert needle.encode() not in raw
+
+
+def test_minimal_metadata_reduces_source_paths_to_file_names(tmp_path):
+    file_path = tmp_path / "profiling_data.h5"
+    ProfileManager.setup(file_path=str(file_path), metadata_detail="minimal")
+
+    @ProfileManager.profile("decorated")
+    def work():
+        pass
+
+    work()
+    with ProfileManager.profile_region("block"):
+        pass
+    ProfileManager.finalize(verbose=False)
+
+    results = read_h5(file_path)
+    for name in ("decorated", "block"):
+        assert results[name].source_file == os.path.basename(__file__)
+        assert results[name].source_lineno is not None
+
+
+def test_minimal_metadata_can_be_set_from_toml(tmp_path):
+    config_path = tmp_path / "profiling.toml"
+    config_path.write_text("[profiling]\nmetadata_detail = 'minimal'\n")
+
+    ProfileManager.setup(config_path=config_path, deactivate_file_output=True)
+
+    assert ProfileManager.get_config().metadata_detail == "minimal"
+    assert set(ProfileManager.get_config().metadata) - MINIMAL_FIELDS == {
+        "start_time_ns",
+    }
