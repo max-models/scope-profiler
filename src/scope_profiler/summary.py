@@ -493,7 +493,50 @@ def region_rows(
     rows = display_rows
 
     if sort == "start":
-        rows.sort(key=lambda row: row["start"])
+        # A summary row pools every invocation of a call path.  Sorting that
+        # flat set by its earliest invocation can put a later descendant
+        # after an unrelated sibling whose own earliest invocation happened
+        # in an earlier (possibly empty) episode.  The table renderer uses
+        # indentation, so rows must instead be emitted as complete subtrees.
+        # Sort roots and siblings chronologically, then traverse pre-order.
+        # This preserves the useful chronological ordering without making a
+        # child appear beneath the wrong preceding row.
+        paths = {
+            tuple(row["call_path"].split(" > ")): row
+            for row in rows
+            if "call_path" in row
+        }
+        children = {path: [] for path in paths}
+        roots = []
+        for path, row in paths.items():
+            parent = path[:-1]
+            if parent in paths:
+                children[parent].append((path, row))
+            else:
+                roots.append((path, row))
+
+        def subtree_rows(path, row):
+            subtree = [row]
+            for child_path, child in sorted(
+                children[path], key=lambda item: item[1]["start"]
+            ):
+                subtree.extend(subtree_rows(child_path, child))
+            return subtree
+
+        # Rows without a reconstructable call path remain chronological too.
+        # They cannot be part of the indented tree, so treat each as a root
+        # block when merging the chronologically ordered tree blocks.
+        no_path_rows = [row for row in rows if "call_path" not in row]
+        blocks = [
+            (row["start"], index, subtree_rows(path, row))
+            for index, (path, row) in enumerate(roots)
+        ]
+        root_count = len(blocks)
+        blocks.extend(
+            (row["start"], root_count + index, [row])
+            for index, row in enumerate(no_path_rows)
+        )
+        rows = [row for _, _, block in sorted(blocks) for row in block]
     else:
         # Sort by name first so that the stable sort below breaks ties
         # alphabetically rather than by whatever order the file happened to use.

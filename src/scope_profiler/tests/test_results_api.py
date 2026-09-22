@@ -145,6 +145,88 @@ def test_summary_pools_same_named_regions_by_call_path(capsys):
     assert "5.0e-08" in work_lines[1]
 
 
+def test_summary_start_order_keeps_aggregated_call_path_subtrees_together():
+    """An early empty episode must not detach a later path descendant."""
+    results = ProfilingResults(
+        {
+            "run": MPIRegion(
+                "run", {0: Region(np.array([0, 20]), np.array([10, 100]))}
+            ),
+            "loop": MPIRegion(
+                "loop", {0: Region(np.array([3, 25]), np.array([4, 90]))}
+            ),
+            "final": MPIRegion(
+                "final", {0: Region(np.array([5, 91]), np.array([6, 99]))}
+            ),
+            "solve": MPIRegion(
+                "solve", {0: Region(np.array([26, 92]), np.array([30, 95]))}
+            ),
+        }
+    )
+
+    from scope_profiler.summary import region_rows
+
+    assert [row["call_path"] for row in region_rows(results)] == [
+        "run",
+        "run > loop",
+        "run > loop > solve",
+        "run > final",
+        "run > final > solve",
+    ]
+
+
+def _staged_branch_results(branches):
+    """Build repeated empty/real branch episodes with arbitrary depths."""
+    intervals_by_name = {"run": ([0, 1_000], [100, 10_000])}
+    for branch_index, branch in enumerate(branches):
+        base = 1_100 + branch_index * 1_000
+        for depth, name in enumerate(branch):
+            starts, ends = intervals_by_name.setdefault(name, ([], []))
+            if depth == 0:
+                # The first stage has only this empty branch root.  Its early
+                # start is what previously separated it from real descendants.
+                starts.append(10 + branch_index * 10)
+                ends.append(11 + branch_index * 10)
+            starts.append(base + depth * 10)
+            ends.append(base + 900 - depth * 10)
+    return ProfilingResults(
+        {
+            name: MPIRegion(name, {0: Region(np.array(starts), np.array(ends))})
+            for name, (starts, ends) in intervals_by_name.items()
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "branches",
+    [
+        (("loop", "solve"), ("final", "solve")),
+        (("prepare", "assemble", "factor"), ("final", "solve")),
+        (("predict", "solve"), ("correct", "solve"), ("final", "solve")),
+        (("loop", "solve", "minimize"), ("final", "solve")),
+        (("load", "parse"), ("compute", "work", "kernel")),
+        (("warmup", "work"), ("production", "work", "reduce")),
+        (("first", "shared", "leaf"), ("second", "shared", "leaf")),
+        (("outer_a", "middle", "inner", "leaf"), ("outer_b", "work")),
+        (("precondition", "iterate", "residual"), ("postprocess", "write")),
+        (("phase_a", "task", "step"), ("phase_b", "task"), ("phase_c", "task")),
+    ],
+)
+def test_summary_start_order_keeps_each_staged_branch_subtree_together(branches):
+    """Ten varied staged profiles guard against detached summary children."""
+    from scope_profiler.summary import region_rows
+
+    expected_paths = ["run"]
+    for branch in branches:
+        expected_paths.extend(
+            "run > " + " > ".join(branch[:depth]) for depth in range(1, len(branch) + 1)
+        )
+
+    assert [
+        row["call_path"] for row in region_rows(_staged_branch_results(branches))
+    ] == (expected_paths)
+
+
 def test_summary_percentages_use_fixed_point_until_tiny():
     from scope_profiler.summary import _format_percentage
 
