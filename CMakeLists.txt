@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(scope-profiler VERSION 0.7.1 LANGUAGES C CXX)
+project(scope-profiler VERSION 0.7.2 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)

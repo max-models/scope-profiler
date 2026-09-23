@@ -14,16 +14,28 @@ import shlex
 import sys
 
 import numpy as np
-from tabulate import tabulate
+from tabulate import DataRow, Line, TableFormat, tabulate
+
+_REGION_TABLE_FORMAT = TableFormat(
+    lineabove=Line("╭", "─", "──", "╮"),
+    linebelowheader=Line("├", "─", "──", "┤"),
+    linebetweenrows=None,
+    linebelow=Line("╰", "─", "──", "╯"),
+    headerrow=DataRow("│", "  ", "│"),
+    datarow=DataRow("│", "  ", "│"),
+    padding=1,
+    with_header_hide=None,
+)
 
 
-def _print_table(rows, headers, stream, title=None) -> None:
-    """Print a rounded, header-separated table."""
+def _print_table(rows, headers, stream, title=None, tablefmt="rounded_outline") -> None:
+    """Print an aligned, header-separated table."""
     lines = tabulate(
         rows,
         headers=headers,
-        tablefmt="rounded_outline",
+        tablefmt=tablefmt,
         disable_numparse=True,
+        preserve_whitespace=True,
     ).splitlines()
     if title:
         width = max(len(line) for line in lines)
@@ -67,7 +79,7 @@ _COLUMNS = (
     ("total", "total [s]"),
     ("percent", "% session"),
     ("parent_percent", "% parent"),
-    ("avg", "avg [s]"),
+    ("avg", "avg/call [s]"),
     ("min", "min [s]"),
     ("max", "max [s]"),
     ("first", "first [s]"),
@@ -83,11 +95,8 @@ REGION_TABLE_COLUMN_NAMES = tuple(key for key, _ in _COLUMNS)
 REGION_TABLE_COLUMNS = ("region", *REGION_TABLE_COLUMN_NAMES[1:])
 DEFAULT_REGION_TABLE_COLUMNS = (
     "region",
-    "calls",
     "percent",
-    "parent_percent",
     "total",
-    "avg",
 )
 _COLUMN_ALIASES = {"region": "name", "name": "name"}
 _COLUMN_ALIASES.update({key: key for key, _ in _COLUMNS if key != "name"})
@@ -375,6 +384,20 @@ def region_rows(
     for rank in selected_ranks:
         try:
             calls = results.call_stack(rank=rank, include=include, exclude=exclude)
+            if include is not None or exclude is not None:
+                # Hidden children still consume time: filtering the display
+                # must not turn their duration into their parent's own time.
+                full_calls = results.call_stack(rank=rank)
+                exclusive_by_call = {
+                    (call["name"], call["start"], call["end"]): call[
+                        "exclusive_duration"
+                    ]
+                    for call in full_calls
+                }
+                for call in calls:
+                    call["exclusive_duration"] = exclusive_by_call[
+                        (call["name"], call["start"], call["end"])
+                    ]
         except (NestingError, EventDataUnavailableError):
             # Keep summary output available for legacy profiles containing
             # overlapping intervals that cannot form a call tree.  Do not
@@ -493,7 +516,50 @@ def region_rows(
     rows = display_rows
 
     if sort == "start":
-        rows.sort(key=lambda row: row["start"])
+        # A summary row pools every invocation of a call path.  Sorting that
+        # flat set by its earliest invocation can put a later descendant
+        # after an unrelated sibling whose own earliest invocation happened
+        # in an earlier (possibly empty) episode.  The table renderer uses
+        # indentation, so rows must instead be emitted as complete subtrees.
+        # Sort roots and siblings chronologically, then traverse pre-order.
+        # This preserves the useful chronological ordering without making a
+        # child appear beneath the wrong preceding row.
+        paths = {
+            tuple(row["call_path"].split(" > ")): row
+            for row in rows
+            if "call_path" in row
+        }
+        children = {path: [] for path in paths}
+        roots = []
+        for path, row in paths.items():
+            parent = path[:-1]
+            if parent in paths:
+                children[parent].append((path, row))
+            else:
+                roots.append((path, row))
+
+        def subtree_rows(path, row):
+            subtree = [row]
+            for child_path, child in sorted(
+                children[path], key=lambda item: item[1]["start"]
+            ):
+                subtree.extend(subtree_rows(child_path, child))
+            return subtree
+
+        # Rows without a reconstructable call path remain chronological too.
+        # They cannot be part of the indented tree, so treat each as a root
+        # block when merging the chronologically ordered tree blocks.
+        no_path_rows = [row for row in rows if "call_path" not in row]
+        blocks = [
+            (row["start"], index, subtree_rows(path, row))
+            for index, (path, row) in enumerate(roots)
+        ]
+        root_count = len(blocks)
+        blocks.extend(
+            (row["start"], root_count + index, [row])
+            for index, row in enumerate(no_path_rows)
+        )
+        rows = [row for _, _, block in sorted(blocks) for row in block]
     else:
         # Sort by name first so that the stable sort below breaks ties
         # alphabetically rather than by whatever order the file happened to use.
@@ -507,9 +573,9 @@ def region_rows(
     return rows
 
 
-def _format_duration(value) -> str:
+def _format_duration(value, decimals=3) -> str:
     """Format a duration in seconds, or a dash when no timing was recorded."""
-    return "-" if value is None else f"{value:.1e}"
+    return "-" if value is None else f"{value:.{decimals}f}"
 
 
 def _format_count(value) -> str:
@@ -523,27 +589,29 @@ def _format_count(value) -> str:
     return str(value)
 
 
-def _format_percentage(value, denominator) -> str:
-    """Format a duration as a readable percentage of the session duration.
-
-    Fixed-point notation is easier to scan in terminal tables. Scientific
-    notation is retained only below 0.01%, where two decimal places would
-    otherwise turn a non-zero value into ``0.00%``.
-    """
+def _format_percentage(value, denominator, decimals=2) -> str:
+    """Format a duration as a percentage with the requested precision."""
     if value is None or denominator is None or denominator <= 0:
         return "-"
     percentage = 100.0 * value / denominator
-    if percentage and abs(percentage) < 0.01:
-        return f"{percentage:.1e}%"
-    return f"{percentage:.2f}%"
+    return f"{percentage:.{decimals}f}%"
+
+
+def _tree_prefix(row) -> str:
+    depth = row.get("depth", 0)
+    return f"{'│ ' * (depth - 1)}└─ " if depth else ""
 
 
 def _display_region_name(row) -> str:
     """Render a hierarchical name, marking a collapsed recursive chain."""
-    depth = row.get("depth", 0)
-    prefix = f"{'│ ' * (depth - 1)}└─ " if depth else ""
+    prefix = _tree_prefix(row)
     recursive = " ↻" if row.get("recursive") else ""
     return f"{prefix}{row['name']}{recursive}"
+
+
+def _column_indent(row) -> str:
+    """Match the region's tree indentation using only spaces."""
+    return " " * len(_tree_prefix(row))
 
 
 def print_region_table(
@@ -569,15 +637,14 @@ def print_region_table(
     suppress_notes : bool, optional
         Don't print the explanatory notes below the table (default: False).
     total_time : float, optional
-        Wall-clock seconds from ``setup()`` to ``finalize()`` (see
-        :attr:`~scope_profiler.results.ProfilingResults.total_time`), printed
-        below the TOTAL row when given. Unlike that row -- which sums region
-        durations and so can exceed the run's real duration when regions
-        nest -- this is the run's own actual wall-clock time.
+        Accepted for compatibility. Session elapsed time is shown in the
+        ``scope_profiler.session`` row.
     columns : list of str or str, optional
-        Region summary columns to print. Defaults to ``region``, ``calls``,
-        ``percent`` and ``avg``. The optional ``total`` column remains
-        available for callers that need aggregate duration. The percentage is
+        Region summary columns to print. Defaults to ``region``,
+        ``percent`` and ``total``. An indented ``(own)`` row shows
+        time excluding children for each parent region. Call counts other than one
+        appear after region names unless a separate ``calls`` column is
+        explicitly selected. The percentage is
         relative to ``scope_profiler.session``. The public name for the first
         column is ``region``; ``name`` is accepted as an alias for Python
         callers.
@@ -604,18 +671,25 @@ def print_region_table(
         # Percentages are defined relative to the session root. When a
         # filtered table does not contain that root, omit the unusable column
         # from the default layout rather than filling it with dashes.
-        columns = ("region", "calls", "total", "avg")
+        columns = ("region", "total")
     selected_columns = normalize_region_table_columns(columns)
+    inline_counts = not any(key == "calls" for key, _ in selected_columns)
 
     formatted = [
         {
-            "name": _display_region_name(row),
+            "name": _display_region_name(row)
+            + (
+                f" ({_format_count(row['calls'])}x)"
+                if inline_counts and row["calls"] != 1
+                else ""
+            ),
             "ranks": str(row["num_ranks"]),
             "calls": _format_count(row["calls"]),
-            "total": _format_duration(row["total"]),
+            "total": _column_indent(row) + _format_duration(row["total"], decimals=6),
             # The session root represents the complete run, so keep it at
             # 100% even when exclusive attribution is selected.
-            "percent": _format_percentage(
+            "percent": _column_indent(row)
+            + _format_percentage(
                 (
                     row["total"]
                     if percentage_mode == "exclusive"
@@ -623,12 +697,16 @@ def print_region_table(
                     else row.get(percentage_mode)
                 ),
                 session_total,
+                decimals=2,
             ),
-            "parent_percent": _format_percentage(
+            # Match the hierarchy without repeating the region's tree lines.
+            "parent_percent": _column_indent(row)
+            + _format_percentage(
                 row.get("coverage"),
                 row.get("parent_coverage"),
             ),
-            "avg": _format_duration(row["avg"]),
+            "avg": _column_indent(row)
+            + ("-" if row["avg"] is None else f"{row['avg']:.3e}"),
             "min": _format_duration(row["min"]),
             "max": _format_duration(row["max"]),
             "first": _format_duration(row["first"]),
@@ -637,40 +715,45 @@ def print_region_table(
             "p50": _format_duration(row["p50"]),
             "p95": _format_duration(row["p95"]),
             "p99": _format_duration(row["p99"]),
-            "imbalance": _format_duration(row["imbalance"]),
+            "imbalance": "-" if row["imbalance"] is None else f"{row['imbalance']:.2f}",
         }
         for row in rows
     ]
 
-    # ``total_time`` is supplied by finalize()/print_summary(), but not by
-    # the inspect renderer. Keep the latter's historical region-only output.
-    if total_time is not None:
-        timed = [row["total"] for row in rows if row["total"] is not None]
-        total_row = {
-            "name": "TOTAL",
-            "ranks": "",
-            "calls": _format_count(sum(row["calls"] for row in rows)),
-            "total": _format_duration(sum(timed) if timed else None),
-            # TOTAL is the run represented by the session root, rather than
-            # the sum of the root and its nested contribution rows.
-            "percent": _format_percentage(session_total, session_total),
-            "parent_percent": "",
-            "avg": "",
-            "min": "",
-            "max": "",
-            "first": "",
-            "last": "",
-            "std": "",
-            "p50": "",
-            "p95": "",
-            "p99": "",
-            "imbalance": "",
-        }
-        formatted.append(total_row)
+    parent_paths = {
+        " > ".join(parts[:index])
+        for row in rows
+        if (parts := row.get("call_path", "").split(" > "))
+        for index in range(1, len(parts))
+    }
+    with_own_rows = []
+    for row, display in zip(rows, formatted):
+        with_own_rows.append(display)
+        if row.get("call_path") not in parent_paths:
+            continue
+        own = {"name": "(own)", "depth": row.get("depth", 0) + 1}
+        indent = _column_indent(own)
+        own_display = {key: "" for key in display}
+        own_display.update(
+            name=_display_region_name(own),
+            total=indent + _format_duration(row.get("exclusive"), decimals=6),
+            avg=indent
+            + (
+                f"{row['exclusive'] / row['calls']:.3e}"
+                if row.get("exclusive") is not None and row["calls"]
+                else "-"
+            ),
+            percent=indent
+            + _format_percentage(row.get("exclusive"), session_total, decimals=2),
+            parent_percent=indent
+            + _format_percentage(row.get("exclusive"), row.get("coverage")),
+        )
+        with_own_rows.append(own_display)
+    formatted = with_own_rows
 
     headers = [header for _, header in selected_columns]
     table_rows = [[row[key] for key, _ in selected_columns] for row in formatted]
-    _print_table(table_rows, headers, stream)
+    _print_table(table_rows, headers, stream, tablefmt=_REGION_TABLE_FORMAT)
     notes = []
     if title:
         notes.append(f"Summary: {title}")

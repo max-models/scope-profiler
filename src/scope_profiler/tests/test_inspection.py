@@ -115,7 +115,7 @@ def test_inspect_prints_metadata_and_regions(sample_file, capsys):
     # Region table with overall stats
     assert "Regions (2)" in out
     header = next(line for line in out.splitlines() if "total [s]" in line)
-    assert "total [s]" in header and "avg [s]" in header
+    assert "total [s]" in header and "avg/call [s]" not in header
     assert "min [s]" not in header and "std [s]" not in header
     assert "setup" in out and "solve" in out
     assert "TOTAL" not in out
@@ -155,13 +155,13 @@ def test_region_statistics_are_seconds(sample_file, capsys):
     line = next(
         line for line in capsys.readouterr().out.splitlines() if "solve" in line
     )
-    fields = [field.strip() for field in line.strip("│ ").split("│")]
+    fields = line.strip("│ ").split()
 
     assert fields[0] == "solve"
     assert fields[1] == "2"  # ranks
     assert fields[2] == "4"  # calls
     assert float(fields[3]) == pytest.approx(13.0)  # total
-    assert float(fields[4]) == pytest.approx(3.2)  # avg, displayed to 1 decimal
+    assert float(fields[4]) == pytest.approx(3.25)  # avg, displayed to 3 decimals
     assert float(fields[5]) == pytest.approx(2.0)  # min
     assert float(fields[6]) == pytest.approx(4.0)  # max
 
@@ -182,17 +182,19 @@ def test_long_metadata_values_are_clipped_unless_full(sample_file, capsys):
 def test_sorting(sample_file, capsys):
     inspect_file(sample_file, sort="total")
     ordered = [
-        line.strip("│ ").split("│")[0].strip()
+        line.strip("│ ").split()[0]
         for line in capsys.readouterr().out.splitlines()
-        if "│ setup" in line or "│ solve" in line
+        if line.strip("│ ").split()
+        and line.strip("│ ").split()[0] in {"setup", "solve"}
     ]
     assert ordered == ["solve", "setup"]  # solve: 13 s, setup: 4 s
 
     inspect_file(sample_file, sort="name")
     ordered = [
-        line.strip("│ ").split("│")[0].strip()
+        line.strip("│ ").split()[0]
         for line in capsys.readouterr().out.splitlines()
-        if "│ setup" in line or "│ solve" in line
+        if line.strip("│ ").split()
+        and line.strip("│ ").split()[0] in {"setup", "solve"}
     ]
     assert ordered == ["setup", "solve"]
 
@@ -211,8 +213,8 @@ def test_include_exclude_and_ranks(sample_file, capsys):
     line = next(
         line for line in capsys.readouterr().out.splitlines() if "solve" in line
     )
-    fields = [field.strip() for field in line.strip("│ ").split("│")]
-    assert fields[1] == "2"  # calls; ranks is no longer in the default table
+    fields = line.strip("│ ").split()
+    assert fields[1] == "(2x)"  # calls appear after the region name
 
 
 def test_section_switches(sample_file, capsys):
@@ -318,7 +320,7 @@ def test_cli_accepts_region_table_columns(sample_file, capsys):
     out = capsys.readouterr().out
     header = next(line for line in out.splitlines() if "total [s]" in line)
 
-    assert "total [s]" in header and "avg [s]" in header
+    assert "total [s]" in header and "avg/call [s]" in header
     assert "min [s]" not in header
     assert "imbalance [%]" not in header
     assert "setup" in out and "solve" in out and "TOTAL" not in out
