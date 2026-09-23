@@ -115,7 +115,7 @@ def test_inspect_prints_metadata_and_regions(sample_file, capsys):
     # Region table with overall stats
     assert "Regions (2)" in out
     header = next(line for line in out.splitlines() if "total [s]" in line)
-    assert "total [s]" in header and "avg [s]" in header
+    assert "total [s]" in header and "avg/call [s]" in header
     assert "min [s]" not in header and "std [s]" not in header
     assert "setup" in out and "solve" in out
     assert "TOTAL" not in out
@@ -318,7 +318,7 @@ def test_cli_accepts_region_table_columns(sample_file, capsys):
     out = capsys.readouterr().out
     header = next(line for line in out.splitlines() if "total [s]" in line)
 
-    assert "total [s]" in header and "avg [s]" in header
+    assert "total [s]" in header and "avg/call [s]" in header
     assert "min [s]" not in header
     assert "imbalance [%]" not in header
     assert "setup" in out and "solve" in out and "TOTAL" not in out

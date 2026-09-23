@@ -373,7 +373,7 @@ def test_reader_print_summary(sample_file, capsys):
 
     out = capsys.readouterr().out
     header = next(line for line in out.splitlines() if "region" in line)
-    assert "region" in header and "total [s]" in header and "avg [s]" in header
+    assert "region" in header and "total [s]" in header and "avg/call [s]" in header
     assert "% session" not in header
     assert "min [s]" not in header and "std [s]" not in header
     assert "setup" in out and "solve" in out
@@ -394,7 +394,7 @@ def test_reader_print_summary_accepts_columns(sample_file, capsys):
     assert "ranks" in header
     assert "n" in header
     assert "total [s]" in header
-    assert "avg [s]" in header
+    assert "avg/call [s]" in header
     assert "min [s]" not in header
     assert "imbalance [%]" not in header
     assert "setup" in out and "solve" in out and "TOTAL" not in out

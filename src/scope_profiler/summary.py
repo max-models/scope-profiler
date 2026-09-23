@@ -68,7 +68,7 @@ _COLUMNS = (
     ("total", "total [s]"),
     ("percent", "% session"),
     ("parent_percent", "% parent"),
-    ("avg", "avg [s]"),
+    ("avg", "avg/call [s]"),
     ("min", "min [s]"),
     ("max", "max [s]"),
     ("first", "first [s]"),
@@ -682,7 +682,8 @@ def print_region_table(
                 row.get("coverage"),
                 row.get("parent_coverage"),
             ),
-            "avg": _format_duration(row["avg"]),
+            "avg": _column_indent(row)
+            + ("-" if row["avg"] is None else f"{row['avg']:.3e}"),
             "min": _format_duration(row["min"]),
             "max": _format_duration(row["max"]),
             "first": _format_duration(row["first"]),
