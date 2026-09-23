@@ -260,6 +260,8 @@ def test_summary_percentage_uses_coverage_for_nested_regions(capsys):
     assert "80.00%" in output
     assert "60.00%" in output
     assert "% parent" not in output
+    assert "own [s]" not in output
+    assert output.count("(own)") == 2
     assert "(1x)" not in output
     header = next(line for line in output.splitlines() if "% session" in line)
     assert (
@@ -272,6 +274,14 @@ def test_summary_percentage_uses_coverage_for_nested_regions(capsys):
     assert "100.00%" in exclusive_output
     assert "20.00%" in exclusive_output
     assert "60.00%" in exclusive_output
+
+    from scope_profiler.summary import region_rows
+
+    rows = {row["name"]: row for row in region_rows(results)}
+    assert rows["outer"]["exclusive"] == pytest.approx(20 / NS)
+    assert rows["inner"]["exclusive"] == pytest.approx(60 / NS)
+    filtered = region_rows(results, include="outer")
+    assert filtered[0]["exclusive"] == pytest.approx(20 / NS)
 
 
 def test_region_without_any_calls_is_safe():

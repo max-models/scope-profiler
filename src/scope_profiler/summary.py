@@ -374,6 +374,20 @@ def region_rows(
     for rank in selected_ranks:
         try:
             calls = results.call_stack(rank=rank, include=include, exclude=exclude)
+            if include is not None or exclude is not None:
+                # Hidden children still consume time: filtering the display
+                # must not turn their duration into their parent's own time.
+                full_calls = results.call_stack(rank=rank)
+                exclusive_by_call = {
+                    (call["name"], call["start"], call["end"]): call[
+                        "exclusive_duration"
+                    ]
+                    for call in full_calls
+                }
+                for call in calls:
+                    call["exclusive_duration"] = exclusive_by_call[
+                        (call["name"], call["start"], call["end"])
+                    ]
         except (NestingError, EventDataUnavailableError):
             # Keep summary output available for legacy profiles containing
             # overlapping intervals that cannot form a call tree.  Do not
@@ -620,7 +634,8 @@ def print_region_table(
         nest -- this is the run's own actual wall-clock time.
     columns : list of str or str, optional
         Region summary columns to print. Defaults to ``region``,
-        ``percent``, ``total`` and ``avg``. Call counts other than one
+        ``percent``, ``total`` and ``avg``. An indented ``(own)`` row shows
+        time excluding children for each parent region. Call counts other than one
         appear after region names unless a separate ``calls`` column is
         explicitly selected. The percentage is
         relative to ``scope_profiler.session``. The public name for the first
@@ -696,6 +711,30 @@ def print_region_table(
         }
         for row in rows
     ]
+
+    parent_paths = {
+        " > ".join(parts[:index])
+        for row in rows
+        if (parts := row.get("call_path", "").split(" > "))
+        for index in range(1, len(parts))
+    }
+    with_own_rows = []
+    for row, display in zip(rows, formatted):
+        with_own_rows.append(display)
+        if row.get("call_path") not in parent_paths:
+            continue
+        own = {"name": "(own)", "depth": row.get("depth", 0) + 1}
+        indent = _column_indent(own)
+        own_display = {key: "" for key in display}
+        own_display.update(
+            name=_display_region_name(own),
+            total=indent + _format_duration(row.get("exclusive")),
+            percent=indent + _format_percentage(row.get("exclusive"), session_total),
+            parent_percent=indent
+            + _format_percentage(row.get("exclusive"), row.get("coverage")),
+        )
+        with_own_rows.append(own_display)
+    formatted = with_own_rows
 
     # ``total_time`` is supplied by finalize()/print_summary(), but not by
     # the inspect renderer. Keep the latter's historical region-only output.
