@@ -141,8 +141,8 @@ def test_summary_pools_same_named_regions_by_call_path(capsys):
         line for line in capsys.readouterr().out.splitlines() if "work" in line
     ]
     assert len(work_lines) == 2
-    assert "1.0e-08" in work_lines[0]
-    assert "5.0e-08" in work_lines[1]
+    assert "0.000" in work_lines[0]
+    assert "0.000" in work_lines[1]
 
 
 def test_summary_start_order_keeps_aggregated_call_path_subtrees_together():
@@ -227,12 +227,12 @@ def test_summary_start_order_keeps_each_staged_branch_subtree_together(branches)
     ] == (expected_paths)
 
 
-def test_summary_percentages_use_fixed_point_until_tiny():
+def test_summary_percentages_use_two_decimal_places():
     from scope_profiler.summary import _format_percentage
 
     assert _format_percentage(1, 1) == "100.00%"
     assert _format_percentage(0.001, 1) == "0.10%"
-    assert _format_percentage(0.00001, 1) == "1.0e-03%"
+    assert _format_percentage(0.00001, 1) == "0.00%"
 
 
 def test_summary_percentage_uses_coverage_for_nested_regions(capsys):

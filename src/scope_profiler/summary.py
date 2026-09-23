@@ -17,13 +17,14 @@ import numpy as np
 from tabulate import tabulate
 
 
-def _print_table(rows, headers, stream, title=None) -> None:
-    """Print a rounded, header-separated table."""
+def _print_table(rows, headers, stream, title=None, tablefmt="rounded_outline") -> None:
+    """Print an aligned, header-separated table."""
     lines = tabulate(
         rows,
         headers=headers,
-        tablefmt="rounded_outline",
+        tablefmt=tablefmt,
         disable_numparse=True,
+        preserve_whitespace=True,
     ).splitlines()
     if title:
         width = max(len(line) for line in lines)
@@ -83,10 +84,9 @@ REGION_TABLE_COLUMN_NAMES = tuple(key for key, _ in _COLUMNS)
 REGION_TABLE_COLUMNS = ("region", *REGION_TABLE_COLUMN_NAMES[1:])
 DEFAULT_REGION_TABLE_COLUMNS = (
     "region",
-    "calls",
-    "percent",
     "parent_percent",
     "total",
+    "percent",
     "avg",
 )
 _COLUMN_ALIASES = {"region": "name", "name": "name"}
@@ -552,7 +552,7 @@ def region_rows(
 
 def _format_duration(value) -> str:
     """Format a duration in seconds, or a dash when no timing was recorded."""
-    return "-" if value is None else f"{value:.1e}"
+    return "-" if value is None else f"{value:.3f}"
 
 
 def _format_count(value) -> str:
@@ -567,26 +567,28 @@ def _format_count(value) -> str:
 
 
 def _format_percentage(value, denominator) -> str:
-    """Format a duration as a readable percentage of the session duration.
-
-    Fixed-point notation is easier to scan in terminal tables. Scientific
-    notation is retained only below 0.01%, where two decimal places would
-    otherwise turn a non-zero value into ``0.00%``.
-    """
+    """Format a duration as a percentage with two decimal places."""
     if value is None or denominator is None or denominator <= 0:
         return "-"
     percentage = 100.0 * value / denominator
-    if percentage and abs(percentage) < 0.01:
-        return f"{percentage:.1e}%"
     return f"{percentage:.2f}%"
+
+
+def _tree_prefix(row) -> str:
+    depth = row.get("depth", 0)
+    return f"{'│ ' * (depth - 1)}└─ " if depth else ""
 
 
 def _display_region_name(row) -> str:
     """Render a hierarchical name, marking a collapsed recursive chain."""
-    depth = row.get("depth", 0)
-    prefix = f"{'│ ' * (depth - 1)}└─ " if depth else ""
+    prefix = _tree_prefix(row)
     recursive = " ↻" if row.get("recursive") else ""
     return f"{prefix}{row['name']}{recursive}"
+
+
+def _column_indent(row) -> str:
+    """Match the region's tree indentation using only spaces."""
+    return " " * len(_tree_prefix(row))
 
 
 def print_region_table(
@@ -618,9 +620,10 @@ def print_region_table(
         durations and so can exceed the run's real duration when regions
         nest -- this is the run's own actual wall-clock time.
     columns : list of str or str, optional
-        Region summary columns to print. Defaults to ``region``, ``calls``,
-        ``percent`` and ``avg``. The optional ``total`` column remains
-        available for callers that need aggregate duration. The percentage is
+        Region summary columns to print. Defaults to ``region``,
+        ``parent_percent``, ``total``, ``percent`` and ``avg``. Call counts
+        appear after region names unless a separate ``calls`` column is
+        explicitly selected. The percentage is
         relative to ``scope_profiler.session``. The public name for the first
         column is ``region``; ``name`` is accepted as an alias for Python
         callers.
@@ -647,18 +650,21 @@ def print_region_table(
         # Percentages are defined relative to the session root. When a
         # filtered table does not contain that root, omit the unusable column
         # from the default layout rather than filling it with dashes.
-        columns = ("region", "calls", "total", "avg")
+        columns = ("region", "total", "avg")
     selected_columns = normalize_region_table_columns(columns)
+    inline_counts = not any(key == "calls" for key, _ in selected_columns)
 
     formatted = [
         {
-            "name": _display_region_name(row),
+            "name": _display_region_name(row)
+            + (f" ({_format_count(row['calls'])}x)" if inline_counts else ""),
             "ranks": str(row["num_ranks"]),
             "calls": _format_count(row["calls"]),
-            "total": _format_duration(row["total"]),
+            "total": _column_indent(row) + _format_duration(row["total"]),
             # The session root represents the complete run, so keep it at
             # 100% even when exclusive attribution is selected.
-            "percent": _format_percentage(
+            "percent": _column_indent(row)
+            + _format_percentage(
                 (
                     row["total"]
                     if percentage_mode == "exclusive"
@@ -667,7 +673,9 @@ def print_region_table(
                 ),
                 session_total,
             ),
-            "parent_percent": _format_percentage(
+            # Match the hierarchy without repeating the region's tree lines.
+            "parent_percent": _column_indent(row)
+            + _format_percentage(
                 row.get("coverage"),
                 row.get("parent_coverage"),
             ),
@@ -680,7 +688,7 @@ def print_region_table(
             "p50": _format_duration(row["p50"]),
             "p95": _format_duration(row["p95"]),
             "p99": _format_duration(row["p99"]),
-            "imbalance": _format_duration(row["imbalance"]),
+            "imbalance": "-" if row["imbalance"] is None else f"{row['imbalance']:.2f}",
         }
         for row in rows
     ]
@@ -690,7 +698,12 @@ def print_region_table(
     if total_time is not None:
         timed = [row["total"] for row in rows if row["total"] is not None]
         total_row = {
-            "name": "TOTAL",
+            "name": "TOTAL"
+            + (
+                f" ({_format_count(sum(row['calls'] for row in rows))}x)"
+                if inline_counts
+                else ""
+            ),
             "ranks": "",
             "calls": _format_count(sum(row["calls"] for row in rows)),
             "total": _format_duration(sum(timed) if timed else None),
@@ -713,7 +726,7 @@ def print_region_table(
 
     headers = [header for _, header in selected_columns]
     table_rows = [[row[key] for key, _ in selected_columns] for row in formatted]
-    _print_table(table_rows, headers, stream)
+    _print_table(table_rows, headers, stream, tablefmt="simple")
     notes = []
     if title:
         notes.append(f"Summary: {title}")
