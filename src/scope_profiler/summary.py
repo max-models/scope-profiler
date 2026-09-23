@@ -86,7 +86,6 @@ DEFAULT_REGION_TABLE_COLUMNS = (
     "region",
     "percent",
     "total",
-    "avg",
 )
 _COLUMN_ALIASES = {"region": "name", "name": "name"}
 _COLUMN_ALIASES.update({key: key for key, _ in _COLUMNS if key != "name"})
@@ -563,9 +562,9 @@ def region_rows(
     return rows
 
 
-def _format_duration(value) -> str:
+def _format_duration(value, decimals=3) -> str:
     """Format a duration in seconds, or a dash when no timing was recorded."""
-    return "-" if value is None else f"{value:.3f}"
+    return "-" if value is None else f"{value:.{decimals}f}"
 
 
 def _format_count(value) -> str:
@@ -579,12 +578,12 @@ def _format_count(value) -> str:
     return str(value)
 
 
-def _format_percentage(value, denominator) -> str:
-    """Format a duration as a percentage with two decimal places."""
+def _format_percentage(value, denominator, decimals=2) -> str:
+    """Format a duration as a percentage with the requested precision."""
     if value is None or denominator is None or denominator <= 0:
         return "-"
     percentage = 100.0 * value / denominator
-    return f"{percentage:.2f}%"
+    return f"{percentage:.{decimals}f}%"
 
 
 def _tree_prefix(row) -> str:
@@ -627,14 +626,11 @@ def print_region_table(
     suppress_notes : bool, optional
         Don't print the explanatory notes below the table (default: False).
     total_time : float, optional
-        Wall-clock seconds from ``setup()`` to ``finalize()`` (see
-        :attr:`~scope_profiler.results.ProfilingResults.total_time`), printed
-        below the TOTAL row when given. Unlike that row -- which sums region
-        durations and so can exceed the run's real duration when regions
-        nest -- this is the run's own actual wall-clock time.
+        Accepted for compatibility. Session elapsed time is shown in the
+        ``scope_profiler.session`` row.
     columns : list of str or str, optional
         Region summary columns to print. Defaults to ``region``,
-        ``percent``, ``total`` and ``avg``. An indented ``(own)`` row shows
+        ``percent`` and ``total``. An indented ``(own)`` row shows
         time excluding children for each parent region. Call counts other than one
         appear after region names unless a separate ``calls`` column is
         explicitly selected. The percentage is
@@ -664,7 +660,7 @@ def print_region_table(
         # Percentages are defined relative to the session root. When a
         # filtered table does not contain that root, omit the unusable column
         # from the default layout rather than filling it with dashes.
-        columns = ("region", "total", "avg")
+        columns = ("region", "total")
     selected_columns = normalize_region_table_columns(columns)
     inline_counts = not any(key == "calls" for key, _ in selected_columns)
 
@@ -678,7 +674,7 @@ def print_region_table(
             ),
             "ranks": str(row["num_ranks"]),
             "calls": _format_count(row["calls"]),
-            "total": _column_indent(row) + _format_duration(row["total"]),
+            "total": _column_indent(row) + _format_duration(row["total"], decimals=6),
             # The session root represents the complete run, so keep it at
             # 100% even when exclusive attribution is selected.
             "percent": _column_indent(row)
@@ -690,6 +686,7 @@ def print_region_table(
                     else row.get(percentage_mode)
                 ),
                 session_total,
+                decimals=2,
             ),
             # Match the hierarchy without repeating the region's tree lines.
             "parent_percent": _column_indent(row)
@@ -728,44 +725,20 @@ def print_region_table(
         own_display = {key: "" for key in display}
         own_display.update(
             name=_display_region_name(own),
-            total=indent + _format_duration(row.get("exclusive")),
-            percent=indent + _format_percentage(row.get("exclusive"), session_total),
+            total=indent + _format_duration(row.get("exclusive"), decimals=6),
+            avg=indent
+            + (
+                f"{row['exclusive'] / row['calls']:.3e}"
+                if row.get("exclusive") is not None and row["calls"]
+                else "-"
+            ),
+            percent=indent
+            + _format_percentage(row.get("exclusive"), session_total, decimals=2),
             parent_percent=indent
             + _format_percentage(row.get("exclusive"), row.get("coverage")),
         )
         with_own_rows.append(own_display)
     formatted = with_own_rows
-
-    # ``total_time`` is supplied by finalize()/print_summary(), but not by
-    # the inspect renderer. Keep the latter's historical region-only output.
-    if total_time is not None:
-        timed = [row["total"] for row in rows if row["total"] is not None]
-        total_row = {
-            "name": "TOTAL"
-            + (
-                f" ({_format_count(sum(row['calls'] for row in rows))}x)"
-                if inline_counts and sum(row["calls"] for row in rows) != 1
-                else ""
-            ),
-            "ranks": "",
-            "calls": _format_count(sum(row["calls"] for row in rows)),
-            "total": _format_duration(sum(timed) if timed else None),
-            # TOTAL is the run represented by the session root, rather than
-            # the sum of the root and its nested contribution rows.
-            "percent": _format_percentage(session_total, session_total),
-            "parent_percent": "",
-            "avg": "",
-            "min": "",
-            "max": "",
-            "first": "",
-            "last": "",
-            "std": "",
-            "p50": "",
-            "p95": "",
-            "p99": "",
-            "imbalance": "",
-        }
-        formatted.append(total_row)
 
     headers = [header for _, header in selected_columns]
     table_rows = [[row[key] for key, _ in selected_columns] for row in formatted]
