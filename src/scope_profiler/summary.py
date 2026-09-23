@@ -14,7 +14,18 @@ import shlex
 import sys
 
 import numpy as np
-from tabulate import tabulate
+from tabulate import DataRow, Line, TableFormat, tabulate
+
+_REGION_TABLE_FORMAT = TableFormat(
+    lineabove=Line("╭", "─", "──", "╮"),
+    linebelowheader=Line("├", "─", "──", "┤"),
+    linebetweenrows=None,
+    linebelow=Line("╰", "─", "──", "╯"),
+    headerrow=DataRow("│", "  ", "│"),
+    datarow=DataRow("│", "  ", "│"),
+    padding=1,
+    with_header_hide=None,
+)
 
 
 def _print_table(rows, headers, stream, title=None, tablefmt="rounded_outline") -> None:
@@ -742,7 +753,7 @@ def print_region_table(
 
     headers = [header for _, header in selected_columns]
     table_rows = [[row[key] for key, _ in selected_columns] for row in formatted]
-    _print_table(table_rows, headers, stream, tablefmt="simple")
+    _print_table(table_rows, headers, stream, tablefmt=_REGION_TABLE_FORMAT)
     notes = []
     if title:
         notes.append(f"Summary: {title}")
