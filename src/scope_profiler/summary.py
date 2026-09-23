@@ -84,9 +84,8 @@ REGION_TABLE_COLUMN_NAMES = tuple(key for key, _ in _COLUMNS)
 REGION_TABLE_COLUMNS = ("region", *REGION_TABLE_COLUMN_NAMES[1:])
 DEFAULT_REGION_TABLE_COLUMNS = (
     "region",
-    "parent_percent",
-    "total",
     "percent",
+    "total",
     "avg",
 )
 _COLUMN_ALIASES = {"region": "name", "name": "name"}
@@ -621,7 +620,7 @@ def print_region_table(
         nest -- this is the run's own actual wall-clock time.
     columns : list of str or str, optional
         Region summary columns to print. Defaults to ``region``,
-        ``parent_percent``, ``total``, ``percent`` and ``avg``. Call counts
+        ``percent``, ``total`` and ``avg``. Call counts other than one
         appear after region names unless a separate ``calls`` column is
         explicitly selected. The percentage is
         relative to ``scope_profiler.session``. The public name for the first
@@ -657,7 +656,11 @@ def print_region_table(
     formatted = [
         {
             "name": _display_region_name(row)
-            + (f" ({_format_count(row['calls'])}x)" if inline_counts else ""),
+            + (
+                f" ({_format_count(row['calls'])}x)"
+                if inline_counts and row["calls"] != 1
+                else ""
+            ),
             "ranks": str(row["num_ranks"]),
             "calls": _format_count(row["calls"]),
             "total": _column_indent(row) + _format_duration(row["total"]),
@@ -701,7 +704,7 @@ def print_region_table(
             "name": "TOTAL"
             + (
                 f" ({_format_count(sum(row['calls'] for row in rows))}x)"
-                if inline_counts
+                if inline_counts and sum(row["calls"] for row in rows) != 1
                 else ""
             ),
             "ranks": "",
