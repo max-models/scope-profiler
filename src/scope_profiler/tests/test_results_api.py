@@ -141,16 +141,98 @@ def test_summary_pools_same_named_regions_by_call_path(capsys):
         line for line in capsys.readouterr().out.splitlines() if "work" in line
     ]
     assert len(work_lines) == 2
-    assert "1.0e-08" in work_lines[0]
-    assert "5.0e-08" in work_lines[1]
+    assert "0.000" in work_lines[0]
+    assert "0.000" in work_lines[1]
 
 
-def test_summary_percentages_use_fixed_point_until_tiny():
+def test_summary_start_order_keeps_aggregated_call_path_subtrees_together():
+    """An early empty episode must not detach a later path descendant."""
+    results = ProfilingResults(
+        {
+            "run": MPIRegion(
+                "run", {0: Region(np.array([0, 20]), np.array([10, 100]))}
+            ),
+            "loop": MPIRegion(
+                "loop", {0: Region(np.array([3, 25]), np.array([4, 90]))}
+            ),
+            "final": MPIRegion(
+                "final", {0: Region(np.array([5, 91]), np.array([6, 99]))}
+            ),
+            "solve": MPIRegion(
+                "solve", {0: Region(np.array([26, 92]), np.array([30, 95]))}
+            ),
+        }
+    )
+
+    from scope_profiler.summary import region_rows
+
+    assert [row["call_path"] for row in region_rows(results)] == [
+        "run",
+        "run > loop",
+        "run > loop > solve",
+        "run > final",
+        "run > final > solve",
+    ]
+
+
+def _staged_branch_results(branches):
+    """Build repeated empty/real branch episodes with arbitrary depths."""
+    intervals_by_name = {"run": ([0, 1_000], [100, 10_000])}
+    for branch_index, branch in enumerate(branches):
+        base = 1_100 + branch_index * 1_000
+        for depth, name in enumerate(branch):
+            starts, ends = intervals_by_name.setdefault(name, ([], []))
+            if depth == 0:
+                # The first stage has only this empty branch root.  Its early
+                # start is what previously separated it from real descendants.
+                starts.append(10 + branch_index * 10)
+                ends.append(11 + branch_index * 10)
+            starts.append(base + depth * 10)
+            ends.append(base + 900 - depth * 10)
+    return ProfilingResults(
+        {
+            name: MPIRegion(name, {0: Region(np.array(starts), np.array(ends))})
+            for name, (starts, ends) in intervals_by_name.items()
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "branches",
+    [
+        (("loop", "solve"), ("final", "solve")),
+        (("prepare", "assemble", "factor"), ("final", "solve")),
+        (("predict", "solve"), ("correct", "solve"), ("final", "solve")),
+        (("loop", "solve", "minimize"), ("final", "solve")),
+        (("load", "parse"), ("compute", "work", "kernel")),
+        (("warmup", "work"), ("production", "work", "reduce")),
+        (("first", "shared", "leaf"), ("second", "shared", "leaf")),
+        (("outer_a", "middle", "inner", "leaf"), ("outer_b", "work")),
+        (("precondition", "iterate", "residual"), ("postprocess", "write")),
+        (("phase_a", "task", "step"), ("phase_b", "task"), ("phase_c", "task")),
+    ],
+)
+def test_summary_start_order_keeps_each_staged_branch_subtree_together(branches):
+    """Ten varied staged profiles guard against detached summary children."""
+    from scope_profiler.summary import region_rows
+
+    expected_paths = ["run"]
+    for branch in branches:
+        expected_paths.extend(
+            "run > " + " > ".join(branch[:depth]) for depth in range(1, len(branch) + 1)
+        )
+
+    assert [
+        row["call_path"] for row in region_rows(_staged_branch_results(branches))
+    ] == (expected_paths)
+
+
+def test_summary_percentages_use_two_decimal_places():
     from scope_profiler.summary import _format_percentage
 
     assert _format_percentage(1, 1) == "100.00%"
     assert _format_percentage(0.001, 1) == "0.10%"
-    assert _format_percentage(0.00001, 1) == "1.0e-03%"
+    assert _format_percentage(0.00001, 1) == "0.00%"
 
 
 def test_summary_percentage_uses_coverage_for_nested_regions(capsys):
@@ -177,8 +259,14 @@ def test_summary_percentage_uses_coverage_for_nested_regions(capsys):
     assert "100.00%" in output
     assert "80.00%" in output
     assert "60.00%" in output
-    assert "% parent" in output
-    assert "75.00%" in output
+    assert "% parent" not in output
+    assert "own [s]" not in output
+    assert output.count("(own)") == 2
+    assert "(1x)" not in output
+    header = next(line for line in output.splitlines() if "% session" in line)
+    assert (
+        header.index("region") < header.index("% session") < header.index("total [s]")
+    )
     assert "100.00%" in output
 
     results.print_summary(percentage_mode="exclusive")
@@ -186,6 +274,14 @@ def test_summary_percentage_uses_coverage_for_nested_regions(capsys):
     assert "100.00%" in exclusive_output
     assert "20.00%" in exclusive_output
     assert "60.00%" in exclusive_output
+
+    from scope_profiler.summary import region_rows
+
+    rows = {row["name"]: row for row in region_rows(results)}
+    assert rows["outer"]["exclusive"] == pytest.approx(20 / NS)
+    assert rows["inner"]["exclusive"] == pytest.approx(60 / NS)
+    filtered = region_rows(results, include="outer")
+    assert filtered[0]["exclusive"] == pytest.approx(20 / NS)
 
 
 def test_region_without_any_calls_is_safe():
@@ -287,7 +383,8 @@ def test_reader_print_summary(sample_file, capsys):
 
     out = capsys.readouterr().out
     header = next(line for line in out.splitlines() if "region" in line)
-    assert "region" in header and "total [s]" in header and "avg [s]" in header
+    assert "region" in header and "total [s]" in header
+    assert "avg/call [s]" not in header
     assert "% session" not in header
     assert "min [s]" not in header and "std [s]" not in header
     assert "setup" in out and "solve" in out
@@ -308,7 +405,7 @@ def test_reader_print_summary_accepts_columns(sample_file, capsys):
     assert "ranks" in header
     assert "n" in header
     assert "total [s]" in header
-    assert "avg [s]" in header
+    assert "avg/call [s]" in header
     assert "min [s]" not in header
     assert "imbalance [%]" not in header
     assert "setup" in out and "solve" in out and "TOTAL" not in out

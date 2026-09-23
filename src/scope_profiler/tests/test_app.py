@@ -502,16 +502,18 @@ def test_finalize_prints_the_shared_summary_table(tmp_path, capsys):
     ProfileManager.finalize()
     printed = capsys.readouterr().out
 
-    # Same header, columns and TOTAL row as ProfilingResults.print_summary().
+    # Same header, columns and own-time rows as ProfilingResults.print_summary().
     results = read_h5(file_path)
     results.print_summary()
     assert printed == capsys.readouterr().out
 
     header = next(line for line in printed.splitlines() if "region" in line)
-    assert "region" in header and "avg [s]" in header
+    assert "region" in header and "total [s]" in header
+    assert "avg/call [s]" not in header
     assert "min [s]" not in header and "std [s]" not in header
     assert "outer" in printed and "inner" in printed
-    assert "TOTAL" in printed
+    assert "TOTAL" not in printed
+    assert "(own)" in printed
     # The old per-region block format is gone.
     assert "Total Calls" not in printed
 
