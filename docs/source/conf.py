@@ -43,8 +43,7 @@ def copy_plotly_package(app):
     dst = os.path.join(confdir, "_static", "plotly")
     if not os.path.exists(src):
         raise FileNotFoundError(
-            "Local Plotly package source is required for a checkout docs build: "
-            f"{src}"
+            f"Local Plotly package source is required for a checkout docs build: {src}"
         )
     if os.path.exists(dst):
         shutil.rmtree(dst)

@@ -1163,7 +1163,7 @@ int main()
 
     _, regions = read_trace(tmp_path / "mpi_rank00000.spt")
     assert any(
-        name == ("mpi:send kind=point-to-point bytes=32 peer=2 root=-1 " "tag=9 comm=7")
+        name == ("mpi:send kind=point-to-point bytes=32 peer=2 root=-1 tag=9 comm=7")
         for name in regions
     )
     assert any("mpi:barrier kind=collective bytes=0" in name for name in regions)

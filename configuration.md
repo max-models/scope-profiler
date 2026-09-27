@@ -405,6 +405,7 @@ decorated functions:
 ```python
 ProfileManager.setup(recursive_profile=True)
 
+
 @ProfileManager.profile("entry")
 def entry():
     compute_step()

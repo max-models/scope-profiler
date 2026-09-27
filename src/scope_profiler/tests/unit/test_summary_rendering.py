@@ -86,3 +86,21 @@ def test_explicit_average_column_includes_own_average(nested_results):
     own_lines = [line for line in stream.getvalue().splitlines() if "(own)" in line]
     assert "2.000e+00" in own_lines[0]
     assert "5.000e+00" in own_lines[1]
+
+
+def test_format_region_table_marks_own_rows_and_validates_mode(nested_results):
+    from scope_profiler.summary import format_region_table
+
+    columns, display_rows = format_region_table(region_rows(nested_results))
+    assert [key for key, _ in columns] == ["name", "percent", "total"]
+    assert [(row["name"], is_own) for row, _, is_own in display_rows] == [
+        ("scope_profiler.session", False),
+        ("scope_profiler.session", True),
+        ("work", False),
+        ("work", True),
+        ("leaf", False),
+    ]
+    assert display_rows[3][1]["name"] == "│ └─ (own)"
+
+    with pytest.raises(ValueError, match="percentage_mode"):
+        format_region_table(region_rows(nested_results), percentage_mode="bogus")

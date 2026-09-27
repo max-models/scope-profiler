@@ -614,59 +614,32 @@ def _column_indent(row) -> str:
     return " " * len(_tree_prefix(row))
 
 
-def print_region_table(
-    rows,
-    title=None,
-    stream=None,
-    suppress_notes: bool = False,
-    total_time: float | None = None,
-    columns=None,
-    percentage_mode: str = "coverage",
-    file_path=None,
-) -> None:
-    """Print the aligned per-region statistics table.
-
-    Parameters
-    ----------
-    rows : list of dict
-        Rows from :func:`region_rows`.
-    title : str, optional
-        Heading printed above the table.
-    stream : file-like, optional
-        Where to write (default: stdout).
-    suppress_notes : bool, optional
-        Don't print the explanatory notes below the table (default: False).
-    total_time : float, optional
-        Accepted for compatibility. Session elapsed time is shown in the
-        ``scope_profiler.session`` row.
-    columns : list of str or str, optional
-        Region summary columns to print. Defaults to ``region``,
-        ``percent`` and ``total``. An indented ``(own)`` row shows
-        time excluding children for each parent region. Call counts other than one
-        appear after region names unless a separate ``calls`` column is
-        explicitly selected. The percentage is
-        relative to ``scope_profiler.session``. The public name for the first
-        column is ``region``; ``name`` is accepted as an alias for Python
-        callers.
-    percentage_mode : {"coverage", "exclusive"}, optional
-        Quantity used for the ``% session`` column. Wall-clock coverage is the
-        default; exclusive time can be selected for attribution-focused tables.
-    file_path : str or Path, optional
-        File represented by the table, used for the help hints in the info box.
-    """
-    stream = sys.stdout if stream is None else stream
-    if percentage_mode not in {"coverage", "exclusive"}:
-        raise ValueError("percentage_mode must be 'coverage' or 'exclusive'")
-    if not rows:
-        if title:
-            print(title, file=stream)
-        print("  (no regions recorded)", file=stream)
-        return
-
-    session_total = next(
-        (root["total"] for root in rows if root["name"] == "scope_profiler.session"),
+def _session_total(rows) -> float | None:
+    """Duration of the ``scope_profiler.session`` root, the base of ``% session``."""
+    return next(
+        (row["total"] for row in rows if row["name"] == "scope_profiler.session"),
         None,
     )
+
+
+def format_region_table(rows, columns=None, percentage_mode: str = "coverage"):
+    """Format :func:`region_rows` output as displayed by the region table.
+
+    Shared by the terminal table and the HTML report so both show the same
+    columns, tree indentation, inline call counts and ``(own)`` rows.
+
+    Returns
+    -------
+    selected_columns : tuple of (key, header)
+        The columns to display, in order.
+    display_rows : list of (row, display, is_own)
+        ``display`` maps every column key to its cell text. ``row`` is the
+        source row; for an ``(own)`` row (``is_own`` true) it is the parent
+        region whose time excluding children the row shows.
+    """
+    if percentage_mode not in {"coverage", "exclusive"}:
+        raise ValueError("percentage_mode must be 'coverage' or 'exclusive'")
+    session_total = _session_total(rows)
     if columns is None and session_total is None:
         # Percentages are defined relative to the session root. When a
         # filtered table does not contain that root, omit the unusable column
@@ -728,7 +701,7 @@ def print_region_table(
     }
     with_own_rows = []
     for row, display in zip(rows, formatted):
-        with_own_rows.append(display)
+        with_own_rows.append((row, display, False))
         if row.get("call_path") not in parent_paths:
             continue
         own = {"name": "(own)", "depth": row.get("depth", 0) + 1}
@@ -748,11 +721,64 @@ def print_region_table(
             parent_percent=indent
             + _format_percentage(row.get("exclusive"), row.get("coverage")),
         )
-        with_own_rows.append(own_display)
-    formatted = with_own_rows
+        with_own_rows.append((row, own_display, True))
+    return selected_columns, with_own_rows
 
+
+def print_region_table(
+    rows,
+    title=None,
+    stream=None,
+    suppress_notes: bool = False,
+    total_time: float | None = None,
+    columns=None,
+    percentage_mode: str = "coverage",
+    file_path=None,
+) -> None:
+    """Print the aligned per-region statistics table.
+
+    Parameters
+    ----------
+    rows : list of dict
+        Rows from :func:`region_rows`.
+    title : str, optional
+        Heading printed above the table.
+    stream : file-like, optional
+        Where to write (default: stdout).
+    suppress_notes : bool, optional
+        Don't print the explanatory notes below the table (default: False).
+    total_time : float, optional
+        Accepted for compatibility. Session elapsed time is shown in the
+        ``scope_profiler.session`` row.
+    columns : list of str or str, optional
+        Region summary columns to print. Defaults to ``region``,
+        ``percent`` and ``total``. An indented ``(own)`` row shows
+        time excluding children for each parent region. Call counts other than one
+        appear after region names unless a separate ``calls`` column is
+        explicitly selected. The percentage is
+        relative to ``scope_profiler.session``. The public name for the first
+        column is ``region``; ``name`` is accepted as an alias for Python
+        callers.
+    percentage_mode : {"coverage", "exclusive"}, optional
+        Quantity used for the ``% session`` column. Wall-clock coverage is the
+        default; exclusive time can be selected for attribution-focused tables.
+    file_path : str or Path, optional
+        File represented by the table, used for the help hints in the info box.
+    """
+    stream = sys.stdout if stream is None else stream
+    if percentage_mode not in {"coverage", "exclusive"}:
+        raise ValueError("percentage_mode must be 'coverage' or 'exclusive'")
+    if not rows:
+        if title:
+            print(title, file=stream)
+        print("  (no regions recorded)", file=stream)
+        return
+
+    selected_columns, display_rows = format_region_table(rows, columns, percentage_mode)
     headers = [header for _, header in selected_columns]
-    table_rows = [[row[key] for key, _ in selected_columns] for row in formatted]
+    table_rows = [
+        [display[key] for key, _ in selected_columns] for _, display, _ in display_rows
+    ]
     _print_table(table_rows, headers, stream, tablefmt=_REGION_TABLE_FORMAT)
     notes = []
     if title:
@@ -787,7 +813,7 @@ def print_region_table(
         )
     if any(row.get("recursive") for row in rows):
         notes.append("↻ Recursive rows aggregate all invocations of that region.")
-    if session_total is not None:
+    if _session_total(rows) is not None:
         notes.append(
             (
                 "% session uses wall-clock coverage; overlapping recursive calls "
