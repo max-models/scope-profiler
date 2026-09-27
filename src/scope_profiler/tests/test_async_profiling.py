@@ -125,9 +125,13 @@ def test_a_region_outside_any_task_reports_no_await_time(tmp_path):
 def test_task_table_splits_running_from_awaiting(tmp_path):
     manager = ProfileManager()
 
+    # The sleep is long next to the spin, so that counting it as running time
+    # stays far outside the tolerance a busy CI runner's scheduling needs.
+    sleep_seconds = 0.1
+
     async def job():
         with manager.profile_region("job"):
-            await asyncio.sleep(0.03)
+            await asyncio.sleep(sleep_seconds)
             spin()
 
     async def main():
@@ -148,8 +152,10 @@ def test_task_table_splits_running_from_awaiting(tmp_path):
         assert task.name.startswith("Task-")
         assert task.thread_index == 0
         assert task.steps >= 2
-        assert task.running_time == pytest.approx(SPIN_SECONDS, abs=0.01)
-        assert task.awaiting_time == pytest.approx(0.03, abs=0.03)
+        # A preempted spin can run a scheduler slice (~10 ms) long; counting
+        # the sleep as running would instead add all of sleep_seconds.
+        assert SPIN_SECONDS * 0.9 <= task.running_time < SPIN_SECONDS + 0.03
+        assert task.awaiting_time == pytest.approx(sleep_seconds, abs=0.05)
         assert "TaskInfo" in repr(task)
     # gather() runs from a task of its own, which the run also describes.
     assert tasks_named(run.results, "main")
