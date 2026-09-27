@@ -66,9 +66,9 @@ def test_pylikwid():
         regions = results.get_likwid_regions(rank)
         # Every profiled region should have become a LIKWID marker region.
         for name in ("main", "iteration", "busy"):
-            assert (
-                name in regions
-            ), f"rank {rank}: {name!r} missing, got {sorted(regions)}"
+            assert name in regions, (
+                f"rank {rank}: {name!r} missing, got {sorted(regions)}"
+            )
 
         for tag, result in regions.items():
             assert result.tag == tag
