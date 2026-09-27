@@ -346,9 +346,9 @@ def test_nested_regions_cost_scales_with_depth(configure):
     budget = 3 * BUDGET_NS["time"]
     _report("three nested regions [time]", overhead, budget)
 
-    assert overhead < budget, (
-        f"three nested regions cost {overhead:.0f} ns/iteration, budget {budget} ns"
-    )
+    assert (
+        overhead < budget
+    ), f"three nested regions cost {overhead:.0f} ns/iteration, budget {budget} ns"
     assert outer.num_calls == middle.num_calls == inner.num_calls
 
 

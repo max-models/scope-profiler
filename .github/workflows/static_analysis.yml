@@ -40,9 +40,10 @@ jobs:
 
       - name: Code formatting with black
         run: |
-          pip install black "black[jupyter]"
-          black --check src/
-          black --check tutorials/
+          # Black is the only formatter (ruff only lints). Same pin as the dev
+          # extra, so a new black release cannot fail a build on its own.
+          pip install "black[jupyter]>=26.1,<27"
+          black --check src/ tutorials/
 
   isort:
     runs-on: ubuntu-latest

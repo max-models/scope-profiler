@@ -850,18 +850,20 @@ def _region_table(
             row_cells = cells(display, row["total"], toggle)
         else:
             row_cells = cells(display, row["total"])
-        groups.append(
-            [
-                f'<tbody data-region="{region_attr}" data-run="{run_attr}"'
-                f"{tree_attrs} {data_attrs}>"
-                f'<tr class="region-row" tabindex="0" aria-expanded="false"{id_attr}>'
-                f"{row_cells}"
-                f"<td>{_sparkline_svg(_region_durations(region, ranks))}</td></tr>",
-                '<tr class="region-detail" hidden>'
-                f'<td colspan="{len(keys) + 1}">{_region_detail_html(region, ranks)}</td>'
-                "</tr></tbody>",
-            ]
+        head = (
+            f'<tbody data-region="{region_attr}" data-run="{run_attr}"'
+            f"{tree_attrs} {data_attrs}>"
+            f'<tr class="region-row" tabindex="0" aria-expanded="false"{id_attr}>'
+            f"{row_cells}"
+            f"<td>{_sparkline_svg(_region_durations(region, ranks))}</td></tr>"
         )
+        detail = (
+            '<tr class="region-detail" hidden>'
+            f'<td colspan="{len(keys) + 1}">{_region_detail_html(region, ranks)}</td>'
+            "</tr></tbody>"
+        )
+        # (own) rows are inserted between the two as they come.
+        groups.append([head, detail])
     body = "".join("".join(group) for group in groups)
     if rows:
         body += (
