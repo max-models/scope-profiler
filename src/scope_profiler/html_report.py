@@ -9,6 +9,7 @@ from __future__ import annotations
 import html
 import json
 import linecache
+import re
 import tempfile
 from collections.abc import Sequence
 from importlib.resources import files
@@ -22,8 +23,9 @@ from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import (
     _format_counter,
     _region_durations,
+    _session_total,
+    format_region_table,
     likwid_tables,
-    normalize_region_table_columns,
     perf_event_tables,
     region_rows,
 )
@@ -50,7 +52,22 @@ details { margin: .75rem 0; } summary { cursor: pointer; font-weight: 600; }
 .region-row:hover { background: #f3f4f6; }
 .region-row.region-selected { background: #fef3c7; box-shadow: inset 4px 0 #d97706; }
 .region-row.region-selected:hover { background: #fde68a; }
-.region-row td:first-child { display: flex; align-items: center; gap: .4rem; }
+.region-row td:first-child, .own-row td:first-child { display: flex; align-items: center;
+                                                     gap: .4rem; }
+.region-stats { border: 1px solid #d1d5db; border-collapse: separate; border-radius: .5rem;
+                border-spacing: 0; width: auto; min-width: 50%; }
+.region-stats > thead > tr > th, .region-stats > tbody > tr > td {
+  border-bottom: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .9em; padding: .2rem .75rem; text-align: left; white-space: pre; }
+.region-stats > thead > tr > th { border-bottom: 1px solid #d1d5db; }
+.region-stats > thead > tr > th:first-child { border-top-left-radius: .5rem; }
+.region-stats > thead > tr > th:last-child { border-top-right-radius: .5rem; }
+.region-stats > tbody > tr.region-detail > td { font-family: inherit; font-size: inherit;
+                                                white-space: normal; }
+.region-stats .indent { color: #9ca3af; }
+.region-stats.flat .indent { display: none; }
+.own-row td { color: #6b7280; }
+.table-note { font-size: .9em; margin-top: -.25rem; }
 .toggle-icon { display: inline-block; width: .9em; color: #6b7280; }
 .bar-cell { position: relative; }
 .bar { position: absolute; left: 0; top: .15rem; bottom: .15rem; background: #bfdbfe;
@@ -132,8 +149,8 @@ _SCRIPT = """
       try { listener(selectedRegion); } catch (error) { /* keep other views responsive */ }
     });
     if (target && shouldScroll !== false) {
-      var detail = target.nextElementSibling;
-      if (detail && detail.classList.contains("region-detail")) {
+      var detail = target.parentNode.querySelector(".region-detail");
+      if (detail) {
         detail.hidden = false;
         var icon = target.querySelector(".toggle-icon");
         if (icon) icon.textContent = "\\u25be";
@@ -151,8 +168,8 @@ _SCRIPT = """
 
   document.querySelectorAll(".region-row").forEach(function (row) {
     row.addEventListener("click", function () {
-      var detail = row.nextElementSibling;
-      if (!detail || !detail.classList.contains("region-detail")) return;
+      var detail = row.parentNode.querySelector(".region-detail");
+      if (!detail) return;
       var opening = detail.hidden;
       detail.hidden = !opening;
       var icon = row.querySelector(".toggle-icon");
@@ -245,6 +262,8 @@ document.querySelectorAll("table.region-stats").forEach(function (table) {
         delete cell.dataset.sortDir;
       });
       th.dataset.sortDir = ascending ? "asc" : "desc";
+      // Sorted rows no longer follow the call tree, so drop its indentation.
+      table.classList.add("flat");
       var bodies = Array.prototype.slice.call(table.tBodies);
       bodies.sort(function (a, b) {
         var av = a.dataset[key];
@@ -526,52 +545,62 @@ def _sparkline_svg(durations, width: int = 90, height: int = 22) -> str:
     )
 
 
+# The tree glyphs and column indentation that format_region_table() puts in
+# front of a cell's value. Kept in their own span so that re-sorting the table
+# by a column, which breaks the hierarchy, can hide them.
+_CELL_INDENT = re.compile(r"^[ │└─]*")
+
+
+def _indented_cell(text: str) -> str:
+    indent = _CELL_INDENT.match(text).group()  # type: ignore[union-attr]
+    value = _text(text[len(indent) :])
+    return f'<span class="indent">{_text(indent)}</span>{value}' if indent else value
+
+
 def _region_table(results, rows, ranks, columns, region_ids=None) -> str:
+    """Region statistics laid out like the terminal summary table.
+
+    Cell text comes from :func:`~scope_profiler.summary.format_region_table`,
+    so the report shows the same tree, call counts and ``(own)`` rows. Each
+    region is one ``<tbody>``, holding its row, its ``(own)`` row when it has
+    children, and its expandable detail row, so sorting and filtering move
+    them together.
+    """
     region_ids = {} if region_ids is None else region_ids
-    selected_columns = normalize_region_table_columns(columns)
+    selected_columns, display_rows = format_region_table(rows, columns)
     headers = "".join(
         f'<th data-key="{key}">{_text(header)}</th>' for key, header in selected_columns
     )
     headers += "<th>trend</th>"
     keys = [key for key, _ in selected_columns]
     max_total = max((row["total"] or 0.0 for row in rows), default=0.0)
-    session_total = next(
-        (row["total"] for row in rows if row["name"] == "scope_profiler.session"),
-        None,
-    )
+    session_total = _session_total(rows)
 
-    def cell(row, key) -> str:
-        if key == "ranks":
-            value = row["num_ranks"]
-        elif key == "percent":
-            value = (
-                100.0 * row["total"] / session_total
-                if row["total"] is not None and session_total
-                else None
-            )
-        elif key == "parent_percent":
-            value = (
-                100.0 * row["coverage"] / row["parent_coverage"]
-                if row.get("coverage") is not None and row.get("parent_coverage")
-                else None
-            )
-        else:
-            value = row[key]
-        if key == "name":
-            return f'<span class="toggle-icon">▸</span><span>{_text(value)}</span>'
-        text = _text(f"{value:.6g}") if isinstance(value, float) else _text(value)
-        if key == "total" and max_total:
-            width = 100.0 * (value or 0.0) / max_total
-            return f'<span class="bar" style="width:{width:.4g}%"></span><span>{text}</span>'
-        return text
+    def cells(display, bar_value, toggle="") -> str:
+        rendered = []
+        for key in keys:
+            text = _indented_cell(display[key])
+            if key == "name":
+                rendered.append(
+                    f'<td><span class="toggle-icon">{toggle}</span><span>{text}</span></td>'
+                )
+            elif key == "total" and max_total and display[key]:
+                width = 100.0 * (bar_value or 0.0) / max_total
+                rendered.append(
+                    f'<td class="bar-cell"><span class="bar" style="width:{width:.4g}%">'
+                    f"</span><span>{text}</span></td>"
+                )
+            else:
+                rendered.append(f"<td>{text}</td>")
+        return "".join(rendered)
 
     def sort_value(row, key) -> str:
         if key == "ranks":
             value = row["num_ranks"]
         elif key == "percent":
             value = (
-                100.0 * row["total"] / session_total
-                if row["total"] is not None and session_total
+                100.0 * row["coverage"] / session_total
+                if row.get("coverage") is not None and session_total
                 else None
             )
         elif key == "parent_percent":
@@ -584,18 +613,17 @@ def _region_table(results, rows, ranks, columns, region_ids=None) -> str:
             value = row[key]
         return "" if value is None else str(value)
 
-    body_groups = []
-    for row in rows:
-        region = results.get_region(row["name"])
-        cells = "".join(
-            (
-                f'<td class="bar-cell">{cell(row, key)}</td>'
-                if key == "total"
-                else f"<td>{cell(row, key)}</td>"
+    groups: list[list[str]] = []
+    linked: set[str] = set()
+    for row, display, is_own in display_rows:
+        if is_own:
+            # Directly after its parent region's row, ahead of the detail row.
+            groups[-1].insert(
+                -1,
+                f'<tr class="own-row">{cells(display, row["exclusive"])}<td></td></tr>',
             )
-            for key in keys
-        )
-        cells += f"<td>{_sparkline_svg(_region_durations(region, ranks))}</td>"
+            continue
+        region = results.get_region(row["name"])
         data_attrs = " ".join(
             f'data-{key}="{_text(sort_value(row, key))}"' for key in keys
         )
@@ -603,16 +631,22 @@ def _region_table(results, rows, ranks, columns, region_ids=None) -> str:
         # its own rather than depending on "name" being one of them.
         region_attr = _text(row["name"])
         run_attr = _text(results.display_label)
-        row_id = region_ids.get(row["name"])
+        # A region reached along several call paths has one row per path;
+        # links from the overview target the first of them.
+        row_id = None if row["name"] in linked else region_ids.get(row["name"])
+        linked.add(row["name"])
         id_attr = f' id="{_text(row_id)}"' if row_id else ""
-        body_groups.append(
-            f'<tbody data-region="{region_attr}" data-run="{run_attr}" {data_attrs}>'
-            f'<tr class="region-row"{id_attr}>{cells}</tr>'
-            '<tr class="region-detail" hidden>'
-            f'<td colspan="{len(keys) + 1}">{_region_detail_html(region, ranks)}</td>'
-            "</tr></tbody>",
+        groups.append(
+            [
+                f'<tbody data-region="{region_attr}" data-run="{run_attr}" {data_attrs}>'
+                f'<tr class="region-row"{id_attr}>{cells(display, row["total"], "▸")}'
+                f"<td>{_sparkline_svg(_region_durations(region, ranks))}</td></tr>",
+                '<tr class="region-detail" hidden>'
+                f'<td colspan="{len(keys) + 1}">{_region_detail_html(region, ranks)}</td>'
+                "</tr></tbody>",
+            ]
         )
-    body = "".join(body_groups)
+    body = "".join("".join(group) for group in groups)
     if rows:
         body += (
             '<tbody class="region-empty" hidden><tr>'
@@ -621,12 +655,20 @@ def _region_table(results, rows, ranks, columns, region_ids=None) -> str:
         )
     else:
         body = f'<tbody><tr><td colspan="{len(keys) + 1}">No regions recorded.</td></tr></tbody>'
+    notes = ["Durations are in seconds."]
+    if any(is_own for _, _, is_own in display_rows):
+        notes.append("(own) rows show a region's time excluding its children.")
+    if session_total is not None and "percent" in keys:
+        notes.append(
+            "% session uses wall-clock coverage; overlapping recursive calls count once."
+        )
     return (
-        '<table class="region-stats"><thead><tr>'
+        '<div class="table-scroll"><table class="region-stats"><thead><tr>'
         + headers
         + "</tr></thead>"
         + body
-        + "</table>"
+        + "</table></div>"
+        + f'<p class="muted table-note">{_text(" ".join(notes))}</p>'
     )
 
 
@@ -1318,7 +1360,7 @@ def create_html_report(
     include=None,
     exclude=None,
     ranks: list[int] | None = None,
-    sort: str = "total",
+    sort: str = "start",
     columns=None,
     charts_cdn: bool = False,
     include_charts: bool = True,

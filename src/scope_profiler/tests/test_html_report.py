@@ -1,6 +1,7 @@
 """Tests for standalone HTML profiling reports."""
 
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -833,3 +834,123 @@ def test_report_line_profile_section_only_appears_when_recorded(tmp_path):
     assert "solve (app.py:10)" in with_doc
     assert "28.57" in with_doc
     assert "Line profile" not in without_doc
+
+
+def _nested_results():
+    """A session with a loop calling solve, and solve under two parents."""
+    from scope_profiler import MPIRegion, Region
+
+    def region(name, starts, ends):
+        return MPIRegion(
+            name,
+            {0: Region(np.array(starts) * 100_000_000, np.array(ends) * 100_000_000)},
+        )
+
+    return ProfilingResults(
+        {
+            "scope_profiler.session": region("scope_profiler.session", [0], [100]),
+            "loop": region("loop", [10, 40], [39, 90]),
+            "solve": region("solve", [12, 20, 45, 92], [18, 35, 58, 98]),
+            "final": region("final", [91], [99]),
+        }
+    )
+
+
+def _region_table_html(document):
+    start = document.index('<table class="region-stats">')
+    # Detail rows nest per-rank tables, so end at the outer table's wrapper.
+    return document[start : document.index("</table></div>", start)]
+
+
+def test_report_region_table_matches_the_terminal_summary_layout(tmp_path):
+    report = create_html_report(
+        _nested_results(), tmp_path / "report.html", include_charts=False
+    )
+    document = report.read_text(encoding="utf-8")
+    table = _region_table_html(document)
+
+    thead = table[: table.index("</thead>")]
+    assert [th.rsplit(">", 1)[-1] for th in thead.split("</th>")[:-1]] == [
+        "region",
+        "% session",
+        "total [s]",
+        "trend",
+    ]
+    # Rows follow the call tree (sort="start"), with the same tree glyphs,
+    # inline call counts and (own) rows as the terminal table.
+    names = re.findall(
+        r'<tr class="(?:region-row|own-row)"[^>]*><td><span class="toggle-icon">'
+        r'[^<]*</span><span>(?:<span class="indent">[^<]*</span>)?([^<]*)</span>',
+        table,
+    )
+    assert names == [
+        "scope_profiler.session",
+        "(own)",
+        "loop (2x)",
+        "(own)",
+        "solve (3x)",
+        "final",
+        "(own)",
+        "solve",
+    ]
+    assert '<span class="indent">│ └─ </span>solve (3x)' in table
+    assert "10.000000" in table and "100.00%" in table
+    assert "(1x)" not in table and "TOTAL" not in table
+    # loop runs 7.9 s, 3.4 s of it in solve; its (own) row sits in its tbody.
+    loop_body = table[table.index('data-region="loop"') :]
+    loop_body = loop_body[: loop_body.index('class="region-detail"')]
+    assert '<tr class="own-row">' in loop_body
+    assert "4.500000" in loop_body and "45.00%" in loop_body
+    assert "(own) rows show a region&#x27;s time excluding its children." in document
+
+
+def test_report_links_only_the_first_row_of_a_region_on_several_call_paths(tmp_path):
+    report = create_html_report(
+        _nested_results(), tmp_path / "report.html", include_charts=False
+    )
+    document = report.read_text(encoding="utf-8")
+    solve_rows = document.count('<tbody data-region="solve"')
+    assert solve_rows == 2
+    ids = [part.split('"', 1)[0] for part in document.split(' id="run-0-region-')[1:]]
+    assert len(ids) == len(set(ids))
+
+
+def test_report_region_table_scripts_handle_own_rows_and_flat_sorting(tmp_path):
+    report = create_html_report(
+        _nested_results(), tmp_path / "report.html", include_charts=False
+    )
+    document = report.read_text(encoding="utf-8")
+    # The detail row follows any (own) row, so it is found within the tbody.
+    assert 'row.parentNode.querySelector(".region-detail")' in document
+    assert "nextElementSibling" not in document
+    # Sorting by a column breaks the hierarchy; the indentation is hidden.
+    assert 'table.classList.add("flat")' in document
+    assert ".region-stats.flat .indent { display: none; }" in document
+
+
+def test_report_region_table_omits_percent_without_the_session_root(tmp_path):
+    report = create_html_report(
+        _nested_results(),
+        tmp_path / "report.html",
+        include=["loop", "solve"],
+        include_charts=False,
+    )
+    table = _region_table_html(report.read_text(encoding="utf-8"))
+    assert "% session" not in table
+    assert '<th data-key="total">total [s]</th>' in table
+
+
+def test_report_region_table_explicit_columns_match_the_terminal(tmp_path):
+    report = create_html_report(
+        _nested_results(),
+        tmp_path / "report.html",
+        columns=["region", "ranks", "calls", "parent_percent"],
+        include_charts=False,
+    )
+    table = _region_table_html(report.read_text(encoding="utf-8"))
+    # A calls column replaces the inline "(2x)" counts, as in the terminal.
+    assert "(2x)" not in table and '<th data-key="calls">n</th>' in table
+    loop_body = table[table.index('<tbody data-region="loop"') :]
+    loop_body = loop_body[: loop_body.index(">")]
+    assert 'data-ranks="1"' in loop_body
+    assert 'data-parent_percent="79.0"' in loop_body

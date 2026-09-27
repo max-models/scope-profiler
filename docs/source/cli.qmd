@@ -286,6 +286,10 @@ scope-profiler report profiling_data.h5 -o report.html --include solve --ranks 0
 
 `--include`, `--exclude`, `--ranks`, `--sort`, and `--columns` use the same
 meaning as `scope-profiler inspect` and control the region-statistics table.
+The table has the same layout as the terminal summary:
+regions indented along the call tree, call counts after the name, and an
+`(own)` row with each parent's time excluding its children. Clicking a column
+header re-sorts the table and drops the tree indentation.
 Metadata is always retained in the report. With `scope-profiler[pproc]`
 installed, reports also embed interactive Plotly timelines and duration charts;
 pass `--no-charts` for the compact table-only version.
