@@ -91,7 +91,10 @@ optional-dependencies.extras = [
 ]
 
 optional-dependencies.dev = [
-  "black[jupyter]",
+  # Black is the one code formatter; ruff only lints (`ruff format` is not
+  # used -- the two disagree on a handful of constructs). Pinned to a year
+  # series: black changes its stable style only in the January release.
+  "black[jupyter] >= 26.1, < 27",
   "isort >= 9.0.0",
   "mypy >= 1.11.0",
   # Pinned to a minor series. Ruff's default rule set grows between minor
@@ -159,6 +162,12 @@ scope_profiler = [
 
 [tool.isort]
 profile = "black"
+
+[tool.black]
+# Inferred from requires-python, black also targets not-yet-released Pythons
+# and then warns that it cannot verify its output on the running one. The
+# oldest supported version is what decides the formatting anyway.
+target-version = [ "py310" ]
 
 [tool.mypy]
 # Incremental typing covers the core public result/configuration objects and
@@ -246,6 +255,7 @@ exclude_also = [
 ]
 
 [tool.ruff]
+# Linting only: black formats the code. Do not run `ruff format`.
 src = [ "src" ]
 
 [tool.ruff.lint]

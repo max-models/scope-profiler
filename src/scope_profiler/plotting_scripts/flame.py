@@ -25,7 +25,7 @@ FLAME_CMAP = "inferno"
 
 def _print_interactive_backend_hint(backend: str, verbose: bool) -> None:
     if verbose and backend == "matplotlib":
-        print("For interactive flame-chart hover details, use " "--backend plotly.")
+        print("For interactive flame-chart hover details, use --backend plotly.")
 
 
 def plot_flame_chart(

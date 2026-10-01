@@ -1,6 +1,7 @@
 """Tests for standalone HTML profiling reports."""
 
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -122,7 +123,7 @@ def test_report_cross_highlights_regions_between_tables_and_charts(tmp_path):
     assert "window.scopeProfilerOnRegionSelect" in document
     assert 'target.on("plotly_click"' in document
     assert (
-        "highlightFigure(chart, buildFigure(chart.payload, options), selectedRegion)"
+        "highlightFigure(chart, build(chart.payload, options), selectedRegion)"
         in document
     )
     assert "region-selected" in document
@@ -167,7 +168,7 @@ def test_report_handles_an_out_of_range_rank_selection(tmp_path):
 
     document = report.read_text(encoding="utf-8")
     assert "No timed regions to summarize" in document
-    assert "Call tree unavailable: no data for the selected ranks" in document
+    assert "Hot spots" not in document
 
 
 def test_report_rejects_an_empty_run_list(tmp_path):
@@ -334,28 +335,38 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
 
     document = report.read_text(encoding="utf-8")
     assert "Timeline: profile" in document
-    assert "Region durations" in document
-    assert "Duration over time" in document
-    assert "Rank heatmap" in document
     assert "Flame chart: profile" in document
     assert "Flame graph: profile" in document
-    assert "Call graph: profile (rank 0)" in document
+    # One run on one rank, each region entered once: the durations bars would
+    # repeat the table, the rank views have one rank to show and there are no
+    # repeated calls to follow over time. The call graph repeats the tree.
+    assert "Region durations" not in document
+    assert "Rank heatmap" not in document
+    assert "Rank imbalance" not in document
+    assert "Duration over time" not in document
+    assert "Call graph" not in document
     assert 'id="scope-profiler-chart-0"' in document
     assert "const scopeProfilerCharts = " in document
     # The per-chart options reach the builder, now by way of the object the
     # region filter extends with its predicate.
-    assert "buildFigure(chart.payload, options)" in document
+    assert "build(chart.payload, options)" in document
     assert "...chart.options" in document
-    assert 'class="chart chart-duration"' in document
-    assert '"options": {"layout": {"height": 680}}' in document
+    # The timeline labels every row with its region; its legend is redundant.
+    assert '"options": {"layout": {"showlegend": false}}' in document
     assert "Each bar is one recorded region call on rank 0." in document
-    assert "Each bar shows a region's total recorded duration." in document
-    assert "This heatmap uses exclusive timings." in document
     assert "Each frame is one recorded call on the selected ranks." in document
     assert "Repeated calls with the same call path are combined." in document
-    assert "Each line follows a region's mean call duration" in document
-    assert "Nodes are regions and links show caller-to-callee" in document
-    assert 'class="chart-panel" open' in document
+    # Only the timeline and the flame graph start open.
+    panels = re.findall(
+        r'<details class="chart-panel"( open)?>.*?aria-level="3">([^<]*)', document
+    )
+    assert [title for is_open, title in panels if is_open] == [
+        "Timeline: profile (rank 0)",
+        "Flame graph: profile",
+    ]
+    assert [title for is_open, title in panels if not is_open] == [
+        "Flame chart: profile"
+    ]
     assert 'data-chart-action="expand"' in document
     assert 'data-chart-action="collapse"' in document
     assert "plotly.js" in document
@@ -366,7 +377,7 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
 def test_report_limits_gantt_and_uses_exclusive_rank_heatmap(tmp_path, monkeypatch):
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
-    _write_sample_h5(profile, _sample_file_data(1, 10, 20))
+    _write_sample_h5(profile, _sample_file_data(2, 10, 20))
 
     from scope_profiler import plotting_scripts
 
@@ -394,6 +405,7 @@ def test_report_limits_gantt_and_uses_exclusive_rank_heatmap(tmp_path, monkeypat
     monkeypatch.setattr(plotting_scripts, "plot_duration_timeseries", fake_plot)
     monkeypatch.setattr(plotting_scripts, "plot_callgraph", fake_plot)
     monkeypatch.setattr(plotting_scripts, "plot_rank_heatmap", fake_heatmap)
+    monkeypatch.setattr(plotting_scripts, "plot_imbalance", fake_plot)
     monkeypatch.setattr(plotting_scripts, "plot_flame", fake_plot)
     monkeypatch.setattr(plotting_scripts, "plot_flame_graph", fake_plot)
 
@@ -404,21 +416,12 @@ def test_report_limits_gantt_and_uses_exclusive_rank_heatmap(tmp_path, monkeypat
     assert "exclusive timings" in report.read_text(encoding="utf-8")
 
 
-def test_region_durations_chart_is_stacked_and_sorted_by_total(tmp_path, monkeypatch):
+def test_single_run_report_leaves_region_durations_to_the_table(tmp_path, monkeypatch):
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
     _write_sample_h5(profile, _sample_file_data(1, 10, 20))
 
     from scope_profiler import plotting_scripts
-
-    captured = {}
-
-    def fake_plot_durations(*args, data_filepath, **kwargs):
-        captured.update(kwargs)
-        Path(data_filepath).write_text(
-            json.dumps({"plot": "gantt", "intervals": []}),
-            encoding="utf-8",
-        )
 
     def fake_plot(*args, data_filepath, **kwargs):
         Path(data_filepath).write_text(
@@ -426,18 +429,40 @@ def test_region_durations_chart_is_stacked_and_sorted_by_total(tmp_path, monkeyp
             encoding="utf-8",
         )
 
-    monkeypatch.setattr(plotting_scripts, "plot_gantt", fake_plot)
-    monkeypatch.setattr(plotting_scripts, "plot_durations", fake_plot_durations)
-    monkeypatch.setattr(plotting_scripts, "plot_duration_timeseries", fake_plot)
-    monkeypatch.setattr(plotting_scripts, "plot_callgraph", fake_plot)
-    monkeypatch.setattr(plotting_scripts, "plot_rank_heatmap", fake_plot)
-    monkeypatch.setattr(plotting_scripts, "plot_flame", fake_plot)
-    monkeypatch.setattr(plotting_scripts, "plot_flame_graph", fake_plot)
+    def unexpected(*args, **kwargs):
+        raise AssertionError("one run needs no durations comparison")
+
+    for name in ("plot_gantt", "plot_flame", "plot_flame_graph"):
+        monkeypatch.setattr(plotting_scripts, name, fake_plot)
+    monkeypatch.setattr(plotting_scripts, "plot_durations", unexpected)
 
     cli_main(["report", str(profile), "-o", str(report)])
 
-    assert captured["sort_by"] == "total"
-    assert captured["stack_children"] is True
+    assert "Region durations" not in report.read_text(encoding="utf-8")
+
+
+def test_duration_over_time_follows_only_repeated_regions(tmp_path, monkeypatch):
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    starts = np.array([30, 40, 50])
+    _write_sample_h5(profile, {0: {"setup": ([0], [10]), "step": (starts, starts + 5)}})
+
+    from scope_profiler import plotting_scripts
+
+    captured = {}
+
+    def fake_timeseries(*args, data_filepath, include, **kwargs):
+        captured["include"] = include
+        Path(data_filepath).write_text(
+            json.dumps({"plot": "timeseries", "points": []}), encoding="utf-8"
+        )
+
+    monkeypatch.setattr(plotting_scripts, "plot_duration_timeseries", fake_timeseries)
+
+    create_html_report(profile, report)
+
+    assert captured["include"] == ["step$"]
+    assert "called at least 3 times" in report.read_text(encoding="utf-8")
 
 
 def test_region_durations_compare_multiple_runs_without_stacking(tmp_path, monkeypatch):
@@ -764,23 +789,31 @@ def test_report_escapes_a_region_name_in_the_filter_hook(tmp_path):
     assert 'data-region="sol&quot;&gt;&lt;script&gt;ve"' in document
 
 
-def test_report_call_tree_shows_region_nesting(tmp_path):
+def test_report_region_table_is_a_collapsible_call_tree(tmp_path):
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
     _write_sample_h5(
         profile,
-        # "inner" (0..5) nests entirely inside "outer" (0..10).
+        # "inner" (2..5) nests entirely inside "outer" (0..10).
         {0: {"outer": ([0], [10]), "inner": ([2], [5])}},
     )
 
     cli_main(["report", str(profile), "-o", str(report), "--no-charts"])
 
     document = report.read_text(encoding="utf-8")
-    assert "Call tree" in document
-    outer_pos = document.find("<code>outer</code>")
-    inner_pos = document.find("<code>inner</code>")
-    assert outer_pos != -1 and inner_pos != -1
-    assert outer_pos < inner_pos
+    assert "Call tree" not in document
+    assert 'data-path="outer" data-depth="0"' in document
+    assert 'data-path="outer &gt; inner" data-depth="1"' in document
+    # Only a region with nested regions gets a toggle.
+    outer = document[document.index('data-path="outer"') :]
+    assert outer.index('<button class="tree-toggle"') < outer.index(
+        'data-path="outer &gt; inner"'
+    )
+    assert document.count('<button class="tree-toggle"') == 1
+    assert 'data-tree-action="collapse" data-table="run-0-regions"' in document
+    assert '<table class="region-stats" id="run-0-regions">' in document
+    assert 'tabindex="0" aria-expanded="false"' in document
+    assert "window.scopeProfilerRevealRegion" in document
 
 
 def test_report_line_profile_section_only_appears_when_recorded(tmp_path):
@@ -833,3 +866,279 @@ def test_report_line_profile_section_only_appears_when_recorded(tmp_path):
     assert "solve (app.py:10)" in with_doc
     assert "28.57" in with_doc
     assert "Line profile" not in without_doc
+
+
+def _nested_results(**kwargs):
+    """A session with a loop calling solve, and solve under two parents."""
+    from scope_profiler import MPIRegion, Region
+
+    def region(name, starts, ends):
+        return MPIRegion(
+            name,
+            {0: Region(np.array(starts) * 100_000_000, np.array(ends) * 100_000_000)},
+        )
+
+    return ProfilingResults(
+        {
+            "scope_profiler.session": region("scope_profiler.session", [0], [100]),
+            "loop": region("loop", [10, 40], [39, 90]),
+            "solve": region("solve", [12, 20, 45, 92], [18, 35, 58, 98]),
+            "final": region("final", [91], [99]),
+        },
+        **kwargs,
+    )
+
+
+def _region_table_html(document):
+    start = document.index('<table class="region-stats"')
+    # Detail rows nest per-rank tables, so end at the note after the table.
+    return document[
+        start : document.index('</table><p class="muted table-note">', start)
+    ]
+
+
+def test_report_region_table_matches_the_terminal_summary_layout(tmp_path):
+    report = create_html_report(
+        _nested_results(), tmp_path / "report.html", include_charts=False
+    )
+    document = report.read_text(encoding="utf-8")
+    table = _region_table_html(document)
+
+    thead = table[: table.index("</thead>")]
+    assert [th.rsplit(">", 1)[-1] for th in thead.split("</th>")[:-1]] == [
+        "region",
+        "% session",
+        "total [s]",
+        "trend",
+    ]
+    # Rows follow the call tree (sort="start"), with the same tree glyphs,
+    # inline call counts and (own) rows as the terminal table.
+    names = re.findall(
+        r'<tr class="(?:region-row|own-row)"[^>]*><td>'
+        r'(?:<button class="tree-toggle"[^>]*>[^<]*</button>|<span class="tree-toggle">'
+        r"</span>)<span>(?:<span class=\"indent\">[^<]*</span>)?([^<]*)</span>",
+        table,
+    )
+    assert names == [
+        "scope_profiler.session",
+        "(own)",
+        "loop (2x)",
+        "(own)",
+        "solve (3x)",
+        "final",
+        "(own)",
+        "solve",
+    ]
+    assert '<span class="indent">│ └─ </span>solve (3x)' in table
+    assert "10.000000" in table and "100.00%" in table
+    assert "(1x)" not in table and "TOTAL" not in table
+    # loop runs 7.9 s, 3.4 s of it in solve; its (own) row sits in its tbody.
+    loop_body = table[table.index('data-region="loop"') :]
+    loop_body = loop_body[: loop_body.index('class="region-detail"')]
+    assert '<tr class="own-row">' in loop_body
+    assert "4.500000" in loop_body and "45.00%" in loop_body
+    assert "(own) rows show a region&#x27;s time excluding its children." in document
+
+
+def test_report_links_only_the_first_row_of_a_region_on_several_call_paths(tmp_path):
+    report = create_html_report(
+        _nested_results(), tmp_path / "report.html", include_charts=False
+    )
+    document = report.read_text(encoding="utf-8")
+    solve_rows = document.count('<tbody data-region="solve"')
+    assert solve_rows == 2
+    ids = [part.split('"', 1)[0] for part in document.split(' id="run-0-region-')[1:]]
+    assert len(ids) == len(set(ids))
+
+
+def test_report_region_table_scripts_handle_own_rows_and_flat_sorting(tmp_path):
+    report = create_html_report(
+        _nested_results(), tmp_path / "report.html", include_charts=False
+    )
+    document = report.read_text(encoding="utf-8")
+    # The detail row follows any (own) row, so it is found within the tbody.
+    assert 'row.parentNode.querySelector(".region-detail")' in document
+    assert "nextElementSibling" not in document
+    # Sorting by a column breaks the hierarchy; the indentation is hidden.
+    assert 'table.classList.add("flat")' in document
+    assert ".region-stats.flat .indent { display: none; }" in document
+
+
+def test_report_region_table_omits_percent_without_the_session_root(tmp_path):
+    report = create_html_report(
+        _nested_results(),
+        tmp_path / "report.html",
+        include=["loop", "solve"],
+        include_charts=False,
+    )
+    table = _region_table_html(report.read_text(encoding="utf-8"))
+    assert "% session" not in table
+    assert '<th data-key="total">total [s]</th>' in table
+
+
+def test_report_region_table_explicit_columns_match_the_terminal(tmp_path):
+    report = create_html_report(
+        _nested_results(),
+        tmp_path / "report.html",
+        columns=["region", "ranks", "calls", "parent_percent"],
+        include_charts=False,
+    )
+    table = _region_table_html(report.read_text(encoding="utf-8"))
+    # A calls column replaces the inline "(2x)" counts, as in the terminal.
+    assert "(2x)" not in table and '<th data-key="calls">n</th>' in table
+    loop_body = table[table.index('<tbody data-region="loop"') :]
+    loop_body = loop_body[: loop_body.index(">")]
+    assert 'data-ranks="1"' in loop_body
+    assert 'data-parent_percent="79.0"' in loop_body
+
+
+def test_report_hot_spots_rank_own_time_over_every_call_path(tmp_path):
+    report = create_html_report(
+        _nested_results(), tmp_path / "report.html", include_charts=False
+    )
+    document = report.read_text(encoding="utf-8")
+    hotspots = document[document.index('<div class="hotspots">') :]
+    hotspots = hotspots[: hotspots.index("</ol>")]
+    names = re.findall(r'<li data-region="([^"]*)">', hotspots)
+    # solve runs 3.4 s under loop and 0.6 s under final: 4.0 s in all.
+    assert names == ["loop", "solve", "scope_profiler.session", "final"]
+    assert "4.000000 s · 40.0%" in hotspots
+    # The session root's own time is the time no other region covers.
+    assert "<em>outside any region</em>" in hotspots
+    assert 'class="hotspot" type="button"' in hotspots
+    # The filter hides hot spots too, and the whole list once none match.
+    assert 'document.querySelectorAll(".hotspots")' in document
+    assert "block.hidden = shown === 0;" in document
+
+
+def test_report_hot_spots_need_two_regions(tmp_path):
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    _write_sample_h5(profile, {0: {"solve": ([0], [10])}})
+
+    create_html_report(profile, report, include_charts=False)
+
+    assert '<div class="hotspots">' not in report.read_text(encoding="utf-8")
+
+
+def test_report_run_header_names_file_time_host_and_scale(tmp_path):
+    results = _nested_results(
+        metadata={
+            "timestamp": "2026-09-14T13:48:01+02:00",
+            "hostname": "node042",
+            "chip_information": "Apple M1",
+        },
+        file_path=str(tmp_path / "run.h5"),
+    )
+    report = create_html_report(results, tmp_path / "report.html", include_charts=False)
+    document = report.read_text(encoding="utf-8")
+
+    meta = document[document.index('<p class="run-meta">') :]
+    meta = meta[: meta.index("</p>")]
+    assert "<code>run.h5</code>" in meta
+    assert f'title="{tmp_path / "run.h5"}"' in meta
+    assert "2026-09-14 11:48 UTC" in meta
+    assert "node042" in meta and "Apple M1" in meta
+    assert "1 rank<" in meta and "4 regions<" in meta
+    assert "10 s profiled" in meta
+    # The overview no longer repeats these facts.
+    assert "Profiled <strong>" not in document
+
+
+def test_format_timestamp_handles_naive_and_unparseable_values():
+    from scope_profiler.html_report import _format_timestamp
+
+    assert _format_timestamp("2026-09-14T11:48:59") == "2026-09-14 11:48"
+    assert _format_timestamp("yesterday") == "yesterday"
+
+
+def test_report_flags_time_outside_every_region(tmp_path):
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    _write_sample_h5(
+        profile,
+        {0: {"scope_profiler.session": ([0], [100]), "solve": ([10], [40])}},
+    )
+
+    create_html_report(profile, report, include_charts=False)
+
+    document = report.read_text(encoding="utf-8")
+    assert "70% of the session" in document
+    assert "is outside every region" in document
+    # The session root is neither the hot spot nor the "largest total".
+    assert "<code>solve</code></a> dominates the recorded time" in document
+    assert "has the largest total" not in document
+
+
+def test_report_does_not_guess_outside_time_without_a_call_tree(tmp_path):
+    from scope_profiler import MPIRegion, Region
+
+    def region(name, starts, ends):
+        return MPIRegion(name, {0: Region(np.array(starts), np.array(ends))})
+
+    # Partially overlapping calls cannot form a call tree, and in-memory
+    # results carry no stored exclusive totals to fall back on.
+    results = ProfilingResults(
+        {
+            "scope_profiler.session": region("scope_profiler.session", [0], [100]),
+            "a": region("a", [10], [50]),
+            "b": region("b", [40], [60]),
+        }
+    )
+
+    report = create_html_report(results, tmp_path / "report.html", include_charts=False)
+
+    document = report.read_text(encoding="utf-8")
+    assert "outside every region" not in document
+    assert "outside any region" not in document
+
+
+def test_report_change_chart_uses_the_comparison_builder(tmp_path):
+    baseline = tmp_path / "baseline.h5"
+    candidate = tmp_path / "candidate.h5"
+    _write_sample_h5(baseline, _sample_file_data(1, 10, 20))
+    _write_sample_h5(candidate, _sample_file_data(1, 10, 40))
+    report = tmp_path / "report.html"
+
+    create_html_report([baseline, candidate], report)
+
+    document = report.read_text(encoding="utf-8")
+    # buildFigure would draw the payload as a ranked summary, not a change.
+    assert (
+        "const build = options.comparison ? buildComparisonFigure : buildFigure;"
+        in document
+    )
+    assert "export function buildComparisonFigure" in document
+    panels = re.findall(
+        r'<details class="chart-panel"( open)?>.*?aria-level="3">([^<]*)', document
+    )
+    assert [title for is_open, title in panels if is_open] == [
+        "Timeline: baseline (rank 0)",
+        "Change: candidate vs baseline",
+        "Flame graph: baseline",
+    ]
+
+
+def test_report_total_bars_are_drawn(tmp_path):
+    report = create_html_report(
+        _nested_results(), tmp_path / "report.html", include_charts=False
+    )
+    document = report.read_text(encoding="utf-8")
+    # `.bar-cell span` once matched the bar itself and hid every bar.
+    assert ".bar-cell > span:not(.bar)" in document
+    assert ".bar-cell span {" not in document
+    assert '<span class="bar" style="width:100%"></span>' in document
+
+
+def test_report_omits_an_empty_overview(tmp_path):
+    """A lone session root has no hot spot, wrapper or flag to report."""
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    _write_sample_h5(profile, {0: {"scope_profiler.session": ([0], [10])}})
+
+    create_html_report(profile, report, include_charts=False)
+
+    document = report.read_text(encoding="utf-8")
+    assert '<div class="overview">' not in document
+    assert '<div class="hotspots">' not in document
+    assert "scope_profiler.session" in document
