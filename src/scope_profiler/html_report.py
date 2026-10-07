@@ -26,6 +26,7 @@ from scope_profiler.summary import (
     _region_durations,
     _session_total,
     format_region_table,
+    gpu_timing_warnings,
     likwid_tables,
     perf_event_tables,
     region_rows,
@@ -873,7 +874,7 @@ def _region_table(
         )
     else:
         body = f'<tbody><tr><td colspan="{len(keys) + 1}">No regions recorded.</td></tr></tbody>'
-    notes = ["Durations are in seconds."]
+    notes = ["Durations are in seconds.", *gpu_timing_warnings(rows)]
     if parents:
         notes.append("(own) rows show a region's time excluding its children.")
     if session_total is not None and "percent" in keys:

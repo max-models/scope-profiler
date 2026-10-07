@@ -99,6 +99,9 @@ class GPUOptions(_OptionGroup):
         CUDA-event backend (``gpu_timing_backend``): ``"auto"``, ``"torch"``,
         ``"cupy"``, or an object implementing ``record_event()`` and
         ``elapsed_time_ns(start_event, end_event)``.
+    sync_on_exit : bool or None
+        Synchronize the device at region exit (``gpu_sync_on_exit``).
+        Requires timing and removes CPU/GPU overlap; disabled by default.
     nvtx : bool or None
         Emit NVTX ranges for NVIDIA Nsight tools (``use_nvtx``).
     """
@@ -106,10 +109,12 @@ class GPUOptions(_OptionGroup):
     timing: bool | None = None
     backend: Any = None
     nvtx: bool | None = None
+    sync_on_exit: bool | None = None
 
     _FIELD_MAP: ClassVar[dict[str, str]] = {
         "timing": "use_gpu_timing",
         "backend": "gpu_timing_backend",
+        "sync_on_exit": "gpu_sync_on_exit",
         "nvtx": "use_nvtx",
     }
 
@@ -218,6 +223,9 @@ class ProfilingOptions:
         Record CUDA-event elapsed device time for each profiled region
         (default: False). CPU timestamps are still recorded, so the normal
         timeline remains enqueue-side timing.
+    gpu_sync_on_exit : bool or None
+        Wait for the GPU device at region exit. Requires ``use_gpu_timing``
+        and removes CPU/GPU overlap; disabled by default.
     gpu_timing_backend : str, object, or None
         CUDA-event backend for ``use_gpu_timing``: ``"auto"``, ``"torch"``,
         ``"cupy"``, or a custom object implementing ``record_event()`` and
@@ -326,6 +334,7 @@ class ProfilingOptions:
     memray: "MemrayOptions | None" = None
     gpu: "GPUOptions | None" = None
     hdf5: "HDF5Options | None" = None
+    gpu_sync_on_exit: bool | None = None
 
     def to_kwargs(self) -> dict:
         """This options' explicitly-set fields, as ``setup()`` keyword arguments.
@@ -383,6 +392,7 @@ class SetupOptions(TypedDict, total=False):
     memray_follow_fork: bool
     deactivate_profiling: bool
     use_nvtx: bool
+    gpu_sync_on_exit: bool
     use_gpu_timing: bool
     gpu_timing_backend: Any
     deactivate_file_output: bool
@@ -660,6 +670,7 @@ class ProfilingConfig:
         hdf5_compression: str | None = None,
         hdf5_compression_level: int | None = None,
         hdf5_chunk_size: int | None = None,
+        gpu_sync_on_exit: bool = False,
     ):
         """Initialize the profiling configuration.
 
@@ -686,6 +697,11 @@ class ProfilingConfig:
             Add NVTX ranges to profiled regions for NVIDIA Nsight tools.
         use_gpu_timing : bool
             Record CUDA-event elapsed device time for each profiled region.
+        gpu_sync_on_exit : bool, optional
+            Wait for the current GPU device before recording CPU end time.
+            Requires ``use_gpu_timing=True``; defaults to False. Applies to
+            contexts and decorators and removes CPU/GPU overlap. Custom
+            backends must provide ``synchronize()`` when enabled.
         gpu_timing_backend : str or object
             CUDA-event backend: ``"auto"``, ``"torch"``, ``"cupy"``, or an
             object implementing ``record_event()`` and ``elapsed_time_ns()``.
@@ -784,6 +800,9 @@ class ProfilingConfig:
         self._use_memray = use_memray
         self._memray_tracker = None
         self._use_nvtx = use_nvtx
+        if gpu_sync_on_exit and not use_gpu_timing:
+            raise ValueError("gpu_sync_on_exit requires use_gpu_timing=True")
+        self._gpu_sync_on_exit = gpu_sync_on_exit
         self._use_gpu_timing = use_gpu_timing
         self._gpu_timing_backend = gpu_timing_backend
         self._recursive_profile = recursive_profile
@@ -1092,6 +1111,11 @@ class ProfilingConfig:
     def use_nvtx(self) -> bool:
         """Return whether NVTX annotations are enabled."""
         return self._use_nvtx
+
+    @property
+    def gpu_sync_on_exit(self) -> bool:
+        """Whether GPU regions wait for the device before recording CPU end time."""
+        return self._gpu_sync_on_exit
 
     @property
     def use_gpu_timing(self) -> bool:

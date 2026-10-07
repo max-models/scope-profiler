@@ -734,6 +734,10 @@ class CUDATimingProfileRegion(TimeOnlyProfileRegion):
     def __init__(self, region_name: str, config: ProfilingConfig, tags=()):
         super().__init__(region_name, config, tags=tags)
         self._gpu_backend = resolve_gpu_timing_backend(config.gpu_timing_backend)
+        if config.gpu_sync_on_exit and not callable(
+            getattr(self._gpu_backend, "synchronize", None)
+        ):
+            raise TypeError("gpu_sync_on_exit requires a backend with synchronize()")
         self._gpu_start_events = [None] * self.capacity
         self._gpu_end_events = [None] * self.capacity
         self.gpu_durations = np.empty(self.capacity, dtype=np.int64)
@@ -764,6 +768,8 @@ class CUDATimingProfileRegion(TimeOnlyProfileRegion):
                 return func(*args, **kwargs)
             finally:
                 self._gpu_end_events[scope_ptr] = self._gpu_backend.record_event()
+                if self.config.gpu_sync_on_exit:
+                    getattr(self._gpu_backend, "synchronize")()
                 end = perf_counter_ns()
                 self.start_times[scope_ptr] = start
                 self.end_times[scope_ptr] = end
@@ -812,6 +818,8 @@ class CUDATimingProfileRegion(TimeOnlyProfileRegion):
             return
         slot = self._pop_scope()
         self._gpu_end_events[slot] = self._gpu_backend.record_event()
+        if self.config.gpu_sync_on_exit:
+            getattr(self._gpu_backend, "synchronize")()
         self.end_times[slot] = perf_counter_ns()
 
 

@@ -592,3 +592,70 @@ def test_a_time_only_region_records_a_slot_per_call(config):
 
     assert region.num_calls == 3
     assert (np.diff(region.get_start_times_numpy()) >= 0).all()
+
+
+@pytest.mark.parametrize("sync", [False, True])
+@pytest.mark.parametrize("decorated", [False, True])
+@pytest.mark.parametrize("raises", [False, True])
+def test_gpu_sync_precedes_cpu_end_time(monkeypatch, sync, decorated, raises):
+    clock = [0]
+    events = []
+
+    class Backend(_RecordingGPUBackend):
+        def record_event(self):
+            events.append("event")
+            return super().record_event()
+
+        def synchronize(self):
+            events.append("sync")
+            clock[0] += 100
+
+    monkeypatch.setattr(
+        "scope_profiler.region_profiler.perf_counter_ns", lambda: clock[0]
+    )
+    config = ProfilingConfig(
+        use_gpu_timing=True,
+        gpu_timing_backend=Backend(),
+        gpu_sync_on_exit=sync,
+        deactivate_file_output=True,
+    )
+    region = CUDATimingProfileRegion("work", config)
+
+    def work():
+        clock[0] += 10
+        if raises:
+            raise ValueError("work failed")
+
+    def run():
+        if decorated:
+            region.wrap(work)()
+        else:
+            with region:
+                work()
+
+    if raises:
+        with pytest.raises(ValueError, match="work failed"):
+            run()
+    else:
+        run()
+    assert region.end_times[0] - region.start_times[0] == (110 if sync else 10)
+    assert events == (["event", "event", "sync"] if sync else ["event", "event"])
+    config._paused = True
+    if decorated:
+        region.wrap(lambda: None)()
+    else:
+        with region:
+            pass
+    assert region.ptr == 1
+
+
+def test_gpu_sync_requires_timing_and_backend_support():
+    with pytest.raises(ValueError, match="requires use_gpu_timing"):
+        ProfilingConfig(gpu_sync_on_exit=True)
+    config = ProfilingConfig(
+        use_gpu_timing=True,
+        gpu_sync_on_exit=True,
+        gpu_timing_backend=_RecordingGPUBackend(),
+    )
+    with pytest.raises(TypeError, match="synchronize"):
+        CUDATimingProfileRegion("work", config)

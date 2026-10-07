@@ -2391,6 +2391,11 @@ class ProfileManager:
             Record CUDA-event elapsed device time for each profiled region
             (default: False). CPU timestamps are still recorded, so the normal
             timeline remains enqueue-side timing.
+        gpu_sync_on_exit : bool, optional
+            Wait for the current GPU device before recording CPU end time.
+            Requires ``use_gpu_timing=True``; defaults to False. Applies to
+            contexts and decorators and removes CPU/GPU overlap. Custom
+            backends must provide ``synchronize()`` when enabled.
         gpu_timing_backend : str or object, optional
             CUDA-event backend for ``use_gpu_timing``: ``"auto"``, ``"torch"``,
             ``"cupy"``, or a custom object implementing ``record_event()`` and

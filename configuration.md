@@ -435,3 +435,48 @@ ProfileManager.setup(file_path="run_b.h5", use_line_profiler=True)
 # ...
 ProfileManager.finalize()
 ```
+
+## GPU timing and synchronization
+
+Enable CUDA-event timing to measure asynchronous device work:
+
+```python
+ProfileManager.setup(
+    use_gpu_timing=True,
+    gpu_timing_backend="cupy",  # or "torch"
+    gpu_sync_on_exit=True,     # optional; defaults to False
+)
+```
+
+`gpu_sync_on_exit=True` waits for the current device after recording each
+region's GPU end event and before recording its CPU end time. It applies to
+context managers and decorators, including exceptional exits. This includes
+the wait in CPU durations and removes CPU/GPU overlap, changing the workload
+being measured. The wait can also include work queued before the region or
+on other streams; it is not an isolated kernel timing. GPU events continue
+to measure the backend's current stream. Synchronization requires
+`use_gpu_timing=True`; custom backends must implement `synchronize()`.
+
+The grouped equivalent is
+`GPUOptions(timing=True, backend="cupy", sync_on_exit=True)`, or in TOML:
+
+```toml
+[profiling.gpu]
+timing = true
+backend = "cupy"
+sync_on_exit = true
+```
+
+`inspect`, HTML `report`, and the end-of-run summary automatically add
+`gpu total [s]` and `gpu avg [s]` when selected regions have GPU timings.
+Explicit column selections can include `gpu_total` and `gpu_avg`.
+GPU averages use only calls with GPU measurements. CPU-only regions show
+a dash. A warning flags GPU totals over twice the CPU total as possible
+asynchronous enqueue timing. Nested totals are inclusive.
+
+Compare device timings with:
+
+```bash
+scope-profiler diff baseline.h5 candidate.h5 --metric gpu_total
+scope-profiler diff baseline.h5 candidate.h5 --metric gpu_avg
+```

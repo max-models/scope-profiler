@@ -14,13 +14,36 @@ from tabulate import tabulate
 
 from scope_profiler.profile_io import read_profile, read_profile_summary
 from scope_profiler.results import ProfilingResults
-from scope_profiler.summary import region_rows
+from scope_profiler.summary import gpu_timing_warnings, region_row, region_rows
 
-METRICS = ("total", "avg", "min", "max", "p50", "p95", "p99", "imbalance", "calls")
-_SUMMARY_METRICS = {"total", "avg", "min", "max", "imbalance", "calls"}
+METRICS = (
+    "gpu_total",
+    "gpu_avg",
+    "total",
+    "avg",
+    "min",
+    "max",
+    "p50",
+    "p95",
+    "p99",
+    "imbalance",
+    "calls",
+)
+_SUMMARY_METRICS = {
+    "gpu_total",
+    "gpu_avg",
+    "total",
+    "avg",
+    "min",
+    "max",
+    "imbalance",
+    "calls",
+}
 SORT_KEYS = ("delta", "pct", "name")
 
 _METRIC_LABELS = {
+    "gpu_total": "gpu total [s]",
+    "gpu_avg": "gpu avg [s]",
     "total": "total [s]",
     "avg": "avg [s]",
     "min": "min [s]",
@@ -81,11 +104,17 @@ def diff_rows(
 
     rows_a = {
         row["name"]: row
-        for row in region_rows(results_a, include=include, exclude=exclude, ranks=ranks)
+        for row in (
+            region_row(region, ranks)
+            for region in results_a.get_regions(include=include, exclude=exclude)
+        )
     }
     rows_b = {
         row["name"]: row
-        for row in region_rows(results_b, include=include, exclude=exclude, ranks=ranks)
+        for row in (
+            region_row(region, ranks)
+            for region in results_b.get_regions(include=include, exclude=exclude)
+        )
     }
 
     rows = []
@@ -226,6 +255,12 @@ def diff_files(
     print(f"a: {results_a.default_title()}", file=stream)
     print(f"b: {results_b.default_title()}", file=stream)
     print("=" * 78 + "\n", file=stream)
+
+    for label, results in (("a", results_a), ("b", results_b)):
+        for warning in gpu_timing_warnings(
+            region_rows(results, include=include, exclude=exclude, ranks=ranks)
+        ):
+            print(f"{label}: {warning}", file=stream)
 
     rows = diff_rows(
         results_a,
