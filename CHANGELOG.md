@@ -18,6 +18,25 @@
   region and line profile to its file name. The default is unchanged.
 - The "Run metadata" guide now lists what a profiling file can identify about
   its author and machine, and where it flows into exports.
+- HTML report: MPI runs get a **Load balance** table (per-rank own time,
+  slowest rank, imbalance and excess per region) and a **Rank comparison**
+  matrix coloring each rank against the region mean. Every chart has an
+  **Open in new tab** button.
+- `scope-profiler report` with several files writes a comparison report --
+  runs, the largest own-time improvements and regressions, and a durations
+  table matched by call path -- plus a full report per run, linked from it.
+  `--no-individual-reports` (`individual_reports=False`) skips those.
+
+### Changed
+
+- HTML report: the summary at the top is now a row of headline numbers and a
+  findings list, and **Hot spots** became **Bottlenecks**: the leaves of the
+  call tree, per call path, with the path each sits on. Line profiles show each
+  function's source with its indentation, unrecorded lines included, summed
+  over ranks and with the hottest line highlighted. Clicking a chart no longer
+  scrolls the page to the table; it offers a **Show in table** jump instead.
+- A multi-file report no longer repeats each run's tables and per-run charts;
+  those are in the individual reports.
 
 ### Fixed
 
