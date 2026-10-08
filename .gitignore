@@ -213,3 +213,6 @@ tutorials/*_files/
 examples/agent_workflow/README.md
 examples/c/README.md
 examples/fortran/README.md
+
+# Output of examples/ex_html_report.py
+report_example/

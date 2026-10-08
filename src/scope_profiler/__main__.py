@@ -339,9 +339,9 @@ def _report(argv):
     parser.add_argument(
         "-o",
         "--output",
-        required=True,
+        default="report.html",
         metavar="PATH",
-        help="HTML file to write",
+        help="HTML file to write (default: report.html)",
     )
     parser.add_argument(
         "--include",

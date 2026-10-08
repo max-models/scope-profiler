@@ -181,14 +181,33 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
                  width: 1%; }
 .meta-table td { text-align: left; }
 .meta-table td code { white-space: pre-wrap; word-break: break-all; }
-.lp-function { border: 1px solid #e5e7eb; border-radius: .5rem; margin: .6rem 0; }
-.lp-function > summary { align-items: baseline; display: flex; flex-wrap: wrap; font-weight: 400;
-                         gap: .25rem .75rem; padding: .55rem .9rem; }
-.lp-function[open] > summary { border-bottom: 1px solid #e5e7eb; }
-.lp-func { font-family: MONO; font-weight: 650; }
-.lp-loc { color: #6b7280; font-size: .85em; }
-.lp-total { font-variant-numeric: tabular-nums; margin-left: auto; }
-.lp-total .lp-share { color: #6b7280; }
+.lp-functions { border: 1px solid #e5e7eb; border-radius: .5rem; overflow: hidden; }
+.lp-function { border-bottom: 1px solid #e5e7eb; margin: 0; }
+.lp-function:last-child { border-bottom: 0; }
+.lp-functions:not(.show-all) .lp-extra { display: none; }
+.lp-function > summary { align-items: center; display: grid; font-weight: 400; gap: .75rem;
+  grid-template-columns: minmax(8rem, 16rem) minmax(5rem, 10rem) minmax(6rem, 1fr) 6rem 4.5rem 2.5rem;
+  padding: .3rem .8rem; }
+.lp-function > summary:hover { background: #f9fafb; }
+.lp-function[open] > summary { background: #f9fafb; border-bottom: 1px solid #e5e7eb; }
+.lp-func { font-family: MONO; font-weight: 650; overflow: hidden; text-overflow: ellipsis;
+           white-space: nowrap; }
+.lp-region, .lp-loc { font-size: .85em; overflow: hidden; text-overflow: ellipsis;
+                      white-space: nowrap; }
+.lp-region { color: #3730a3; } .lp-loc { color: #6b7280; }
+.lp-bar { background: #f3f4f6; border-radius: .2rem; height: .55rem; overflow: hidden; }
+.lp-bar > span { background: #f87171; display: block; height: 100%; }
+.lp-total, .lp-share { font-variant-numeric: tabular-nums; text-align: right; }
+.lp-share { color: #6b7280; }
+.lp-tools { margin: .3rem .8rem .5rem; }
+.lp-mark { background: #fee2e2; border-radius: .25rem; color: #b91c1c;
+           font-family: system-ui, sans-serif; font-size: .72em; margin-left: .45rem;
+           padding: 0 .3rem; vertical-align: .1em; }
+.lp-block { margin: .25rem 0 1rem; }
+.lp-head { align-items: baseline; display: flex; gap: .75rem; margin: .2rem 0 .35rem; }
+.region-detail .lp-scroll { background: #fff; border: 1px solid #e5e7eb; border-radius: .4rem;
+                            max-width: 62rem; }
+.region-detail .lp-tools { margin: .35rem 0 0; }
 .lp-scroll { overflow-x: auto; }
 .lp-table { font-family: MONO; font-size: .85em; margin: 0; width: 100%; }
 .lp-table th { background: #f9fafb; font-weight: 600; position: static; }
@@ -202,6 +221,8 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
 .lp-table tr.lp-hot td { background-color: #fef2f2; }
 .lp-table tr.lp-hot td.lp-pct { background-color: #fef2f2; font-weight: 650; }
 .lp-table tbody tr:hover td { background-color: #f3f4f6; }
+.lp-table:not(.show-all) tr.lp-more, .lp-table.show-all tr.lp-gap { display: none; }
+.lp-table tr.lp-gap td { background: #f9fafb; color: #9ca3af; font-style: italic; }
 .balance-table td, .balance-table th { white-space: nowrap; }
 .balance-table td:first-child { max-width: 18rem; overflow: hidden; text-overflow: ellipsis; }
 .balance-table tbody tr.extra { display: none; }
@@ -285,6 +306,8 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
   th { position: static; }
   .chart { break-inside: avoid; }
   .balance-table tbody tr.extra { display: table-row; }
+  .lp-table tr.lp-more { display: table-row; } .lp-table tr.lp-gap { display: none; }
+  .lp-functions .lp-extra { display: block; }
 }
 """.replace("MONO", _MONO)
 
@@ -736,6 +759,11 @@ _MATRIX_REGIONS = 20
 _MATRIX_RANKS = 64
 _MATRIX_TEXT_RANKS = 24
 _CHANGE_COUNT = 5
+# Line profiles: functions listed before "Show all", the share of a function's
+# time that makes a line worth showing, and the fewest lines worth folding.
+_LP_FUNCTIONS = 10
+_LP_SHOWN_PCT = 1.0
+_LP_MIN_FOLD = 3
 # Changes smaller than this read as noise rather than as faster or slower.
 _SAME_PCT = 2.0
 # Own-time changes below this share of the baseline are not listed as changes.
@@ -1117,8 +1145,8 @@ def _rank_breakdown_html(region, ranks) -> str:
     )
 
 
-def _region_detail_html(region, ranks) -> str:
-    """Expandable detail for one region: call site, tags and per-rank stats."""
+def _region_detail_html(results, region, ranks, functions=(), table_id="lp") -> str:
+    """Expandable detail for one region: call site, tags, line profile and ranks."""
     parts = []
     if region.tags:
         parts.append(
@@ -1128,10 +1156,24 @@ def _region_detail_html(region, ranks) -> str:
         parts.append(
             f"<p class='muted'>{_text(region.source_file)}:{_text(region.source_lineno)}</p>",
         )
-        if region.source_text:
+        # The line profile shows the same source, with its timings.
+        if region.source_text and not functions:
             parts.append(
                 f"<pre><code>{_text(region.source_text.rstrip())}</code></pre>",
             )
+    if functions:
+        parts.append(
+            "<p class='muted'>Line profile</p>"
+            + "".join(
+                '<div class="lp-block"><p class="lp-head">'
+                f'<span class="lp-func">{_text(entry["function"])}</span>'
+                f"{_lp_location_html(results, entry)}"
+                f'<span class="lp-total">{_text(_duration_text(entry["total"]))}</span></p>'
+                + _line_profile_table(entry, f"{table_id}-{index}")
+                + "</div>"
+                for index, entry in enumerate(functions)
+            )
+        )
     if region.has_gpu_timing:
         parts.append(
             f"<p>GPU total: {_seconds(region.gpu_total_duration)}, "
@@ -1184,7 +1226,13 @@ def _indented_cell(text: str) -> str:
 
 
 def _region_table(
-    results, rows, ranks, columns, region_ids=None, table_id="regions"
+    results,
+    rows,
+    ranks,
+    columns,
+    region_ids=None,
+    table_id="regions",
+    line_profiles=None,
 ) -> str:
     """Region statistics laid out like the terminal summary table.
 
@@ -1195,6 +1243,7 @@ def _region_table(
     collapsing the tree move them together.
     """
     region_ids = {} if region_ids is None else region_ids
+    line_profiles = {} if line_profiles is None else line_profiles
     selected_columns, display_rows = format_region_table(rows, columns)
     headers = "".join(
         f'<th data-key="{key}">{_text(header)}</th>' for key, header in selected_columns
@@ -1207,12 +1256,14 @@ def _region_table(
     # (own) rows follow exactly the regions that have children in the table.
     parents = {row.get("call_path") for row, _, is_own in display_rows if is_own}
 
-    def cells(display, bar_value, toggle='<span class="tree-toggle"></span>') -> str:
+    def cells(
+        display, bar_value, toggle='<span class="tree-toggle"></span>', mark=""
+    ) -> str:
         rendered = []
         for key in keys:
             text = _indented_cell(display[key])
             if key == "name":
-                rendered.append(f"<td>{toggle}<span>{text}</span></td>")
+                rendered.append(f"<td>{toggle}<span>{text}</span>{mark}</td>")
             elif key == "total" and max_total and display[key]:
                 width = 100.0 * (bar_value or 0.0) / max_total
                 rendered.append(
@@ -1271,14 +1322,21 @@ def _region_table(
             if "call_path" in row
             else ""
         )
+        functions = line_profiles.get(row["name"], ())
+        mark = (
+            '<span class="lp-mark" title="Line profile recorded: click the row">'
+            "lines</span>"
+            if functions
+            else ""
+        )
         if row.get("call_path") in parents:
             toggle = (
                 '<button class="tree-toggle" type="button" aria-expanded="true"'
                 ' title="Collapse or expand the nested regions">▾</button>'
             )
-            row_cells = cells(display, row["total"], toggle)
+            row_cells = cells(display, row["total"], toggle, mark)
         else:
-            row_cells = cells(display, row["total"])
+            row_cells = cells(display, row["total"], mark=mark)
         head = (
             f'<tbody data-region="{region_attr}" data-run="{run_attr}"'
             f"{tree_attrs} {data_attrs}>"
@@ -1288,8 +1346,13 @@ def _region_table(
         )
         detail = (
             '<tr class="region-detail" hidden>'
-            f'<td colspan="{len(keys) + 1}">{_region_detail_html(region, ranks)}</td>'
-            "</tr></tbody>"
+            f'<td colspan="{len(keys) + 1}">'
+            # A region on several call paths has a detail row per path, so
+            # the ids of its line tables carry the row's position.
+            + _region_detail_html(
+                results, region, ranks, functions, f"{table_id}-{len(groups)}-lp"
+            )
+            + "</td></tr></tbody>"
         )
         # (own) rows are inserted between the two as they come.
         groups.append([head, detail])
@@ -1310,7 +1373,11 @@ def _region_table(
             "% session uses wall-clock coverage; overlapping recursive calls count once."
         )
     if rows:
-        notes.append("Click a row for its call site and per-rank breakdown.")
+        notes.append(
+            "Click a row for its call site, line profile and per-rank breakdown."
+            if line_profiles
+            else "Click a row for its call site and per-rank breakdown."
+        )
     tools = (
         '<div class="table-tools">'
         f'<button type="button" data-tree-action="collapse" data-table="{table_id}">'
@@ -1394,7 +1461,37 @@ def _dedent_width(lines) -> int:
     return min(widths, default=0)
 
 
-def _line_profile_table(entry) -> str:
+def _shown_lines(numbers, recorded, total, hottest) -> set[int]:
+    """The lines worth reading: the first, the costly lines, one line around each.
+
+    Everything else folds into "N lines" rows, so a long function costs a few
+    rows rather than a screenful. A fold row takes the space of one line, so a
+    single hidden line is shown instead, and a function with little to hide is
+    shown whole.
+    """
+    costly = {
+        number
+        for number, (_, seconds) in recorded.items()
+        if total and 100.0 * seconds / total >= _LP_SHOWN_PCT
+    } | {hottest}
+    position = {number: index for index, number in enumerate(numbers)}
+    shown = {numbers[0]}
+    for number in costly:
+        index = position[number]
+        shown.update(numbers[max(index - 1, 0) : index + 2])
+    for index in range(1, len(numbers) - 1):
+        if (
+            numbers[index] not in shown
+            and numbers[index - 1] in shown
+            and numbers[index + 1] in shown
+        ):
+            shown.add(numbers[index])
+    if len(numbers) - len(shown) <= _LP_MIN_FOLD:
+        return set(numbers)
+    return shown
+
+
+def _line_profile_table(entry, table_id) -> str:
     """One function's source, each line with the time spent on it."""
     recorded = entry["lines"]
     total = entry["total"]
@@ -1412,67 +1509,121 @@ def _line_profile_table(entry) -> str:
     )
     strip = _dedent_width(sources[number] for number in numbers)
     hottest = max(recorded, key=lambda number: recorded[number][1])
+    shown = _shown_lines(numbers, recorded, total, hottest)
     body = []
+    folded = 0
+
+    def fold() -> None:
+        # Hidden lines show as one row, until "Show all lines" replaces it.
+        if folded:
+            body.append(
+                '<tr class="lp-gap"><td class="lp-lineno">⋯</td><td colspan="4"></td>'
+                f'<td class="lp-src">{_plural(folded, "line")} hidden</td></tr>'
+            )
+
     for number in numbers:
+        if number in shown:
+            fold()
+            folded = 0
+            classes = []
+        else:
+            folded += 1
+            classes = ["lp-more"]
         source = _text(sources[number][strip:])
         if number not in recorded:
+            classes.append("lp-idle")
             body.append(
-                f'<tr class="lp-idle"><td class="lp-lineno">{number}</td>'
+                f'<tr class="{" ".join(classes)}"><td class="lp-lineno">{number}</td>'
                 f'<td></td><td></td><td></td><td></td><td class="lp-src">{source}</td></tr>'
             )
             continue
         hits, seconds = recorded[number]
         percent = 100.0 * seconds / total if total else 0.0
         per_hit = seconds / hits if hits else 0.0
-        hot = ' class="lp-hot"' if number == hottest and total else ""
+        if number == hottest and total:
+            classes.append("lp-hot")
+        row_class = f' class="{" ".join(classes)}"' if classes else ""
         body.append(
-            f'<tr{hot}><td class="lp-lineno">{number}</td>'
+            f'<tr{row_class}><td class="lp-lineno">{number}</td>'
             f"<td>{hits:,}</td><td>{_text(_duration_text(seconds))}</td>"
             f"<td>{_text(_duration_text(per_hit))}</td>"
             f'<td class="lp-pct" style="--pct:{min(percent, 100.0):.3g}%">{percent:.2f}%</td>'
             f'<td class="lp-src">{source}</td></tr>'
         )
+    fold()
+    hidden = len(numbers) - len(shown)
+    toggle = (
+        f'<div class="table-tools lp-tools"><button type="button" data-show-all="{table_id}"'
+        f' data-more-label="Show all {len(numbers)} lines"'
+        f' data-less-label="Show only the costly lines">'
+        f"Show all {len(numbers)} lines</button></div>"
+        if hidden
+        else ""
+    )
     return (
-        '<div class="lp-scroll"><table class="lp-table"><thead><tr>'
+        f'<div class="lp-scroll"><table class="lp-table" id="{table_id}"><thead><tr>'
         "<th>line</th><th>hits</th><th>time</th><th>per hit</th><th>% time</th>"
         '<th class="lp-src">source</th></tr></thead><tbody>'
         + "".join(body)
         + "</tbody></table></div>"
+        + toggle
     )
 
 
-def _line_profile_html(results, ranks) -> str:
-    """Per-line timings from ``line_profiler``, one panel per profiled function."""
-    functions = _line_profile_functions(results, ranks)
-    if not functions:
-        return '<p class="muted">No line-profile records for the selected ranks.</p>'
-    grand_total = sum(entry["total"] for entry in functions)
-    panels = []
-    for index, entry in enumerate(functions):
-        location = f"{Path(entry['filename']).name}:{entry['first_lineno']}"
-        share = (
-            f' <span class="lp-share">· {100.0 * entry["total"] / grand_total:.0f}%</span>'
-            if grand_total and len(functions) > 1
-            else ""
-        )
-        ranks_note = (
-            f" · {_plural(len(entry['ranks']), 'rank')}"
-            if len(entry["ranks"]) > 1
-            else f" · rank {entry['ranks'][0]}" if results.num_ranks > 1 else ""
-        )
-        panels.append(
-            f'<details class="lp-function"{" open" if index == 0 else ""}>'
-            f'<summary><span class="lp-func">{_text(entry["function"])}</span>'
-            f'<span class="tag">{_text(entry["region"])}</span>'
-            f'<span class="lp-loc" title="{_text(entry["filename"])}">'
-            f"{_text(location)}{_text(ranks_note)}</span>"
-            f'<span class="lp-total">{_text(_duration_text(entry["total"]))}{share}</span>'
-            "</summary>" + _line_profile_table(entry) + "</details>"
-        )
+def _lp_location_html(results, entry) -> str:
+    """Where a profiled function is, and on how many ranks it ran."""
+    location = f"{Path(entry['filename']).name}:{entry['first_lineno']}"
+    ranks_note = (
+        f" · {_plural(len(entry['ranks']), 'rank')}"
+        if len(entry["ranks"]) > 1
+        else f" · rank {entry['ranks'][0]}" if results.num_ranks > 1 else ""
+    )
     return (
-        '<p class="muted">Time per source line, summed over the selected ranks. '
-        "The hottest line of each function is highlighted; functions are ordered "
-        "by their total time.</p>" + "".join(panels)
+        f'<span class="lp-loc" title="{_text(entry["filename"])}">'
+        f"{_text(location)}{_text(ranks_note)}</span>"
+    )
+
+
+def _line_profile_html(results, functions, section_id="run-0") -> str:
+    """Line profiles of regions the table does not show: one row per function.
+
+    Regions in the table carry their line profile in their detail row; this
+    lists the rest -- regions the include/exclude patterns left out, say.
+    Every function starts collapsed, and only the largest few are listed
+    until asked for.
+    """
+    grand_total = sum(entry["total"] for entry in functions)
+    list_id = f"{section_id}-lp-functions"
+    rows = []
+    for index, entry in enumerate(functions):
+        share = 100.0 * entry["total"] / grand_total if grand_total else 0.0
+        extra = " lp-extra" if index >= _LP_FUNCTIONS else ""
+        rows.append(
+            f'<details class="lp-function{extra}">'
+            f'<summary><span class="lp-func">{_text(entry["function"])}</span>'
+            f'<span class="lp-region">{_text(entry["region"])}</span>'
+            f"{_lp_location_html(results, entry)}"
+            f'<span class="lp-bar"><span style="width:{share:.3g}%"></span></span>'
+            f'<span class="lp-total">{_text(_duration_text(entry["total"]))}</span>'
+            f'<span class="lp-share">{share:.0f}%</span>'
+            "</summary>"
+            + _line_profile_table(entry, f"{section_id}-lp-{index}")
+            + "</details>"
+        )
+    more = len(functions) - _LP_FUNCTIONS
+    toggle = (
+        f'<div class="table-tools"><button type="button" data-show-all="{list_id}"'
+        f' data-more-label="Show all {len(functions)} functions"'
+        f' data-less-label="Show the top {_LP_FUNCTIONS}">'
+        f"Show all {len(functions)} functions</button></div>"
+        if more > 0
+        else ""
+    )
+    return (
+        '<p class="muted">Profiled functions whose region is not in the table '
+        "above, largest first; a region in the table shows its line profile when "
+        "its row is clicked. Times are summed over the selected ranks.</p>"
+        f'<div class="lp-functions" id="{list_id}">' + "".join(rows) + "</div>" + toggle
     )
 
 
@@ -2717,21 +2868,36 @@ def _single_run_body(results, include, exclude, ranks, sort, columns, charts):
     if bottlenecks:
         links.append((f"{section_id}-bottlenecks", "Bottlenecks"))
         parts.append(f'<div id="{section_id}-bottlenecks">{bottlenecks}</div>')
+    # Each region's line profile lives in its table row's detail.
+    tabled = {row["name"] for row in rows}
+    line_profiles: dict[str, list[dict]] = {}
+    unmatched = []
+    for entry in _line_profile_functions(results, ranks):
+        if entry["region"] in tabled:
+            line_profiles.setdefault(entry["region"], []).append(entry)
+        else:
+            unmatched.append(entry)
     links.append((f"{section_id}-table", "Region statistics"))
     parts.append(
         f'<h3 id="{section_id}-table">Region statistics</h3>'
         + _region_table(
-            results, rows, ranks, columns, region_ids, table_id=f"{section_id}-regions"
+            results,
+            rows,
+            ranks,
+            columns,
+            region_ids,
+            table_id=f"{section_id}-regions",
+            line_profiles=line_profiles,
         )
     )
     if balance is not None:
         links.append((f"{section_id}-balance", "Load balance"))
         parts.append(_load_balance_html(results, balance, region_ids, section_id))
-    if any(results.line_profile.values()):
+    if unmatched:
         links.append((f"{section_id}-lines", "Line profile"))
         parts.append(
             f'<h3 id="{section_id}-lines">Line profile</h3>'
-            + _line_profile_html(results, ranks)
+            + _line_profile_html(results, unmatched, section_id)
         )
     parts.append(
         f'<details id="{section_id}-metadata"><summary>Metadata</summary>'

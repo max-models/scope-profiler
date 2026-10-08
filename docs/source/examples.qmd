@@ -16,6 +16,7 @@ repeatable AI optimization workflow.
 - [`ex_recursive_profiling.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_recursive_profiling.py) — profile nested calls.
 - [`ex_call_path_summary.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_call_path_summary.py) — show separate summary timings for a same-named region reached through different callers.
 - [`ex_region_source.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_region_source.py) — retain and inspect region source code.
+- [`ex_html_report.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_html_report.py) — profile a baseline and an optimized case into two files and compare them with `scope-profiler report`.
 - [`ex_aggregation.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_aggregation.py) — record compact per-region aggregate statistics without storing an event timeline.
 - [`ex_perf_events.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_perf_events.py) — collect Linux CPU-counter totals per profiled region.
 - [`ex_mpi_wrappers.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_mpi_wrappers.py) — profile mpi4py point-to-point, collective, and wait calls with communication metadata.

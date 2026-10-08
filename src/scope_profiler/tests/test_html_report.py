@@ -1287,23 +1287,38 @@ def test_line_profile_shows_the_function_source_dedented(tmp_path):
     report = create_html_report(results, tmp_path / "report.html", include_charts=False)
     document = report.read_text(encoding="utf-8")
 
-    section = document[document.index('id="run-0-lines"') :]
-    assert "profile_manager.py" not in section
-    # Ranks are summed, and the slower function comes first, open.
-    assert section.index('lp-func">solve') < section.index('lp-func">helper')
+    assert "profile_manager.py" not in document
+    # solve's line profile is in its table row's detail, marked on the row.
+    body = document[document.index('<tbody data-region="solve"') :]
+    # The row's own tbody ends where the next region's begins.
+    body = body[: body.index('<tbody class="region-empty"')]
+    assert '<span class="lp-mark"' in body
     assert (
-        '<details class="lp-function" open><summary><span class="lp-func">solve'
-        in section
+        '<div class="lp-block"><p class="lp-head"><span class="lp-func">solve' in body
     )
-    assert "2 ranks" in section and "200 µs" in section
+    assert 'id="run-0-regions-0-lp-0"' in body
+    # Ranks are summed.
+    assert "2 ranks" in body and "200 µs" in body
     # The function reads as written: unrecorded lines included, the common
     # indentation stripped, nested indentation kept.
-    assert '<td class="lp-src">def solve(self, n):</td>' in section
-    assert '<tr class="lp-idle"><td class="lp-lineno">3</td>' in section
-    assert '<td class="lp-src">    # sum the squares</td>' in section
-    assert '<td class="lp-src">        total += i * i</td>' in section
-    assert '<tr class="lp-hot"><td class="lp-lineno">6</td>' in section
-    assert "<td>22</td>" in section and 'style="--pct:80%">80.00%</td>' in section
+    assert '<td class="lp-src">def solve(self, n):</td>' in body
+    assert '<tr class="lp-idle"><td class="lp-lineno">3</td>' in body
+    assert '<td class="lp-src">    # sum the squares</td>' in body
+    assert '<td class="lp-src">        total += i * i</td>' in body
+    assert '<tr class="lp-hot"><td class="lp-lineno">6</td>' in body
+    assert "<td>22</td>" in body and 'style="--pct:80%">80.00%</td>' in body
+    assert "Click a row for its call site, line profile and per-rank" in document
+
+    # helper's region is not in the table, so it is listed on its own,
+    # collapsed to one row with its share of the time.
+    section = document[document.index('id="run-0-lines"') :]
+    assert '<a href="#run-0-lines">Line profile</a>' in document
+    assert 'lp-func">solve' not in section
+    assert (
+        '<details class="lp-function"><summary><span class="lp-func">helper' in section
+    )
+    assert " open>" not in section
+    assert '<span class="lp-share">100%</span>' in section
 
 
 def test_report_balance_sections_compare_ranks(tmp_path):
@@ -1697,3 +1712,132 @@ def test_rank_balance_skips_regions_without_time_on_the_selected_ranks():
     assert [entry["name"] for entry in balance["regions"]] == ["busy"]
     # A file name no path can be made of is not scope-profiler's own frame.
     assert _is_own_frame("bad\0name") is False
+
+
+def _line_profile_results(tmp_path, functions):
+    """In-memory results with a line profile for each (name, source, times)."""
+    from scope_profiler import MPIRegion, Region
+
+    records = []
+    for name, source, times in functions:
+        path = tmp_path / f"{name}.py"
+        path.write_text(source, encoding="utf-8")
+        records.append(
+            {
+                "region": name,
+                "filename": str(path),
+                "function": name,
+                "first_lineno": 1,
+                "line_numbers": np.asarray([number for number, _ in times]),
+                "hits": np.ones(len(times), dtype=int),
+                "times": np.asarray([time for _, time in times], dtype=float),
+                "unit": 1e-6,
+            }
+        )
+    return ProfilingResults(
+        {"work": MPIRegion("work", {0: Region(np.array([0]), np.array([1]))})},
+        line_profile={0: records},
+    )
+
+
+def test_line_profile_folds_the_cheap_lines_of_a_long_function(tmp_path):
+    # Line 20 of 40 costs everything; the rest cost almost nothing.
+    source = "def long():\n" + "".join(f"    x{n} = {n}\n" for n in range(2, 41))
+    times = [(n, 1000.0 if n == 20 else 0.1) for n in range(2, 41)]
+    results = _line_profile_results(tmp_path, [("long", source, times)])
+
+    report = create_html_report(results, tmp_path / "report.html", include_charts=False)
+    document = report.read_text(encoding="utf-8")
+    table = document[document.index('<table class="lp-table" id="run-0-lp-0">') :]
+    table = table[: table.index("</table>")]
+
+    shown = re.findall(r'<tr(?: class="lp-hot")?><td class="lp-lineno">(\d+)', table)
+    # The def (unrecorded), and the costly line with one line either side.
+    assert '<tr class="lp-idle"><td class="lp-lineno">1</td>' in table
+    assert shown == ["19", "20", "21"]
+    assert table.count('class="lp-more"') == 17 + 19
+    assert '<td class="lp-src">17 lines hidden</td>' in table
+    assert '<td class="lp-src">19 lines hidden</td>' in table
+    assert 'data-show-all="run-0-lp-0" data-more-label="Show all 40 lines"' in document
+
+
+def test_line_profile_shows_a_function_with_little_to_hide_whole(tmp_path):
+    # Hiding one line saves nothing: its fold row takes the same space.
+    source = "def short():\n    a = 1\n    b = 2\n    c = 3\n    d = 4\n    e = 5\n"
+    times = [(2, 100.0), (3, 0.1), (4, 100.0), (5, 0.1), (6, 0.1)]
+    results = _line_profile_results(tmp_path, [("short", source, times)])
+
+    document = create_html_report(
+        results, tmp_path / "report.html", include_charts=False
+    ).read_text(encoding="utf-8")
+    assert 'class="lp-more' not in document.split("</style>", 1)[1]
+    assert "lines hidden" not in document
+    assert 'data-show-all="run-0-lp-0"' not in document
+
+
+def test_line_profile_lists_the_largest_functions_first(tmp_path):
+    from scope_profiler.html_report import _LP_FUNCTIONS
+
+    functions = [
+        (f"f{index:02d}", f"def f{index:02d}():\n    pass\n", [(2, float(index + 1))])
+        for index in range(_LP_FUNCTIONS + 2)
+    ]
+    results = _line_profile_results(tmp_path, functions)
+
+    document = create_html_report(
+        results, tmp_path / "report.html", include_charts=False
+    ).read_text(encoding="utf-8")
+    names = re.findall(r'<span class="lp-func">([^<]*)</span>', document)
+    assert names[:2] == ["f11", "f10"]
+    assert document.count('<details class="lp-function lp-extra">') == 2
+    assert 'data-show-all="run-0-lp-functions"' in document
+    assert "Show all 12 functions" in document
+
+
+def test_report_output_defaults_to_report_html(tmp_path, monkeypatch):
+    profile = tmp_path / "profile.h5"
+    _write_sample_h5(profile, _sample_file_data(1, 10, 20))
+    monkeypatch.chdir(tmp_path)
+
+    cli_main(["report", str(profile), "--no-charts"])
+
+    assert (tmp_path / "report.html").exists()
+
+
+def test_line_profile_does_not_fold_a_single_line(tmp_path):
+    # Lines 20 and 24 are costly: their context leaves only line 22 between
+    # them, and a fold row for one line would take as much space as the line.
+    source = "def long():\n" + "".join(f"    x{n} = {n}\n" for n in range(2, 41))
+    times = [(n, 1000.0 if n in (20, 24) else 0.1) for n in range(2, 41)]
+    results = _line_profile_results(tmp_path, [("long", source, times)])
+
+    document = create_html_report(
+        results, tmp_path / "report.html", include_charts=False
+    ).read_text(encoding="utf-8")
+    shown = re.findall(r'<tr(?: class="lp-hot")?><td class="lp-lineno">(\d+)', document)
+    assert shown == ["19", "20", "21", "22", "23", "24", "25"]
+
+
+def test_line_profile_of_a_region_on_two_call_paths_fills_both_rows(tmp_path):
+    source = tmp_path / "solve.py"
+    source.write_text("def solve():\n    return 1\n", encoding="utf-8")
+    record = {
+        "region": "solve",
+        "filename": str(source),
+        "function": "solve",
+        "first_lineno": 1,
+        "line_numbers": np.asarray([2]),
+        "hits": np.asarray([4]),
+        "times": np.asarray([5.0]),
+        "unit": 1e-6,
+    }
+    results = _nested_results(line_profile={0: [record]})
+
+    document = create_html_report(
+        results, tmp_path / "report.html", include_charts=False
+    ).read_text(encoding="utf-8")
+    # solve sits under loop and under final: a row, and a line table, for each.
+    ids = re.findall(r'<table class="lp-table" id="([^"]*)"', document)
+    assert len(ids) == 2 and len(set(ids)) == 2
+    assert document.count('<span class="lp-mark"') == 2
+    assert 'id="run-0-lines"' not in document

@@ -279,11 +279,12 @@ no plotting dependency, so it is suitable for copying from a compute node and
 opening later in a browser.
 
 ```bash
-scope-profiler report profiling_data.h5 -o report.html
+scope-profiler report profiling_data.h5            # writes report.html
 scope-profiler report 'run_*.h5' -o comparison.html --sort calls
 scope-profiler report profiling_data.h5 -o report.html --include solve --ranks 0-3
 ```
 
+`-o`/`--output` names the HTML file (default: `report.html`).
 `--include`, `--exclude`, `--ranks`, `--sort`, and `--columns` use the same
 meaning as `scope-profiler inspect` and control the region-statistics table.
 
@@ -309,9 +310,13 @@ per rank -- mean, min, max, the slowest rank, its imbalance over the mean, and
 the *excess* time the slowest rank spends above the average, which orders the
 table -- and **Rank comparison** sets every rank side by side, coloring each
 cell by how far that rank is from the region's mean. Runs recorded with
-`line_profiler` get a **Line profile**: each profiled function's source as
-written, summed over the selected ranks, with the time on every line and the
-hottest one highlighted.
+`line_profiler` show each region's line profile in its table row: rows with
+one carry a small *lines* mark, and clicking the row shows the profiled
+function's source as written, summed over the selected ranks, with the time on
+each line and the hottest one highlighted. Only the costly lines and the lines
+around them are shown, the rest folded until **Show all lines**. Functions
+whose region is not in the table -- left out by `--include`, say -- are listed
+in a separate **Line profile** section instead.
 
 **Several files** get a comparison report instead, with the first file as the
 baseline. It lists the runs with their wall times, shows what changed in each

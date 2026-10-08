@@ -31,10 +31,12 @@
 
 - HTML report: the summary at the top is now a row of headline numbers and a
   findings list, and **Hot spots** became **Bottlenecks**: the leaves of the
-  call tree, per call path, with the path each sits on. Line profiles show each
-  function's source with its indentation, unrecorded lines included, summed
-  over ranks and with the hottest line highlighted. Clicking a chart no longer
+  call tree, per call path, with the path each sits on. Line profiles moved into
+  the region table: a row with one is marked *lines*, and clicking it shows
+  the function's source, summed over ranks, with the hottest line highlighted
+  and the cheap lines folded until **Show all lines**. Clicking a chart no longer
   scrolls the page to the table; it offers a **Show in table** jump instead.
+- `scope-profiler report -o/--output` defaults to `report.html`.
 - A multi-file report no longer repeats each run's tables and per-run charts;
   those are in the individual reports.
 
