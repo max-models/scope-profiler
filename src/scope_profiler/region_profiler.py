@@ -769,7 +769,7 @@ class CUDATimingProfileRegion(TimeOnlyProfileRegion):
             finally:
                 self._gpu_end_events[scope_ptr] = self._gpu_backend.record_event()
                 if self.config.gpu_sync_on_exit:
-                    getattr(self._gpu_backend, "synchronize")()
+                    self._gpu_backend.synchronize()
                 end = perf_counter_ns()
                 self.start_times[scope_ptr] = start
                 self.end_times[scope_ptr] = end
@@ -819,7 +819,7 @@ class CUDATimingProfileRegion(TimeOnlyProfileRegion):
         slot = self._pop_scope()
         self._gpu_end_events[slot] = self._gpu_backend.record_event()
         if self.config.gpu_sync_on_exit:
-            getattr(self._gpu_backend, "synchronize")()
+            self._gpu_backend.synchronize()
         self.end_times[slot] = perf_counter_ns()
 
 

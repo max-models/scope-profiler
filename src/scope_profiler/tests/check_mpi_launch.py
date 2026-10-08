@@ -39,13 +39,13 @@ def check(mode: str, expected_size: int) -> None:
         )
         assert config.comm is None, f"expected no communicator, got {config.comm!r}"
     else:
-        assert (
-            config.comm is not None
-        ), "no communicator, although the run was started by an MPI launcher"
+        assert config.comm is not None, (
+            "no communicator, although the run was started by an MPI launcher"
+        )
 
-    assert (
-        config._size == expected_size
-    ), f"expected {expected_size} rank(s), got {config._size}"
+    assert config._size == expected_size, (
+        f"expected {expected_size} rank(s), got {config._size}"
+    )
 
     ProfileManager.finalize(verbose=False)
 

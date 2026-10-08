@@ -924,7 +924,9 @@ def _render_selected_plots(
     ext = (
         "html"
         if getattr(args, "backend", "matplotlib") in {"plotly", "pyvis"}
-        else "txt" if getattr(args, "backend", "matplotlib") == "plotext" else "png"
+        else "txt"
+        if getattr(args, "backend", "matplotlib") == "plotext"
+        else "png"
     )
     options = _plot_options(args, "")
     saved: list[str] = []

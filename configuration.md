@@ -444,7 +444,7 @@ Enable CUDA-event timing to measure asynchronous device work:
 ProfileManager.setup(
     use_gpu_timing=True,
     gpu_timing_backend="cupy",  # or "torch"
-    gpu_sync_on_exit=True,     # optional; defaults to False
+    gpu_sync_on_exit=True,  # optional; defaults to False
 )
 ```
 

@@ -81,9 +81,9 @@ def _replay(profile, frames):
         else:
             assert stack, "close event with nothing open"
             name, start = stack.pop()
-            assert (
-                frames[event["frame"]]["name"] == name
-            ), "closed a frame that was not on top of the stack"
+            assert frames[event["frame"]]["name"] == name, (
+                "closed a frame that was not on top of the stack"
+            )
             closed.append((name, start, event["at"]))
     assert not stack, "profile ended with frames still open"
     return closed
