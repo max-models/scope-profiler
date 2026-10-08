@@ -38,6 +38,35 @@ Builds and runs the program, then imports its trace:
 From there it is an ordinary profile — `scope-profiler plot default build/profiling_data.h5 -o figures`
 and the rest.
 
+## Control what is recorded
+
+After adding the module to your own program, you can use these operations
+between completed timesteps:
+
+- Call `sp_reset(stat=status, errmsg=message)` after warm-up. It clears
+  measurements while keeping your registered handles valid. It refuses if
+  any region is still open, so check `status == SP_OK` before continuing.
+- Call `sp_flush(stat=status, errmsg=message)` periodically to save completed
+  calls without stopping. Each snapshot replaces the same `.spt` file and
+  retains the in-memory measurements. Import only after the write succeeds.
+- Declare `type(sp_region_stats) :: stats` and call
+  `sp_get_region_stats(id, stats)`. Its `calls`, `total_ns`, `min_ns`, and
+  `max_ns` describe completed calls; convert nanoseconds to seconds with
+  `real(stats%total_ns, real64)*1.0e-9_real64` after importing `real64` from
+  `iso_fortran_env`.
+- Register source metadata with
+  `id = sp_region("fortran:solve", file="kernels.f90", line=42)`.
+  Supply the actual line you want the profile to identify.
+
+Declare `integer :: status` and `character(len=512) :: message` to receive
+errors. Check them immediately after each operation. If flush/finalize fails
+to write, fix the output path's permissions or available space and retry;
+reinitializing the profiler would discard the recording.
+
+The [Fortran guide](../../docs/source/guide/fortran.md) contains a complete
+warm-up/production example, compilation commands, error-code explanations,
+and instructions for retaining separate measurement windows.
+
 ## Python driving Fortran
 
 ```bash
@@ -92,14 +121,24 @@ call MPI_Comm_rank(MPI_COMM_WORLD, my_rank, ierr)
 call start_profiling("trace", my_rank)
 ```
 
-`standalone.f90` takes the rank as an optional argument for exactly this
-reason. To build it against MPI, point `FC` at your wrapper:
+`standalone.f90` accepts a rank as an optional command-line argument. It does
+not initialize MPI or discover its rank automatically: selecting `mpifort`
+alone does not change that. To adapt it for a real MPI run, add `use mpi_f08`,
+call `MPI_Init` and `MPI_Comm_rank` before `start_profiling`, and call
+`MPI_Finalize` after `stop_profiling`. Use the discovered rank instead of the
+command-line default.
+
+After making those changes, build with the MPI wrapper and run from the build
+directory so the importer finds the traces where they were written:
 
 ```bash
 make standalone FC=mpifort
-mpirun -n 4 ./build/standalone       # add MPI_Init/MPI_Finalize to the program
-scope-profiler import-native build -o profiling_data.h5
+(cd build && mpirun -n 4 ./standalone)
+python -m scope_profiler import-native build -o build/profiling_data.h5
 ```
+
+Keep each MPI run's traces in its own directory. Every rank must pass a
+different rank value, or processes can overwrite each other's output.
 
 For the mixed case, the Python driver already knows its rank from
 `ProfileManager.get_config()`, and `run_mixed.py` passes it through.

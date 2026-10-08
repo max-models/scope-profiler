@@ -33,7 +33,7 @@
 !! found by probing at run time, so the file is plain Fortran needing no
 !! preprocessor and no platform flags.
 module scope_profiler
-   use, intrinsic :: iso_c_binding, only: c_int, c_long, c_int64_t
+   use, intrinsic :: iso_c_binding, only: c_int, c_long
    use, intrinsic :: iso_fortran_env, only: int32, int64, error_unit
    implicit none
    private
@@ -41,13 +41,25 @@ module scope_profiler
    public :: sp_init, sp_region, sp_begin, sp_end
    public :: sp_begin_name, sp_end_name, sp_finalize
    public :: sp_num_calls, sp_now_ns, sp_is_active
+   public :: sp_flush, sp_reset, sp_get_region_stats
+
+   integer, parameter, public :: SP_OK = 0, SP_ERR_INACTIVE = 1, SP_ERR_NO_CLOCK = 2
+   integer, parameter, public :: SP_ERR_NO_MEMORY = 3, SP_ERR_IO = 4
+   integer, parameter, public :: SP_ERR_UNMATCHED_END = 5, SP_ERR_OPEN_SCOPES = 6
+   integer, parameter, public :: SP_ERR_INVALID_ARGUMENT = 7, SP_ERR_DEPTH = 8
+
+   !> Statistics of completed calls, computed only when requested. All times
+   !! are nanoseconds; every field is zero when there are no completed calls.
+   type, public :: sp_region_stats
+      integer(int64) :: calls = 0, total_ns = 0, min_ns = 0, max_ns = 0
+   end type sp_region_stats
 
    !> Longest region name the trace format stores.
    integer, parameter, public :: SP_MAX_NAME = 128
 
-   !> Trace format written by sp_finalize; keep in step with fortran_trace.py.
+   !> Trace format written by sp_finalize; keep in step with native_trace.py.
    character(len=8), parameter :: SP_MAGIC = "SCOPEPRF"
-   integer(int32), parameter :: SP_FORMAT_VERSION = 1
+   integer(int32), parameter :: SP_FORMAT_VERSION = 2
 
    !> Initial slots per region; the buffers double from here as needed.
    integer, parameter :: SP_INITIAL_CAPACITY = 1024
@@ -57,6 +69,8 @@ module scope_profiler
 
    type :: region_t
       character(len=SP_MAX_NAME) :: name = ""
+      character(len=:), allocatable :: source_file
+      integer(int32) :: source_line = -1
       integer(int64), allocatable :: start_times(:)
       integer(int64), allocatable :: end_times(:)
       integer(int64) :: ptr = 0            !< slots used
@@ -66,6 +80,8 @@ module scope_profiler
       !! re-entry reserves its own slot instead of overwriting the outer one.
       integer(int64) :: open_slots(SP_MAX_DEPTH) = 0
       integer :: depth = 0
+      ! Rejected entries must consume their own ends, not an outer call's.
+      integer :: skipped_depth = 0
    end type region_t
 
    type(region_t), allocatable :: regions(:)
@@ -151,212 +167,459 @@ contains
       is_active = active
    end function sp_is_active
 
-   !> Start profiling; must precede any other call.
-   !!
-   !! @param prefix  output path prefix; sp_finalize writes
-   !!                `<prefix>_rank<NNNNN>.spt`
-   !! @param rank    MPI rank of this process (default 0). Each rank writes
-   !!                its own file; the importer merges them.
-   subroutine sp_init(prefix, rank)
+   !> Optional status outputs are set on every call. Errors are printed only
+   !! when neither output is supplied. Inactive instrumentation stays quiet.
+   subroutine report(code, message, stat, errmsg)
+      integer, intent(in) :: code
+      character(len=*), intent(in) :: message
+      integer, intent(out), optional :: stat
+      character(len=*), intent(out), optional :: errmsg
+
+      if (present(stat)) stat = code
+      if (present(errmsg)) errmsg = message
+      if (code /= SP_OK .and. code /= SP_ERR_INACTIVE) then
+         if (.not. present(stat) .and. .not. present(errmsg)) &
+            write (error_unit, '(a)') 'scope_profiler: '//message
+      end if
+   end subroutine report
+
+   !> Start a fresh session; existing handles and recordings are replaced.
+   !! Prefixes longer than 512 characters and negative ranks are rejected.
+   subroutine sp_init(prefix, rank, stat, errmsg)
       character(len=*), intent(in) :: prefix
       integer, intent(in), optional :: rank
+      integer, intent(out), optional :: stat
+      character(len=*), intent(out), optional :: errmsg
+      integer :: ios
+      character(len=512) :: message
 
-      call resolve_clock()
-      if (clock_id < 0_c_int) then
-         write (error_unit, "(a)") "scope_profiler: no monotonic clock available "// &
-            "(clock_gettime rejected every candidate); profiling is disabled"
-         active = .false.
+      call report(SP_OK, '', stat, errmsg)
+      if (len_trim(prefix) > len(output_prefix) .or. len_trim(prefix) == 0) then
+         call report(SP_ERR_INVALID_ARGUMENT, 'invalid output prefix length', stat, errmsg)
          return
       end if
-
+      if (present(rank)) then
+         if (rank < 0) then
+            call report(SP_ERR_INVALID_ARGUMENT, 'rank must be nonnegative', stat, errmsg)
+            return
+         end if
+      end if
+      active = .false.
+      call resolve_clock()
+      if (clock_id < 0_c_int) then
+         call report(SP_ERR_NO_CLOCK, 'no monotonic clock available', stat, errmsg)
+         return
+      end if
       if (allocated(regions)) deallocate (regions)
-      allocate (regions(16))
       n_regions = 0
+      allocate (regions(16), stat=ios, errmsg=message)
+      if (ios /= 0) then
+         call report(SP_ERR_NO_MEMORY, trim(message), stat, errmsg)
+         return
+      end if
       output_prefix = prefix
       rank_id = 0
       if (present(rank)) rank_id = rank
       active = .true.
    end subroutine sp_init
 
-   !> Handle for a region name, creating it on first use.
-   !!
-   !! Resolve once, outside hot loops, and pass the handle to sp_begin/sp_end.
-   function sp_region(name) result(id)
+   !> Resolve a name once, outside hot loops. Names retain the historical
+   !! 128-character truncation, including during lookup. Source metadata is
+   !! first-writer-wins, and may be backfilled after registration without it.
+   function sp_region(name, file, line, stat, errmsg) result(id)
       character(len=*), intent(in) :: name
-      integer :: id
-      integer :: i
+      character(len=*), intent(in), optional :: file
+      integer, intent(in), optional :: line
+      integer, intent(out), optional :: stat
+      character(len=*), intent(out), optional :: errmsg
+      integer :: id, i, candidate, ios
+      character(len=SP_MAX_NAME) :: key
+      character(len=512) :: message
       type(region_t), allocatable :: bigger(:)
 
       id = 0
-      if (.not. active) return
-
+      call report(SP_OK, '', stat, errmsg)
+      if (.not. active) then
+         call report(SP_ERR_INACTIVE, 'profiler is inactive', stat, errmsg)
+         return
+      end if
+      key = name
+      candidate = n_regions + 1
       do i = 1, n_regions
-         if (trim(regions(i)%name) == trim(name)) then
-            id = i
-            return
+         if (regions(i)%name == key) then
+            candidate = i
+            exit
          end if
       end do
-
-      if (n_regions == size(regions)) then
-         allocate (bigger(2*size(regions)))
-         bigger(1:n_regions) = regions(1:n_regions)
+      if (candidate > size(regions)) then
+         allocate (bigger(2*size(regions)), stat=ios, errmsg=message)
+         if (ios /= 0) then
+            call report(SP_ERR_NO_MEMORY, trim(message), stat, errmsg)
+            return
+         end if
+         ! Move owned buffers: intrinsic derived-type assignment would copy
+         ! them with implicit allocations whose failures cannot be caught.
+         do i = 1, n_regions
+            bigger(i)%name = regions(i)%name
+            bigger(i)%source_line = regions(i)%source_line
+            bigger(i)%ptr = regions(i)%ptr
+            bigger(i)%capacity = regions(i)%capacity
+            bigger(i)%num_calls = regions(i)%num_calls
+            bigger(i)%open_slots = regions(i)%open_slots
+            bigger(i)%depth = regions(i)%depth
+            bigger(i)%skipped_depth = regions(i)%skipped_depth
+            call move_alloc(regions(i)%source_file, bigger(i)%source_file)
+            call move_alloc(regions(i)%start_times, bigger(i)%start_times)
+            call move_alloc(regions(i)%end_times, bigger(i)%end_times)
+         end do
          call move_alloc(bigger, regions)
       end if
-
-      n_regions = n_regions + 1
-      id = n_regions
-      regions(id)%name = name
-      regions(id)%capacity = SP_INITIAL_CAPACITY
-      allocate (regions(id)%start_times(SP_INITIAL_CAPACITY))
-      allocate (regions(id)%end_times(SP_INITIAL_CAPACITY))
-      regions(id)%ptr = 0
-      regions(id)%num_calls = 0
-      regions(id)%depth = 0
+      if (candidate > n_regions .and. regions(candidate)%capacity == 0) then
+         call grow(candidate, ios, message)
+         if (ios /= SP_OK) then
+            call report(ios, trim(message), stat, errmsg)
+            return
+         end if
+      end if
+      if (present(file)) then
+         if (len_trim(file) > 0 .and. .not. allocated(regions(candidate)%source_file)) then
+            allocate (character(len=len_trim(file)) :: regions(candidate)%source_file, stat=ios, errmsg=message)
+            if (ios /= 0) then
+               call report(SP_ERR_NO_MEMORY, trim(message), stat, errmsg)
+               return
+            end if
+            regions(candidate)%source_file(:) = trim(file)
+            if (present(line)) then
+               if (line >= 0) regions(candidate)%source_line = int(line, int32)
+            end if
+         end if
+      end if
+      regions(candidate)%name = key
+      n_regions = max(n_regions, candidate)
+      id = candidate
    end function sp_region
 
-   !> Enter a region. Reserves this call's slot before the work starts, so a
-   !! recursive re-entry cannot overwrite it.
-   subroutine sp_begin(id)
+   !> Enter a region. Failed entries consume their matching sp_end without
+   !! closing an outer invocation of the same region.
+   subroutine sp_begin(id, stat, errmsg)
       integer, intent(in) :: id
+      integer, intent(out), optional :: stat
+      character(len=*), intent(out), optional :: errmsg
+      integer :: ios
+      integer(int64) :: now, slot
+      character(len=512) :: message
 
-      if (.not. active) return
-      if (id < 1 .or. id > n_regions) return
-
-      if (regions(id)%ptr >= regions(id)%capacity) call grow(id)
-      regions(id)%ptr = regions(id)%ptr + 1
-      regions(id)%num_calls = regions(id)%num_calls + 1
-
-      if (regions(id)%depth >= SP_MAX_DEPTH) then
-         write (error_unit, "(a,a,a,i0,a)") "scope_profiler: region '", &
-            trim(regions(id)%name), "' nested deeper than ", SP_MAX_DEPTH, &
-            "; this call is not timed"
+      if (present(stat)) stat = SP_OK
+      if (present(errmsg)) errmsg = ''
+      if (.not. active) then
+         call report(SP_ERR_INACTIVE, 'profiler is inactive', stat, errmsg)
          return
       end if
+      if (id < 1 .or. id > n_regions) then
+         call report(SP_ERR_INVALID_ARGUMENT, 'invalid region handle', stat, errmsg)
+         return
+      end if
+      if (regions(id)%depth >= SP_MAX_DEPTH .or. regions(id)%skipped_depth > 0) then
+         regions(id)%skipped_depth = regions(id)%skipped_depth + 1
+         call report(SP_ERR_DEPTH, 'region nesting limit exceeded or enclosing entry failed', stat, errmsg)
+         return
+      end if
+      if (regions(id)%ptr >= regions(id)%capacity) then
+         call grow(id, ios, message)
+         if (ios /= SP_OK) then
+            regions(id)%skipped_depth = regions(id)%skipped_depth + 1
+            call report(ios, trim(message), stat, errmsg)
+            return
+         end if
+      end if
+      now = sp_now_ns()
+      if (now < 0) then
+         regions(id)%skipped_depth = regions(id)%skipped_depth + 1
+         call report(SP_ERR_NO_CLOCK, 'cannot read monotonic clock', stat, errmsg)
+         return
+      end if
+      slot = regions(id)%ptr + 1
+      regions(id)%ptr = slot
+      regions(id)%num_calls = regions(id)%num_calls + 1
       regions(id)%depth = regions(id)%depth + 1
-      regions(id)%open_slots(regions(id)%depth) = regions(id)%ptr
-      regions(id)%start_times(regions(id)%ptr) = sp_now_ns()
+      regions(id)%open_slots(regions(id)%depth) = slot
+      regions(id)%start_times(slot) = now
+      regions(id)%end_times(slot) = -1_int64
    end subroutine sp_begin
 
-   !> Leave a region, writing the end time into the slot reserved by sp_begin.
-   subroutine sp_end(id)
+   !> Leave a region. No statistics are accumulated on this hot path.
+   subroutine sp_end(id, stat, errmsg)
       integer, intent(in) :: id
-      integer(int64) :: slot
+      integer, intent(out), optional :: stat
+      character(len=*), intent(out), optional :: errmsg
+      integer(int64) :: slot, now
 
-      if (.not. active) return
-      if (id < 1 .or. id > n_regions) return
-      if (regions(id)%depth <= 0) then
-         write (error_unit, "(a,a,a)") "scope_profiler: sp_end('", &
-            trim(regions(id)%name), "') without a matching sp_begin"
+      if (present(stat)) stat = SP_OK
+      if (present(errmsg)) errmsg = ''
+      if (.not. active) then
+         call report(SP_ERR_INACTIVE, 'profiler is inactive', stat, errmsg)
          return
       end if
-
+      if (id < 1 .or. id > n_regions) then
+         call report(SP_ERR_INVALID_ARGUMENT, 'invalid region handle', stat, errmsg)
+         return
+      end if
+      if (regions(id)%skipped_depth > 0) then
+         regions(id)%skipped_depth = regions(id)%skipped_depth - 1
+         return
+      end if
+      if (regions(id)%depth <= 0) then
+         call report(SP_ERR_UNMATCHED_END, 'sp_end without a matching sp_begin', stat, errmsg)
+         return
+      end if
       slot = regions(id)%open_slots(regions(id)%depth)
       regions(id)%depth = regions(id)%depth - 1
-      regions(id)%end_times(slot) = sp_now_ns()
+      now = sp_now_ns()
+      if (now < 0) then
+         call report(SP_ERR_NO_CLOCK, 'cannot read monotonic clock; call dropped', stat, errmsg)
+         return
+      end if
+      regions(id)%end_times(slot) = now
    end subroutine sp_end
 
-   !> sp_begin() for callers that would rather pass the name every time.
-   subroutine sp_begin_name(name)
+   subroutine sp_begin_name(name, stat, errmsg)
       character(len=*), intent(in) :: name
-      call sp_begin(sp_region(name))
+      integer, intent(out), optional :: stat
+      character(len=*), intent(out), optional :: errmsg
+      integer :: id, code
+      character(len=512) :: message
+
+      id = sp_region(name, stat=code, errmsg=message)
+      if (code /= SP_OK) then
+         call report(code, trim(message), stat, errmsg)
+         return
+      end if
+      call sp_begin(id, stat, errmsg)
    end subroutine sp_begin_name
 
-   !> sp_end() for callers that would rather pass the name every time.
-   subroutine sp_end_name(name)
+   subroutine sp_end_name(name, stat, errmsg)
       character(len=*), intent(in) :: name
-      call sp_end(sp_region(name))
+      integer, intent(out), optional :: stat
+      character(len=*), intent(out), optional :: errmsg
+      integer :: i
+      character(len=SP_MAX_NAME) :: key
+
+      if (.not. active) then
+         call report(SP_ERR_INACTIVE, 'profiler is inactive', stat, errmsg)
+         return
+      end if
+      key = name
+      do i = 1, n_regions
+         if (regions(i)%name /= key) cycle
+         call sp_end(i, stat, errmsg)
+         return
+      end do
+      call report(SP_ERR_UNMATCHED_END, 'sp_end_name without a matching sp_begin', stat, errmsg)
    end subroutine sp_end_name
 
-   !> Number of times a region was entered so far (0 for an unknown handle).
-   !!
-   !! Readable after sp_finalize() too, matching the Python API, where a
-   !! region's call count outlives the run it was recorded in.
+   !> Successful entries, including still-open calls. Readable after finalize.
    function sp_num_calls(id) result(calls)
       integer, intent(in) :: id
       integer(int64) :: calls
-
       calls = 0_int64
       if (.not. allocated(regions)) return
       if (id < 1 .or. id > n_regions) return
       calls = regions(id)%num_calls
    end function sp_num_calls
 
-   !> Double a region's timestamp buffers, keeping every reserved slot valid.
-   subroutine grow(id)
+   !> Compute inclusive duration statistics in O(recorded calls), ignoring
+   !! open/dropped calls. Also readable after finalization.
+   subroutine sp_get_region_stats(id, stats, stat, errmsg)
       integer, intent(in) :: id
-      integer(int64) :: new_capacity
-      integer(int64), allocatable :: bigger(:)
+      type(sp_region_stats), intent(out) :: stats
+      integer, intent(out), optional :: stat
+      character(len=*), intent(out), optional :: errmsg
+      integer(int64) :: j, duration
 
-      new_capacity = max(1_int64, 2_int64*regions(id)%capacity)
-
-      allocate (bigger(new_capacity))
-      bigger(1:regions(id)%capacity) = regions(id)%start_times
-      call move_alloc(bigger, regions(id)%start_times)
-
-      allocate (bigger(new_capacity))
-      bigger(1:regions(id)%capacity) = regions(id)%end_times
-      call move_alloc(bigger, regions(id)%end_times)
-
-      regions(id)%capacity = new_capacity
-   end subroutine grow
-
-   !> Write this rank's trace and stop profiling.
-   !!
-   !! Produces `<prefix>_rank<NNNNN>.spt`. Regions that were never entered are
-   !! skipped, so the file holds exactly what was measured. Anything still open
-   !! is reported and dropped rather than written with a missing end time.
-   subroutine sp_finalize()
-      integer :: unit, i, ios, name_len
-      integer(int64) :: written_regions
-
-      if (.not. active) return
-
-      do i = 1, n_regions
-         if (regions(i)%depth /= 0) then
-            write (error_unit, "(a,a,a,i0,a)") "scope_profiler: region '", &
-               trim(regions(i)%name), "' still open at sp_finalize (depth ", &
-               regions(i)%depth, "); its last call(s) are dropped"
-            ! The reserved slots have no end time; do not write them out.
-            regions(i)%ptr = regions(i)%open_slots(1) - 1
-         end if
-      end do
-
-      written_regions = 0
-      do i = 1, n_regions
-         if (regions(i)%ptr > 0) written_regions = written_regions + 1
-      end do
-
-      open (newunit=unit, file=trace_path(), access="stream", &
-            form="unformatted", status="replace", action="write", iostat=ios)
-      if (ios /= 0) then
-         write (error_unit, "(a,a)") "scope_profiler: cannot write ", trace_path()
-         active = .false.
+      stats = sp_region_stats()
+      call report(SP_OK, '', stat, errmsg)
+      if (.not. allocated(regions)) then
+         call report(SP_ERR_INACTIVE, 'profiler has not been initialized', stat, errmsg)
          return
       end if
-
-      write (unit) SP_MAGIC
-      write (unit) SP_FORMAT_VERSION
-      write (unit) int(rank_id, int32)
-      write (unit) written_regions
-
-      do i = 1, n_regions
-         if (regions(i)%ptr <= 0) cycle
-         name_len = len_trim(regions(i)%name)
-         write (unit) int(name_len, int32)
-         write (unit) regions(i)%name(1:name_len)
-         write (unit) regions(i)%ptr
-         write (unit) regions(i)%start_times(1:regions(i)%ptr)
-         write (unit) regions(i)%end_times(1:regions(i)%ptr)
+      if (id < 1 .or. id > n_regions) then
+         call report(SP_ERR_INVALID_ARGUMENT, 'invalid region handle', stat, errmsg)
+         return
+      end if
+      do j = 1, regions(id)%ptr
+         if (regions(id)%end_times(j) < 0) cycle
+         duration = regions(id)%end_times(j) - regions(id)%start_times(j)
+         if (stats%calls == 0) stats%min_ns = duration
+         stats%calls = stats%calls + 1
+         stats%total_ns = stats%total_ns + duration
+         stats%min_ns = min(stats%min_ns, duration)
+         stats%max_ns = max(stats%max_ns, duration)
       end do
+   end subroutine sp_get_region_stats
 
-      close (unit)
+   !> Clear measurements, retaining region handles, metadata and capacity.
+   !! Refuse without changing anything if any invocation is still open.
+   subroutine sp_reset(stat, errmsg)
+      integer, intent(out), optional :: stat
+      character(len=*), intent(out), optional :: errmsg
+      integer :: i
+      call report(SP_OK, '', stat, errmsg)
+      if (.not. active) then
+         call report(SP_ERR_INACTIVE, 'profiler is inactive', stat, errmsg)
+         return
+      end if
+      do i = 1, n_regions
+         if (regions(i)%depth == 0 .and. regions(i)%skipped_depth == 0) cycle
+         call report(SP_ERR_OPEN_SCOPES, 'cannot reset with open regions', stat, errmsg)
+         return
+      end do
+      do i = 1, n_regions
+         regions(i)%ptr = 0
+         regions(i)%num_calls = 0
+      end do
+   end subroutine sp_reset
+
+   !> Allocate both buffers before replacing either, preserving old data on
+   !! failure. Only used at registration and when a buffer fills.
+   subroutine grow(id, stat, errmsg)
+      integer, intent(in) :: id
+      integer, intent(out) :: stat
+      character(len=*), intent(out) :: errmsg
+      integer :: ios
+      integer(int64) :: capacity, used
+      integer(int64), allocatable :: starts(:), ends(:)
+
+      stat = SP_OK
+      errmsg = ''
+      capacity = max(int(SP_INITIAL_CAPACITY, int64), 2_int64*regions(id)%capacity)
+      allocate (starts(capacity), ends(capacity), stat=ios, errmsg=errmsg)
+      if (ios /= 0) then
+         stat = SP_ERR_NO_MEMORY
+         return
+      end if
+      used = regions(id)%ptr
+      if (used > 0) then
+         starts(1:used) = regions(id)%start_times(1:used)
+         ends(1:used) = regions(id)%end_times(1:used)
+      end if
+      call move_alloc(starts, regions(id)%start_times)
+      call move_alloc(ends, regions(id)%end_times)
+      regions(id)%capacity = capacity
+   end subroutine grow
+
+   !> Snapshot all completed calls, without stopping or discarding data.
+   !! Replaces the previous snapshot at the same path; not an append or an
+   !! atomic checkpoint. Open calls are excluded, including recursive ones.
+   subroutine sp_flush(stat, errmsg)
+      integer, intent(out), optional :: stat
+      character(len=*), intent(out), optional :: errmsg
+      integer :: unit, i, ios, close_ios, name_len, source_len
+      integer(int64) :: written_regions, completed, j, k, max_calls, expected_size, actual_size
+      integer(int64), allocatable :: starts(:), ends(:)
+      character(len=512) :: message, close_message
+
+      call report(SP_OK, '', stat, errmsg)
+      if (.not. active) then
+         call report(SP_ERR_INACTIVE, 'profiler is inactive', stat, errmsg)
+         return
+      end if
+      written_regions = 0
+      max_calls = 0
+      do i = 1, n_regions
+         completed = count(regions(i)%end_times(1:regions(i)%ptr) >= 0, kind=int64)
+         if (completed > 0) written_regions = written_regions + 1
+         max_calls = max(max_calls, completed)
+      end do
+      ! Scratch allocation happens before opening/truncating the output.
+      allocate (starts(max_calls), ends(max_calls), stat=ios, errmsg=message)
+      if (ios /= 0) then
+         call report(SP_ERR_NO_MEMORY, trim(message), stat, errmsg)
+         return
+      end if
+      open (newunit=unit, file=trace_path(), access='stream', form='unformatted', &
+            status='replace', action='write', iostat=ios, iomsg=message)
+      if (ios /= 0) then
+         call report(SP_ERR_IO, 'cannot write '//trace_path()//': '//trim(message), stat, errmsg)
+         return
+      end if
+      expected_size = 24_int64
+      write (unit, iostat=ios, iomsg=message) SP_MAGIC, SP_FORMAT_VERSION, int(rank_id, int32), written_regions
+      if (ios == 0) then
+         do i = 1, n_regions
+            k = 0
+            do j = 1, regions(i)%ptr
+               if (regions(i)%end_times(j) < 0) cycle
+               k = k + 1
+               starts(k) = regions(i)%start_times(j)
+               ends(k) = regions(i)%end_times(j)
+            end do
+            if (k == 0) cycle
+            name_len = len_trim(regions(i)%name)
+            source_len = 0
+            if (allocated(regions(i)%source_file)) source_len = len(regions(i)%source_file)
+            write (unit, iostat=ios, iomsg=message) int(name_len, int32), &
+               regions(i)%name(1:name_len), int(source_len, int32)
+            if (ios /= 0) exit
+            if (source_len > 0) then
+               write (unit, iostat=ios, iomsg=message) regions(i)%source_file
+               if (ios /= 0) exit
+            end if
+            expected_size = expected_size + 20_int64 + name_len + source_len + 16_int64*k
+            write (unit, iostat=ios, iomsg=message) regions(i)%source_line, k, starts(1:k), ends(1:k)
+            if (ios /= 0) exit
+         end do
+      end if
+      ! Force buffered writes now: some runtimes do not propagate a failed
+      ! buffer drain through CLOSE's IOSTAT.
+      if (ios == 0) flush (unit, iostat=ios, iomsg=message)
+      close (unit, iostat=close_ios, iomsg=close_message)
+      if (ios /= 0) then
+         call report(SP_ERR_IO, 'cannot write '//trace_path()//': '//trim(message), stat, errmsg)
+      else if (close_ios /= 0) then
+         call report(SP_ERR_IO, 'cannot close '//trace_path()//': '//trim(close_message), stat, errmsg)
+      else
+         ! Some runtimes silently accept a partial buffered write (e.g. at
+         ! RLIMIT_FSIZE). Check the closed file, not the buffered position.
+         inquire (file=trace_path(), size=actual_size, iostat=ios, iomsg=message)
+         if (ios /= 0) then
+            call report(SP_ERR_IO, 'cannot verify '//trace_path()//': '//trim(message), stat, errmsg)
+         else if (actual_size /= expected_size) then
+            call report(SP_ERR_IO, 'incomplete trace written to '//trace_path(), stat, errmsg)
+         end if
+      end if
+   end subroutine sp_flush
+
+   !> Save completed calls and stop. Open calls are excluded but completed
+   !! recursive children survive. On output failure the session stays active
+   !! so the application can fix the cause and retry. Finalization is idempotent.
+   subroutine sp_finalize(stat, errmsg)
+      integer, intent(out), optional :: stat
+      character(len=*), intent(out), optional :: errmsg
+      integer :: i, code
+      logical :: has_open
+      character(len=512) :: message
+
+      call report(SP_OK, '', stat, errmsg)
+      if (.not. active) return
+      call sp_flush(code, message)
+      if (code /= SP_OK) then
+         call report(code, trim(message), stat, errmsg)
+         return
+      end if
+      has_open = .false.
+      do i = 1, n_regions
+         if (regions(i)%depth /= 0 .or. regions(i)%skipped_depth /= 0) has_open = .true.
+      end do
       active = .false.
+      if (has_open) call report(SP_ERR_OPEN_SCOPES, &
+         'regions still open at sp_finalize; unfinished calls dropped', stat, errmsg)
    end subroutine sp_finalize
 
-   !> `<prefix>_rank<NNNNN>.spt`
    function trace_path() result(path)
-      character(len=len_trim(output_prefix) + 16) :: path
-      write (path, "(a,a,i5.5,a)") trim(output_prefix), "_rank", rank_id, ".spt"
+      character(len=:), allocatable :: path
+      character(len=32) :: rank_text
+      write (rank_text, '(i0.5)') rank_id
+      path = trim(output_prefix)//'_rank'//trim(rank_text)//'.spt'
    end function trace_path
 
 end module scope_profiler
