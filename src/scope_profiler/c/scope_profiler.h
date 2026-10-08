@@ -70,7 +70,7 @@ extern "C" {
 
 /* Trace format version written for this profiler; keep in step with
  * native_trace.py. Bumped to 2 to add per-region source location; a version-2
- * reader still accepts version-1 (Fortran-written) files with no source
+ * reader still accepts legacy version-1 files with no source
  * information. */
 #define SP_FORMAT_VERSION 2
 

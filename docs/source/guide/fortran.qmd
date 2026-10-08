@@ -75,13 +75,99 @@ chart and the exclusive times that cannot be derived.
 | Call | Purpose |
 | --- | --- |
 | `sp_init(prefix [, rank])` | Start profiling. `rank` (default 0) gives each MPI rank its own trace file. |
-| `sp_region(name)` | Handle for a region name, created on first use. |
+| `sp_region(name [, file, line])` | Handle for a region name, with optional source location. |
 | `sp_begin(id)` / `sp_end(id)` | Enter and leave a region. |
 | `sp_begin_name(name)` / `sp_end_name(name)` | The same, looking the name up each time. |
 | `sp_num_calls(id)` | How often a region was entered; readable after `sp_finalize()`. |
 | `sp_now_ns()` | The raw clock, in nanoseconds. |
 | `sp_is_active()` | Whether profiling is running. |
+| `sp_get_region_stats(id, stats)` | Completed-call count and total/minimum/maximum duration in nanoseconds. |
+| `sp_flush()` | Write completed calls without stopping or discarding measurements. |
+| `sp_reset()` | Clear measurements while preserving handles and source metadata. |
 | `sp_finalize()` | Write `<prefix>_rank<NNNNN>.spt` and stop. |
+
+### Error handling
+
+`sp_init`, `sp_region`, `sp_begin`, `sp_end`, their name-based variants,
+`sp_flush`, `sp_reset`, `sp_get_region_stats`, and `sp_finalize` accept
+optional `stat=` (default integer) and `errmsg=` (character) outputs.
+Success sets `stat` to `SP_OK` and clears `errmsg`. Supplying either output
+suppresses stderr diagnostics; without them, errors are reported on stderr.
+Instrumentation calls on an inactive profiler remain quiet no-ops, with
+`SP_ERR_INACTIVE` returned when requested. Repeated finalization succeeds.
+
+```fortran
+integer :: status
+character(len=512) :: message
+
+call sp_init("profile", stat=status, errmsg=message)
+if (status /= SP_OK) then
+   print *, trim(message)
+end if
+```
+
+The public status constants are `SP_OK`, `SP_ERR_INACTIVE`,
+`SP_ERR_NO_CLOCK`, `SP_ERR_NO_MEMORY`, `SP_ERR_IO`, `SP_ERR_UNMATCHED_END`,
+`SP_ERR_OPEN_SCOPES`, `SP_ERR_INVALID_ARGUMENT`, and `SP_ERR_DEPTH`.
+A failed `sp_region` returns handle 0. Prefixes must contain 1–512
+non-trailing-blank characters and ranks must be nonnegative.
+
+`sp_finalize` reports `SP_ERR_OPEN_SCOPES` when it saves completed calls
+but drops unfinished calls, including retaining completed recursive children.
+On allocation or output failure, flush/finalize retain the measurements and
+leave the session active so the application can correct the cause and retry.
+Output errors take precedence over unfinished-call diagnostics.
+
+### Snapshots, measurement windows, and statistics
+
+`sp_flush()` writes all completed calls so far to the usual trace path and
+continues recording. Open calls are omitted until they finish. Each flush
+replaces the previous snapshot; it does not append, clear buffers, or provide
+an atomic checkpoint. A failed write may leave an incomplete file. Flush
+uses temporary storage of 16 bytes per completed call in the largest region,
+in addition to the recording buffers.
+
+`sp_reset()` clears measurements and entry counts while preserving handles,
+source locations, and allocated recording capacity. It refuses with
+`SP_ERR_OPEN_SCOPES` if any region is open, leaving all measurements intact.
+Use it after warm-up or between measurement windows. Reset does not remove
+an existing snapshot; the next flush/finalize replaces it.
+
+```fortran
+integer :: solve
+integer :: status
+character(len=512) :: message
+type(sp_region_stats) :: stats
+
+call sp_init("profile")
+solve = sp_region("solve", file="solver.f90", line=42)
+! Run instrumented warm-up work, ending all its regions first.
+call sp_reset(stat=status, errmsg=message)
+! Run instrumented production work using the same solve handle.
+call sp_get_region_stats(solve, stats)
+print *, stats%calls, stats%total_ns, stats%min_ns, stats%max_ns
+call sp_flush(stat=status, errmsg=message)
+! Continue measuring, then save the final snapshot.
+call sp_finalize(stat=status, errmsg=message)
+```
+
+`sp_region_stats` has four `integer(int64)` fields: `calls`, `total_ns`,
+`min_ns`, and `max_ns`. These describe completed calls only, use inclusive
+durations in nanoseconds, and are all zero when no calls have completed.
+Statistics are computed on request by scanning the recorded calls, adding no
+running statistics updates to `sp_begin`/`sp_end`. They remain readable after
+finalization. In contrast, `sp_num_calls` counts successful entries, including
+calls that are still open. Recording buffers are retained after finalization
+and released when the next successful initialization replaces the session.
+
+### Source locations
+
+`sp_region(name, file="solver.f90", line=42)` stores optional source metadata
+in the trace and imported HDF5 output. An existing region registered without
+a source file can acquire one later. The first nonempty source file wins;
+later registrations do not replace its file or line. A missing or negative
+line means unknown; a line without a file is ignored. No preprocessing is
+required, and cached-handle begin/end calls do not process source metadata.
 
 ## Under MPI
 
@@ -204,12 +290,15 @@ combined = merge_results(read_h5("python_only.h5"), load_traces("traces/"))
 
 ```
 char[8]   "SCOPEPRF"
-int32     format version (1)
+int32     format version (2)
 int32     rank
 int64     number of regions
 per region:
     int32     length of the name in bytes
     char[]    name
+    int32     length of source file in bytes (0 if unknown)
+    char[]    source file
+    int32     source line (-1 if unknown)
     int64     number of calls
     int64[]   start timestamps, nanoseconds
     int64[]   end timestamps, nanoseconds
@@ -218,6 +307,8 @@ per region:
 Native endianness; the reader detects and handles both. 16 bytes per recorded
 call, the same as the Python side.
 
+The reader also accepts legacy version-1 traces without source locations.
+
 ## Limitations
 
 - **Not thread safe.** A region must be entered and left by the same thread.
@@ -225,9 +316,10 @@ call, the same as the Python side.
   in one `sp_begin`/`sp_end` from the master thread.
 - **No LIKWID counters.** Hardware counters are collected only by the Python
   API; a Fortran trace carries timings alone.
-- **Names are truncated** at `SP_MAX_NAME` (128) characters.
+- **Names are truncated** at `SP_MAX_NAME` (128) characters, including for
+  lookup. Names sharing those first 128 characters refer to the same region.
 - **Recursion depth** per region is capped at `SP_MAX_DEPTH` (64); deeper
-  nesting is reported on stderr and left untimed rather than corrupting the
-  buffer.
-- **A region still open at `sp_finalize()`** is reported on stderr and dropped,
-  rather than written with a missing end time.
+  entries return `SP_ERR_DEPTH` and are not timed. Their matching ends are
+  consumed without closing an outer call.
+- **A region still open at `sp_finalize()`** is omitted from the trace and
+  reported with `SP_ERR_OPEN_SCOPES`. Completed recursive children are kept.
