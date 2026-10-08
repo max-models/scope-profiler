@@ -80,6 +80,8 @@ _COLUMNS = (
     ("percent", "% session"),
     ("parent_percent", "% parent"),
     ("avg", "avg/call [s]"),
+    ("gpu_total", "gpu total [s]"),
+    ("gpu_avg", "gpu avg [s]"),
     ("min", "min [s]"),
     ("max", "max [s]"),
     ("first", "first [s]"),
@@ -264,6 +266,20 @@ def region_row(region, ranks=None, *, include_exclusive: bool = False) -> dict:
             rank: region.regions[rank] for rank in ranks if rank in region.regions
         }
 
+    gpu_regions = [data for data in per_rank.values() if data.has_gpu_timing]
+    gpu_total = sum(data.gpu_total_duration for data in gpu_regions)
+    gpu_count = sum(
+        (
+            int(data.stored_summary.get("gpu_count", 0))
+            if data.stored_summary is not None
+            else len(data.gpu_durations_ns)
+        )
+        for data in gpu_regions
+    )
+    gpu = {
+        "gpu_total": gpu_total if gpu_count else None,
+        "gpu_avg": gpu_total / gpu_count if gpu_count else None,
+    }
     durations = _region_durations(region, ranks)
     first, last = _first_last_durations(region, ranks)
     calls = sum(data.num_calls for data in per_rank.values())
@@ -292,6 +308,7 @@ def region_row(region, ranks=None, *, include_exclusive: bool = False) -> dict:
         first, last, std = _stored_distribution_statistics(per_rank)
         return {
             "name": region.name,
+            **gpu,
             "num_ranks": len(per_rank),
             "calls": calls,
             "total": total,
@@ -314,6 +331,7 @@ def region_row(region, ranks=None, *, include_exclusive: bool = False) -> dict:
         }
     return {
         "name": region.name,
+        **gpu,
         "num_ranks": len(per_rank),
         "calls": calls,
         "total": float(np.sum(durations)) if durations.size else None,
@@ -431,6 +449,13 @@ def region_rows(
             [call["duration"] for _, call in calls_for_path],
             dtype=float,
         )
+        gpu_durations = []
+        for rank, call in calls_for_path:
+            data = results.get_region(call["name"]).regions[rank]
+            if data.has_gpu_timing:
+                gpu_durations.append(
+                    float(data.gpu_durations_ns[call["call_index"]]) / 1_000_000_000
+                )
         by_rank = {}
         for rank, call in calls_for_path:
             by_rank.setdefault(rank, []).append(call)
@@ -457,6 +482,8 @@ def region_rows(
                 "num_ranks": len(by_rank),
                 "calls": len(calls_for_path),
                 "total": float(np.sum(durations)),
+                "gpu_total": sum(gpu_durations) if gpu_durations else None,
+                "gpu_avg": float(np.mean(gpu_durations)) if gpu_durations else None,
                 "coverage": coverage,
                 "exclusive": float(
                     sum(call["exclusive_duration"] for _, call in calls_for_path)
@@ -639,12 +666,15 @@ def format_region_table(rows, columns=None, percentage_mode: str = "coverage"):
     """
     if percentage_mode not in {"coverage", "exclusive"}:
         raise ValueError("percentage_mode must be 'coverage' or 'exclusive'")
+    automatic_columns = columns is None
     session_total = _session_total(rows)
     if columns is None and session_total is None:
         # Percentages are defined relative to the session root. When a
         # filtered table does not contain that root, omit the unusable column
         # from the default layout rather than filling it with dashes.
         columns = ("region", "total")
+    if automatic_columns and any(row.get("gpu_total") is not None for row in rows):
+        columns = (*(columns or DEFAULT_REGION_TABLE_COLUMNS), "gpu_total", "gpu_avg")
     selected_columns = normalize_region_table_columns(columns)
     inline_counts = not any(key == "calls" for key, _ in selected_columns)
 
@@ -680,6 +710,8 @@ def format_region_table(rows, columns=None, percentage_mode: str = "coverage"):
             ),
             "avg": _column_indent(row)
             + ("-" if row["avg"] is None else f"{row['avg']:.3e}"),
+            "gpu_total": _format_duration(row.get("gpu_total"), decimals=6),
+            "gpu_avg": _format_duration(row.get("gpu_avg")),
             "min": _format_duration(row["min"]),
             "max": _format_duration(row["max"]),
             "first": _format_duration(row["first"]),
@@ -723,6 +755,28 @@ def format_region_table(rows, columns=None, percentage_mode: str = "coverage"):
         )
         with_own_rows.append((row, own_display, True))
     return selected_columns, with_own_rows
+
+
+def gpu_timing_warnings(rows) -> list[str]:
+    """Explain CPU enqueue timings when device totals exceed them by over 2x."""
+    names = sorted(
+        {
+            row["name"]
+            for row in rows
+            if row.get("gpu_total") is not None
+            and row.get("total") is not None
+            and row["gpu_total"] > 2 * row["total"]
+        }
+    )
+    if not names:
+        return []
+    return [
+        "Warning: GPU time exceeds CPU time by more than 2x for "
+        + ", ".join(names)
+        + ". This may indicate asynchronous GPU work; CPU time can measure "
+        "enqueue time rather than device execution. Use GPU metrics or opt in "
+        "to gpu_sync_on_exit=True (disables CPU/GPU overlap)."
+    ]
 
 
 def print_region_table(
@@ -780,7 +834,7 @@ def print_region_table(
         [display[key] for key, _ in selected_columns] for _, display, _ in display_rows
     ]
     _print_table(table_rows, headers, stream, tablefmt=_REGION_TABLE_FORMAT)
-    notes = []
+    notes = gpu_timing_warnings(rows)
     if title:
         notes.append(f"Summary: {title}")
     if file_path is not None:

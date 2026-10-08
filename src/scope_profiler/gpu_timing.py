@@ -40,6 +40,10 @@ class TorchCUDATimingBackend:
         event.record(self._torch.cuda.current_stream())
         return event
 
+    def synchronize(self) -> None:
+        """Wait for all work on the current CUDA device."""
+        self._torch.cuda.synchronize()
+
     def elapsed_time_ns(self, start_event, end_event) -> int:
         end_event.synchronize()
         return round(start_event.elapsed_time(end_event) * 1_000_000.0)
@@ -71,6 +75,10 @@ class CuPyCUDATimingBackend:
         event = self._cupy.cuda.Event()
         event.record(self._cupy.cuda.get_current_stream())
         return event
+
+    def synchronize(self) -> None:
+        """Wait for all work on the current CUDA device."""
+        self._cupy.cuda.Device().synchronize()
 
     def elapsed_time_ns(self, start_event, end_event) -> int:
         end_event.synchronize()
