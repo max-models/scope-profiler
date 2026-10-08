@@ -17,18 +17,139 @@ link beyond libc.
 The trace format is shared with {doc}`the C API <c>`, so a program built from
 both lands in a single profile.
 
-## Getting the source
+## Build and run a first profile
 
-It ships inside the installed package:
+The commands below use GNU Fortran on Linux or macOS. Install the Python
+package in an activated environment; the compiled Fortran executable itself
+needs no Python interpreter. Python is used to locate the module and to
+convert and inspect the recorded trace afterwards.
 
 ```bash
-gfortran -c $(python -c "import scope_profiler.native_trace as t; print(t.fortran_source_path())")
+python -m pip install scope-profiler
+sp_source="$(python -c 'from scope_profiler.native_trace import fortran_source_path; print(fortran_source_path())')"
+mkdir -p build traces
 ```
 
-or from a checkout, `src/scope_profiler/fortran/scope_profiler.f90`. A
-`Makefile` and a runnable `example.f90` sit next to it.
+When working from a checkout, use `python -m pip install -e .` instead to
+ensure the compiler picks up the local API. You can also copy
+`src/scope_profiler/fortran/scope_profiler.f90` into your own project.
+
+Save this complete program as `simulation.f90`. It excludes five warm-up
+iterations, measures 100 production iterations, and saves a snapshot every
+25 iterations. Replace `solve_system` with your application's work.
+
+```fortran
+program simulation
+   use scope_profiler
+   use, intrinsic :: iso_fortran_env, only: real64, error_unit
+   implicit none
+   integer :: step, solve, status
+   character(len=512) :: message
+   type(sp_region_stats) :: stats
+   real(real64) :: checksum, total_seconds, mean_seconds
+
+   call sp_init("traces/profile", stat=status, errmsg=message)
+   call check_status()
+   solve = sp_region("solve", file="simulation.f90", stat=status, errmsg=message)
+   call check_status()
+   checksum = 0.0_real64
+
+   do step = 1, 5
+      call sp_begin(solve)
+      call solve_system(checksum)
+      call sp_end(solve)
+   end do
+   call sp_reset(stat=status, errmsg=message) ! same handle, fresh measurements
+   call check_status()
+
+   do step = 1, 100
+      call sp_begin(solve)
+      call solve_system(checksum)
+      call sp_end(solve)
+      if (mod(step, 25) == 0) then
+         call sp_flush(stat=status, errmsg=message)
+         call check_status()
+      end if
+   end do
+
+   call sp_get_region_stats(solve, stats, stat=status, errmsg=message)
+   call check_status()
+   total_seconds = real(stats%total_ns, real64)*1.0e-9_real64
+   mean_seconds = 0.0_real64
+   if (stats%calls > 0) mean_seconds = total_seconds/real(stats%calls, real64)
+   print *, "completed calls:", stats%calls
+   print *, "total / mean seconds:", total_seconds, mean_seconds
+   print *, "checksum:", checksum
+
+   call sp_finalize(stat=status, errmsg=message)
+   call check_status()
+
+contains
+
+   subroutine solve_system(value)
+      real(real64), intent(inout) :: value
+      integer :: i
+      do i = 1, 10000
+         value = value + sqrt(real(i, real64))
+      end do
+   end subroutine solve_system
+
+   subroutine check_status()
+      if (status == SP_OK) return
+      write (error_unit, '(a)') trim(message)
+      error stop 1
+   end subroutine check_status
+end program simulation
+```
+
+Compile the profiler module first, then compile and link the application:
+
+```bash
+gfortran -std=f2008 -O2 -Jbuild -c "$sp_source" -o build/scope_profiler.o
+gfortran -std=f2008 -O2 -Ibuild simulation.f90 build/scope_profiler.o -o build/simulation
+./build/simulation
+python -m scope_profiler import-native traces -o build/profiling_data.h5
+python -m scope_profiler inspect build/profiling_data.h5
+python -m scope_profiler plot default build/profiling_data.h5 -o build/figures
+```
+
+Run these commands from the directory containing `simulation.f90`. The program
+writes `traces/profile_rank00000.spt`; its `solve` region should have exactly
+100 calls. The checksum includes warm-up work, but the profiling measurements
+do not. Keep traces from different runs in different directories so the
+importer does not find multiple files claiming the same rank.
+
+### Integrate the module into an existing build
+
+- Compile `scope_profiler.f90` before every source that uses its module.
+  With GNU Fortran, `-Jbuild` selects where to write `scope_profiler.mod` and
+  `-Ibuild` lets dependent sources find it.
+- Link `scope_profiler.o` into the final executable as well as making the
+  `.mod` file available during compilation. The `.mod` file alone does not
+  contain the implementation.
+- Use the same Fortran compiler and compatible options for the profiler and
+  its callers. Rebuild the `.mod` file when switching compilers. Other
+  compilers may use different module-directory flags.
+- Create the output directory before running. `sp_init` stores the output
+  prefix; it does not create directories or test whether the file is writable.
+  Those failures are reported by `sp_flush` or `sp_finalize`.
+
+The repository also contains ready-made examples:
+
+```bash
+# From the repository root, with the package installed in this environment:
+make -C examples/fortran run-standalone FC=gfortran PYTHON=python
+```
+
+That target compiles the example, runs it, and converts the trace into
+`examples/fortran/build/profiling_data.h5`. A smaller `Makefile` and
+`example.f90` are also shipped beside the installed profiler module.
 
 ## Marking regions
+
+For an existing simulation, place calls around the operations you want to
+measure. In this outline, `assemble_matrix` and `solve_system` are your
+application routines:
 
 ```fortran
 program simulation
@@ -75,13 +196,174 @@ chart and the exclusive times that cannot be derived.
 | Call | Purpose |
 | --- | --- |
 | `sp_init(prefix [, rank])` | Start profiling. `rank` (default 0) gives each MPI rank its own trace file. |
-| `sp_region(name)` | Handle for a region name, created on first use. |
+| `sp_region(name [, file, line])` | Handle for a region name, with optional source location. |
 | `sp_begin(id)` / `sp_end(id)` | Enter and leave a region. |
 | `sp_begin_name(name)` / `sp_end_name(name)` | The same, looking the name up each time. |
 | `sp_num_calls(id)` | How often a region was entered; readable after `sp_finalize()`. |
 | `sp_now_ns()` | The raw clock, in nanoseconds. |
 | `sp_is_active()` | Whether profiling is running. |
+| `sp_get_region_stats(id, stats)` | Completed-call count and total/minimum/maximum duration in nanoseconds. |
+| `sp_flush()` | Write completed calls without stopping or discarding measurements. |
+| `sp_reset()` | Clear measurements while preserving handles and source metadata. |
 | `sp_finalize()` | Write `<prefix>_rank<NNNNN>.spt` and stop. |
+
+### Session lifecycle
+
+Use one initialization per measurement session and resolve handles afterwards.
+There is one global profiler per process; independently instrumented libraries
+share its region registry and output prefix.
+
+| Operation | What happens to handles and measurements |
+| --- | --- |
+| `sp_init` | A new session replaces the previous recording. Register handles again. Save the old session first if needed. |
+| `sp_flush` | Handles, measurements, and open calls remain valid. Only completed calls appear in the snapshot. |
+| `sp_reset` | Handles and source metadata survive; call counts and recorded timings are cleared. All calls must be closed. |
+| `sp_finalize` | Recording stops after successful output. Entry counts and completed-call statistics remain readable. |
+
+Before initialization or after finalization, begin/end calls do not record.
+Do not cache a handle returned before initialization: `sp_region` returns 0
+when inactive. Likewise, a handle from a previous session must be resolved
+again after another `sp_init`. Use `sp_is_active()` to check session state.
+
+### Error handling
+
+`sp_init`, `sp_region`, `sp_begin`, `sp_end`, their name-based variants,
+`sp_flush`, `sp_reset`, `sp_get_region_stats`, and `sp_finalize` accept
+optional `stat=` (default integer) and `errmsg=` (character) outputs.
+Success sets `stat` to `SP_OK` and clears `errmsg`. Supplying either output
+suppresses stderr diagnostics; without them, errors are reported on stderr.
+Instrumentation calls on an inactive profiler remain quiet no-ops, with
+`SP_ERR_INACTIVE` returned when requested. Repeated finalization succeeds.
+
+```fortran
+integer :: status
+character(len=512) :: message
+
+call sp_init("profile", stat=status, errmsg=message)
+if (status /= SP_OK) then
+   print *, trim(message)
+end if
+```
+
+Choose a sufficiently long message buffer, such as `character(len=512)`;
+Fortran truncates the diagnostic to fit a shorter buffer. Read the outputs
+after each call, because the next call overwrites them.
+
+| Status | Meaning and next step |
+| --- | --- |
+| `SP_OK` | The operation succeeded; `errmsg` is empty. |
+| `SP_ERR_INACTIVE` | Initialize before recording, flushing, or resetting. Statistics can still be read after finalization. |
+| `SP_ERR_NO_CLOCK` | A supported monotonic clock could not be read. Check platform support; a failed timing call is not a valid measurement. |
+| `SP_ERR_NO_MEMORY` | Allocation failed. Existing recordings survive failed growth/flush; reduce recording volume or free memory before retrying. A failed initialization may have replaced the previous session. |
+| `SP_ERR_IO` | Check the output directory, permissions, quota, and free space. A failed snapshot may be incomplete; correct the cause and retry output. |
+| `SP_ERR_UNMATCHED_END` | Check for an extra end call or a return path that did not enter the region. |
+| `SP_ERR_OPEN_SCOPES` | Reset was refused, or finalization saved completed calls while dropping unfinished ones. Close regions before these operations. |
+| `SP_ERR_INVALID_ARGUMENT` | Check the region handle, prefix length, and rank. |
+| `SP_ERR_DEPTH` | The per-region recursion limit was exceeded, or an enclosing entry failed. Its matching end must still be called. |
+
+A failed `sp_region` returns handle 0. Prefixes must contain 1–512
+non-trailing-blank characters and ranks must be nonnegative.
+
+`sp_finalize` reports `SP_ERR_OPEN_SCOPES` when it saves completed calls
+but drops unfinished calls, including retaining completed recursive children.
+On allocation or output failure, flush/finalize retain the measurements and
+leave the session active so the application can correct the cause and retry.
+Output errors take precedence over unfinished-call diagnostics.
+
+The quick-start program treats profiling failures as fatal for clarity. In a
+long-running simulation you may instead log the failure and continue the
+calculation. On output failure, retry `sp_flush` or `sp_finalize` after fixing
+the cause; calling `sp_init` would replace the measurements you want to save.
+
+Keep begin/end calls paired even when an entry fails for lack of memory,
+a clock error, or the recursion limit. A valid region's rejected entry tracks
+its matching end so that it cannot accidentally close an outer invocation.
+If a region was never registered successfully (handle 0), skip its
+instrumentation or register it again before beginning work.
+
+### Snapshots, measurement windows, and statistics
+
+`sp_flush()` writes all completed calls so far to the usual trace path and
+continues recording. Open calls are omitted until they finish. Each flush
+replaces the previous snapshot; it does not append, clear buffers, or provide
+an atomic checkpoint. A failed write may leave an incomplete file. Flush
+uses temporary storage of 16 bytes per completed call in the largest region,
+in addition to the recording buffers.
+
+`sp_reset()` clears measurements and entry counts while preserving handles,
+source locations, and allocated recording capacity. It refuses with
+`SP_ERR_OPEN_SCOPES` if any region is open, leaving all measurements intact.
+Use it after warm-up or between measurement windows. Reset does not remove
+an existing snapshot; the next flush/finalize replaces it.
+
+The complete program at the start of this guide demonstrates this sequence:
+reset after warm-up, query statistics, flush periodically, and finalize.
+
+`sp_region_stats` has four `integer(int64)` fields: `calls`, `total_ns`,
+`min_ns`, and `max_ns`. These describe completed calls only, use inclusive
+durations in nanoseconds, and are all zero when no calls have completed.
+Statistics are computed on request by scanning the recorded calls, adding no
+running statistics updates to `sp_begin`/`sp_end`. They remain readable after
+finalization. In contrast, `sp_num_calls` counts successful entries, including
+calls that are still open. Recording buffers are retained after finalization
+and released when initialization replaces the session's storage.
+
+For seconds, convert with `real(stats%total_ns, real64)*1.0e-9_real64` after
+importing `real64` from `iso_fortran_env`. Compute the mean only when
+`stats%calls > 0`, as in the complete example above. Inclusive time contains
+work in nested regions, so adding an outer region's total to its children's
+totals double-counts that work. Use imported results for call-tree and
+exclusive-time analysis.
+
+### Choose snapshot and reset boundaries
+
+For a long run, flush at completed timestep or checkpoint boundaries. Calling
+flush while an outer region is open is allowed, but the snapshot omits that
+outer call and may show completed children as roots until it closes. Wait
+until a flush returns successfully before importing its file, and avoid
+reading the path while another flush is replacing it.
+
+Flush retains all measurements, so repeated snapshots are cumulative and do
+not bound memory use. Recording uses two growing timestamp arrays per region
+(16 bytes per allocated call slot); growth can reserve unused capacity. Reset
+lets later calls reuse that capacity but does not shrink it.
+
+For separate measurement windows:
+
+1. Close all regions and call `sp_flush`, checking its status.
+2. Copy or convert the snapshot to a separate archive location if you need
+   to retain that window. Do this before the next flush replaces it.
+3. Call `sp_reset`, checking that it succeeded, then continue using the same
+   handles.
+
+Keep archived windows outside the directory passed to `import-native`: files
+from separate windows can claim the same rank, and the importer rejects that
+ambiguity. For statistics-only progress reports, call `sp_get_region_stats`
+at reporting boundaries rather than every iteration; each query scans the
+recorded calls.
+
+### Source locations
+
+`sp_region(name, file="solver.f90", line=42)` stores optional source metadata
+in the trace and imported HDF5 output. An existing region registered without
+a source file can acquire one later. The first nonempty source file wins;
+later registrations do not replace its file or line. A missing or negative
+line means unknown; a line without a file is ignored. No preprocessing is
+required, and cached-handle begin/end calls do not process source metadata.
+
+The file and line are supplied by you; registration does not inspect the
+calling source automatically. For example, place this beside the code whose
+location you want the profile to identify, and update the line when that
+code moves:
+
+```fortran
+solve = sp_region("solve", file="src/solver.f90", line=42)
+```
+
+Source locations do not distinguish regions with the same name. Use distinct
+names such as `fluid:solve` and `particles:solve` when they should have
+separate measurements. A relative source path is usually sufficient for
+identifying code without embedding a machine-specific absolute path.
 
 ## Under MPI
 
@@ -94,12 +376,20 @@ call sp_init("profile", rank=my_rank)
 
 Every rank writes its own file; nothing is communicated, so `sp_finalize()` is
 not collective and a rank that dies takes only its own trace with it. The
-importer merges whatever it finds:
+importer merges whatever it finds. Create the shared output directory before
+launching, and initialize the profiler after `MPI_Init`/`MPI_Comm_rank`.
+Finalize the profiler on each rank before `MPI_Finalize`. The profiler itself
+makes no MPI calls, and flushing one rank does not wait for others.
+
+Use your MPI compiler wrapper to build the application and the profiler with
+the same underlying compiler. After compiling your MPI-aware `simulation`,
+run it from a fresh trace directory:
 
 ```bash
-mpirun -n 128 ./simulation
-scope-profiler import-native . -o profiling_data.h5
-scope-profiler plot default profiling_data.h5 -o figures
+mkdir -p mpi-run
+(cd mpi-run && mpirun -n 128 ../simulation)
+python -m scope_profiler import-native mpi-run -o mpi-run/profiling_data.h5
+python -m scope_profiler plot default mpi-run/profiling_data.h5 -o mpi-run/figures
 ```
 
 ## From Python
@@ -136,38 +426,83 @@ same clock, their timestamps are directly comparable — the Fortran regions nes
 inside the Python region that called them, and `call_stack()` sees a single
 tree spanning both languages.
 
-Build the kernels however you already do (f2py, ctypes, Cython, a hand-written
-extension), compiling `scope_profiler.f90` in alongside them:
+Compile `scope_profiler.f90` alongside the kernels using f2py, ctypes,
+Cython, or your existing extension build. With f2py, restrict Python wrappers
+using `only:` to your kernel entry points. The profiler's derived types and
+named integer kinds are intended for Fortran callers, not direct f2py
+wrapping. Expose wrappers for initialization and finalization alongside the
+computational routines.
 
-```bash
-python -m numpy.f2py -c scope_profiler.f90 kernels.f90 -m kernels --backend meson
+For example, this complete kernel module can be saved as `kernels.f90`:
+
+```fortran
+module kernels
+   use scope_profiler
+   implicit none
+   integer :: solve_id = 0
+contains
+   subroutine start_profiling(prefix, rank)
+      character(len=*), intent(in) :: prefix
+      integer, intent(in) :: rank
+      call sp_init(prefix, rank=rank)
+      solve_id = sp_region("fortran:solve", file="kernels.f90")
+   end subroutine start_profiling
+
+   subroutine stop_profiling()
+      call sp_finalize()
+   end subroutine stop_profiling
+
+   subroutine solve(n, value)
+      integer, intent(in) :: n
+      double precision, intent(out) :: value
+      integer :: i
+      call sp_begin(solve_id)
+      value = 0.0d0
+      do i = 1, n
+         value = value + sqrt(dble(i))
+      end do
+      call sp_end(solve_id)
+   end subroutine solve
+end module kernels
 ```
 
-Then let `finalize()` fold the Fortran trace in:
+Build it from the directory containing `kernels.f90`:
+
+```bash
+python -m pip install "scope-profiler[fortran]"
+sp_source="$(python -c 'from scope_profiler.native_trace import fortran_source_path; print(fortran_source_path())')"
+python -m numpy.f2py -c "$sp_source" kernels.f90 -m kernels --backend meson \
+  only: start_profiling stop_profiling solve :
+```
+
+Keep `meson` and `ninja` on `PATH` by activating the environment where the
+Fortran extra is installed. Then save this as `run_mixed.py` beside the built
+extension and run it with `python run_mixed.py`. `finalize()` folds the
+Fortran trace into the Python result:
 
 ```python
+from pathlib import Path
+
 import kernels
 from scope_profiler import ProfileManager
 
-ProfileManager.setup(file_path="profiling_data.h5")
-kernels.kernels.start_profiling("trace", rank)   # the Fortran sp_init
+Path("mixed-traces").mkdir(exist_ok=True)
+ProfileManager.setup(file_path="mixed_profile.h5")
+kernels.kernels.start_profiling("mixed-traces/trace", 0)  # serial rank
 
-for step in range(nsteps):
+for step in range(3):
     with ProfileManager.region("python:step"):
-        kernels.kernels.solve(n)                 # records its own regions
+        value = kernels.kernels.solve(10000)
 
-kernels.kernels.stop_profiling()                 # sp_finalize writes the trace
-ProfileManager.finalize(native_traces=".")      # ...and it lands in the h5
+kernels.kernels.stop_profiling()
+ProfileManager.finalize(native_traces="mixed-traces")
 ```
 
-```text
-  region               ranks  calls    total [s]      avg [s]
-  ------------------------------------------------------------
-  python:step              1      3   0.00148475  0.000494917
-  python:call_fortran      1      3   0.00147529  0.000491764
-  fortran:factorize        1      3  0.000860209  0.000286736
-  fortran:assemble         1      3  0.000593416  0.000197805
-```
+The resulting `mixed_profile.h5` contains three `python:step` calls and three
+`fortran:solve` calls nested inside them. Inspect it with
+`python -m scope_profiler inspect mixed_profile.h5`. The repository's
+`examples/fortran` directory has a larger example; run it with
+`make -C examples/fortran run-mixed PYTHON=python` from the repository root.
 
 Two rules:
 
@@ -198,18 +533,36 @@ from scope_profiler.native_trace import load_traces
 combined = merge_results(read_h5("python_only.h5"), load_traces("traces/"))
 ```
 
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| Compiler cannot find `scope_profiler.mod` | Compile the profiler first; point the caller's module search path at its output directory. |
+| Linker reports undefined profiler symbols | Link the profiler object, built with the same compiler as the caller. |
+| No trace exists after initialization | Output is written by flush/finalize, not init. Check their status and the process's working directory. |
+| Trace file exists but is truncated | Output may have failed. Check status, fix the cause, and retry from the still-active session. |
+| Snapshot has fewer calls than `sp_num_calls` | Entry counts include open calls; snapshots and statistics include completed calls only. |
+| Reset reports open regions | Match every begin with an end, including on early returns, before resetting. |
+| Imported call graph raises `NestingError` | Check properly nested begin/end pairs and avoid simultaneous instrumentation from multiple OpenMP threads. |
+| Import reports duplicate ranks | Use one trace per rank per run directory. Keep archived snapshots and previous runs elsewhere. |
+| f2py build cannot find Meson/Ninja | Activate the environment containing `scope-profiler[fortran]` so its tools are on `PATH`. |
+| f2py tries to wrap profiler types or kinds | Restrict wrappers with `only:` to the kernel routines called by Python. |
+
 ## The trace format
 
 `sp_finalize()` writes `<prefix>_rank<NNNNN>.spt`, a small binary file:
 
 ```
 char[8]   "SCOPEPRF"
-int32     format version (1)
+int32     format version (2)
 int32     rank
 int64     number of regions
 per region:
     int32     length of the name in bytes
     char[]    name
+    int32     length of source file in bytes (0 if unknown)
+    char[]    source file
+    int32     source line (-1 if unknown)
     int64     number of calls
     int64[]   start timestamps, nanoseconds
     int64[]   end timestamps, nanoseconds
@@ -218,6 +571,8 @@ per region:
 Native endianness; the reader detects and handles both. 16 bytes per recorded
 call, the same as the Python side.
 
+The reader also accepts legacy version-1 traces without source locations.
+
 ## Limitations
 
 - **Not thread safe.** A region must be entered and left by the same thread.
@@ -225,9 +580,10 @@ call, the same as the Python side.
   in one `sp_begin`/`sp_end` from the master thread.
 - **No LIKWID counters.** Hardware counters are collected only by the Python
   API; a Fortran trace carries timings alone.
-- **Names are truncated** at `SP_MAX_NAME` (128) characters.
+- **Names are truncated** at `SP_MAX_NAME` (128) characters, including for
+  lookup. Names sharing those first 128 characters refer to the same region.
 - **Recursion depth** per region is capped at `SP_MAX_DEPTH` (64); deeper
-  nesting is reported on stderr and left untimed rather than corrupting the
-  buffer.
-- **A region still open at `sp_finalize()`** is reported on stderr and dropped,
-  rather than written with a missing end time.
+  entries return `SP_ERR_DEPTH` and are not timed. Their matching ends are
+  consumed without closing an outer call.
+- **A region still open at `sp_finalize()`** is omitted from the trace and
+  reported with `SP_ERR_OPEN_SCOPES`. Completed recursive children are kept.

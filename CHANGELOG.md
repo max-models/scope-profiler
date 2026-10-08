@@ -4,6 +4,12 @@
 
 ### Added
 
+- Fortran API: optional `stat`/`errmsg` error outputs, recoverable allocation
+  and output failures, `sp_flush` snapshots, handle-preserving `sp_reset`,
+  and on-demand completed-call statistics through `sp_get_region_stats`.
+- Fortran regions accept optional source files and line numbers, written in
+  native trace format v2 and preserved by HDF5 conversion.
+
 - `metadata_detail` setting (`"full"` by default, or `"minimal"`) controls how
   much of the environment a profiling file records. `"minimal"` keeps only
   versions, platform, CPU model and thread/rank counts, and leaves out the
@@ -12,6 +18,13 @@
   region and line profile to its file name. The default is unchanged.
 - The "Run metadata" guide now lists what a profiling file can identify about
   its author and machine, and where it flows into exports.
+
+### Fixed
+
+- Fortran recursion-limit overflow no longer writes uninitialized records or
+  closes outer invocations. Long names now resolve consistently after
+  truncation, and finalization retains completed recursive children when an
+  outer call remains open.
 
 ## 0.7.0 - 2026-09-15
 

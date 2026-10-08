@@ -1,7 +1,7 @@
 """Format-version handling in native_trace.read_trace(), without a C compiler.
 
-The C API writes format version 2 (adds an optional source file/line per
-region); the Fortran API still writes version 1. Both must stay readable from
+The C and Fortran APIs write format version 2 (optional source file/line per
+region); legacy traces use version 1. Both must stay readable from
 the same trace directory, and read_trace()'s return value must keep unpacking
 as ``(start_times, end_times)`` regardless of which version produced it. These
 tests build the bytes by hand instead of compiling and running a program, so
@@ -122,7 +122,7 @@ def test_load_traces_carries_source_into_region(tmp_path):
 
 
 def test_mixed_v1_and_v2_traces_merge(tmp_path):
-    """A C rank (v2) and a Fortran rank (v1) writing to the same directory."""
+    """A C rank (v2) and a legacy Fortran rank (v1) writing to the same directory."""
     _write_v2_trace(
         tmp_path / "trace_rank00000.spt",
         rank=0,
