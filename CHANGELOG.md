@@ -70,6 +70,10 @@
 
 ### Fixed
 
+- HTML report: a single-run report shows the **Region durations** chart
+  again, collapsed below the timeline. Each bar splits the region's total into
+  its own time and the regions it calls directly; aggregated profiles, which
+  record no call nesting, get plain bars, open since they have no timeline.
 - Fortran recursion-limit overflow no longer writes uninitialized records or
   closes outer invocations. Long names now resolve consistently after
   truncation, and finalization retains completed recursive children when an

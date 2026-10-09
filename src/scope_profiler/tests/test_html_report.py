@@ -343,10 +343,10 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
     # The flame views are left out of reports for now.
     assert "Flame chart" not in document
     assert "Flame graph" not in document
-    # One run on one rank, each region entered once: the durations bars would
-    # repeat the table, the rank views have one rank to show and there are no
-    # repeated calls to follow over time. The call graph repeats the tree.
-    assert "Region durations" not in document
+    # One run on one rank, each region entered once: the rank views have one
+    # rank to show and there are no repeated calls to follow over time. The
+    # call graph repeats the tree.
+    assert "Region durations" in document
     assert "Rank heatmap" not in document
     assert "Rank imbalance" not in document
     assert "Duration over time" not in document
@@ -360,18 +360,20 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
     # The timeline labels every row with its region; its legend is redundant.
     assert '"options": {"layout": {"showlegend": false}}' in document
     assert "Each bar is one recorded region call on rank 0." in document
-    # The timeline starts open.
+    # The timeline starts open; the durations bars wait, collapsed.
     panels = re.findall(
         r'<details class="chart-panel"( open)?>.*?aria-level="3">([^<]*)', document
     )
     assert [title for is_open, title in panels if is_open] == [
         "Timeline: profile",
     ]
-    assert [title for is_open, title in panels if not is_open] == []
+    assert [title for is_open, title in panels if not is_open] == [
+        "Region durations",
+    ]
     assert 'data-chart-action="expand"' in document
     assert 'data-chart-action="collapse"' in document
     # Every chart can be opened on a page of its own.
-    assert document.count('class="chart-open" data-chart="scope-profiler-chart-') == 1
+    assert document.count('class="chart-open" data-chart="scope-profiler-chart-') == 2
     assert "const openInNewTab = (chart) =>" in document
     assert '<script id="scope-profiler-plotly-runtime">' in document
     assert "plotly.js" in document
@@ -421,29 +423,85 @@ def test_report_limits_gantt_and_uses_exclusive_rank_heatmap(tmp_path, monkeypat
     assert "exclusive timings" in report.read_text(encoding="utf-8")
 
 
-def test_single_run_report_leaves_region_durations_to_the_table(tmp_path, monkeypatch):
+def test_single_run_report_stacks_region_durations(tmp_path, monkeypatch):
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
-    _write_sample_h5(profile, _sample_file_data(1, 10, 20))
+    _write_sample_h5(profile, _sample_file_data(2, 10, 20))
 
     from scope_profiler import plotting_scripts
 
+    captured = {}
+
     def fake_plot(*args, data_filepath, **kwargs):
+        is_durations = "durations" in Path(data_filepath).name
+        if is_durations:
+            captured.update(kwargs)
         Path(data_filepath).write_text(
-            json.dumps({"plot": "gantt", "intervals": []}),
+            json.dumps(
+                {
+                    "plot": "durations" if is_durations else "gantt",
+                    "bars" if is_durations else "intervals": [],
+                    **(
+                        {"options": {"stack_children": kwargs.get("stack_children")}}
+                        if is_durations
+                        else {}
+                    ),
+                },
+            ),
             encoding="utf-8",
         )
 
-    def unexpected(*args, **kwargs):
-        raise AssertionError("one run needs no durations comparison")
-
-    for name in ("plot_gantt", "plot_flame", "plot_flame_graph"):
+    for name in (
+        "plot_gantt",
+        "plot_durations",
+        "plot_imbalance",
+        "plot_rank_heatmap",
+    ):
         monkeypatch.setattr(plotting_scripts, name, fake_plot)
-    monkeypatch.setattr(plotting_scripts, "plot_durations", unexpected)
 
-    cli_main(["report", str(profile), "-o", str(report)])
+    create_html_report(profile, report)
 
-    assert "Region durations" not in report.read_text(encoding="utf-8")
+    document = report.read_text(encoding="utf-8")
+    # One run's bars show where each region's time went, summed over ranks.
+    assert captured["stack_children"] is True
+    assert captured["metric"] == "total"
+    assert captured["sort_by"] == "total"
+    assert "The stacked segments divide that time" in document
+    panels = re.findall(
+        r'<details class="chart-panel"( open)?>.*?aria-level="3">([^<]*)', document
+    )
+    assert "Region durations" in [title for is_open, title in panels if not is_open]
+    assert [title for is_open, title in panels if is_open] == [
+        "Timeline: profile (rank 0)",
+    ]
+
+
+def test_aggregated_report_draws_unstacked_region_durations(tmp_path):
+    pytest.importorskip("plotly")
+    from scope_profiler import ProfileManager
+
+    with ProfileManager.session(
+        file_path=str(tmp_path / "aggregate.h5"),
+        aggregation_mode=True,
+        return_results=True,
+        verbose=False,
+    ) as run:
+        with ProfileManager.profile_region("outer"):
+            with ProfileManager.profile_region("inner"):
+                pass
+
+    report = create_html_report(run.results, tmp_path / "report.html")
+
+    document = report.read_text(encoding="utf-8")
+    # No call timestamps: nothing to nest the bars by, and no timeline.
+    assert '"stack_children": false' in document
+    assert "summed over the selected ranks, longest first." in document
+    assert "The stacked segments" not in document
+    # The durations bars are the only chart, so they are not left shut.
+    panels = re.findall(
+        r'<details class="chart-panel"( open)?>.*?aria-level="3">([^<]*)', document
+    )
+    assert [title for is_open, title in panels if is_open] == ["Region durations"]
 
 
 def test_reports_leave_out_duration_over_time(tmp_path, monkeypatch):
@@ -723,7 +781,8 @@ def test_region_durations_compare_multiple_runs_without_stacking(tmp_path, monke
     monkeypatch.setattr(plotting_scripts, "plot_flame", fake_plot)
     monkeypatch.setattr(plotting_scripts, "plot_flame_graph", fake_plot)
 
-    create_html_report(profiles, report)
+    # The individual reports each stack their own run's bars.
+    create_html_report(profiles, report, individual_reports=False)
 
     assert captured["stack_children"] is False
     assert "Grouped bars compare each region's total recorded duration" in (
