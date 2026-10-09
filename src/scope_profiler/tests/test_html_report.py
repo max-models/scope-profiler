@@ -724,7 +724,13 @@ def test_comparison_of_thread_counts_scales_over_threads(tmp_path):
     document = create_html_report(
         both, tmp_path / "both.html", individual_reports=False
     ).read_text(encoding="utf-8")
-    assert '"x_field": "total_cores"' in document
+    # MPI ranks open by default on both charts; cores is a button away.
+    for title in ("Speedup", "Weak scaling"):
+        chart = _speedup_document(document, title)
+        assert chart["payload"]["options"]["x_field"] == "num_ranks"
+        assert [
+            variant["payload"]["options"]["x_field"] for variant in chart["variants"]
+        ] == ["num_ranks", "omp_num_threads", "total_cores"]
 
 
 def test_comparison_of_equal_sizes_has_no_speedup_chart(tmp_path):

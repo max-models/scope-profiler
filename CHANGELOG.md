@@ -42,7 +42,9 @@
 - Speedup x-axis choice (#301): `scope-profiler report --speedup-x
   {auto,ranks,nodes,threads,cores}` (`create_html_report(speedup_x=...)`) picks
   the comparison report's speedup axis -- MPI ranks, nodes, OpenMP threads or
-  ranks × threads -- with `auto` keeping the previous choice. A named axis that
+  ranks × threads. `auto`, the default, uses MPI ranks whenever they change
+  (previously ranks × threads when threads changed too), and threads when only
+  they change. A named axis that
   some run did not record is an error naming those runs. Buttons on the chart
   switch it to every other axis the runs differ in. `plot_speedup`,
   `scope-profiler plot --x` and the MCP `plot_profile` tool (new `x_field`)

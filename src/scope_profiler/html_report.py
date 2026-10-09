@@ -2118,14 +2118,14 @@ def _has_call_timestamps(run) -> bool:
 def _scaling_field(runs) -> str | None:
     """The parallelism compared runs differ in, for a speedup chart.
 
-    Ranks, threads, or their product when both change; None when the runs
-    share both, as two versions of the same code do.
+    MPI ranks whenever they change, even when threads change too (the cores
+    axis is then a button away); threads when only they change; None when the
+    runs share both, as two versions of the same code do.
     """
-    ranks = {run.num_ranks for run in runs}
+    if len({run.num_ranks for run in runs}) > 1:
+        return "num_ranks"
     threads = [_threads(run) for run in runs]
     threads_vary = None not in threads and len(set(threads)) > 1
-    if len(ranks) > 1:
-        return "total_cores" if threads_vary else "num_ranks"
     return "omp_num_threads" if threads_vary else None
 
 
@@ -3337,9 +3337,9 @@ def create_html_report(
 
     ``speedup_x`` sets the x-axis of a comparison's scaling charts: ``"ranks"``
     (MPI ranks), ``"nodes"``, ``"threads"`` (OpenMP threads) or ``"cores"``
-    (ranks times threads). ``"auto"``, the default, uses ranks, threads, or
-    cores when both change, and draws no scaling chart when the runs differ
-    in neither. A named axis must be recorded by every run, or this raises
+    (ranks times threads). ``"auto"``, the default, uses MPI ranks when they
+    change, threads when only they change, and draws no scaling chart when the
+    runs differ in neither. A named axis must be recorded by every run, or this raises
     ``ValueError``. Either way, each chart has a button for every other axis
     the runs differ in.
     """
