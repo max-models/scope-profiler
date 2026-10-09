@@ -323,7 +323,7 @@ def _inspect(argv):
 
 def _report(argv):
     """Handle ``scope-profiler report``: write a standalone HTML summary."""
-    from scope_profiler.html_report import create_html_report
+    from scope_profiler.html_report import SCALING_MODES, create_html_report
     from scope_profiler.post_processing import expand_file_patterns, parse_ranks
     from scope_profiler.summary import REGION_TABLE_COLUMNS, SORT_KEYS
 
@@ -376,6 +376,17 @@ def _report(argv):
         ),
     )
     parser.add_argument(
+        "--scaling",
+        choices=SCALING_MODES,
+        default="both",
+        help=(
+            "Scaling chart(s) when the compared runs differ in ranks or "
+            "threads: 'strong' (same total problem size; speedup), 'weak' "
+            "(same problem size per rank or core; weak-scaling efficiency), "
+            "or 'both' (default)"
+        ),
+    )
+    parser.add_argument(
         "--no-individual-reports",
         action="store_true",
         help=(
@@ -403,6 +414,7 @@ def _report(argv):
         include_charts=not args.no_charts,
         charts_cdn=args.charts_cdn,
         individual_reports=not args.no_individual_reports,
+        scaling=args.scaling,
     )
     print(f"Report written to: {output}")
     if args.show:
