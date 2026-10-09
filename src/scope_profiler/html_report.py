@@ -524,8 +524,17 @@ _SCRIPT = """
     });
   }
 
-  function apply() {
-    var active = terms();
+  // The Regions/Depth sliders' region set, handed over by the chart module
+  // (scopeProfilerSetRegionLimit below); null while they limit nothing.
+  var limit = null;
+
+  function allowed(region, active) {
+    return (!active.length || matches(region, active)) &&
+      (!limit || limit.has(region));
+  }
+
+  function filterTables(active) {
+    var limiting = active.length > 0 || limit !== null;
     var shown = 0;
     var total = 0;
     document.querySelectorAll("table.region-stats").forEach(function (table) {
@@ -535,33 +544,45 @@ _SCRIPT = """
         var region = tbody.dataset.region;
         if (region === undefined) return;
         filterable += 1;
-        var match = !active.length || matches(region, active);
+        var match = allowed(region, active);
         tbody.hidden = !match;
         if (match) visible += 1;
       });
       var empty = table.querySelector("tbody.region-empty");
       if (empty) empty.hidden = !filterable || visible > 0;
-      table.classList.toggle("filtering", active.length > 0);
+      table.classList.toggle("filtering", limiting);
       shown += visible;
       total += filterable;
     });
     // Every other per-region element: hotspots, load balance, the
     // comparison table.
     document.querySelectorAll("[data-filter-region]").forEach(function (item) {
-      item.hidden = active.length > 0 && !matches(item.dataset.filterRegion, active);
+      item.hidden = limiting && !allowed(item.dataset.filterRegion, active);
     });
     document.querySelectorAll(".hotspots").forEach(function (block) {
       block.hidden = !block.querySelector("li[data-filter-region]:not([hidden])");
     });
     if (count) {
-      count.textContent = !active.length || !total
+      count.textContent = !limiting || !total
         ? ""
         : shown + " of " + total + " region" + (total === 1 ? "" : "s");
     }
+  }
+
+  function apply() {
+    var active = terms();
+    filterTables(active);
     listeners.forEach(function (listener) {
       try { listener(active.slice()); } catch (error) { /* one chart must not stop the rest */ }
     });
   }
+
+  // The chart module passes the sliders' region set here, so the tables keep
+  // to the same regions as the charts.
+  window.scopeProfilerSetRegionLimit = function (regions) {
+    limit = regions;
+    filterTables(terms());
+  };
 
   // Charts register here to redraw themselves when the filter changes.
   window.scopeProfilerOnRegionFilter = function (listener) {
@@ -3175,10 +3196,10 @@ const termFilter = (region) => activeTerms.some((term) =>
 const regionLimits = {};
 let limitedRegions = null;
 const updateLimitedRegions = () => {
-  if (!Object.keys(regionLimits).length) {
-    limitedRegions = null;
-    return;
-  }
+  limitedRegions = Object.keys(regionLimits).length ? limitedSet() : null;
+  globalThis.scopeProfilerSetRegionLimit?.(limitedRegions);
+};
+const limitedSet = () => {
   const { topN, maxDepth } = regionLimits;
   let names = Object.keys(scopeProfilerRegionIndex).filter((name) => {
     const depth = scopeProfilerRegionIndex[name][1];
@@ -3190,7 +3211,7 @@ const updateLimitedRegions = () => {
       .sort((a, b) => scopeProfilerRegionIndex[b][0] - scopeProfilerRegionIndex[a][0])
       .slice(0, topN);
   }
-  limitedRegions = new Set(names);
+  return new Set(names);
 };
 const chartFilter = (region) =>
   (!activeTerms.length || termFilter(region)) &&

@@ -1314,6 +1314,10 @@ def test_filter_bar_sliders_limit_every_chart(tmp_path, monkeypatch):
     assert 'const key = isTop ? "topN" : "maxDepth";' in document
     assert "filterRegion: chartFilter" in document
     assert "maxDepth: regionLimits.maxDepth" in document
+    # ...and the tables keep to the same regions as the charts.
+    assert "globalThis.scopeProfilerSetRegionLimit?.(limitedRegions);" in document
+    assert "window.scopeProfilerSetRegionLimit = function (regions) {" in document
+    assert "(!limit || limit.has(region))" in document
 
     # Within the limit, Regions opens on all of them.
     monkeypatch.setattr(html_report, "_TIMELINE_REGIONS", 4)

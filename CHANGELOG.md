@@ -67,8 +67,8 @@
   while scrolling, in single-run and comparison reports. It adds a **Regions**
   slider, keeping the N regions with the most time (opening on 500 when there
   are more), and a **Depth** slider, hiding regions nested deeper than the
-  chosen number of levels; both limit every chart to the same regions, and the
-  timeline also hides the deeper calls. Gantt JSON data
+  chosen number of levels; both limit every chart and table to the same
+  regions, and the timeline also hides the deeper calls. Gantt JSON data
   gives each interval its call `depth` (when the rank's calls nest), and the
   Gantt data export no longer fails for a region missing from a selected rank.
 - Stacked region durations export a child segment only under the bars it
