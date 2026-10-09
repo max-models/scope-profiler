@@ -14,7 +14,7 @@ per case, ready for ``scope-profiler report``:
     while the old one is gone), balanced work, and an extra checksum in the
     output step: a small regression, so the comparison has one to show.
 
-Each case alone gets a full report (bottlenecks, region table,
+Each case alone gets a full report (hotspots, region table,
 charts, and load balance across ranks under MPI); both together get a
 comparison report, which also builds and links the two full reports. The
 commands are printed at the end.

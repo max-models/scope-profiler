@@ -235,7 +235,7 @@ timing data in scope-profiler's HDF5 output.
 - **Very hot regions** — wrap a coarser scope. A region entered millions of
   times will dominate its own measurement.
 - **Exploration** — `recursive_profile=True` or `scope-profiler run` to find the
-  hot spots, then place explicit regions and turn it back off.
+  hotspots, then place explicit regions and turn it back off.
 - **Shipping the instrumentation** — leave the decorators in and set
   `deactivate_profiling=True`; they cost nothing.
 

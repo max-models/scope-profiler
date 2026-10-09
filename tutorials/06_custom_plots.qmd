@@ -257,7 +257,7 @@ plt.show()
 ```
 
 `timestep` is almost entirely nested time — it is a container, not work. The
-bars that stay long in the dark series are the real hot spots.
+bars that stay long in the dark series are the real hotspots.
 
 ## 5. Your own flame graph
 
