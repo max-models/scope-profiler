@@ -1,5 +1,7 @@
 """Capturing and round-tripping a region's call-site source (issue #161)."""
 
+import os
+
 import pytest
 
 from scope_profiler import ProfileManager, read_h5
@@ -23,7 +25,8 @@ def test_location_is_captured_but_source_text_is_off_by_default(tmp_path):
     region = results["solve"]
 
     assert region.has_source
-    assert region.source_file == __file__
+    # Stored relative to the working directory by default.
+    assert os.path.abspath(region.source_file) == __file__
     assert region.source_text is None
 
 
@@ -39,7 +42,8 @@ def test_context_manager_region_captures_its_with_block(tmp_path):
     region = results["solve"]
 
     assert region.has_source
-    assert region.source_file == __file__
+    # Stored relative to the working directory by default.
+    assert os.path.abspath(region.source_file) == __file__
     assert "profile_region" in region.source_text
     assert "solve" in region.source_text
 
@@ -119,7 +123,8 @@ def test_source_round_trips_through_the_written_file(tmp_path):
     region = from_disk["written"]
 
     assert region.has_source
-    assert region.source_file == __file__
+    # Stored relative to the working directory by default.
+    assert os.path.abspath(region.source_file) == __file__
     assert "profile_region" in region.source_text
 
 

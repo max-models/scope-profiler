@@ -56,14 +56,26 @@ pytestmark = [
 ]
 
 
-def build(tmp_path: Path, program: str, name: str = "prog") -> Path:
+def build(
+    tmp_path: Path, program: str, name: str = "prog", extra_args: tuple[str, ...] = ()
+) -> Path:
     """Compile ``program`` against the module and return the executable."""
     source = tmp_path / f"{name}.f90"
     source.write_text(program)
     executable = tmp_path / name
+    checks = ["-std=f2008", "-fcheck=all"] if "gfortran" in COMPILER else []
 
     result = subprocess.run(
-        [COMPILER, "-O1", "-o", str(executable), str(MODULE_SOURCE), str(source)],
+        [
+            COMPILER,
+            "-O1",
+            *checks,
+            "-o",
+            str(executable),
+            str(MODULE_SOURCE),
+            str(source),
+            *extra_args,
+        ],
         cwd=tmp_path,
         capture_output=True,
         text=True,
@@ -595,3 +607,395 @@ def test_makefile_builds_the_example(tmp_path):
     )
     assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
     assert (tmp_path / "example").exists()
+
+
+def test_flush_reset_stats_and_source_locations(tmp_path):
+    """Snapshots preserve open recursion; resets preserve handles and metadata."""
+    executable = build(
+        tmp_path,
+        """
+program snapshots
+   use scope_profiler
+   implicit none
+   integer :: id, other, code, i
+   character(len=512) :: message
+   type(sp_region_stats) :: stats
+
+   call sp_init('trace', stat=code, errmsg=message)
+   if (code /= SP_OK .or. len_trim(message) /= 0) stop 1
+   id = sp_region('recursive')
+   other = sp_region('recursive', file='solver.f90', line=42)
+   if (other /= id) stop 2
+   other = sp_region('recursive', file='ignored.f90', line=99)
+   call sp_get_region_stats(id, stats)
+   if (stats%calls /= 0 .or. stats%total_ns /= 0 .or. &
+       stats%min_ns /= 0 .or. stats%max_ns /= 0) stop 3
+
+   call sp_begin(id)
+   do i = 1, 3
+      call sp_begin(id)
+      call sp_end(id)
+   end do
+   call sp_get_region_stats(id, stats)
+   if (stats%calls /= 3 .or. sp_num_calls(id) /= 4) stop 4
+   print *, 'stats', stats%calls, stats%total_ns, stats%min_ns, stats%max_ns
+   call sp_flush(stat=code, errmsg=message)
+   if (code /= SP_OK .or. .not. sp_is_active()) stop 5
+   call execute_command_line('cp trace_rank00000.spt snapshot.spt')
+   call sp_reset(stat=code, errmsg=message)
+   if (code /= SP_ERR_OPEN_SCOPES .or. len_trim(message) == 0) stop 6
+   if (sp_num_calls(id) /= 4) stop 7
+   call sp_end(id)
+   call sp_get_region_stats(id, stats)
+   if (stats%calls /= 4) stop 8
+   call sp_flush()
+   call execute_command_line('cp trace_rank00000.spt complete.spt')
+
+   call sp_reset(stat=code, errmsg=message)
+   if (code /= SP_OK .or. len_trim(message) /= 0) stop 9
+   if (sp_num_calls(id) /= 0) stop 10
+   if (sp_region('recursive') /= id) stop 11
+   call sp_get_region_stats(id, stats)
+   if (stats%calls /= 0 .or. stats%total_ns /= 0 .or. &
+       stats%min_ns /= 0 .or. stats%max_ns /= 0) stop 12
+   call sp_begin(id)
+   call sp_end(id)
+   call sp_finalize(stat=code)
+   if (code /= SP_OK .or. sp_is_active()) stop 13
+   call sp_get_region_stats(id, stats, stat=code)
+   if (code /= SP_OK .or. stats%calls /= 1) stop 14
+   call sp_finalize(stat=code)
+   if (code /= SP_OK) stop 15
+end program snapshots
+""",
+    )
+    output = run(executable, tmp_path)
+    assert output.stderr == ""
+    _, snapshot = read_trace(tmp_path / "snapshot.spt")
+    data = snapshot["recursive"]
+    durations = data.end_times - data.start_times
+    printed_stats = [int(value) for value in output.stdout.split()[1:]]
+    assert printed_stats == [3, durations.sum(), durations.min(), durations.max()]
+    assert data.source_file == "solver.f90"
+    assert data.source_lineno == 42
+    _, complete = read_trace(tmp_path / "complete.spt")
+    assert len(complete["recursive"].start_times) == 4
+    assert complete["recursive"].start_times[0] < data.start_times[0]
+    assert complete["recursive"].end_times[0] >= data.end_times[-1]
+    _, final = read_trace(tmp_path / "trace_rank00000.spt")
+    assert len(final["recursive"].start_times) == 1
+    assert final["recursive"].source_file == "solver.f90"
+    assert final["recursive"].source_lineno == 42
+    converted = convert_traces(tmp_path / "trace_rank00000.spt", tmp_path / "result.h5")
+    region = read_h5(converted)["recursive"][0]
+    assert region.source_file == "solver.f90"
+    assert region.source_lineno == 42
+
+
+def test_finalize_keeps_completed_recursive_children(tmp_path):
+    executable = build(
+        tmp_path,
+        """
+program unfinished_recursive
+   use scope_profiler
+   implicit none
+   integer :: id, code
+   type(sp_region_stats) :: stats
+   call sp_init('trace')
+   id = sp_region('recursive')
+   call sp_begin(id)
+   call sp_begin(id)
+   call sp_end(id)
+   call sp_finalize(stat=code)
+   if (code /= SP_ERR_OPEN_SCOPES .or. sp_is_active()) stop 1
+   call sp_get_region_stats(id, stats)
+   if (stats%calls /= 1) stop 2
+end program unfinished_recursive
+""",
+    )
+    assert run(executable, tmp_path).stderr == ""
+    _, regions = read_trace(tmp_path / "trace_rank00000.spt")
+    assert len(regions["recursive"].start_times) == 1
+
+
+def test_status_outputs_and_output_failure_recovery(tmp_path):
+    executable = build(
+        tmp_path,
+        """
+program errors
+   use scope_profiler
+   implicit none
+   integer :: id, code
+   character(len=512) :: message
+   type(sp_region_stats) :: stats
+   call sp_begin(0, stat=code)
+   if (code /= SP_ERR_INACTIVE) stop 1
+   call sp_flush(stat=code)
+   if (code /= SP_ERR_INACTIVE) stop 2
+   call sp_reset(stat=code)
+   if (code /= SP_ERR_INACTIVE) stop 3
+   call sp_get_region_stats(1, stats, stat=code)
+   if (code /= SP_ERR_INACTIVE .or. stats%calls /= 0) stop 4
+   call sp_init('trace', rank=-1, stat=code)
+   if (code /= SP_ERR_INVALID_ARGUMENT) stop 5
+   call sp_init(repeat('x', 513), stat=code)
+   if (code /= SP_ERR_INVALID_ARGUMENT) stop 6
+   call sp_init('missing/trace', rank=100000)
+   call sp_begin(999, stat=code, errmsg=message)
+   if (code /= SP_ERR_INVALID_ARGUMENT .or. len_trim(message) == 0) stop 7
+   id = sp_region('r', stat=code, errmsg=message)
+   if (code /= SP_OK .or. len_trim(message) /= 0) stop 8
+   call sp_end(id, stat=code)
+   if (code /= SP_ERR_UNMATCHED_END) stop 9
+   call sp_end_name('unknown', stat=code)
+   if (code /= SP_ERR_UNMATCHED_END) stop 10
+   call sp_get_region_stats(999, stats, stat=code)
+   if (code /= SP_ERR_INVALID_ARGUMENT .or. stats%calls /= 0) stop 11
+   call sp_begin_name('r', stat=code)
+   if (code /= SP_OK) stop 12
+   call sp_end_name('r', stat=code)
+   if (code /= SP_OK) stop 13
+   call sp_flush(stat=code, errmsg=message)
+   if (code /= SP_ERR_IO .or. len_trim(message) == 0) stop 14
+   call sp_finalize(stat=code)
+   if (code /= SP_ERR_IO .or. .not. sp_is_active()) stop 15
+   call execute_command_line('mkdir missing')
+   call sp_finalize(stat=code, errmsg=message)
+   if (code /= SP_OK .or. len_trim(message) /= 0 .or. sp_is_active()) stop 16
+end program errors
+""",
+    )
+    assert run(executable, tmp_path).stderr == ""
+    rank, regions = read_trace(tmp_path / "missing/trace_rank100000.spt")
+    assert rank == 100000
+    assert list(regions) == ["r"]
+    assert len(regions["r"].start_times) == 1
+    assert regions["r"].source_file is None
+    assert regions["r"].source_lineno is None
+
+
+def test_depth_overflow_and_long_names_do_not_corrupt_records(tmp_path):
+    executable = build(
+        tmp_path,
+        """
+program limits
+   use scope_profiler
+   implicit none
+   integer :: id, i, code, extra
+   character(len=16) :: name
+   call sp_init('trace')
+   id = sp_region(repeat('x', 140), file='deep.f90', line=12)
+   if (sp_region(repeat('x', 140)) /= id) stop 1
+   do i = 1, 70
+      call sp_begin(id, stat=code)
+      if (i <= 64 .and. code /= SP_OK) stop 2
+      if (i > 64 .and. code /= SP_ERR_DEPTH) stop 3
+   end do
+   ! Grow the registry while a region (and rejected entries) is open.
+   do i = 1, 40
+      write(name, '(a,i0)') 'extra', i
+      extra = sp_region(trim(name))
+      call sp_begin(extra)
+      call sp_end(extra)
+   end do
+   do i = 1, 70
+      call sp_end(id, stat=code)
+      if (code /= SP_OK) stop 4
+   end do
+   if (sp_num_calls(id) /= 64) stop 5
+   call sp_finalize(stat=code)
+   if (code /= SP_OK) stop 6
+end program limits
+""",
+    )
+    assert run(executable, tmp_path).stderr == ""
+    _, regions = read_trace(tmp_path / "trace_rank00000.spt")
+    assert len(regions) == 41
+    data = regions["x" * 128]
+    assert len(data.start_times) == 64
+    assert (data.end_times >= data.start_times).all()
+    assert (np.diff(data.start_times) >= 0).all()
+    assert (np.diff(data.end_times) <= 0).all()
+    assert data.source_file == "deep.f90"
+    assert data.source_lineno == 12
+
+
+def test_flush_empty_session(tmp_path):
+    executable = build(
+        tmp_path,
+        """
+program empty
+   use scope_profiler
+   implicit none
+   integer :: id, code
+   call sp_init('trace')
+   id = sp_region('unused')
+   call sp_begin(id)
+   call sp_flush(stat=code)
+   if (code /= SP_OK .or. .not. sp_is_active()) stop 1
+   call sp_end(id)
+end program empty
+""",
+    )
+    run(executable, tmp_path)
+    assert read_trace(tmp_path / "trace_rank00000.spt")[1] == {}
+
+
+def compile_c_helper(tmp_path, source):
+    compiler = shutil.which("cc")
+    if compiler is None:
+        pytest.skip("needs a C compiler for fault injection")
+    path = tmp_path / "faults.c"
+    path.write_text(source)
+    obj = tmp_path / "faults.o"
+    subprocess.run([compiler, "-c", str(path), "-o", str(obj)], check=True)
+    return str(obj)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="uses Linux file size limits")
+def test_output_write_or_close_failure_is_returned(tmp_path):
+    helper = compile_c_helper(
+        tmp_path,
+        """
+#include <signal.h>
+#include <sys/resource.h>
+void limit_output(void) {
+    struct rlimit limit = {32, 32};
+    signal(SIGXFSZ, SIG_IGN);
+    setrlimit(RLIMIT_FSIZE, &limit);
+}
+""",
+    )
+    executable = build(
+        tmp_path,
+        """
+program full_disk
+   use scope_profiler
+   implicit none
+   interface
+      subroutine limit_output() bind(c)
+      end subroutine limit_output
+   end interface
+   integer :: id, code
+   character(len=512) :: message
+   call sp_init('trace')
+   id = sp_region('r')
+   call sp_begin(id)
+   call sp_end(id)
+   call limit_output()
+   call sp_finalize(stat=code, errmsg=message)
+   if (code /= SP_ERR_IO .or. len_trim(message) == 0) stop 1
+   if (.not. sp_is_active()) stop 2
+end program full_disk
+""",
+        extra_args=(helper,),
+    )
+
+    result = subprocess.run(
+        [str(executable)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+
+
+@pytest.mark.skipif(
+    sys.platform != "linux" or COMPILER is None or "gfortran" not in COMPILER,
+    reason="fault injection uses GNU malloc wrapping",
+)
+@pytest.mark.parametrize("allocation_index", [1, 2])
+def test_allocation_failures_are_recoverable(tmp_path, allocation_index):
+    helper = compile_c_helper(
+        tmp_path,
+        """
+#include <stddef.h>
+static int armed = 0;
+void fail_next_allocation(void) { armed = 1; }
+void fail_allocation(int index) { armed = index; }
+void *__real_malloc(size_t);
+void *__wrap_malloc(size_t size) {
+    if (armed && --armed == 0) return NULL;
+    return __real_malloc(size);
+}
+""",
+    )
+    executable = build(
+        tmp_path,
+        """
+program allocation_errors
+   use scope_profiler
+   use, intrinsic :: iso_c_binding, only: c_int
+   implicit none
+   interface
+      subroutine fail_next_allocation() bind(c)
+      end subroutine fail_next_allocation
+      subroutine fail_allocation(index) bind(c)
+         import c_int
+         integer(c_int), value :: index
+      end subroutine fail_allocation
+   end interface
+   integer :: id, other, code, i
+   character(len=32) :: name
+   character(len=512) :: message
+   type(sp_region_stats) :: stats
+
+   call fail_next_allocation()
+   call sp_init('trace', stat=code, errmsg=message)
+   if (code /= SP_ERR_NO_MEMORY .or. len_trim(message) == 0) stop 1
+   if (sp_is_active()) stop 2
+   call sp_init('trace')
+   call fail_next_allocation()
+   id = sp_region('r', stat=code)
+   if (code /= SP_ERR_NO_MEMORY .or. id /= 0) stop 3
+   id = sp_region('r')
+   call fail_next_allocation()
+   other = sp_region('r', file='r.f90', line=20, stat=code)
+   if (code /= SP_ERR_NO_MEMORY .or. other /= 0) stop 4
+   other = sp_region('r', file='r.f90', line=20)
+   if (other /= id) stop 5
+   ! Keep the outer call open while the original 1024 slots fill.
+   call sp_begin(id)
+   do i = 1, 1023
+      call sp_begin(id)
+      call sp_end(id)
+   end do
+   call fail_allocation(ALLOCATION_INDEX_c_int)
+   call sp_begin(id, stat=code)
+   if (code /= SP_ERR_NO_MEMORY) stop 6
+   call sp_end(id)
+   call sp_get_region_stats(id, stats)
+   if (stats%calls /= 1023) stop 7
+   call sp_begin(id)
+   call sp_end(id)
+   call sp_end(id)
+   ! Fail registry growth while preserving the completed calls and metadata.
+   do i = 1, 15
+      write(name, '(a,i0)') 'extra', i
+      other = sp_region(trim(name))
+   end do
+   call fail_next_allocation()
+   other = sp_region('grow_registry', stat=code)
+   if (code /= SP_ERR_NO_MEMORY .or. other /= 0) stop 10
+   other = sp_region('grow_registry')
+   if (other /= 17) stop 11
+   call fail_next_allocation()
+   call sp_flush(stat=code)
+   if (code /= SP_ERR_NO_MEMORY .or. .not. sp_is_active()) stop 8
+   call sp_finalize(stat=code)
+   if (code /= SP_OK) stop 9
+end program allocation_errors
+""".replace("ALLOCATION_INDEX", str(allocation_index)),
+        extra_args=(helper, "-Wl,--wrap=malloc"),
+    )
+    assert run(executable, tmp_path).stderr == ""
+    _, regions = read_trace(tmp_path / "trace_rank00000.spt")
+    data = regions["r"]
+    assert len(data.start_times) == 1025
+    assert (data.end_times >= data.start_times).all()
+    assert data.end_times[0] >= data.end_times.max()
+    assert data.source_file == "r.f90"
+    assert data.source_lineno == 20

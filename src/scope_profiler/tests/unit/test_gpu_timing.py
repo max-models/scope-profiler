@@ -236,3 +236,21 @@ def test_resolve_rejects_an_incomplete_backend_object(missing):
             resolve_gpu_timing_backend(backend)
     finally:
         delattr(type(backend), missing)
+
+
+@pytest.mark.parametrize("provider", ["cupy", "torch"])
+def test_backend_synchronizes_current_device(install_module, provider):
+    calls = []
+    if provider == "cupy":
+        module = _fake_cupy()
+        module.cuda.Device = lambda: types.SimpleNamespace(
+            synchronize=lambda: calls.append(1)
+        )
+        factory = CuPyCUDATimingBackend
+    else:
+        module = _fake_torch()
+        module.cuda.synchronize = lambda: calls.append(1)
+        factory = TorchCUDATimingBackend
+    install_module(provider, module)
+    factory().synchronize()
+    assert calls == [1]

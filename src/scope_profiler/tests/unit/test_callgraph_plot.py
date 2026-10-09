@@ -133,7 +133,8 @@ def test_plotly_backend_builds_traces_for_edges_and_nodes(results, tmp_path):
     assert out.exists()
     # One line trace per edge plus the single marker trace.
     assert len(figure.data) == 6 + 1
-    assert figure.layout.title.text == "Call graph (rank 0)"
+    # A one-rank run has no other rank to tell this one apart from.
+    assert figure.layout.title.text == "Call graph"
 
 
 def test_plotly_backend_in_compact_mode_labels_regions(results):

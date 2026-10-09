@@ -624,7 +624,7 @@ def test_finalize_quiet(tmp_path, capsys):
 
 def test_finalize_writes_global_metadata(tmp_path):
     file_path = tmp_path / "profiling_metadata.h5"
-    ProfileManager.setup(file_path=str(file_path))
+    ProfileManager.setup(file_path=str(file_path), metadata_detail="full")
 
     with ProfileManager.profile_region("region"):
         pass

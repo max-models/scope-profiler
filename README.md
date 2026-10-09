@@ -16,6 +16,7 @@ pip install scope-profiler
 import scope_profiler as sp
 
 with sp.session():
+
     @sp.profile("main")
     def main():
         with sp.region("work"):
@@ -44,10 +45,12 @@ lifecycle:
 ```python
 import scope_profiler as sp
 
+
 @sp.profile("main")
 def main():
     with sp.region("iteration"):
         work()
+
 
 main()
 ```

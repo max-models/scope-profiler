@@ -119,6 +119,7 @@ def plot_duration_histogram(
                 region, title = _hover_region(
                     run.get_region(region_name),
                     normalized_ranks,
+                    run.num_ranks,
                 )
                 line_hover = [
                     _ps._hover_summary(

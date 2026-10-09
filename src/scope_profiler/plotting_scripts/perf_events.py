@@ -10,6 +10,7 @@ from scope_profiler.plotting_scripts._utils import (
     _as_runs,
     _get_cmap_colors,
     _normalize_ranks,
+    _rank_suffix,
     _to_hex,
     _unique_labels,
 )
@@ -102,9 +103,9 @@ def plot_perf_events(
                 label = (
                     run.display_label
                     if len(runs) == 1
-                    else f"{run.display_label} (rank {rank})"
+                    else run.display_label + _rank_suffix(run.num_ranks, rank)
                 )
-                if len(runs) == 1:
+                if len(runs) == 1 and run.num_ranks > 1:
                     label = f"rank {rank}"
                 series.append((label, values))
     if not series:

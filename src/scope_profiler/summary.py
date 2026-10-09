@@ -80,6 +80,8 @@ _COLUMNS = (
     ("percent", "% session"),
     ("parent_percent", "% parent"),
     ("avg", "avg/call [s]"),
+    ("gpu_total", "gpu total [s]"),
+    ("gpu_avg", "gpu avg [s]"),
     ("min", "min [s]"),
     ("max", "max [s]"),
     ("first", "first [s]"),
@@ -264,6 +266,20 @@ def region_row(region, ranks=None, *, include_exclusive: bool = False) -> dict:
             rank: region.regions[rank] for rank in ranks if rank in region.regions
         }
 
+    gpu_regions = [data for data in per_rank.values() if data.has_gpu_timing]
+    gpu_total = sum(data.gpu_total_duration for data in gpu_regions)
+    gpu_count = sum(
+        (
+            int(data.stored_summary.get("gpu_count", 0))
+            if data.stored_summary is not None
+            else len(data.gpu_durations_ns)
+        )
+        for data in gpu_regions
+    )
+    gpu = {
+        "gpu_total": gpu_total if gpu_count else None,
+        "gpu_avg": gpu_total / gpu_count if gpu_count else None,
+    }
     durations = _region_durations(region, ranks)
     first, last = _first_last_durations(region, ranks)
     calls = sum(data.num_calls for data in per_rank.values())
@@ -292,6 +308,7 @@ def region_row(region, ranks=None, *, include_exclusive: bool = False) -> dict:
         first, last, std = _stored_distribution_statistics(per_rank)
         return {
             "name": region.name,
+            **gpu,
             "num_ranks": len(per_rank),
             "calls": calls,
             "total": total,
@@ -314,6 +331,7 @@ def region_row(region, ranks=None, *, include_exclusive: bool = False) -> dict:
         }
     return {
         "name": region.name,
+        **gpu,
         "num_ranks": len(per_rank),
         "calls": calls,
         "total": float(np.sum(durations)) if durations.size else None,
@@ -431,6 +449,13 @@ def region_rows(
             [call["duration"] for _, call in calls_for_path],
             dtype=float,
         )
+        gpu_durations = []
+        for rank, call in calls_for_path:
+            data = results.get_region(call["name"]).regions[rank]
+            if data.has_gpu_timing:
+                gpu_durations.append(
+                    float(data.gpu_durations_ns[call["call_index"]]) / 1_000_000_000
+                )
         by_rank = {}
         for rank, call in calls_for_path:
             by_rank.setdefault(rank, []).append(call)
@@ -457,6 +482,8 @@ def region_rows(
                 "num_ranks": len(by_rank),
                 "calls": len(calls_for_path),
                 "total": float(np.sum(durations)),
+                "gpu_total": sum(gpu_durations) if gpu_durations else None,
+                "gpu_avg": float(np.mean(gpu_durations)) if gpu_durations else None,
                 "coverage": coverage,
                 "exclusive": float(
                     sum(call["exclusive_duration"] for _, call in calls_for_path)
@@ -614,6 +641,144 @@ def _column_indent(row) -> str:
     return " " * len(_tree_prefix(row))
 
 
+def _session_total(rows) -> float | None:
+    """Duration of the ``scope_profiler.session`` root, the base of ``% session``."""
+    return next(
+        (row["total"] for row in rows if row["name"] == "scope_profiler.session"),
+        None,
+    )
+
+
+def format_region_table(rows, columns=None, percentage_mode: str = "coverage"):
+    """Format :func:`region_rows` output as displayed by the region table.
+
+    Shared by the terminal table and the HTML report so both show the same
+    columns, tree indentation, inline call counts and ``(own)`` rows.
+
+    Returns
+    -------
+    selected_columns : tuple of (key, header)
+        The columns to display, in order.
+    display_rows : list of (row, display, is_own)
+        ``display`` maps every column key to its cell text. ``row`` is the
+        source row; for an ``(own)`` row (``is_own`` true) it is the parent
+        region whose time excluding children the row shows.
+    """
+    if percentage_mode not in {"coverage", "exclusive"}:
+        raise ValueError("percentage_mode must be 'coverage' or 'exclusive'")
+    automatic_columns = columns is None
+    session_total = _session_total(rows)
+    if columns is None and session_total is None:
+        # Percentages are defined relative to the session root. When a
+        # filtered table does not contain that root, omit the unusable column
+        # from the default layout rather than filling it with dashes.
+        columns = ("region", "total")
+    if automatic_columns and any(row.get("gpu_total") is not None for row in rows):
+        columns = (*(columns or DEFAULT_REGION_TABLE_COLUMNS), "gpu_total", "gpu_avg")
+    selected_columns = normalize_region_table_columns(columns)
+    inline_counts = not any(key == "calls" for key, _ in selected_columns)
+
+    formatted = [
+        {
+            "name": _display_region_name(row)
+            + (
+                f" ({_format_count(row['calls'])}x)"
+                if inline_counts and row["calls"] != 1
+                else ""
+            ),
+            "ranks": str(row["num_ranks"]),
+            "calls": _format_count(row["calls"]),
+            "total": _column_indent(row) + _format_duration(row["total"], decimals=6),
+            # The session root represents the complete run, so keep it at
+            # 100% even when exclusive attribution is selected.
+            "percent": _column_indent(row)
+            + _format_percentage(
+                (
+                    row["total"]
+                    if percentage_mode == "exclusive"
+                    and row["name"] == "scope_profiler.session"
+                    else row.get(percentage_mode)
+                ),
+                session_total,
+                decimals=2,
+            ),
+            # Match the hierarchy without repeating the region's tree lines.
+            "parent_percent": _column_indent(row)
+            + _format_percentage(
+                row.get("coverage"),
+                row.get("parent_coverage"),
+            ),
+            "avg": _column_indent(row)
+            + ("-" if row["avg"] is None else f"{row['avg']:.3e}"),
+            "gpu_total": _format_duration(row.get("gpu_total"), decimals=6),
+            "gpu_avg": _format_duration(row.get("gpu_avg")),
+            "min": _format_duration(row["min"]),
+            "max": _format_duration(row["max"]),
+            "first": _format_duration(row["first"]),
+            "last": _format_duration(row["last"]),
+            "std": _format_duration(row["std"]),
+            "p50": _format_duration(row["p50"]),
+            "p95": _format_duration(row["p95"]),
+            "p99": _format_duration(row["p99"]),
+            "imbalance": "-" if row["imbalance"] is None else f"{row['imbalance']:.2f}",
+        }
+        for row in rows
+    ]
+
+    parent_paths = {
+        " > ".join(parts[:index])
+        for row in rows
+        if (parts := row.get("call_path", "").split(" > "))
+        for index in range(1, len(parts))
+    }
+    with_own_rows = []
+    for row, display in zip(rows, formatted):
+        with_own_rows.append((row, display, False))
+        if row.get("call_path") not in parent_paths:
+            continue
+        own = {"name": "(own)", "depth": row.get("depth", 0) + 1}
+        indent = _column_indent(own)
+        own_display = {key: "" for key in display}
+        own_display.update(
+            name=_display_region_name(own),
+            total=indent + _format_duration(row.get("exclusive"), decimals=6),
+            avg=indent
+            + (
+                f"{row['exclusive'] / row['calls']:.3e}"
+                if row.get("exclusive") is not None and row["calls"]
+                else "-"
+            ),
+            percent=indent
+            + _format_percentage(row.get("exclusive"), session_total, decimals=2),
+            parent_percent=indent
+            + _format_percentage(row.get("exclusive"), row.get("coverage")),
+        )
+        with_own_rows.append((row, own_display, True))
+    return selected_columns, with_own_rows
+
+
+def gpu_timing_warnings(rows) -> list[str]:
+    """Explain CPU enqueue timings when device totals exceed them by over 2x."""
+    names = sorted(
+        {
+            row["name"]
+            for row in rows
+            if row.get("gpu_total") is not None
+            and row.get("total") is not None
+            and row["gpu_total"] > 2 * row["total"]
+        }
+    )
+    if not names:
+        return []
+    return [
+        "Warning: GPU time exceeds CPU time by more than 2x for "
+        + ", ".join(names)
+        + ". This may indicate asynchronous GPU work; CPU time can measure "
+        "enqueue time rather than device execution. Use GPU metrics or opt in "
+        "to gpu_sync_on_exit=True (disables CPU/GPU overlap)."
+    ]
+
+
 def print_region_table(
     rows,
     title=None,
@@ -663,98 +828,13 @@ def print_region_table(
         print("  (no regions recorded)", file=stream)
         return
 
-    session_total = next(
-        (root["total"] for root in rows if root["name"] == "scope_profiler.session"),
-        None,
-    )
-    if columns is None and session_total is None:
-        # Percentages are defined relative to the session root. When a
-        # filtered table does not contain that root, omit the unusable column
-        # from the default layout rather than filling it with dashes.
-        columns = ("region", "total")
-    selected_columns = normalize_region_table_columns(columns)
-    inline_counts = not any(key == "calls" for key, _ in selected_columns)
-
-    formatted = [
-        {
-            "name": _display_region_name(row)
-            + (
-                f" ({_format_count(row['calls'])}x)"
-                if inline_counts and row["calls"] != 1
-                else ""
-            ),
-            "ranks": str(row["num_ranks"]),
-            "calls": _format_count(row["calls"]),
-            "total": _column_indent(row) + _format_duration(row["total"], decimals=6),
-            # The session root represents the complete run, so keep it at
-            # 100% even when exclusive attribution is selected.
-            "percent": _column_indent(row)
-            + _format_percentage(
-                (
-                    row["total"]
-                    if percentage_mode == "exclusive"
-                    and row["name"] == "scope_profiler.session"
-                    else row.get(percentage_mode)
-                ),
-                session_total,
-                decimals=2,
-            ),
-            # Match the hierarchy without repeating the region's tree lines.
-            "parent_percent": _column_indent(row)
-            + _format_percentage(
-                row.get("coverage"),
-                row.get("parent_coverage"),
-            ),
-            "avg": _column_indent(row)
-            + ("-" if row["avg"] is None else f"{row['avg']:.3e}"),
-            "min": _format_duration(row["min"]),
-            "max": _format_duration(row["max"]),
-            "first": _format_duration(row["first"]),
-            "last": _format_duration(row["last"]),
-            "std": _format_duration(row["std"]),
-            "p50": _format_duration(row["p50"]),
-            "p95": _format_duration(row["p95"]),
-            "p99": _format_duration(row["p99"]),
-            "imbalance": "-" if row["imbalance"] is None else f"{row['imbalance']:.2f}",
-        }
-        for row in rows
-    ]
-
-    parent_paths = {
-        " > ".join(parts[:index])
-        for row in rows
-        if (parts := row.get("call_path", "").split(" > "))
-        for index in range(1, len(parts))
-    }
-    with_own_rows = []
-    for row, display in zip(rows, formatted):
-        with_own_rows.append(display)
-        if row.get("call_path") not in parent_paths:
-            continue
-        own = {"name": "(own)", "depth": row.get("depth", 0) + 1}
-        indent = _column_indent(own)
-        own_display = {key: "" for key in display}
-        own_display.update(
-            name=_display_region_name(own),
-            total=indent + _format_duration(row.get("exclusive"), decimals=6),
-            avg=indent
-            + (
-                f"{row['exclusive'] / row['calls']:.3e}"
-                if row.get("exclusive") is not None and row["calls"]
-                else "-"
-            ),
-            percent=indent
-            + _format_percentage(row.get("exclusive"), session_total, decimals=2),
-            parent_percent=indent
-            + _format_percentage(row.get("exclusive"), row.get("coverage")),
-        )
-        with_own_rows.append(own_display)
-    formatted = with_own_rows
-
+    selected_columns, display_rows = format_region_table(rows, columns, percentage_mode)
     headers = [header for _, header in selected_columns]
-    table_rows = [[row[key] for key, _ in selected_columns] for row in formatted]
+    table_rows = [
+        [display[key] for key, _ in selected_columns] for _, display, _ in display_rows
+    ]
     _print_table(table_rows, headers, stream, tablefmt=_REGION_TABLE_FORMAT)
-    notes = []
+    notes = gpu_timing_warnings(rows)
     if title:
         notes.append(f"Summary: {title}")
     if file_path is not None:
@@ -787,7 +867,7 @@ def print_region_table(
         )
     if any(row.get("recursive") for row in rows):
         notes.append("↻ Recursive rows aggregate all invocations of that region.")
-    if session_total is not None:
+    if _session_total(rows) is not None:
         notes.append(
             (
                 "% session uses wall-clock coverage; overlapping recursive calls "

@@ -279,24 +279,79 @@ no plotting dependency, so it is suitable for copying from a compute node and
 opening later in a browser.
 
 ```bash
-scope-profiler report profiling_data.h5 -o report.html
+scope-profiler report profiling_data.h5            # writes report.html
 scope-profiler report 'run_*.h5' -o comparison.html --sort calls
 scope-profiler report profiling_data.h5 -o report.html --include solve --ranks 0-3
 ```
 
+`-o`/`--output` names the HTML file (default: `report.html`).
 `--include`, `--exclude`, `--ranks`, `--sort`, and `--columns` use the same
 meaning as `scope-profiler inspect` and control the region-statistics table.
+
+**One file** gets a full report. It opens with the run's file, recording time,
+host and scale, a row of headline numbers -- wall time, ranks, regions, the
+share of the session inside regions, the top bottleneck and, for MPI runs, the
+worst load imbalance -- and a few findings worth acting on. **Bottlenecks**
+then ranks the leaves of the call tree by time: regions without nested
+regions, and the *own* time a parent spends outside its children, each with
+the call path it sits on. These add up to the session, so they name the code
+that costs the time rather than whatever encloses it.
+
+The region-statistics table has the same layout as the terminal summary:
+regions indented along the call tree, call counts after the name, and an
+`(own)` row with each parent's time excluding its children. Clicking a column
+header re-sorts the table and drops the tree indentation. Collapse or expand a
+region's nested regions with the arrow beside it. Clicking a row expands it in
+place to show the captured call-site source, tags, and a per-rank
+calls/total/avg/min/max breakdown.
+
+With more than one rank selected, **Load balance** lists each region's own time
+per rank -- mean, min, max, the slowest rank, its imbalance over the mean, and
+the *excess* time the slowest rank spends above the average, which orders the
+table -- and **Rank comparison** sets every rank side by side, coloring each
+cell by how far that rank is from the region's mean. Runs recorded with
+`line_profiler` show each region's line profile in its table row: clicking the
+row shows its per-rank table and then the profiled function's source as
+written and syntax-highlighted, summed over the selected ranks, with the time
+on each line and the hottest one highlighted. A long function scrolls inside a
+box of limited height, which opens at the hottest line. Functions
+whose region is not in the table -- left out by `--include`, say -- are listed
+in a separate **Line profile** section instead.
+
+**Several files** get a comparison report instead, with the first file as the
+baseline. It lists the runs with their wall times, shows what changed in each
+run against the baseline -- the largest own-time improvements and regressions,
+ignoring changes too small to be more than noise -- and puts every region's
+duration in every run side by side, matched by call path, with a switch between
+total, own, per-call time and calls and an ordering by largest change. A full
+report for each run is written next to the comparison, as
+`<output>-<index>-<label>.html`, and linked from its run table; pass
+`--no-individual-reports` to skip them.
+
 Metadata is always retained in the report. With `scope-profiler[pproc]`
-installed, reports also embed interactive Plotly timelines and duration charts;
-pass `--no-charts` for the compact table-only version.
-Reports also include duration-over-time and rank-imbalance views, and a compact
-call graph for each run. If a profile contains LIKWID or built-in Linux perf
-events, the report adds hardware-counter tables automatically and plots the
-first available LIKWID metric. A contents bar, region search, overview links,
-and expand/collapse controls keep larger reports navigable.
-Clicking a region in a statistics table or any chart highlights that region
-throughout the report. Chart selections also open and scroll to the matching
-statistics detail; use **Clear highlight** beside the search box to reset it.
+installed, reports also embed interactive Plotly charts; pass `--no-charts` for
+the compact table-only version. A single run gets a timeline, plus a
+rank-imbalance chart and rank heatmap when more than one rank is selected. For
+flame graphs and flame charts, use `scope-profiler plot flame_graph` and
+`scope-profiler plot flame_chart`. A comparison keeps the charts that compare
+runs: grouped region durations and a percent-change chart for exactly two
+runs. When the runs differ in MPI ranks or OpenMP threads (the
+`omp_num_threads` metadata), a **Speedup** chart comes first: each of the
+eight regions with the most time on the smallest run, against ideal scaling,
+over ranks, threads, or ranks × threads when both change. Across run sizes the
+durations table compares time per rank and the bars show the mean call, since
+times summed over ranks grow with the rank count even as a run gets faster.
+Each chart has an **Open in new tab** button that shows it, as currently
+filtered and highlighted, on a page of its own. If a profile contains LIKWID or
+built-in Linux perf events, the report adds hardware-counter tables
+automatically and plots the first available LIKWID metric. A contents bar,
+region search, summary links, and expand/collapse controls keep larger reports
+navigable.
+
+Clicking a region in a table or any chart highlights that region throughout the
+report. A chart click leaves the page where it is and offers a **Show in
+table** jump instead; a bottleneck click goes straight to the region's row. Use
+**Clear highlight** beside the search box to reset it.
 The charts are built by the same versioned `@scope-profiler/plotly` code used
 for `export plot-data` on the web. Both that builder and Plotly itself are
 embedded in the report, so opening the file never requires a network connection.
@@ -322,14 +377,6 @@ start, so `^field` keeps `field_energy` but not `apply_field_boundary`. An
 empty box shows everything. This is the same syntax the profiling-data site
 uses, and the charts are refiltered by the builder that drew them rather than
 by a second implementation.
-
-Each run's section opens with a short auto-generated overview -- the
-region that dominates the recorded time, a load-imbalance callout when one
-region's slowest rank is well above the per-rank average, and a note about
-regions called often enough that timer overhead itself becomes measurable.
-Clicking a row in the region table expands it in place to show the captured
-call-site source, tags, and a per-rank calls/total/avg/min/max breakdown, all
-without any JavaScript dependency beyond a small inline toggle script.
 
 ## `scope-profiler diff`
 

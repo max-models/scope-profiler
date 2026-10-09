@@ -4,6 +4,7 @@ import getpass
 import os
 import platform
 import socket
+import sys
 from datetime import datetime
 
 import h5py
@@ -48,7 +49,7 @@ def _apply_environment(monkeypatch, environment):
 
 def test_basic_fields(monkeypatch):
     monkeypatch.delenv("LOADEDMODULES", raising=False)
-    metadata = collect_metadata(mpi_size=2)
+    metadata = collect_metadata(mpi_size=2, detail="full")
 
     assert metadata["hostname"] == socket.gethostname()
     assert metadata["user"] == getpass.getuser()
@@ -62,7 +63,7 @@ def test_basic_fields(monkeypatch):
 
 
 def test_uname_and_chip_information():
-    metadata = collect_metadata()
+    metadata = collect_metadata(detail="full")
 
     # uname carries the whole tuple, so the system and node are both in there.
     assert platform.system() in metadata["uname"]
@@ -75,7 +76,7 @@ def test_uname_and_chip_information():
 
 def test_environment_variables_are_captured(monkeypatch):
     _apply_environment(monkeypatch, SAMPLE_ENVIRONMENT)
-    metadata = collect_metadata()
+    metadata = collect_metadata(detail="full")
 
     for name, value in SAMPLE_ENVIRONMENT.items():
         assert metadata[name] == value
@@ -84,7 +85,7 @@ def test_environment_variables_are_captured(monkeypatch):
 def test_unset_environment_variables_are_omitted(monkeypatch):
     for name in _ENVIRONMENT_VARIABLES:
         monkeypatch.delenv(name, raising=False)
-    metadata = collect_metadata()
+    metadata = collect_metadata(detail="full")
 
     assert not any(name in metadata for name in _ENVIRONMENT_VARIABLES)
 
@@ -93,7 +94,7 @@ def test_slurm_variables_are_captured(monkeypatch):
     _apply_environment(monkeypatch, SAMPLE_SLURM)
     # A site-specific variable that is not in any hard-coded list.
     monkeypatch.setenv("SLURM_SITE_SPECIFIC_THING", "value")
-    metadata = collect_metadata()
+    metadata = collect_metadata(detail="full")
 
     for name, value in SAMPLE_SLURM.items():
         assert metadata[name] == value
@@ -103,14 +104,14 @@ def test_slurm_variables_are_captured(monkeypatch):
 def test_no_slurm_variables_outside_a_job(monkeypatch):
     for name in list(SAMPLE_SLURM) + ["SLURM_SITE_SPECIFIC_THING"]:
         monkeypatch.delenv(name, raising=False)
-    metadata = collect_metadata()
+    metadata = collect_metadata(detail="full")
 
     assert not [key for key in metadata if key.startswith("SLURM")]
 
 
 def test_modules_is_a_list(monkeypatch):
     monkeypatch.setenv("LOADEDMODULES", SAMPLE_ENVIRONMENT["LOADEDMODULES"])
-    metadata = collect_metadata()
+    metadata = collect_metadata(detail="full")
 
     assert metadata["modules"] == [
         "profile/base",
@@ -123,12 +124,12 @@ def test_modules_is_a_list(monkeypatch):
 def test_modules_empty_without_module_system(monkeypatch):
     monkeypatch.delenv("LOADEDMODULES", raising=False)
 
-    assert collect_metadata()["modules"] == []
+    assert collect_metadata(detail="full")["modules"] == []
 
 
 def test_long_values_are_truncated(monkeypatch):
     monkeypatch.setenv("PATH", "/some/very/long/path" * 20_000)
-    metadata = collect_metadata()
+    metadata = collect_metadata(detail="full")
 
     # HDF5 attributes cap out at 64 KB; the value must stay storable.
     assert len(metadata["PATH"]) <= _MAX_VALUE_CHARS
@@ -140,7 +141,7 @@ def test_metadata_round_trips_through_hdf5(tmp_path, monkeypatch):
     _apply_environment(monkeypatch, SAMPLE_SLURM)
 
     file_path = tmp_path / "profiling_data.h5"
-    ProfileManager.setup(file_path=str(file_path))
+    ProfileManager.setup(file_path=str(file_path), metadata_detail="full")
     with ProfileManager.profile_region("region"):
         pass
     ProfileManager.finalize(verbose=False)
@@ -168,7 +169,7 @@ def test_empty_modules_round_trip(tmp_path, monkeypatch):
     monkeypatch.delenv("LOADEDMODULES", raising=False)
 
     file_path = tmp_path / "no_modules.h5"
-    ProfileManager.setup(file_path=str(file_path))
+    ProfileManager.setup(file_path=str(file_path), metadata_detail="full")
     with ProfileManager.profile_region("region"):
         pass
     ProfileManager.finalize(verbose=False)
@@ -212,11 +213,14 @@ def test_minimal_metadata_holds_only_run_shape_and_versions(monkeypatch):
     assert metadata["total_cores"] == 4 * metadata["omp_num_threads"]
 
 
-def test_full_metadata_is_the_default(monkeypatch):
+def test_minimal_metadata_is_the_default(monkeypatch):
     _apply_environment(monkeypatch, SAMPLE_ENVIRONMENT)
 
-    assert collect_metadata().keys() == collect_metadata(detail="full").keys()
-    assert MINIMAL_FIELDS | IDENTIFYING_FIELDS <= set(collect_metadata())
+    assert set(collect_metadata()) == MINIMAL_FIELDS
+    assert MINIMAL_FIELDS | IDENTIFYING_FIELDS <= set(collect_metadata(detail="full"))
+    ProfileManager.setup(deactivate_file_output=True)
+    assert ProfileManager.get_config().metadata_detail == "minimal"
+    assert not IDENTIFYING_FIELDS & set(ProfileManager.get_config().metadata)
 
 
 def test_unknown_metadata_detail_is_rejected():
@@ -257,7 +261,7 @@ def test_minimal_metadata_leaves_no_trace_in_the_written_file(tmp_path, monkeypa
             assert needle.encode() not in raw
 
 
-def test_minimal_metadata_reduces_source_paths_to_file_names(tmp_path):
+def test_minimal_metadata_keeps_source_paths_relative(tmp_path):
     file_path = tmp_path / "profiling_data.h5"
     ProfileManager.setup(file_path=str(file_path), metadata_detail="minimal")
 
@@ -272,8 +276,44 @@ def test_minimal_metadata_reduces_source_paths_to_file_names(tmp_path):
 
     results = read_h5(file_path)
     for name in ("decorated", "block"):
-        assert results[name].source_file == os.path.basename(__file__)
+        # Inside the working directory: relative, so a report built from
+        # there can still read the source, but no home directory.
+        assert results[name].source_file == os.path.relpath(__file__)
+        assert not os.path.isabs(results[name].source_file)
         assert results[name].source_lineno is not None
+
+
+def test_minimal_metadata_names_a_file_outside_the_working_directory(
+    tmp_path, monkeypatch
+):
+    file_path = tmp_path / "profiling_data.h5"
+    monkeypatch.chdir(tmp_path)
+    ProfileManager.setup(file_path=str(file_path), metadata_detail="minimal")
+    with ProfileManager.profile_region("block"):
+        pass
+    ProfileManager.finalize(verbose=False)
+
+    # The test module is imported from the src/ entry on sys.path, so it is
+    # named by its module path.
+    root = next(
+        os.path.abspath(entry)
+        for entry in sorted(sys.path, key=len, reverse=True)
+        if entry and __file__.startswith(os.path.abspath(entry) + os.sep)
+    )
+    assert read_h5(file_path)["block"].source_file == os.path.relpath(__file__, root)
+
+
+def test_recorded_path_outside_every_root_is_the_file_name(tmp_path, monkeypatch):
+    from scope_profiler.profile_manager import _relative_source_path
+
+    (tmp_path / "run").mkdir()
+    monkeypatch.chdir(tmp_path / "run")
+    monkeypatch.setattr(sys, "path", [str(tmp_path / "lib")])
+    # The working directory first, then the import root, then the bare name.
+    assert _relative_source_path(str(tmp_path / "run" / "sim.py")) == "sim.py"
+    inside = tmp_path / "lib" / "pkg" / "mod.py"
+    assert _relative_source_path(str(inside)) == os.path.join("pkg", "mod.py")
+    assert _relative_source_path(str(tmp_path / "x" / "work.py")) == "work.py"
 
 
 def test_minimal_metadata_can_be_set_from_toml(tmp_path):
@@ -286,3 +326,23 @@ def test_minimal_metadata_can_be_set_from_toml(tmp_path):
     assert set(ProfileManager.get_config().metadata) - MINIMAL_FIELDS == {
         "start_time_ns",
     }
+
+
+def test_line_profile_source_is_skipped_when_it_cannot_be_stored(tmp_path):
+    from scope_profiler import profile_manager
+
+    source = profile_manager.ProfileManager._line_profile_source
+    assert source({"filename": "x.py", "first_lineno": 1, "line_numbers": []}) == {}
+    # A file that cannot be read has nothing to store.
+    assert (
+        source({"filename": "/no/such.py", "first_lineno": 1, "line_numbers": [2]})
+        == {}
+    )
+    # Nor does one too large for an HDF5 attribute.
+    big = tmp_path / "big.py"
+    big.write_text("x = '" + "a" * 70_000 + "'\n", encoding="utf-8")
+    assert source({"filename": str(big), "first_lineno": 1, "line_numbers": [1]}) == {}
+
+    assert profile_manager._is_package_file(profile_manager.__file__)
+    assert not profile_manager._is_package_file(__file__)
+    assert not profile_manager._is_package_file(tmp_path / "user.py")

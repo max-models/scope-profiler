@@ -368,6 +368,7 @@ jobs:
             examples/ex_aggregation.py \
             examples/ex_callgraph.py \
             examples/ex_class_profiling.py \
+            examples/ex_html_report.py \
             examples/ex_in_memory_results.py \
             examples/ex_json_export.py \
             examples/ex_lazy_setup.py \

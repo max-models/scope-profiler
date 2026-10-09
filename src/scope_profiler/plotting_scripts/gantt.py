@@ -13,6 +13,7 @@ from scope_profiler.plotting_scripts._utils import (
     _as_runs,
     _normalize_ranks,
     _panel_gridspec,
+    _rank_suffix,
     _region_color_map,
     _to_hex,
     _unique_labels,
@@ -249,7 +250,15 @@ def plot_gantt(
                             )
             _write_json(
                 data_filepath,
-                {"intervals": intervals, "colors": colors},
+                {
+                    "intervals": intervals,
+                    "colors": colors,
+                    # Lets a consumer drop the rank from a one-rank run's lanes.
+                    "file_ranks": {
+                        label: run.num_ranks
+                        for label, (run, _, _, _) in zip(labels, prepared)
+                    },
+                },
                 plot="gantt",
             )
         else:
@@ -294,7 +303,7 @@ def plot_gantt(
     panel_lanes: list[list[str]] = []
     panel_bars: list[list[tuple[int, float, float, str]]] = []
     panel_lane_hover: list[list[str]] = []
-    for _, regions, selected_ranks, first_start_time in prepared:
+    for run, regions, selected_ranks, first_start_time in prepared:
         lanes: list[str] = []
         bars: list[tuple[int, float, float, str]] = []
         lane_hover: list[str] = []
@@ -307,14 +316,15 @@ def plot_gantt(
                 if not len(region_data.start_times):
                     continue
                 lane = len(lanes)
-                lanes.append(f"{region.name} (rank {rank})")
+                lane_name = region.name + _rank_suffix(run.num_ranks, rank)
+                lanes.append(lane_name)
                 # A lane is one region on one rank, so it is that rank's
                 # Region that describes it.
                 if hover_enabled:
                     lane_hover.append(
                         _ps._hover_summary(
                             region_data,
-                            title=f"{region.name} (rank {rank})",
+                            title=lane_name,
                         ),
                     )
                 color = _to_hex(region.color)

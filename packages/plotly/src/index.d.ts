@@ -154,13 +154,17 @@ export interface PayloadBase {
   format_version?: number;
   colors?: Record<string, string>;
 }
+/** Each run's rank count; a one-rank run's labels leave the rank out. */
+export type FileRanks = Record<string, number>;
 export interface GanttPayload extends PayloadBase {
   plot?: "gantt";
   intervals: Interval[];
+  file_ranks?: FileRanks;
 }
 export interface FlamePayload extends PayloadBase {
   plot?: "flame" | "flame_chart" | "flame_graph";
   calls: FlameCall[];
+  file_ranks?: FileRanks;
 }
 export interface DurationsPayload extends PayloadBase {
   plot?: "durations";
@@ -205,6 +209,7 @@ export interface RooflinePayload extends PayloadBase {
   plot?: "roofline";
   points: RoofPoint[];
   roofline?: RoofCeiling[];
+  file_ranks?: FileRanks;
   empirical_ceilings?: boolean;
 }
 export interface SummaryPayload extends PayloadBase {

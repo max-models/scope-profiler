@@ -10,6 +10,7 @@ from scope_profiler.call_stack import NestingError
 from scope_profiler.plotting_scripts._utils import (
     _as_runs,
     _normalize_ranks,
+    _rank_suffix,
     _write_csv,
     _write_json,
     _write_parquet,
@@ -112,10 +113,11 @@ def plot_rank_heatmap(
                     (
                         _ps._hover_summary(
                             run.get_region(region_name)[rank],
-                            title=f"{region_name} (rank {rank})",
+                            title=region_name + _rank_suffix(run.num_ranks, rank),
                         )
                         if rank in run.get_region(region_name)
-                        else f"<b>{region_name} (rank {rank})</b><br>not entered"
+                        else f"<b>{region_name}{_rank_suffix(run.num_ranks, rank)}</b>"
+                        "<br>not entered"
                     )
                     for region_name in region_names
                 ]

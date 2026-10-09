@@ -532,9 +532,9 @@ API's; see {doc}`fortran` for the shared layout.
 16 bytes per recorded call, the same as the Python side. The C API writes
 format version 2, adding an optional source file and line per region (empty
 when a region was registered with `sp_region()` rather than
-`sp_region_at()`); the Fortran API still writes version 1, with no source
-field at all. Both versions are readable from the same trace directory, so a
-mixed C/Fortran run still merges into one profile.
+`sp_region_at()`). The Fortran API also writes version 2. Legacy version-1
+traces have no source fields. Both versions remain readable from the same
+trace directory, so a mixed C/Fortran run still merges into one profile.
 
 ## Limitations
 

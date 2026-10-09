@@ -401,11 +401,7 @@ def test_scope_df_conflicting_flags_raise(shell):
 
 
 FAILING_CELL = (
-    "def work():\n"
-    "    return sum(range(1000))\n"
-    "\n"
-    "work()\n"
-    'raise ValueError("kaboom")\n'
+    'def work():\n    return sum(range(1000))\n\nwork()\nraise ValueError("kaboom")\n'
 )
 
 
