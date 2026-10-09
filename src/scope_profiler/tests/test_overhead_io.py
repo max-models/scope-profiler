@@ -28,6 +28,7 @@ Every measurement is printed, plus a summary table once the module finishes::
     pytest -s -m overhead src/scope_profiler/tests/test_overhead_io.py
 """
 
+import gc
 import math
 import shutil
 from pathlib import Path
@@ -115,12 +116,25 @@ def _payload(regions, events, seed=0):
 
 
 def _best_ns(body, repeats=REPEATS):
-    """Fastest observed run of ``body``, in nanoseconds."""
+    """Fastest observed run of ``body``, in nanoseconds.
+
+    The garbage collector is paused while timing, as ``timeit`` does: a
+    collection scans every object the earlier tests left alive, so it would
+    charge the measured code for the rest of the suite's heap. On Python 3.14
+    that pushed the read-growth ratio from ~5x to over 30x in CI.
+    """
     best = math.inf
-    for _ in range(repeats):
-        start = perf_counter_ns()
-        body()
-        best = min(best, perf_counter_ns() - start)
+    gc.collect()
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        for _ in range(repeats):
+            start = perf_counter_ns()
+            body()
+            best = min(best, perf_counter_ns() - start)
+    finally:
+        if enabled:
+            gc.enable()
     return best
 
 
