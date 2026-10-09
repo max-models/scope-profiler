@@ -492,6 +492,15 @@ const FILE_PATTERNS = ["", "/", "\\", "x", "-"];
  * `{ laneBy: "rank" }` for the compact one-row-per-rank view, which suits a
  * flat profile compared across many ranks.
  */
+// " (rank N)" after a label, or nothing when the row's run had one rank:
+// there is nothing for the rank to tell apart. `file_ranks` maps each run to
+// its rank count; a payload without it predates the field, so every rank
+// stays named.
+const rankSuffix = (payload, row) =>
+  payload.file_ranks?.[row.file ?? "run"] === 1
+    ? ""
+    : ` (rank ${row.rank ?? 0})`;
+
 export function buildGanttFigure(payload, options = {}) {
   const { baseLayout, axis } = palette(options);
   const intervals = filtered(values(payload, "intervals", "gantt"), options);
@@ -502,7 +511,7 @@ export function buildGanttFigure(payload, options = {}) {
   // Matching `plot gantt`'s own lane label, extended by the run only when the
   // payload holds more than one.
   const regionLane = (row) =>
-    `${multi ? `${row.file ?? "run"} / ` : ""}${row.region} (rank ${row.rank ?? 0})`;
+    `${multi ? `${row.file ?? "run"} / ` : ""}${row.region}${rankSuffix(payload, row)}`;
   const laneOf = options.laneBy === "rank" ? rankLane : regionLane;
   const lanes = [...new Set(intervals.map(laneOf))];
   // A lane index rather than the lane string on every bar. The label is
@@ -597,7 +606,7 @@ export function buildFlameFigure(payload, options = {}) {
     parents.push(anchors[index]);
     markerColors.push(colors.get(call.region));
     hovertext.push(
-      `<b>${label(call.region)}</b><br>${label(call.file ?? "run")} / rank ${call.rank ?? 0}<br>start: ${call.start_seconds.toPrecision(6)} s<br>inclusive: ${duration(call).toPrecision(6)} s`,
+      `<b>${label(call.region)}</b><br>${label(call.file ?? "run")}${payload.file_ranks?.[call.file ?? "run"] === 1 ? "" : ` / rank ${call.rank ?? 0}`}<br>start: ${call.start_seconds.toPrecision(6)} s<br>inclusive: ${duration(call).toPrecision(6)} s`,
     );
   });
   const layout = baseLayout({
@@ -1751,11 +1760,11 @@ export function buildRooflineFigure(payload, options = {}) {
     marker: { color: colors.get(name), size: 9 },
     customdata: interactionData(rows, (point) => [
       label(point.region),
-      point.rank,
+      rankSuffix(payload, point),
       point.bandwidth_gbs,
     ]),
     hovertemplate:
-      "<b>%{customdata[0]}</b> (rank %{customdata[1]})" +
+      "<b>%{customdata[0]}</b>%{customdata[1]}" +
       "<br>intensity: %{x:.6g} FLOP/byte" +
       "<br>performance: %{y:.6g} GFLOP/s" +
       "<br>bandwidth: %{customdata[2]:.6g} GB/s<extra></extra>",

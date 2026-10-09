@@ -214,5 +214,6 @@ examples/agent_workflow/README.md
 examples/c/README.md
 examples/fortran/README.md
 
-# Output of examples/ex_html_report.py
+# Output of examples/ex_html_report.py and ex_html_report_scaling.py
 report_example/
+report_example_scaling/

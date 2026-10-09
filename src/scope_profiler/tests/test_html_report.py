@@ -340,8 +340,9 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
 
     document = report.read_text(encoding="utf-8")
     assert "Timeline: profile" in document
-    assert "Flame chart: profile" in document
-    assert "Flame graph: profile" in document
+    # The flame views are left out of reports for now.
+    assert "Flame chart" not in document
+    assert "Flame graph" not in document
     # One run on one rank, each region entered once: the durations bars would
     # repeat the table, the rank views have one rank to show and there are no
     # repeated calls to follow over time. The call graph repeats the tree.
@@ -359,23 +360,18 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
     # The timeline labels every row with its region; its legend is redundant.
     assert '"options": {"layout": {"showlegend": false}}' in document
     assert "Each bar is one recorded region call on rank 0." in document
-    assert "Each frame is one recorded call on the selected ranks." in document
-    assert "Repeated calls with the same call path are combined." in document
-    # Only the timeline and the flame graph start open.
+    # The timeline starts open.
     panels = re.findall(
         r'<details class="chart-panel"( open)?>.*?aria-level="3">([^<]*)', document
     )
     assert [title for is_open, title in panels if is_open] == [
-        "Timeline: profile (rank 0)",
-        "Flame graph: profile",
+        "Timeline: profile",
     ]
-    assert [title for is_open, title in panels if not is_open] == [
-        "Flame chart: profile"
-    ]
+    assert [title for is_open, title in panels if not is_open] == []
     assert 'data-chart-action="expand"' in document
     assert 'data-chart-action="collapse"' in document
     # Every chart can be opened on a page of its own.
-    assert document.count('class="chart-open" data-chart="scope-profiler-chart-') == 3
+    assert document.count('class="chart-open" data-chart="scope-profiler-chart-') == 1
     assert "const openInNewTab = (chart) =>" in document
     assert '<script id="scope-profiler-plotly-runtime">' in document
     assert "plotly.js" in document
@@ -450,28 +446,128 @@ def test_single_run_report_leaves_region_durations_to_the_table(tmp_path, monkey
     assert "Region durations" not in report.read_text(encoding="utf-8")
 
 
-def test_duration_over_time_follows_only_repeated_regions(tmp_path, monkeypatch):
+def test_reports_leave_out_duration_over_time(tmp_path, monkeypatch):
     profile = tmp_path / "profile.h5"
-    report = tmp_path / "report.html"
     starts = np.array([30, 40, 50])
     _write_sample_h5(profile, {0: {"setup": ([0], [10]), "step": (starts, starts + 5)}})
 
     from scope_profiler import plotting_scripts
 
-    captured = {}
+    def unexpected(*args, **kwargs):
+        raise AssertionError("duration over time is not part of reports")
 
-    def fake_timeseries(*args, data_filepath, include, **kwargs):
-        captured["include"] = include
-        Path(data_filepath).write_text(
-            json.dumps({"plot": "timeseries", "points": []}), encoding="utf-8"
+    monkeypatch.setattr(plotting_scripts, "plot_duration_timeseries", unexpected)
+
+    single = create_html_report(profile, tmp_path / "single.html")
+    both = create_html_report(
+        [profile, profile], tmp_path / "both.html", individual_reports=False
+    )
+    for report in (single, both):
+        assert "Duration over time" not in report.read_text(encoding="utf-8")
+
+
+def _scaling_profiles(tmp_path, rank_counts, threads=None):
+    """One profile per rank count: solve's work split over the ranks."""
+    paths = []
+    for index, count in enumerate(rank_counts):
+        path = tmp_path / f"r{index}.h5"
+        metadata = {"omp_num_threads": threads[index]} if threads else None
+        _write_sample_h5(
+            path,
+            {
+                rank: {"setup": ([0], [10]), "solve": ([20], [20 + 80 // count])}
+                for rank in range(count)
+            },
+            metadata=metadata,
         )
+        paths.append(path)
+    return paths
 
-    monkeypatch.setattr(plotting_scripts, "plot_duration_timeseries", fake_timeseries)
 
-    create_html_report(profile, report)
+def _chart_titles(document):
+    return re.findall(
+        r'<details class="chart-panel"(?: open)?>.*?aria-level="3">([^<]*)', document
+    )
 
-    assert captured["include"] == ["step$"]
-    assert "called at least 3 times" in report.read_text(encoding="utf-8")
+
+def test_comparison_of_run_sizes_shows_a_speedup_chart(tmp_path):
+    pytest.importorskip("plotly")
+    paths = _scaling_profiles(tmp_path, [1, 2, 4])
+
+    report = create_html_report(
+        paths, tmp_path / "scaling.html", individual_reports=False
+    )
+    document = report.read_text(encoding="utf-8")
+
+    titles = _chart_titles(document)
+    assert titles[0] == "Speedup"
+    assert (
+        '<details class="chart-panel" open><summary><span class="chart-heading"'
+        ' role="heading" aria-level="3">Speedup' in document
+    )
+    assert '"plot": "speedup"' in document and '"x_field": "num_ranks"' in document
+    assert "the run with the fewest MPI ranks" in document
+    # Across run sizes, the durations bars show a call, not a sum over ranks.
+    assert "each region&#x27;s mean call duration" in document or (
+        "each region's mean call duration" in document
+    )
+    assert '"metrics": ["avg"]' in document
+
+
+def test_comparison_of_run_sizes_compares_time_per_rank(tmp_path):
+    paths = _scaling_profiles(tmp_path, [1, 4])
+
+    report = create_html_report(
+        paths, tmp_path / "scaling.html", include_charts=False, individual_reports=False
+    )
+    document = report.read_text(encoding="utf-8")
+    table = document[document.index('<table class="compare-table metric-total"') :]
+    table = table[: table.index("</table>")]
+    # solve: 80 on one rank, 20 on each of four -- per rank, 4x faster; summed
+    # over the ranks it would read as unchanged.
+    solve = table[table.index('data-region="solve"') :]
+    solve = solve[: solve.index("</tr>")]
+    assert '<span class="delta-text">−75.0%</span>' in solve
+    assert "total and own times are per rank" in document
+
+
+def test_comparison_of_thread_counts_scales_over_threads(tmp_path):
+    pytest.importorskip("plotly")
+    threads_only = _scaling_profiles(tmp_path, [1, 1], threads=[1, 4])
+    document = create_html_report(
+        threads_only, tmp_path / "threads.html", individual_reports=False
+    ).read_text(encoding="utf-8")
+    assert '"x_field": "omp_num_threads"' in document
+    assert "<th>threads</th>" in document
+
+    both = _scaling_profiles(tmp_path, [1, 2], threads=[1, 4])
+    document = create_html_report(
+        both, tmp_path / "both.html", individual_reports=False
+    ).read_text(encoding="utf-8")
+    assert '"x_field": "total_cores"' in document
+
+
+def test_comparison_of_equal_sizes_has_no_speedup_chart(tmp_path):
+    from scope_profiler.html_report import _scaling_field, _scaling_value, _threads
+
+    pytest.importorskip("plotly")
+    paths = _scaling_profiles(tmp_path, [2, 2])
+    document = create_html_report(
+        paths, tmp_path / "same.html", individual_reports=False
+    ).read_text(encoding="utf-8")
+    assert "Speedup" not in _chart_titles(document)
+    assert "<th>threads</th>" not in document
+    assert '"metrics": ["total"]' in document
+
+    class _Run:
+        def __init__(self, num_ranks, metadata):
+            self.num_ranks, self.metadata = num_ranks, metadata
+
+    # Unrecorded or unreadable thread counts do not count as different.
+    assert _threads(_Run(1, {"omp_num_threads": "x"})) is None
+    assert _scaling_field([_Run(1, {}), _Run(1, {"omp_num_threads": 4})]) is None
+    assert _scaling_value(_Run(2, {"omp_num_threads": 3}), "total_cores") == 6
+    assert _scaling_value(_Run(2, {}), "omp_num_threads") == 1
 
 
 def test_region_durations_compare_multiple_runs_without_stacking(tmp_path, monkeypatch):
@@ -1288,11 +1384,10 @@ def test_line_profile_shows_the_function_source_dedented(tmp_path):
     document = report.read_text(encoding="utf-8")
 
     assert "profile_manager.py" not in document
-    # solve's line profile is in its table row's detail, marked on the row.
+    # solve's line profile is in its table row's detail.
     body = document[document.index('<tbody data-region="solve"') :]
     # The row's own tbody ends where the next region's begins.
     body = body[: body.index('<tbody class="region-empty"')]
-    assert '<span class="lp-mark"' in body
     assert (
         '<div class="lp-block"><p class="lp-head"><span class="lp-func">solve' in body
     )
@@ -1301,9 +1396,16 @@ def test_line_profile_shows_the_function_source_dedented(tmp_path):
     assert "2 ranks" in body and "200 µs" in body
     # The function reads as written: unrecorded lines included, the common
     # indentation stripped, nested indentation kept.
-    assert '<td class="lp-src">def solve(self, n):</td>' in body
+    assert (
+        '<td class="lp-src"><span class="tk-kw">def</span> '
+        '<span class="tk-fn">solve</span>(<span class="tk-self">self</span>, n):</td>'
+        in body
+    )
     assert '<tr class="lp-idle"><td class="lp-lineno">3</td>' in body
-    assert '<td class="lp-src">    # sum the squares</td>' in body
+    assert (
+        '<td class="lp-src">    <span class="tk-com"># sum the squares</span></td>'
+        in body
+    )
     assert '<td class="lp-src">        total += i * i</td>' in body
     assert '<tr class="lp-hot"><td class="lp-lineno">6</td>' in body
     assert "<td>22</td>" in body and 'style="--pct:80%">80.00%</td>' in body
@@ -1740,8 +1842,8 @@ def _line_profile_results(tmp_path, functions):
     )
 
 
-def test_line_profile_folds_the_cheap_lines_of_a_long_function(tmp_path):
-    # Line 20 of 40 costs everything; the rest cost almost nothing.
+def test_line_profile_shows_every_line_of_a_long_function(tmp_path):
+    # Line 20 of 40 costs everything; the box scrolls rather than folds.
     source = "def long():\n" + "".join(f"    x{n} = {n}\n" for n in range(2, 41))
     times = [(n, 1000.0 if n == 20 else 0.1) for n in range(2, 41)]
     results = _line_profile_results(tmp_path, [("long", source, times)])
@@ -1751,28 +1853,22 @@ def test_line_profile_folds_the_cheap_lines_of_a_long_function(tmp_path):
     table = document[document.index('<table class="lp-table" id="run-0-lp-0">') :]
     table = table[: table.index("</table>")]
 
-    shown = re.findall(r'<tr(?: class="lp-hot")?><td class="lp-lineno">(\d+)', table)
-    # The def (unrecorded), and the costly line with one line either side.
-    assert '<tr class="lp-idle"><td class="lp-lineno">1</td>' in table
-    assert shown == ["19", "20", "21"]
-    assert table.count('class="lp-more"') == 17 + 19
-    assert '<td class="lp-src">17 lines hidden</td>' in table
-    assert '<td class="lp-src">19 lines hidden</td>' in table
-    assert 'data-show-all="run-0-lp-0" data-more-label="Show all 40 lines"' in document
+    numbers = re.findall(r'<td class="lp-lineno">(\d+)', table)
+    assert numbers == [str(n) for n in range(1, 41)]
+    assert '<tr class="lp-hot"><td class="lp-lineno">20</td>' in table
+    assert "lines hidden" not in document
+    assert 'data-show-all="run-0-lp-0"' not in document
 
 
-def test_line_profile_shows_a_function_with_little_to_hide_whole(tmp_path):
-    # Hiding one line saves nothing: its fold row takes the same space.
-    source = "def short():\n    a = 1\n    b = 2\n    c = 3\n    d = 4\n    e = 5\n"
-    times = [(2, 100.0), (3, 0.1), (4, 100.0), (5, 0.1), (6, 0.1)]
-    results = _line_profile_results(tmp_path, [("short", source, times)])
+def test_region_detail_puts_ranks_above_the_line_profile(tmp_path):
+    source = "def work():\n    a = 1\n"
+    results = _line_profile_results(tmp_path, [("work", source, [(2, 5.0)])])
 
     document = create_html_report(
         results, tmp_path / "report.html", include_charts=False
     ).read_text(encoding="utf-8")
-    assert 'class="lp-more' not in document.split("</style>", 1)[1]
-    assert "lines hidden" not in document
-    assert 'data-show-all="run-0-lp-0"' not in document
+    detail = document[document.index('<tr class="region-detail"') :]
+    assert detail.index("Per rank") < detail.index("Line profile")
 
 
 def test_line_profile_lists_the_largest_functions_first(tmp_path):
@@ -1804,20 +1900,6 @@ def test_report_output_defaults_to_report_html(tmp_path, monkeypatch):
     assert (tmp_path / "report.html").exists()
 
 
-def test_line_profile_does_not_fold_a_single_line(tmp_path):
-    # Lines 20 and 24 are costly: their context leaves only line 22 between
-    # them, and a fold row for one line would take as much space as the line.
-    source = "def long():\n" + "".join(f"    x{n} = {n}\n" for n in range(2, 41))
-    times = [(n, 1000.0 if n in (20, 24) else 0.1) for n in range(2, 41)]
-    results = _line_profile_results(tmp_path, [("long", source, times)])
-
-    document = create_html_report(
-        results, tmp_path / "report.html", include_charts=False
-    ).read_text(encoding="utf-8")
-    shown = re.findall(r'<tr(?: class="lp-hot")?><td class="lp-lineno">(\d+)', document)
-    assert shown == ["19", "20", "21", "22", "23", "24", "25"]
-
-
 def test_line_profile_of_a_region_on_two_call_paths_fills_both_rows(tmp_path):
     source = tmp_path / "solve.py"
     source.write_text("def solve():\n    return 1\n", encoding="utf-8")
@@ -1839,5 +1921,203 @@ def test_line_profile_of_a_region_on_two_call_paths_fills_both_rows(tmp_path):
     # solve sits under loop and under final: a row, and a line table, for each.
     ids = re.findall(r'<table class="lp-table" id="([^"]*)"', document)
     assert len(ids) == 2 and len(set(ids)) == 2
-    assert document.count('<span class="lp-mark"') == 2
     assert 'id="run-0-lines"' not in document
+
+
+def test_highlight_python_marks_tokens_and_escapes_text():
+    from scope_profiler.html_report import _highlight_python
+
+    lines = [
+        "@app.route('/x')",
+        "def run(self, items):",
+        '    """Doc with <b>."""',
+        "    total = len(items) + 0x1F  # count < limit",
+        "    flag = None if items else True",
+        "    label = f'{total} items'",
+        "    return self.max(a @ b)",
+    ]
+    rendered = _highlight_python(lines)
+    assert rendered[0] == (
+        '<span class="tk-dec">@</span><span class="tk-dec">app</span>'
+        '<span class="tk-dec">.</span><span class="tk-dec">route</span>'
+        '(<span class="tk-str">&#x27;/x&#x27;</span>)'
+    )
+    assert '<span class="tk-fn">run</span>' in rendered[1]
+    assert rendered[2] == (
+        '    <span class="tk-str">&quot;&quot;&quot;Doc with &lt;b&gt;.'
+        "&quot;&quot;&quot;</span>"
+    )
+    assert '<span class="tk-bi">len</span>' in rendered[3]
+    assert '<span class="tk-num">0x1F</span>' in rendered[3]
+    assert '<span class="tk-com"># count &lt; limit</span>' in rendered[3]
+    assert rendered[4].count('class="tk-const"') == 2
+    assert 'class="tk-kw">if</span>' in rendered[4]
+    assert 'class="tk-str"' in rendered[5]
+    # A method called max is not the builtin, and matrix @ is no decorator.
+    assert 'tk-bi">max' not in rendered[6]
+    assert "tk-dec" not in rendered[6]
+
+
+def test_highlight_python_survives_a_slice_ending_mid_statement():
+    from scope_profiler.html_report import _highlight_python
+
+    # A function's lines can stop inside a call or an unterminated string.
+    rendered = _highlight_python(["x = call(", "    1,", "y = '''open", "still <open"])
+    assert rendered[0] == "x = call("
+    assert rendered[1].endswith('<span class="tk-num">1</span>,')
+    assert rendered[3] == "still &lt;open"
+    # A multi-line string is marked on each of its lines.
+    rendered = _highlight_python(['s = """a', 'b"""'])
+    assert rendered == [
+        's = <span class="tk-str">&quot;&quot;&quot;a</span>',
+        '<span class="tk-str">b&quot;&quot;&quot;</span>',
+    ]
+
+
+def test_line_profile_source_travels_with_the_profile(tmp_path, monkeypatch):
+    """The report shows the code without the source file at hand."""
+    import importlib.util
+
+    pytest.importorskip("line_profiler")
+    from scope_profiler import ProfileManager
+
+    code = tmp_path / "code" / "kernels.py"
+    code.parent.mkdir()
+    code.write_text(
+        "def kernel(n):\n"
+        "    total = 0\n"
+        "    for i in range(n):\n"
+        "        total += i * i\n"
+        "    return total\n",
+        encoding="utf-8",
+    )
+    spec = importlib.util.spec_from_file_location("kernels", code)
+    kernels = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(kernels)
+
+    # Recorded from another directory, with the default (minimal) metadata.
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+    profile = workdir / "run.h5"
+    with ProfileManager.session(
+        file_path=str(profile), use_line_profiler=True, verbose=False
+    ):
+        ProfileManager.profile("kernel")(kernels.kernel)(2000)
+
+    records = read_h5(profile).line_profile[0]
+    # Only the user's function: scope-profiler's own frames are not kept.
+    assert [record["function"] for record in records] == ["kernel"]
+    assert records[0]["filename"] == "kernels.py"
+    assert records[0]["source"].startswith("def kernel(n):")
+    assert records[0]["source_first_lineno"] == 1
+
+    # The source file is gone, yet the report shows the code.
+    code.unlink()
+    import linecache
+
+    linecache.clearcache()
+    document = create_html_report(
+        profile, tmp_path / "report.html", include_charts=False
+    ).read_text(encoding="utf-8")
+    assert '<span class="tk-kw">for</span> i <span class="tk-kw">in</span>' in document
+    assert '<td class="lp-src"></td>' not in document
+
+
+def test_line_profile_says_when_it_has_no_source(tmp_path):
+    from scope_profiler import MPIRegion, Region
+
+    # As recorded before profiles stored their source, by file name only.
+    record = {
+        "region": "work",
+        "filename": "gone.py",
+        "function": "work",
+        "first_lineno": 10,
+        "line_numbers": np.asarray([11]),
+        "hits": np.asarray([1]),
+        "times": np.asarray([5.0]),
+        "unit": 1e-6,
+    }
+    results = ProfilingResults(
+        {"work": MPIRegion("work", {0: Region(np.array([0]), np.array([1]))})},
+        line_profile={0: [record]},
+    )
+    document = create_html_report(
+        results, tmp_path / "report.html", include_charts=False
+    ).read_text(encoding="utf-8")
+    assert "No source: this profile does not store it, and <code>gone.py</code>" in (
+        document
+    )
+
+
+def test_line_profile_reads_a_module_path_from_sys_path(tmp_path, monkeypatch):
+    from scope_profiler import MPIRegion, Region
+    from scope_profiler.html_report import _source_path
+
+    # A file outside the working directory is recorded by its module path.
+    module = tmp_path / "lib" / "pkg" / "mod.py"
+    module.parent.mkdir(parents=True)
+    module.write_text("def work():\n    total = 41 + 1\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.syspath_prepend(str(tmp_path / "lib"))
+    _source_path.cache_clear()
+    record = {
+        "region": "work",
+        "filename": "pkg/mod.py",
+        "function": "work",
+        "first_lineno": 1,
+        "line_numbers": np.asarray([2]),
+        "hits": np.asarray([1]),
+        "times": np.asarray([5.0]),
+        "unit": 1e-6,
+    }
+    results = ProfilingResults(
+        {"work": MPIRegion("work", {0: Region(np.array([0]), np.array([1]))})},
+        line_profile={0: [record]},
+    )
+    document = create_html_report(
+        results, tmp_path / "report.html", include_charts=False
+    ).read_text(encoding="utf-8")
+    _source_path.cache_clear()
+    assert "total = " in document
+    assert "No source" not in document
+
+
+def test_region_source_snippet_gives_way_to_line_profiles(tmp_path):
+    from scope_profiler import MPIRegion, Region
+
+    def results(line_profile):
+        region = Region(
+            np.array([0]),
+            np.array([1]),
+            source_file="app.py",
+            source_lineno=3,
+            source_text="with region('solve'):\n    solve()",
+        )
+        return ProfilingResults(
+            {"solve": MPIRegion("solve", {0: region})}, line_profile=line_profile
+        )
+
+    record = {
+        "region": "other",
+        "filename": "app.py",
+        "function": "other",
+        "first_lineno": 1,
+        "line_numbers": np.asarray([2]),
+        "hits": np.asarray([1]),
+        "times": np.asarray([1.0]),
+        "unit": 1e-6,
+    }
+    without = create_html_report(
+        results({}), tmp_path / "without.html", include_charts=False
+    ).read_text(encoding="utf-8")
+    with_lines = create_html_report(
+        results({0: [record]}), tmp_path / "with.html", include_charts=False
+    ).read_text(encoding="utf-8")
+
+    # Without line profiling, the captured snippet is the only view of the code.
+    assert "<pre><code>with region(&#x27;solve&#x27;):" in without
+    # With it, the code is shown with its timings; the snippet would repeat it.
+    assert "<pre><code>" not in with_lines
+    # The call site itself stays.
+    assert "<p class='muted'>app.py:3</p>" in with_lines

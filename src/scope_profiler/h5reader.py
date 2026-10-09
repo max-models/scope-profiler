@@ -189,8 +189,19 @@ def _read_line_profile_group(group) -> list:
     records = []
     for function_grp in group.values():
         attrs = function_grp.attrs
+        # Recorded since the source travels with the timings; older files
+        # leave a reader to find the source file itself.
+        source = (
+            {
+                "source": _decode_attribute(attrs["source"]),
+                "source_first_lineno": int(attrs["source_first_lineno"]),
+            }
+            if "source" in attrs and "source_first_lineno" in attrs
+            else {}
+        )
         records.append(
             {
+                **source,
                 "region": _decode_attribute(attrs.get("region", "")),
                 "filename": _decode_attribute(attrs.get("filename", "")),
                 "function": _decode_attribute(attrs.get("function", "")),

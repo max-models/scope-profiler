@@ -11,6 +11,7 @@ from scope_profiler.plotting_scripts._utils import (
     _as_runs,
     _normalize_ranks,
     _panel_gridspec,
+    _rank_suffix,
     _region_color_map,
     _to_hex,
     _unique_labels,
@@ -114,7 +115,14 @@ def plot_flame_chart(
                     )
             _write_json(
                 data_filepath,
-                {"calls": call_records, "colors": colors},
+                {
+                    "calls": call_records,
+                    "colors": colors,
+                    "file_ranks": {
+                        label: run.num_ranks
+                        for label, (run, _, _) in zip(labels, prepared)
+                    },
+                },
                 plot="flame",
             )
         else:
@@ -163,7 +171,8 @@ def plot_flame_chart(
         print(
             "Plotting flame chart for: "
             + ", ".join(
-                f"{run.display_label} (rank {rank})" for run, rank, _ in prepared
+                run.display_label + _rank_suffix(run.num_ranks, rank)
+                for run, rank, _ in prepared
             ),
         )
     _print_interactive_backend_hint(backend, verbose)
@@ -236,7 +245,7 @@ def plot_flame_chart(
                 hover_texts.append(
                     _ps._hover_summary(
                         run.get_region(call["name"])[rank],
-                        title=f"{call['name']} (rank {rank})",
+                        title=call["name"] + _rank_suffix(run.num_ranks, rank),
                         extra=extra,
                     ),
                 )
@@ -265,7 +274,9 @@ def plot_flame_chart(
         canvas.set_ylim(-0.6, max_depth + 1.0, row=row, col=col)
         canvas.set_xlabel("Time (seconds)", row=row, col=col)
         canvas.set_ylabel("Call depth", row=row, col=col)
-        canvas.set_title(f"{run.display_label} (rank {rank})", row=row, col=col)
+        canvas.set_title(
+            run.display_label + _rank_suffix(run.num_ranks, rank), row=row, col=col
+        )
         canvas.set_grid(True, row=row, col=col)
 
     if not single_panel:
@@ -475,7 +486,8 @@ def plot_flame_graph(
         print(
             "Plotting flame graph for: "
             + ", ".join(
-                f"{run.display_label} (rank {rank})" for run, rank, _ in prepared
+                run.display_label + _rank_suffix(run.num_ranks, rank)
+                for run, rank, _ in prepared
             ),
         )
     _print_interactive_backend_hint(backend, verbose)
@@ -504,7 +516,7 @@ def plot_flame_graph(
             hover = [
                 _ps._hover_summary(
                     run.get_region(call["name"])[rank],
-                    title=f"{call['name']} (rank {rank})",
+                    title=call["name"] + _rank_suffix(run.num_ranks, rank),
                     extra=[
                         ("aggregated path", call["call_path"]),
                         ("total", f"{call['inclusive_duration']:.6g} s"),
@@ -529,7 +541,9 @@ def plot_flame_graph(
         canvas.set_ylim(-0.6, max_depth + 1.0, row=row, col=col)
         canvas.set_xlabel("Accumulated time (seconds)", row=row, col=col)
         canvas.set_ylabel("Call depth", row=row, col=col)
-        canvas.set_title(f"{run.display_label} (rank {rank})", row=row, col=col)
+        canvas.set_title(
+            run.display_label + _rank_suffix(run.num_ranks, rank), row=row, col=col
+        )
         canvas.set_grid(True, row=row, col=col)
     if not single_panel:
         canvas.suptitle("Flame Graphs")

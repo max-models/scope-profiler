@@ -995,6 +995,7 @@ def payload_layout(payload) -> dict:
                 "function": record["function"],
                 "first_lineno": int(record["first_lineno"]),
                 "unit": float(record["unit"]),
+                **_line_profile_source_attrs(record),
                 "shapes": {
                     key: tuple(np.shape(record[key]))
                     for key in ("line_numbers", "hits", "times")
@@ -1235,6 +1236,8 @@ def write_parallel_payload(
                 function_group = profile_group.create_group(str(index))
                 for key in ("region", "filename", "function", "first_lineno", "unit"):
                     function_group.attrs[key] = description[key]
+                for key, value in _line_profile_source_attrs(description).items():
+                    function_group.attrs[key] = value
                 shapes = description["shapes"]
                 for key, dtype in (
                     ("line_numbers", np.int64),
@@ -1353,6 +1356,16 @@ def write_regions(
             region_grp.attrs.create("tags", list(tags[name]), dtype=h5py.string_dtype())
 
 
+def _line_profile_source_attrs(record) -> dict:
+    """A line-profile record's stored source, when it carries one."""
+    if not record.get("source"):
+        return {}
+    return {
+        "source": str(record["source"]),
+        "source_first_lineno": int(record["source_first_lineno"]),
+    }
+
+
 def write_line_profile(
     group,
     records: list | None,
@@ -1371,6 +1384,8 @@ def write_line_profile(
             function_grp.attrs[key] = record[key]
         function_grp.attrs["first_lineno"] = record["first_lineno"]
         function_grp.attrs["unit"] = record["unit"]
+        for key, value in _line_profile_source_attrs(record).items():
+            function_grp.attrs[key] = value
         for key in ("line_numbers", "hits", "times"):
             function_grp.create_dataset(
                 key,

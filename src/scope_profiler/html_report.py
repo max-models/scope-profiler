@@ -11,11 +11,18 @@ which links to a full report built for each run alongside it.
 
 from __future__ import annotations
 
+import builtins
+import functools
 import html
+import io
 import json
+import keyword
 import linecache
+import os
 import re
+import sys
 import tempfile
+import tokenize
 from collections import Counter
 from collections.abc import Sequence
 from datetime import datetime, timezone
@@ -46,33 +53,24 @@ body { color: #1f2937; font: 15px/1.45 system-ui, sans-serif; margin: 2rem auto;
 h1, h2, h3 { color: #111827; } section { margin: 2rem 0; }
 h2 { border-bottom: 1px solid #e5e7eb; padding-bottom: .3rem; }
 .report-header h1 { margin: .1rem 0 .3rem; }
-.eyebrow { color: #6b7280; font-size: .8em; font-weight: 600; letter-spacing: .06em;
-           margin: 0; text-transform: uppercase; }
 .chart { min-height: 360px; margin: 1rem 0 2rem; }
 .chart-duration { min-height: 680px; }
 .chart-error { color: #b91c1c; padding: 1rem; }
 .run-meta { color: #4b5563; margin: 0 0 1rem; }
 .run-meta span + span::before { color: #9ca3af; content: "·"; margin: 0 .5rem; }
-.kpis { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
-        margin: 1rem 0; }
-.kpi { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: .6rem;
-       display: flex; flex-direction: column; gap: .1rem; min-width: 0; padding: .7rem .9rem; }
-.kpi-label { color: #6b7280; font-size: .75em; font-weight: 600; letter-spacing: .05em;
-             text-transform: uppercase; }
-.kpi-value { color: #111827; font-size: 1.4em; font-variant-numeric: tabular-nums;
-             font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kpis { display: flex; flex-wrap: wrap; gap: .5rem 2.5rem; margin: 1rem 0 1.25rem; }
+.kpi { display: flex; flex-direction: column; min-width: 0; }
+.kpi-label { color: #6b7280; font-size: .85em; }
+.kpi-value { color: #111827; font-size: 1.15em; font-variant-numeric: tabular-nums;
+             font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kpi-value a { color: inherit; text-decoration: none; }
 .kpi-value a:hover { color: #2563eb; }
 .kpi-detail { color: #6b7280; font-size: .85em; }
-.kpi.warn { background: #fffbeb; border-color: #fcd34d; }
-.kpi.good { background: #f0fdf4; border-color: #86efac; }
-.kpi.bad { background: #fef2f2; border-color: #fca5a5; }
-.findings { display: grid; gap: .4rem; list-style: none; margin: .5rem 0 1rem; padding: 0; }
-.findings li { align-items: baseline; display: flex; gap: .6rem; }
-.findings li::before { background: #dbeafe; border-radius: 50%; color: #1d4ed8; content: "i";
-                       flex: none; font-size: .75em; font-weight: 700; height: 1.35rem;
-                       line-height: 1.35rem; text-align: center; width: 1.35rem; }
-.findings li.warn::before { background: #fef3c7; color: #b45309; content: "!"; }
+.kpi.warn .kpi-value { color: #b45309; }
+.kpi.good .kpi-value { color: #15803d; }
+.kpi.bad .kpi-value { color: #b91c1c; }
+.findings { margin: .5rem 0 1rem; padding-left: 1.25rem; }
+.findings li { margin: .2rem 0; }
 .findings a { color: inherit; }
 .flag { color: #b45309; }
 table { border-collapse: collapse; width: 100%; margin: .75rem 0; }
@@ -116,10 +114,9 @@ details { margin: .75rem 0; } summary { cursor: pointer; font-weight: 600; }
 .bn-label, .bn-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bn-bar { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
 .bn-path { color: #6b7280; font-size: .82em; }
-.bn-tag { background: #e0e7ff; border-radius: .25rem; color: #3730a3; font-size: .75em;
-          font-weight: 500; margin-left: .35rem; padding: 0 .3rem; }
-.bn-track { background: #f3f4f6; border-radius: .25rem; height: .75rem; overflow: hidden; }
-.bn-fill { background: #3b82f6; border-radius: .25rem; display: block; height: 100%; }
+.bn-tag { color: #6b7280; font-size: .85em; font-weight: 400; margin-left: .3rem; }
+.bn-track { background: #f3f4f6; height: .5rem; overflow: hidden; }
+.bn-fill { background: #60a5fa; display: block; height: 100%; }
 .bn-fill.own { background: #818cf8; } .bn-fill.outside { background: #9ca3af; }
 .bn-share { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
 .bn-detail { color: #6b7280; font-size: .82em; font-variant-numeric: tabular-nums;
@@ -167,8 +164,7 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
                    font: inherit; padding: .2rem; text-decoration: underline; }
 .clear-selection[hidden] { display: none; }
 .empty-state { color: #6b7280; text-align: center; font-style: italic; }
-.toc { background: #f9fafb; border: 1px solid #d1d5db; border-radius: .5rem;
-       padding: .75rem 1rem; margin: 1rem 0 1.5rem; }
+.toc { margin: .25rem 0 1.25rem; }
 .toc strong { margin-right: .75rem; }
 .toc a { display: inline-block; margin: .2rem .75rem .2rem 0; }
 .chart-controls { display: flex; gap: .5rem; margin: .75rem 0; }
@@ -195,34 +191,31 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
 .lp-region, .lp-loc { font-size: .85em; overflow: hidden; text-overflow: ellipsis;
                       white-space: nowrap; }
 .lp-region { color: #3730a3; } .lp-loc { color: #6b7280; }
-.lp-bar { background: #f3f4f6; border-radius: .2rem; height: .55rem; overflow: hidden; }
+.lp-bar { background: #f3f4f6; height: .5rem; overflow: hidden; }
 .lp-bar > span { background: #f87171; display: block; height: 100%; }
 .lp-total, .lp-share { font-variant-numeric: tabular-nums; text-align: right; }
 .lp-share { color: #6b7280; }
-.lp-tools { margin: .3rem .8rem .5rem; }
-.lp-mark { background: #fee2e2; border-radius: .25rem; color: #b91c1c;
-           font-family: system-ui, sans-serif; font-size: .72em; margin-left: .45rem;
-           padding: 0 .3rem; vertical-align: .1em; }
 .lp-block { margin: .25rem 0 1rem; }
 .lp-head { align-items: baseline; display: flex; gap: .75rem; margin: .2rem 0 .35rem; }
 .region-detail .lp-scroll { background: #fff; border: 1px solid #e5e7eb; border-radius: .4rem;
                             max-width: 62rem; }
-.region-detail .lp-tools { margin: .35rem 0 0; }
-.lp-scroll { overflow-x: auto; }
+.lp-scroll { max-height: 32rem; overflow: auto; padding-bottom: .6rem; }
 .lp-table { font-family: MONO; font-size: .85em; margin: 0; width: 100%; }
-.lp-table th { background: #f9fafb; font-weight: 600; position: static; }
+.lp-table th { background: #f9fafb; font-weight: 600; position: sticky; top: 0; z-index: 1; }
 .lp-table th, .lp-table td { border-bottom: 0; padding: .08rem .7rem; text-align: right;
                              white-space: nowrap; }
 .lp-table th.lp-src, .lp-table td.lp-src { text-align: left; white-space: pre; width: 100%; }
 .lp-table td.lp-lineno { color: #9ca3af; }
 .lp-table td.lp-pct { background: linear-gradient(to right, #fecaca var(--pct), transparent var(--pct)); }
 .lp-table tr.lp-idle td { color: #9ca3af; }
-.lp-table tr.lp-idle td.lp-src { color: #6b7280; }
+.lp-table tr.lp-idle td.lp-src { color: #1f2937; }
 .lp-table tr.lp-hot td { background-color: #fef2f2; }
 .lp-table tr.lp-hot td.lp-pct { background-color: #fef2f2; font-weight: 650; }
 .lp-table tbody tr:hover td { background-color: #f3f4f6; }
-.lp-table:not(.show-all) tr.lp-more, .lp-table.show-all tr.lp-gap { display: none; }
-.lp-table tr.lp-gap td { background: #f9fafb; color: #9ca3af; font-style: italic; }
+.lp-src .tk-kw { color: #cf222e; } .lp-src .tk-const, .lp-src .tk-num { color: #0550ae; }
+.lp-src .tk-str { color: #0a3069; } .lp-src .tk-com { color: #6e7781; font-style: italic; }
+.lp-src .tk-fn { color: #8250df; } .lp-src .tk-dec { color: #8250df; }
+.lp-src .tk-bi { color: #953800; } .lp-src .tk-self { color: #953800; font-style: italic; }
 .balance-table td, .balance-table th { white-space: nowrap; }
 .balance-table td:first-child { max-width: 18rem; overflow: hidden; text-overflow: ellipsis; }
 .balance-table tbody tr.extra { display: none; }
@@ -243,15 +236,14 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
                 height: .7rem; width: 8rem; }
 .runs-table td, .runs-table th { text-align: left; white-space: nowrap; }
 .runs-table td.run-file { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; }
-.compare-candidate { border: 1px solid #e5e7eb; border-radius: .6rem; margin: 1rem 0;
-                     padding: .25rem 1.1rem 1rem; }
+.compare-candidate { margin: 1rem 0 2rem; }
 .changes { display: grid; gap: 1.5rem; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); }
 .changes h4 { margin: .5rem 0; }
 .change-list { display: grid; gap: .15rem; list-style: none; margin: 0; padding: 0; }
 .change-item { align-items: center; display: grid; gap: .1rem .6rem;
                grid-template-columns: minmax(8rem, 1fr) 6rem 5.5rem; padding: .2rem .3rem; }
 .change-item .bn-name { font-size: .95em; }
-.change-track { background: #f3f4f6; border-radius: .2rem; height: .6rem; overflow: hidden; }
+.change-track { background: #f3f4f6; height: .5rem; overflow: hidden; }
 .change-fill { display: block; height: 100%; }
 .change-fill.faster { background: #22c55e; } .change-fill.slower { background: #ef4444; }
 .change-value { font-size: .9em; font-variant-numeric: tabular-nums; text-align: right; }
@@ -265,25 +257,12 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
 .compare-table.metric-total [data-m="total"], .compare-table.metric-own [data-m="own"],
 .compare-table.metric-avg [data-m="avg"], .compare-table.metric-calls [data-m="calls"] {
   display: inline-flex; }
-.delta { align-items: center; gap: .4rem; justify-content: flex-end; }
-.delta-bar { background: #f3f4f6; border-radius: .2rem; display: inline-block; height: .55rem;
-             position: relative; width: 4.5rem; }
-.delta-bar::before { background: #d1d5db; content: ""; height: 100%; left: 50%; position: absolute;
-                     width: 1px; }
-.delta-bar > span { height: 100%; position: absolute; top: 0; }
-.delta-text { min-width: 4.2rem; text-align: right; }
+.delta { justify-content: flex-end; }
+.delta-text { font-variant-numeric: tabular-nums; }
 .faster .delta-text, .delta-text.faster { color: #15803d; }
 .slower .delta-text, .delta-text.slower { color: #b91c1c; }
-.faster .delta-bar > span { background: #22c55e; right: 50%; }
-.slower .delta-bar > span { background: #ef4444; left: 50%; }
 .same .delta-text, .neutral .delta-text { color: #6b7280; }
-.neutral .delta-bar > span { background: #60a5fa; left: 50%; }
-.neutral.down .delta-bar > span { left: auto; right: 50%; }
-.badge { border-radius: .25rem; font-size: .8em; padding: 0 .35rem; }
-.badge.new { background: #dbeafe; color: #1e40af; }
-.badge.gone { background: #f3f4f6; color: #4b5563; }
-.badge.base { background: #e5e7eb; color: #374151; font-size: .72em; margin-left: .3rem;
-              text-transform: uppercase; }
+.badge { color: #6b7280; font-size: .9em; font-style: italic; }
 .region-toast { align-items: center; background: #111827; border-radius: .5rem; bottom: 1.25rem;
                 box-shadow: 0 6px 20px rgba(0,0,0,.25); color: #f9fafb; display: flex; gap: .75rem;
                 padding: .55rem .6rem .55rem 1rem; position: fixed; right: 1.25rem; z-index: 10; }
@@ -306,7 +285,7 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
   th { position: static; }
   .chart { break-inside: avoid; }
   .balance-table tbody tr.extra { display: table-row; }
-  .lp-table tr.lp-more { display: table-row; } .lp-table tr.lp-gap { display: none; }
+  .lp-scroll { max-height: none; overflow: visible; } .lp-table th { position: static; }
   .lp-functions .lp-extra { display: block; }
 }
 """.replace("MONO", _MONO)
@@ -332,6 +311,20 @@ _SCRIPT = """
     return row.classList.contains("region-row") ? row.parentNode : row;
   }
 
+  // A function longer than its capped box opens scrolled to its hottest line.
+  function scrollToHotLines(detail) {
+    detail.querySelectorAll(".lp-scroll").forEach(function (box) {
+      var hot = box.querySelector("tr.lp-hot");
+      if (!hot || box.dataset.scrolled) return;
+      box.dataset.scrolled = "1";
+      var head = box.querySelector("thead");
+      var offset = hot.offsetTop - (head ? head.offsetHeight : 0);
+      if (offset + hot.offsetHeight > box.clientHeight) {
+        box.scrollTop = offset - (box.clientHeight - hot.offsetHeight) / 3;
+      }
+    });
+  }
+
   function reveal(target) {
     var body = owner(target);
     if (target.classList.contains("region-row")) {
@@ -340,6 +333,7 @@ _SCRIPT = """
       if (detail) {
         detail.hidden = false;
         target.setAttribute("aria-expanded", "true");
+        scrollToHotLines(detail);
       }
     }
     target.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -395,6 +389,7 @@ _SCRIPT = """
       if (!detail) return;
       detail.hidden = !detail.hidden;
       row.setAttribute("aria-expanded", String(!detail.hidden));
+      if (!detail.hidden) scrollToHotLines(detail);
       var body = row.closest("tbody[data-region]");
       if (body) select(body.dataset.region, body.dataset.run, "none");
     }
@@ -753,7 +748,7 @@ _HOT_CALL_AVG_SECONDS = 1e-5
 _UNCOVERED_FLAG_PCT = 25.0
 _BOTTLENECK_COUNT = 8
 _SESSION = "scope_profiler.session"
-_MIN_TIMESERIES_CALLS = 3
+_SPEEDUP_REGIONS = 8
 _BALANCE_ROWS = 12
 _MATRIX_REGIONS = 20
 _MATRIX_RANKS = 64
@@ -762,8 +757,6 @@ _CHANGE_COUNT = 5
 # Line profiles: functions listed before "Show all", the share of a function's
 # time that makes a line worth showing, and the fewest lines worth folding.
 _LP_FUNCTIONS = 10
-_LP_SHOWN_PCT = 1.0
-_LP_MIN_FOLD = 3
 # Changes smaller than this read as noise rather than as faster or slower.
 _SAME_PCT = 2.0
 # Own-time changes below this share of the baseline are not listed as changes.
@@ -846,7 +839,7 @@ def _bottleneck_label(entry) -> str:
         return '<span class="bn-label"><em>outside any region</em></span>'
     label = f"<strong>{_text(entry['name'])}</strong>"
     if entry["kind"] == "own":
-        label += '<span class="bn-tag" title="Time in this region outside its nested regions">own</span>'
+        label += '<span class="bn-tag" title="Time in this region outside its nested regions">(own)</span>'
     return f'<span class="bn-label">{label}</span>'
 
 
@@ -1089,7 +1082,7 @@ def _run_meta_html(results, region_count: int) -> str:
     if results.file_path and str(results.file_path) != ".":
         path = Path(results.file_path)
         parts.append(
-            f'<span title="{_text(path.resolve())}"><code>{_text(path.name)}</code></span>'
+            f'<span title="{_text(path)}"><code>{_text(path.name)}</code></span>'
         )
     if metadata.get("timestamp"):
         parts.append(f"<span>{_text(_format_timestamp(metadata['timestamp']))}</span>")
@@ -1146,7 +1139,7 @@ def _rank_breakdown_html(region, ranks) -> str:
 
 
 def _region_detail_html(results, region, ranks, functions=(), table_id="lp") -> str:
-    """Expandable detail for one region: call site, tags, line profile and ranks."""
+    """Expandable detail for one region: call site, tags, ranks and line profile."""
     parts = []
     if region.tags:
         parts.append(
@@ -1156,11 +1149,20 @@ def _region_detail_html(results, region, ranks, functions=(), table_id="lp") -> 
         parts.append(
             f"<p class='muted'>{_text(region.source_file)}:{_text(region.source_lineno)}</p>",
         )
-        # The line profile shows the same source, with its timings.
-        if region.source_text and not functions:
+        # A run with line profiles shows the code, with its timings, there;
+        # the captured snippet would only repeat it.
+        if region.source_text and not any(results.line_profile.values()):
             parts.append(
                 f"<pre><code>{_text(region.source_text.rstrip())}</code></pre>",
             )
+    if region.has_gpu_timing:
+        parts.append(
+            f"<p>GPU total: {_seconds(region.gpu_total_duration)}, "
+            f"GPU average: {_seconds(region.gpu_average_duration)}</p>",
+        )
+    breakdown = _rank_breakdown_html(region, ranks)
+    if breakdown:
+        parts.append("<p class='muted'>Per rank</p>" + breakdown)
     if functions:
         parts.append(
             "<p class='muted'>Line profile</p>"
@@ -1174,14 +1176,6 @@ def _region_detail_html(results, region, ranks, functions=(), table_id="lp") -> 
                 for index, entry in enumerate(functions)
             )
         )
-    if region.has_gpu_timing:
-        parts.append(
-            f"<p>GPU total: {_seconds(region.gpu_total_duration)}, "
-            f"GPU average: {_seconds(region.gpu_average_duration)}</p>",
-        )
-    breakdown = _rank_breakdown_html(region, ranks)
-    if breakdown:
-        parts.append("<p class='muted'>Per rank</p>" + breakdown)
     if not parts:
         parts.append("<p class='muted'>No additional detail captured.</p>")
     return "".join(parts)
@@ -1256,14 +1250,12 @@ def _region_table(
     # (own) rows follow exactly the regions that have children in the table.
     parents = {row.get("call_path") for row, _, is_own in display_rows if is_own}
 
-    def cells(
-        display, bar_value, toggle='<span class="tree-toggle"></span>', mark=""
-    ) -> str:
+    def cells(display, bar_value, toggle='<span class="tree-toggle"></span>') -> str:
         rendered = []
         for key in keys:
             text = _indented_cell(display[key])
             if key == "name":
-                rendered.append(f"<td>{toggle}<span>{text}</span>{mark}</td>")
+                rendered.append(f"<td>{toggle}<span>{text}</span></td>")
             elif key == "total" and max_total and display[key]:
                 width = 100.0 * (bar_value or 0.0) / max_total
                 rendered.append(
@@ -1323,20 +1315,14 @@ def _region_table(
             else ""
         )
         functions = line_profiles.get(row["name"], ())
-        mark = (
-            '<span class="lp-mark" title="Line profile recorded: click the row">'
-            "lines</span>"
-            if functions
-            else ""
-        )
         if row.get("call_path") in parents:
             toggle = (
                 '<button class="tree-toggle" type="button" aria-expanded="true"'
                 ' title="Collapse or expand the nested regions">▾</button>'
             )
-            row_cells = cells(display, row["total"], toggle, mark)
+            row_cells = cells(display, row["total"], toggle)
         else:
-            row_cells = cells(display, row["total"], mark=mark)
+            row_cells = cells(display, row["total"])
         head = (
             f'<tbody data-region="{region_attr}" data-run="{run_attr}"'
             f"{tree_attrs} {data_attrs}>"
@@ -1429,8 +1415,15 @@ def _line_profile_functions(results, ranks) -> list[dict]:
                 record["function"],
                 int(record["first_lineno"]),
             )
-            entry = functions.setdefault(key, {"lines": {}, "ranks": set()})
+            entry = functions.setdefault(
+                key, {"lines": {}, "ranks": set(), "stored": {}}
+            )
             entry["ranks"].add(rank)
+            if record.get("source") and not entry["stored"]:
+                first = int(record["source_first_lineno"])
+                entry["stored"] = dict(
+                    enumerate(str(record["source"]).split("\n"), start=first)
+                )
             unit = float(record["unit"])
             for line, hits, elapsed in zip(
                 record["line_numbers"], record["hits"], record["times"]
@@ -1447,6 +1440,9 @@ def _line_profile_functions(results, ranks) -> list[dict]:
                 "function": function,
                 "first_lineno": first_lineno,
                 "lines": entry["lines"],
+                # The source stored with the timings; files recorded before
+                # it was stored are read from the source file instead.
+                "stored": entry["stored"],
                 "ranks": sorted(entry["ranks"]),
                 "total": sum(seconds for _, seconds in entry["lines"].values()),
             }
@@ -1461,34 +1457,115 @@ def _dedent_width(lines) -> int:
     return min(widths, default=0)
 
 
-def _shown_lines(numbers, recorded, total, hottest) -> set[int]:
-    """The lines worth reading: the first, the costly lines, one line around each.
+_BUILTIN_NAMES = frozenset(dir(builtins))
+# f-strings (3.12+) and t-strings (3.14+) arrive as several tokens.
+_STRING_TOKENS = frozenset(
+    {tokenize.STRING}
+    | {
+        getattr(tokenize, name)
+        for name in (
+            "FSTRING_START",
+            "FSTRING_MIDDLE",
+            "FSTRING_END",
+            "TSTRING_START",
+            "TSTRING_MIDDLE",
+            "TSTRING_END",
+        )
+        if hasattr(tokenize, name)
+    }
+)
+_LAYOUT_TOKENS = frozenset(
+    {tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT, tokenize.COMMENT}
+)
 
-    Everything else folds into "N lines" rows, so a long function costs a few
-    rows rather than a screenful. A fold row takes the space of one line, so a
-    single hidden line is shown instead, and a function with little to hide is
-    shown whole.
+
+def _highlight_python(lines: list[str]) -> list[str]:
+    """Python source lines as HTML, with each token in a classed span.
+
+    The standard library's tokenizer rather than a highlighting package: the
+    report takes no dependency for it, and line profiles are always Python.
+    The lines are a slice of a file, so they may end inside a statement or a
+    string; whatever tokenizes before that is highlighted, the rest is plain.
     """
-    costly = {
-        number
-        for number, (_, seconds) in recorded.items()
-        if total and 100.0 * seconds / total >= _LP_SHOWN_PCT
-    } | {hottest}
-    position = {number: index for index, number in enumerate(numbers)}
-    shown = {numbers[0]}
-    for number in costly:
-        index = position[number]
-        shown.update(numbers[max(index - 1, 0) : index + 2])
-    for index in range(1, len(numbers) - 1):
-        if (
-            numbers[index] not in shown
-            and numbers[index - 1] in shown
-            and numbers[index + 1] in shown
-        ):
-            shown.add(numbers[index])
-    if len(numbers) - len(shown) <= _LP_MIN_FOLD:
-        return set(numbers)
-    return shown
+    marks: list[list[tuple[int, int, str]]] = [[] for _ in lines]
+    previous = None
+    decorator = False
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO("\n".join(lines) + "\n").readline)
+        for token in tokens:
+            kind = None
+            if token.type == tokenize.COMMENT:
+                kind = "tk-com"
+            elif token.type in _STRING_TOKENS:
+                kind = "tk-str"
+            elif token.type == tokenize.NUMBER:
+                kind = "tk-num"
+            elif token.type == tokenize.OP:
+                if token.string == "@" and (
+                    previous is None or previous.type == tokenize.NEWLINE
+                ):
+                    decorator = True
+                elif token.string != ".":
+                    decorator = False
+                if decorator:
+                    kind = "tk-dec"
+            elif token.type == tokenize.NAME:
+                after_dot = previous is not None and previous.string == "."
+                if decorator:
+                    kind = "tk-dec"
+                elif previous is not None and previous.string in ("def", "class"):
+                    kind = "tk-fn"
+                elif token.string in ("True", "False", "None"):
+                    kind = "tk-const"
+                elif keyword.iskeyword(token.string):
+                    kind = "tk-kw"
+                elif token.string in ("self", "cls"):
+                    kind = "tk-self"
+                elif token.string in _BUILTIN_NAMES and not after_dot:
+                    kind = "tk-bi"
+            if token.type not in _LAYOUT_TOKENS or token.type == tokenize.NEWLINE:
+                previous = token
+            if kind is None:
+                continue
+            (first_row, first_col), (last_row, last_col) = token.start, token.end
+            # A triple-quoted string spans lines: mark its part of each.
+            for row in range(first_row, min(last_row, len(lines)) + 1):
+                start = first_col if row == first_row else 0
+                end = last_col if row == last_row else len(lines[row - 1])
+                if end > start:
+                    marks[row - 1].append((start, end, kind))
+    except (tokenize.TokenError, SyntaxError):
+        pass
+    rendered = []
+    for line, line_marks in zip(lines, marks):
+        parts = []
+        cursor = 0
+        for start, end, kind in sorted(line_marks):
+            if start < cursor:
+                continue
+            parts.append(html.escape(line[cursor:start]))
+            parts.append(f'<span class="{kind}">{html.escape(line[start:end])}</span>')
+            cursor = end
+        parts.append(html.escape(line[cursor:]))
+        rendered.append("".join(parts))
+    return rendered
+
+
+@functools.lru_cache(maxsize=256)
+def _source_path(filename: str) -> str:
+    """Where to read a recorded source file from, here.
+
+    Profiles store paths relative to the working directory or to the
+    ``sys.path`` entry the file was imported from, so a relative path is
+    looked up against both, in that order.
+    """
+    if os.path.isabs(filename) or os.path.isfile(filename):
+        return filename
+    for root in sys.path:
+        candidate = os.path.join(root or os.curdir, filename)
+        if os.path.isfile(candidate):
+            return candidate
+    return filename
 
 
 def _line_profile_table(entry, table_id) -> str:
@@ -1497,8 +1574,14 @@ def _line_profile_table(entry, table_id) -> str:
     total = entry["total"]
     first = min(entry["first_lineno"], min(recorded))
     last = max(recorded)
+    stored = entry.get("stored") or {}
+    path = _source_path(entry["filename"])
     sources = {
-        number: linecache.getline(entry["filename"], number).rstrip("\n").expandtabs()
+        number: (
+            stored[number]
+            if number in stored
+            else linecache.getline(path, number).rstrip("\n")
+        ).expandtabs()
         for number in range(first, last + 1)
     }
     # With the source at hand, show the function as it reads, unrecorded
@@ -1508,41 +1591,23 @@ def _line_profile_table(entry, table_id) -> str:
         list(range(first, last + 1)) if any(sources.values()) else sorted(recorded)
     )
     strip = _dedent_width(sources[number] for number in numbers)
+    highlighted = dict(
+        zip(numbers, _highlight_python([sources[number][strip:] for number in numbers]))
+    )
     hottest = max(recorded, key=lambda number: recorded[number][1])
-    shown = _shown_lines(numbers, recorded, total, hottest)
     body = []
-    folded = 0
-
-    def fold() -> None:
-        # Hidden lines show as one row, until "Show all lines" replaces it.
-        if folded:
-            body.append(
-                '<tr class="lp-gap"><td class="lp-lineno">⋯</td><td colspan="4"></td>'
-                f'<td class="lp-src">{_plural(folded, "line")} hidden</td></tr>'
-            )
-
     for number in numbers:
-        if number in shown:
-            fold()
-            folded = 0
-            classes = []
-        else:
-            folded += 1
-            classes = ["lp-more"]
-        source = _text(sources[number][strip:])
+        source = highlighted[number]
         if number not in recorded:
-            classes.append("lp-idle")
             body.append(
-                f'<tr class="{" ".join(classes)}"><td class="lp-lineno">{number}</td>'
+                f'<tr class="lp-idle"><td class="lp-lineno">{number}</td>'
                 f'<td></td><td></td><td></td><td></td><td class="lp-src">{source}</td></tr>'
             )
             continue
         hits, seconds = recorded[number]
         percent = 100.0 * seconds / total if total else 0.0
         per_hit = seconds / hits if hits else 0.0
-        if number == hottest and total:
-            classes.append("lp-hot")
-        row_class = f' class="{" ".join(classes)}"' if classes else ""
+        row_class = ' class="lp-hot"' if number == hottest and total else ""
         body.append(
             f'<tr{row_class}><td class="lp-lineno">{number}</td>'
             f"<td>{hits:,}</td><td>{_text(_duration_text(seconds))}</td>"
@@ -1550,23 +1615,20 @@ def _line_profile_table(entry, table_id) -> str:
             f'<td class="lp-pct" style="--pct:{min(percent, 100.0):.3g}%">{percent:.2f}%</td>'
             f'<td class="lp-src">{source}</td></tr>'
         )
-    fold()
-    hidden = len(numbers) - len(shown)
-    toggle = (
-        f'<div class="table-tools lp-tools"><button type="button" data-show-all="{table_id}"'
-        f' data-more-label="Show all {len(numbers)} lines"'
-        f' data-less-label="Show only the costly lines">'
-        f"Show all {len(numbers)} lines</button></div>"
-        if hidden
-        else ""
-    )
     return (
         f'<div class="lp-scroll"><table class="lp-table" id="{table_id}"><thead><tr>'
         "<th>line</th><th>hits</th><th>time</th><th>per hit</th><th>% time</th>"
         '<th class="lp-src">source</th></tr></thead><tbody>'
         + "".join(body)
         + "</tbody></table></div>"
-        + toggle
+        + (
+            ""
+            if any(sources.values())
+            else '<p class="muted table-note">No source: this profile does not store '
+            f"it, and <code>{_text(entry['filename'])}</code> could not be read from "
+            "here. Profiles recorded with the current scope-profiler carry the "
+            "source with them.</p>"
+        )
     )
 
 
@@ -1708,15 +1770,27 @@ def _chart_description(title: str, payload: dict) -> str:
             "identify regions."
         )
     elif title == "Region durations":
-        text = (
-            "Grouped bars compare each region's total recorded duration "
-            "across the profiled runs."
+        what = (
+            "mean call duration"
+            if payload.get("metrics") == ["avg"]
+            else "total recorded duration"
         )
+        text = f"Grouped bars compare each region's {what} across the profiled runs."
     elif title.startswith("Change:"):
         text = (
             "Percent change in each region's total duration, candidate over "
             "baseline. Bars above zero got slower; a region measured in only "
             "one run leaves a gap rather than reading as a 100% change."
+        )
+    elif title == "Speedup":
+        field = payload.get("options", {}).get("x_label", "ranks")
+        text = (
+            "Each line is one region's speedup: its mean call duration on the run "
+            f"with the fewest {_text(field)} divided by its mean call duration on "
+            "each run. The dashed line is ideal scaling; a region below it gains "
+            f"less than its extra {_text(field)} would allow. The "
+            f"{_SPEEDUP_REGIONS} regions with the most time on that first run are "
+            "shown."
         )
     elif title == "Rank heatmap":
         text = (
@@ -1724,13 +1798,6 @@ def _chart_description(title: str, payload: dict) -> str:
             "spent in a region itself, excluding time spent in nested child "
             "regions; this prevents the enclosing session region from dominating "
             "the heatmap."
-        )
-    elif title == "Duration over time":
-        text = (
-            "Each line follows the mean call duration of a region called at least "
-            f"{_MIN_TIMESERIES_CALLS} times over elapsed run time. "
-            "The shaded range spans the fastest to slowest selected rank, so widening "
-            "bands reveal changing rank imbalance."
         )
     elif title == "Rank imbalance":
         text = (
@@ -1741,18 +1808,6 @@ def _chart_description(title: str, payload: dict) -> str:
         text = (
             "Bars compare the selected LIKWID metric across regions and ranks. "
             "The hardware-counter tables above retain every recorded event and metric."
-        )
-    elif title.startswith("Flame chart:"):
-        text = (
-            "Each frame is one recorded call on the selected ranks. Frame nesting "
-            "shows parent-child relationships, and width represents inclusive "
-            "duration."
-        )
-    elif title.startswith("Flame graph:"):
-        text = (
-            "Repeated calls with the same call path are combined. Frame nesting "
-            "shows the aggregated call hierarchy, and width represents total "
-            "inclusive duration."
         )
     else:
         return ""
@@ -1991,6 +2046,35 @@ def _rank_matrix_html(results, balance, section_id) -> str:
     )
 
 
+def _threads(run) -> int | None:
+    """A run's OpenMP thread count, when its metadata recorded one."""
+    try:
+        return int(run.metadata["omp_num_threads"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _scaling_field(runs) -> str | None:
+    """The parallelism compared runs differ in, for a speedup chart.
+
+    Ranks, threads, or their product when both change; None when the runs
+    share both, as two versions of the same code do.
+    """
+    ranks = {run.num_ranks for run in runs}
+    threads = [_threads(run) for run in runs]
+    threads_vary = None not in threads and len(set(threads)) > 1
+    if len(ranks) > 1:
+        return "total_cores" if threads_vary else "num_ranks"
+    return "omp_num_threads" if threads_vary else None
+
+
+def _scaling_value(run, field: str) -> int:
+    if field == "num_ranks":
+        return run.num_ranks
+    threads = _threads(run) or 1
+    return threads if field == "omp_num_threads" else run.num_ranks * threads
+
+
 def _comparison_entries(per_run_rows) -> list[dict]:
     """Align every run's region rows by call path, in call-tree order.
 
@@ -2097,16 +2181,29 @@ def _change_html(base, value, metric) -> tuple[str, float | None]:
             )
         )
         title = f"{'+' if delta >= 0 else '−'}{_duration_text(abs(delta))}{speed}"
-    width = min(abs(pct), 100.0) / 2.0
     content = (
         f'<span class="delta {tone}" title="{_text(title)}">'
-        f'<span class="delta-bar"><span style="width:{width:.3g}%"></span></span>'
         f'<span class="delta-text">{_signed_pct(pct)}</span></span>'
     )
     return content, abs(delta)
 
 
-def _comparison_table_html(runs, entries) -> str:
+def _per_rank_row(row) -> dict:
+    """A row's times per rank: its totals over the ranks that ran it.
+
+    Summed over ranks, a region's time is what it costs; compared across
+    runs of different sizes, that grows with the rank count even as the run
+    gets faster. Per rank, it follows what a reader waits for.
+    """
+    count = row.get("num_ranks") or 1
+    return {
+        **row,
+        "total": None if row["total"] is None else row["total"] / count,
+        "exclusive": None if row["exclusive"] is None else row["exclusive"] / count,
+    }
+
+
+def _comparison_table_html(runs, entries, per_rank=False) -> str:
     """Every region's duration in every run, against the baseline."""
     labels = [_text(run.display_label) for run in runs]
     header = f"<th>region</th><th>{labels[0]}</th>" + "".join(
@@ -2168,7 +2265,14 @@ def _comparison_table_html(runs, entries) -> str:
         + f"<thead><tr>{header}</tr></thead><tbody>"
         + "".join(body)
         + "</tbody></table></div>"
-        '<p class="muted table-note">Regions are matched by call path. <em>own</em> is '
+        '<p class="muted table-note">'
+        + (
+            "The runs have different rank counts, so total and own times are per "
+            "rank: each region's time divided by the ranks that ran it. "
+            if per_rank
+            else ""
+        )
+        + "Regions are matched by call path. <em>own</em> is "
         "the time outside nested regions, so own-time changes add up to the change in "
         "the session. Changes under 2% are greyed out; hover a change for its size in "
         "seconds. Click a row to highlight the region in the charts.</p>"
@@ -2267,9 +2371,9 @@ def _candidate_html(runs, entries, run_index) -> str:
         (abs(change["delta"]) for change in improvements + regressions), default=0.0
     )
     kpis = [_wall_kpi(base_run, run)]
-    for title, changes, tone in (
-        ("Largest improvement", improvements, "good"),
-        ("Largest regression", regressions, "bad"),
+    for title, changes in (
+        ("Largest improvement", improvements),
+        ("Largest regression", regressions),
     ):
         if changes:
             change = changes[0]
@@ -2279,7 +2383,6 @@ def _candidate_html(runs, entries, run_index) -> str:
                     title,
                     f"<code>{_text(change['name'])}</code>",
                     f"{sign}{_text(_duration_text(abs(change['delta'])))} own time",
-                    tone,
                 )
             )
         else:
@@ -2301,6 +2404,9 @@ def _candidate_html(runs, entries, run_index) -> str:
 def _runs_table_html(runs, links) -> str:
     """One line per compared run, with a link to its full report."""
     base_span = runs[0].time_span
+    threads = [_threads(run) for run in runs]
+    # Threads are worth a column once they differ, or are more than one.
+    show_threads = len(set(threads)) > 1 or any((count or 1) > 1 for count in threads)
     body = []
     for index, run in enumerate(runs):
         metadata = run.metadata or {}
@@ -2308,7 +2414,7 @@ def _runs_table_html(runs, links) -> str:
             Path(run.file_path) if run.file_path and str(run.file_path) != "." else None
         )
         file_cell = (
-            f'<td class="run-file" title="{_text(path.resolve())}"><code>{_text(path.name)}</code></td>'
+            f'<td class="run-file" title="{_text(path)}"><code>{_text(path.name)}</code></td>'
             if path
             else "<td>-</td>"
         )
@@ -2328,12 +2434,17 @@ def _runs_table_html(runs, links) -> str:
             + f"<td>{_text(_format_timestamp(metadata['timestamp'])) if metadata.get('timestamp') else '-'}</td>"
             f"<td>{_text(metadata.get('hostname') or '-')}</td>"
             f"<td>{_text(run.num_ranks)}</td>"
-            f"<td>{_text(_duration_text(run.time_span))}</td>"
+            + (
+                f"<td>{_text(threads[index] if threads[index] is not None else '-')}</td>"
+                if show_threads
+                else ""
+            )
+            + f"<td>{_text(_duration_text(run.time_span))}</td>"
             f"<td>{change}</td><td>{link}</td></tr>"
         )
     note = (
-        "Each run's full report -- bottlenecks, region table, timeline, flame "
-        "graphs and hardware counters -- is linked on the right."
+        "Each run's full report -- bottlenecks, region table, timeline and "
+        "hardware counters -- is linked on the right."
         if links
         else "Build a full report for one run with "
         "<code>scope-profiler report RUN.h5 -o RUN.html</code>."
@@ -2341,7 +2452,8 @@ def _runs_table_html(runs, links) -> str:
     return (
         '<div class="table-scroll"><table class="runs-table"><thead><tr>'
         "<th>run</th><th>file</th><th>recorded</th><th>host</th><th>ranks</th>"
-        "<th>wall time</th><th>vs baseline</th><th>report</th></tr></thead><tbody>"
+        + ("<th>threads</th>" if show_threads else "")
+        + "<th>wall time</th><th>vs baseline</th><th>report</th></tr></thead><tbody>"
         + "".join(body)
         + f'</tbody></table></div><p class="muted table-note">{note}</p>'
     )
@@ -2353,7 +2465,7 @@ def _chart_sections(
     """Build embedded chart payloads for the bundled browser renderer.
 
     A comparison report keeps only the charts that compare runs; each run's
-    timeline, flame views and rank charts belong to its own report.
+    timeline and rank charts belong to its own report.
     """
     try:
         from plotly.offline import get_plotlyjs
@@ -2361,14 +2473,12 @@ def _chart_sections(
         from scope_profiler.plotting_scripts import (
             available_likwid_metrics,
             collect_region_statistics,
-            plot_duration_timeseries,
             plot_durations,
-            plot_flame,
-            plot_flame_graph,
             plot_gantt,
             plot_imbalance,
             plot_likwid,
             plot_rank_heatmap,
+            plot_speedup,
         )
     except ImportError:
         return (
@@ -2417,22 +2527,15 @@ def _chart_sections(
         ]
         for run in runs
     ]
-    # Following a region over time needs a few calls to follow; a region
-    # entered once or twice would only add a stray point to the chart.
-    repeated = sorted(
-        {
-            region.name
-            for run in runs
-            for region in run.get_regions(include=include, exclude=exclude)
-            if _region_durations(region, ranks).size >= _MIN_TIMESERIES_CALLS
-        }
-    )
+    scaling_field = _scaling_field(runs) if comparison else None
 
     with tempfile.TemporaryDirectory(prefix="scope-profiler-report-") as directory:
         payload_dir = Path(directory)
         for index, run in enumerate([] if comparison else runs):
             collect(
-                f"Timeline: {run.display_label} (rank 0)",
+                # Naming the rank only says something with more than one.
+                f"Timeline: {run.display_label}"
+                + (" (rank 0)" if run.num_ranks > 1 else ""),
                 plot_gantt,
                 payload_dir / f"gantt-{index}.json",
                 run,
@@ -2443,6 +2546,24 @@ def _chart_sections(
                 chart_options={"layout": {"showlegend": False}},
             )
 
+        if scaling_field is not None:
+            baseline_run = min(runs, key=lambda run: _scaling_value(run, scaling_field))
+            # A line per region gets unreadable fast: the regions with the
+            # most time on the smallest run, which is where speedup matters.
+            leading = sorted(
+                baseline_run.get_regions(include=include, exclude=exclude),
+                key=lambda region: -region.total_duration,
+            )[:_SPEEDUP_REGIONS]
+            collect(
+                "Speedup",
+                plot_speedup,
+                payload_dir / "speedup.json",
+                runs,
+                x_field=scaling_field,
+                include=[f"{re.escape(region.name)}$" for region in leading],
+                exclude=exclude,
+                ranks=ranks,
+            )
         if len(runs) == 2:
             # A baseline/candidate pair wants "what changed?", which reads
             # better as one signed bar per region than as two bars a viewer
@@ -2473,40 +2594,13 @@ def _chart_sections(
                 include=include,
                 exclude=exclude,
                 ranks=ranks,
+                # Totals summed over ranks grow with the rank count; across
+                # run sizes, the mean call reads like the speedup chart.
+                metric="total" if len({run.num_ranks for run in runs}) == 1 else "avg",
                 sort_by="total",
                 stack_children=False,
             )
 
-        for index, run in enumerate([] if comparison else runs):
-            collect(
-                f"Flame graph: {run.display_label}",
-                plot_flame_graph,
-                payload_dir / f"flame-graph-{index}.json",
-                run,
-                include=include,
-                exclude=exclude,
-                ranks=ranks,
-            )
-            collect(
-                f"Flame chart: {run.display_label}",
-                plot_flame,
-                payload_dir / f"flame-chart-{index}.json",
-                run,
-                include=include,
-                exclude=exclude,
-                ranks=ranks,
-            )
-
-        if repeated:
-            collect(
-                "Duration over time",
-                plot_duration_timeseries,
-                payload_dir / "duration-timeseries.json",
-                runs,
-                include=[f"{re.escape(name)}$" for name in repeated],
-                exclude=exclude,
-                ranks=ranks,
-            )
         # Both rank views are empty or trivial with a single rank.
         if not comparison and any(len(selected) > 1 for selected in selected_ranks):
             collect(
@@ -2546,9 +2640,7 @@ def _chart_sections(
 
     # Open only the views that orient a reader; the rest wait, collapsed, for
     # a reader looking for them, rather than all competing for attention.
-    kinds = (
-        ("Change:", "Region durations") if comparison else ("Timeline:", "Flame graph:")
-    )
+    kinds = ("Speedup", "Change:", "Region durations") if comparison else ("Timeline:",)
     opened = {
         next(index for index, chart in enumerate(charts) if chart[0].startswith(kind))
         for kind in kinds
@@ -2914,7 +3006,7 @@ def _single_run_body(results, include, exclude, ranks, sort, columns, charts):
     if charts:
         links.append(("charts", "Charts"))
     header = (
-        '<header class="report-header"><p class="eyebrow">scope-profiler report</p>'
+        '<header class="report-header">'
         f'<h1 id="top">{_text(results.display_label)}</h1>'
         f"{_run_meta_html(results, region_count)}</header>"
     )
@@ -2929,6 +3021,9 @@ def _report_file_name(output_path: Path, index: int, label: str) -> Path:
 def _comparison_body(runs, include, exclude, ranks, sort, charts, links):
     """Header, navigation and sections of the report comparing runs."""
     per_run_rows = [_report_rows(run, include, exclude, ranks, sort) for run in runs]
+    per_rank = len({run.num_ranks for run in runs}) > 1
+    if per_rank:
+        per_run_rows = [[_per_rank_row(row) for row in rows] for rows in per_run_rows]
     entries = _comparison_entries(per_run_rows)
     labels = [run.display_label for run in runs]
     title = " vs ".join(labels) if len(runs) <= 3 else f"{len(runs)} runs"
@@ -2940,7 +3035,7 @@ def _comparison_body(runs, include, exclude, ranks, sort, charts, links):
     if charts:
         navigation.append(("charts", "Charts"))
     header = (
-        '<header class="report-header"><p class="eyebrow">scope-profiler comparison</p>'
+        '<header class="report-header">'
         f'<h1 id="top">{_text(title)}</h1>'
         f'<p class="run-meta"><span>{_plural(len(runs), "run")}</span>'
         f"<span>baseline: {_text(labels[0])}</span></p></header>"
@@ -2955,7 +3050,7 @@ def _comparison_body(runs, include, exclude, ranks, sort, charts, links):
         )
         + "</section>"
         '<section id="compare-durations"><h2>Durations</h2>'
-        + _comparison_table_html(runs, entries)
+        + _comparison_table_html(runs, entries, per_rank)
         + _BACK_TO_TOP
         + "</section>"
     )

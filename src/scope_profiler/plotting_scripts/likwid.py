@@ -149,7 +149,11 @@ def plot_likwid(
                 for tag, result in regions.items()
             }
             if values:
-                label = run.display_label if len(runs) > 1 else f"rank {rank}"
+                label = (
+                    run.display_label
+                    if len(runs) > 1 or run.num_ranks == 1
+                    else f"rank {rank}"
+                )
                 if len(runs) > 1 and len(run_ranks) > 1:
                     label = f"{run.display_label} (rank {rank})"
                 # The run and rank ride along so a bar can show the timing

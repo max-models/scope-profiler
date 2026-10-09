@@ -156,6 +156,10 @@ inferred from the payload shape, and `{ plot: "gantt" }` settles it by hand.
 `buildScalingEfficiencyFigure` and `buildWeakScalingEfficiencyFigure` each
 take `(payload, options)` and return a plain `{ data, layout }` figure.
 
+A Gantt, flame or roofline payload may carry `file_ranks` (run label to rank
+count); a run with one rank is then labelled without its rank. Without the
+field, every rank is named.
+
 Common options: `colors` (region or series name to color), `filterRegion(name,
 row)` to drop rows, `layout` to merge into the generated layout, `metric` where
 a payload carries several, and `theme` (see below).

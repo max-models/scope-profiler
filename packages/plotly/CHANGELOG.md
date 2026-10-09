@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Gantt lanes and flame and roofline hovers leave the rank out for a run with
+  one rank, as told by the payload's optional `file_ranks` (run label -> rank
+  count). Payloads without it keep naming every rank.
 - Validate row fields, format versions, call ancestry, and duplicate cells with
   actionable errors. Preserve nested layout defaults and isolate theme presets.
 - Use stable colors; add `createColorRegistry()` and scoped `createFigureBuilder()`.

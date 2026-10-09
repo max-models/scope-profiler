@@ -275,15 +275,27 @@ def _hover_summary(
     return "<br>".join(lines)
 
 
-def _hover_region(region, ranks: list[int] | None):
+def _rank_suffix(num_ranks: int | None, rank) -> str:
+    """`` (rank N)`` to follow a label, or nothing for a single-rank run.
+
+    With one rank there is nothing for the rank to tell apart, so every plot
+    leaves it out. ``num_ranks`` is the run's rank count, not how many ranks
+    a plot selected: rank 0 of a four-rank run is still worth naming. None
+    (the count is unknown) keeps the rank.
+    """
+    return "" if num_ranks == 1 else f" (rank {rank})"
+
+
+def _hover_region(region, ranks: list[int] | None, num_ranks: int | None = None):
     """Pick the region object whose summary matches what is being plotted.
 
     A plot restricted to a single rank should not describe itself with
     statistics pooled over every rank, and ``MPIRegion[rank]`` is the same
-    ``get_summary()`` one level down.
+    ``get_summary()`` one level down. ``num_ranks`` is the run's rank count,
+    which decides whether the title names the rank.
     """
     if ranks is not None and len(ranks) == 1 and ranks[0] in region:
-        return region[ranks[0]], f"{region.name} (rank {ranks[0]})"
+        return region[ranks[0]], region.name + _rank_suffix(num_ranks, ranks[0])
     return region, region.name
 
 

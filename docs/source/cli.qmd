@@ -310,11 +310,11 @@ per rank -- mean, min, max, the slowest rank, its imbalance over the mean, and
 the *excess* time the slowest rank spends above the average, which orders the
 table -- and **Rank comparison** sets every rank side by side, coloring each
 cell by how far that rank is from the region's mean. Runs recorded with
-`line_profiler` show each region's line profile in its table row: rows with
-one carry a small *lines* mark, and clicking the row shows the profiled
-function's source as written, summed over the selected ranks, with the time on
-each line and the hottest one highlighted. Only the costly lines and the lines
-around them are shown, the rest folded until **Show all lines**. Functions
+`line_profiler` show each region's line profile in its table row: clicking the
+row shows its per-rank table and then the profiled function's source as
+written and syntax-highlighted, summed over the selected ranks, with the time
+on each line and the hottest one highlighted. A long function scrolls inside a
+box of limited height, which opens at the hottest line. Functions
 whose region is not in the table -- left out by `--include`, say -- are listed
 in a separate **Line profile** section instead.
 
@@ -330,11 +330,17 @@ report for each run is written next to the comparison, as
 
 Metadata is always retained in the report. With `scope-profiler[pproc]`
 installed, reports also embed interactive Plotly charts; pass `--no-charts` for
-the compact table-only version. A single run gets a timeline, a flame graph and
-a flame chart, plus duration-over-time for regions called at least three times
-and a rank-imbalance chart and rank heatmap when more than one rank is
-selected. A comparison keeps the charts that compare runs: grouped region
-durations, a percent-change chart for exactly two runs, and duration-over-time.
+the compact table-only version. A single run gets a timeline, plus a
+rank-imbalance chart and rank heatmap when more than one rank is selected. For
+flame graphs and flame charts, use `scope-profiler plot flame_graph` and
+`scope-profiler plot flame_chart`. A comparison keeps the charts that compare
+runs: grouped region durations and a percent-change chart for exactly two
+runs. When the runs differ in MPI ranks or OpenMP threads (the
+`omp_num_threads` metadata), a **Speedup** chart comes first: each of the
+eight regions with the most time on the smallest run, against ideal scaling,
+over ranks, threads, or ranks × threads when both change. Across run sizes the
+durations table compares time per rank and the bars show the mean call, since
+times summed over ranks grow with the rank count even as a run gets faster.
 Each chart has an **Open in new tab** button that shows it, as currently
 filtered and highlighted, on a page of its own. If a profile contains LIKWID or
 built-in Linux perf events, the report adds hardware-counter tables

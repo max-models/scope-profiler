@@ -10,12 +10,16 @@
 - Fortran regions accept optional source files and line numbers, written in
   native trace format v2 and preserved by HDF5 conversion.
 
-- `metadata_detail` setting (`"full"` by default, or `"minimal"`) controls how
-  much of the environment a profiling file records. `"minimal"` keeps only
-  versions, platform, CPU model and thread/rank counts, and leaves out the
+- `metadata_detail` setting: `"minimal"` (the default) records only versions,
+  platform, CPU model and thread/rank counts, and stores source files relative
+  to the working directory (outside it, relative to the `sys.path` entry they
+  were imported from). `"full"` opts into the
   user name, host name, working directory, loaded modules, environment
-  variables and `SLURM_*` variables; it also reduces the source file of each
-  region and line profile to its file name. The default is unchanged.
+  variables (`PATH`, `VIRTUAL_ENV`, ...), `SLURM_*` variables and absolute
+  source paths. **Previously all of that was recorded by default.**
+- Line profiles store the source lines of each profiled function, so the HTML
+  report shows the code without the source file, on any machine. scope-profiler's
+  own frames are no longer recorded in line profiles.
 - The "Run metadata" guide now lists what a profiling file can identify about
   its author and machine, and where it flows into exports.
 - HTML report: MPI runs get a **Load balance** table (per-rank own time,
@@ -31,12 +35,22 @@
 
 - HTML report: the summary at the top is now a row of headline numbers and a
   findings list, and **Hot spots** became **Bottlenecks**: the leaves of the
-  call tree, per call path, with the path each sits on. Line profiles moved into
-  the region table: a row with one is marked *lines*, and clicking it shows
-  the function's source, summed over ranks, with the hottest line highlighted
-  and the cheap lines folded until **Show all lines**. Clicking a chart no longer
-  scrolls the page to the table; it offers a **Show in table** jump instead.
+  call tree, per call path, with the path each sits on. Line profiles moved
+  into the region table: clicking a region's row shows its functions' source,
+  syntax-highlighted and summed over ranks, with the hottest line highlighted, in a scrolling box that opens at that
+  line. Clicking a chart no longer scrolls the page
+  to the table; it offers a **Show in table** jump instead.
 - `scope-profiler report -o/--output` defaults to `report.html`.
+- Plots of a single-rank run no longer label regions and titles with
+  `(rank 0)`: Gantt lanes, flame, call-graph, heatmap, imbalance, roofline,
+  LIKWID and perf-event labels and hovers, and the report's timeline. Gantt,
+  flame and roofline plot data gain an optional `file_ranks` field so the
+  `@scope-profiler/plotly` builders do the same.
+- HTML report: the flame graph, flame chart and duration-over-time chart are
+  no longer embedded; `scope-profiler plot` still draws them.
+- Comparing runs with different MPI rank or OpenMP thread counts adds a
+  **Speedup** chart, a threads column when thread counts differ, and compares
+  durations per rank rather than summed over ranks.
 - A multi-file report no longer repeats each run's tables and per-run charts;
   those are in the individual reports.
 

@@ -15,11 +15,12 @@ from datetime import datetime, timezone
 
 MetadataValue = str | int | list[str]
 
-#: The accepted ``metadata_detail`` levels. ``"full"`` records everything this
-#: module can collect. ``"minimal"`` keeps only what describes the run's shape
-#: and software (versions, platform, CPU model, thread and rank counts) and
-#: leaves out anything that names a person, a machine, a directory or a job.
-METADATA_DETAILS = ("full", "minimal")
+#: The accepted ``metadata_detail`` levels. ``"minimal"``, the default, keeps
+#: only what describes the run's shape and software (versions, platform, CPU
+#: model, thread and rank counts) and leaves out anything that names a
+#: person, a machine, a directory or a job. ``"full"`` records everything this
+#: module can collect.
+METADATA_DETAILS = ("minimal", "full")
 
 # Common OpenMP runtime library names across platforms/compilers.
 _OMP_LIBRARY_NAMES = (
@@ -168,7 +169,7 @@ def check_metadata_detail(detail: str) -> str:
 
 def collect_metadata(
     mpi_size: int = 1,
-    detail: str = "full",
+    detail: str = "minimal",
 ) -> dict[str, MetadataValue]:
     """Gather metadata describing the current run's environment.
 
@@ -178,13 +179,13 @@ def collect_metadata(
         Number of MPI ranks the run was launched with (default: 1). Used to
         derive ``total_cores`` (``mpi_size * omp_num_threads``), a single
         combined parallelism value useful as a scaling-plot x-axis.
-    detail : {"full", "minimal"}, optional
-        ``"full"`` (default) records everything below. ``"minimal"`` records
-        only ``timestamp``, ``platform``, ``chip_information``,
-        ``python_version``, ``scope_profiler_version``, ``omp_num_threads``,
-        ``mpi_size`` and ``total_cores``: no user name, host name (also part
-        of ``uname``), working directory, loaded modules, environment
-        variables or ``SLURM_*`` variables.
+    detail : {"minimal", "full"}, optional
+        ``"minimal"`` (default) records only ``timestamp``, ``platform``,
+        ``chip_information``, ``python_version``, ``scope_profiler_version``,
+        ``omp_num_threads``, ``mpi_size`` and ``total_cores``: no user name,
+        host name (also part of ``uname``), working directory, loaded
+        modules, environment variables or ``SLURM_*`` variables. ``"full"``
+        records everything below.
 
     Returns
     -------
