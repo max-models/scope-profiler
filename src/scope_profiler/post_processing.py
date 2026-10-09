@@ -492,7 +492,10 @@ def build_parser() -> argparse.ArgumentParser:
             type=str,
             default="num_ranks",
             metavar="FIELD",
-            help="Speedup x-axis field.",
+            help=(
+                "Speedup x-axis: num_ranks (default), num_nodes, "
+                "omp_num_threads, total_cores, or any metadata field"
+            ),
         )
 
     for kind, (description, _is_default) in _PLOT_CATALOG.items():
@@ -522,7 +525,10 @@ def build_parser() -> argparse.ArgumentParser:
                 type=str,
                 default="num_ranks",
                 metavar="FIELD",
-                help="Scaling x-axis field.",
+                help=(
+                    "Scaling x-axis: num_ranks (default), num_nodes, "
+                    "omp_num_threads, total_cores, or any metadata field"
+                ),
             )
             if kind == "weak_scaling_efficiency":
                 plot_parser.add_argument(
@@ -692,7 +698,10 @@ def build_export_parser() -> argparse.ArgumentParser:
         type=str,
         default="num_ranks",
         metavar="FIELD",
-        help="Speedup x-axis field.",
+        help=(
+            "Speedup x-axis: num_ranks (default), num_nodes, "
+            "omp_num_threads, total_cores, or any metadata field"
+        ),
     )
     plot_data.add_argument(
         "--with",

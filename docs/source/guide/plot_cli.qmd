@@ -162,7 +162,8 @@ and flat, and `halo_exchange` gets *slower* with more ranks, dragging
 `timestep` below the ideal line.
 
 The x-axis is the MPI rank count by default. `--x` switches it to
-`omp_num_threads` or `total_cores` (both read from the run metadata), or to
+`num_nodes`, `omp_num_threads` or `total_cores` (all read from the run
+metadata), or to
 any other metadata field — in which case the files stay in the order given on
 the command line and no ideal-scaling line is drawn:
 

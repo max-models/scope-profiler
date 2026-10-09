@@ -6,6 +6,8 @@ importing the ``mcp`` package at all -- the ``mcp``-dependent wiring in
 ``test_mcp_server.py``.
 """
 
+from pathlib import Path
+
 import h5py
 import numpy as np
 import pytest
@@ -285,6 +287,43 @@ class TestPlotProfile:
     def test_speedup_requires_at_least_two_files(self, baseline_file):
         with pytest.raises(ToolError, match="at least 2"):
             plot_profile(str(baseline_file), plot_type="speedup")
+
+    def test_speedup_x_field_selects_the_axis(self, tmp_path):
+        paths = []
+        for ranks, nodes in [(2, 1), (4, 2)]:
+            path = tmp_path / f"r{ranks}.h5"
+            _write_sample_h5(
+                path,
+                {rank: {"solve": ([0], [NS // ranks])} for rank in range(ranks)},
+                metadata={"num_nodes": nodes},
+            )
+            paths.append(str(path))
+
+        payload = plot_profile(
+            paths,
+            plot_type="speedup",
+            output_dir=str(tmp_path / "figs"),
+            backend="plotly",
+            x_field="num_nodes",
+        )
+        figure = Path(payload["paths"][0]).read_text(encoding="utf-8")
+        assert "nodes = 1" in figure
+
+    def test_speedup_x_field_missing_from_a_file_is_a_tool_error(self, tmp_path):
+        # Multi-rank files from before the node count was recorded.
+        paths = []
+        for ranks in (2, 4):
+            path = tmp_path / f"old{ranks}.h5"
+            _write_sample_h5(
+                path, {rank: {"solve": ([0], [NS])} for rank in range(ranks)}
+            )
+            paths.append(str(path))
+        with pytest.raises(ToolError, match="'num_nodes' not found"):
+            plot_profile(paths, plot_type="speedup", x_field="num_nodes")
+
+    def test_x_field_only_applies_to_speedup(self, baseline_file):
+        with pytest.raises(ToolError, match="x_field only applies"):
+            plot_profile(str(baseline_file), plot_type="gantt", x_field="num_ranks")
 
     def test_accepts_a_single_path_as_a_string(self, baseline_file, tmp_path):
         payload = plot_profile(

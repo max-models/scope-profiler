@@ -30,6 +30,19 @@
   runs, the largest own-time improvements and regressions, and a durations
   table matched by call path -- plus a full report per run, linked from it.
   `--no-individual-reports` (`individual_reports=False`) skips those.
+- Speedup x-axis choice (#301): `scope-profiler report --speedup-x
+  {auto,ranks,nodes,threads,cores}` (`create_html_report(speedup_x=...)`) picks
+  the comparison report's speedup axis -- MPI ranks, nodes, OpenMP threads or
+  ranks × threads -- with `auto` keeping the previous choice. A named axis that
+  some run did not record is an error naming those runs. Buttons on the chart
+  switch it to every other axis the runs differ in. `plot_speedup`,
+  `scope-profiler plot --x` and the MCP `plot_profile` tool (new `x_field`)
+  accept `num_nodes`.
+- Run metadata records `num_nodes`, the number of distinct hosts the ranks ran
+  on, at the minimal detail level: 1 without MPI, and under MPI one
+  `allgather` of host names in `finalize()`. `ProfilingResults.num_nodes`
+  reads it, answering 1 for single-rank files written before it existed and
+  None for older multi-rank ones.
 
 ### Changed
 

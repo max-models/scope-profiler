@@ -47,6 +47,7 @@ _SYSTEM_FIELDS = (
 )
 _PARALLELISM_FIELDS = (
     "mpi_size",
+    "num_nodes",
     "omp_num_threads",
     "total_cores",
 )

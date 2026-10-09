@@ -228,6 +228,7 @@ def create_server() -> FastMCP:
         exclude: list[str] | None = None,
         ranks: list[int] | None = None,
         backend: str = "matplotlib",
+        x_field: str | None = None,
     ) -> dict:
         """Render one figure from scope-profiler HDF5 file(s) and return its path.
 
@@ -253,6 +254,10 @@ def create_server() -> FastMCP:
             ranks: Restrict the plot to these MPI ranks (default: all).
             backend: "matplotlib" (default, writes a `.png`) or "plotly"
                 (writes an interactive `.html`).
+            x_field: Speedup x-axis, only for `plot_type="speedup"`:
+                "num_ranks" (default), "num_nodes", "omp_num_threads",
+                "total_cores" (ranks x threads), or any other metadata
+                field. Every file must have recorded it.
 
         Returns:
             A dict with `plot_type`, `backend`, and `paths` (the file(s)
@@ -267,6 +272,7 @@ def create_server() -> FastMCP:
             exclude=exclude,
             ranks=ranks,
             backend=backend,
+            x_field=x_field,
         )
 
     return server

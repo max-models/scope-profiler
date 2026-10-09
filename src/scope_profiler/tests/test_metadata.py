@@ -15,6 +15,7 @@ from scope_profiler.metadata import (
     _ENVIRONMENT_VARIABLES,
     _MAX_VALUE_CHARS,
     collect_metadata,
+    count_nodes,
 )
 
 # A representative slice of a module-based HPC environment.
@@ -199,6 +200,7 @@ MINIMAL_FIELDS = {
     "omp_num_threads",
     "mpi_size",
     "total_cores",
+    "num_nodes",
 }
 
 
@@ -208,7 +210,8 @@ def test_minimal_metadata_holds_only_run_shape_and_versions(monkeypatch):
 
     metadata = collect_metadata(mpi_size=4, detail="minimal")
 
-    assert set(metadata) == MINIMAL_FIELDS
+    # An MPI run's node count needs the other ranks; finalize() adds it.
+    assert set(metadata) == MINIMAL_FIELDS - {"num_nodes"}
     assert metadata["mpi_size"] == 4
     assert metadata["total_cores"] == 4 * metadata["omp_num_threads"]
 
@@ -346,3 +349,74 @@ def test_line_profile_source_is_skipped_when_it_cannot_be_stored(tmp_path):
     assert profile_manager._is_package_file(profile_manager.__file__)
     assert not profile_manager._is_package_file(__file__)
     assert not profile_manager._is_package_file(tmp_path / "user.py")
+
+
+def test_a_single_process_runs_on_one_node():
+    assert collect_metadata()["num_nodes"] == 1
+    assert collect_metadata(detail="full")["num_nodes"] == 1
+    assert "num_nodes" not in collect_metadata(mpi_size=2)
+
+
+class _HostComm:
+    """Each rank's host name, as ``allgather`` would hand them back."""
+
+    def __init__(self, hosts):
+        self.hosts = hosts
+        self.calls = 0
+
+    def allgather(self, value):
+        self.calls += 1
+        return self.hosts
+
+
+def test_count_nodes_counts_distinct_hosts():
+    assert count_nodes(_HostComm(["n1", "n1", "n2", "n3", "n2"])) == 3
+    assert count_nodes(_HostComm(["n1", "n1"])) == 1
+
+
+def test_finalize_records_the_node_count_once_with_one_collective(tmp_path):
+    from scope_profiler.tests.unit.test_payload_collection import FakeComm
+
+    class Comm(FakeComm):
+        def __init__(self):
+            super().__init__(rank=0, size=1)
+            self.gathered = []
+
+        def allgather(self, value):
+            # This rank's host name, plus two ranks on another node.
+            self.gathered.append(value)
+            return [value, "other", "other"]
+
+    file_path = tmp_path / "nodes.h5"
+    ProfileManager.setup(file_path=str(file_path))
+    config = ProfileManager.get_config()
+    comm = Comm()
+    config._comm = comm
+    with ProfileManager.profile_region("region"):
+        pass
+    results = ProfileManager.finalize(verbose=False, return_results=True)
+
+    assert comm.gathered == [socket.gethostname()]
+    assert results.num_nodes == 2
+    assert read_h5(file_path).metadata["num_nodes"] == 2
+    assert read_h5(file_path).num_nodes == 2
+
+
+def test_finalize_skips_the_node_count_when_nothing_is_kept():
+    """No file and no results: nothing would carry the count, so no collective."""
+
+    class Comm:
+        def Get_rank(self):
+            return 0
+
+        def Get_size(self):
+            return 1
+
+        def allgather(self, value):
+            raise AssertionError("no collective without output")
+
+    ProfileManager.setup(deactivate_file_output=True)
+    ProfileManager.get_config()._comm = Comm()
+    with ProfileManager.profile_region("region"):
+        pass
+    assert ProfileManager.finalize(verbose=False) is None

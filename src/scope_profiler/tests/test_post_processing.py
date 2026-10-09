@@ -2529,3 +2529,51 @@ def test_plot_gantt_leaves_the_rank_out_for_a_single_rank_run(tmp_path, monkeypa
     # The exported data tells the browser builders the same thing.
     payload = json.loads(data_path.read_text(encoding="utf-8"))
     assert payload["file_ranks"] == {"run": 1}
+
+
+def test_plot_speedup_over_nodes_is_a_scaling_axis(tmp_path):
+    paths = []
+    for index, (ranks, nodes) in enumerate([(4, 2), (2, 1), (8, 4)]):
+        path = tmp_path / f"n{index}.h5"
+        _write_sample_h5(
+            path,
+            _sample_file_data(ranks, 10, 400 // nodes),
+            metadata={"num_nodes": nodes},
+        )
+        paths.append(path)
+
+    data_file = tmp_path / "speedup.json"
+    plot_speedup(
+        [read_h5(path) for path in paths],
+        x_field="num_nodes",
+        show=False,
+        verbose=False,
+        data_filepath=data_file,
+        data_format="json",
+        backend="data-only",
+    )
+    payload = json.loads(data_file.read_text())
+    assert payload["options"] == {
+        "x_field": "num_nodes",
+        "x_label": "nodes",
+        "baseline": 1,
+    }
+    # Sorted by value, not file order, like any scaling axis.
+    solve = [point for point in payload["points"] if point["region"] == "solve"]
+    assert [point["num_nodes"] for point in solve] == [1, 2, 4]
+    assert [point["speedup"] for point in solve] == pytest.approx([1, 2, 4])
+
+
+def test_plot_speedup_over_nodes_names_a_file_without_a_node_count(tmp_path):
+    old = tmp_path / "old.h5"
+    new = tmp_path / "new.h5"
+    _write_sample_h5(old, _sample_file_data(2, 0, 100))
+    _write_sample_h5(new, _sample_file_data(4, 0, 50), metadata={"num_nodes": 2})
+
+    with pytest.raises(ValueError, match=r"'num_nodes' not found .*old\.h5"):
+        plot_speedup(
+            [read_h5(old), read_h5(new)],
+            x_field="num_nodes",
+            show=False,
+            verbose=False,
+        )

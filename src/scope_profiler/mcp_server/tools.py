@@ -431,6 +431,7 @@ def plot_profile(
     exclude: list[str] | None = None,
     ranks: list[int] | None = None,
     backend: str = "matplotlib",
+    x_field: str | None = None,
 ) -> dict:
     """Render one figure from one or more profiling files and return its path.
 
@@ -453,6 +454,10 @@ def plot_profile(
         raise ToolError("plot_type='speedup' requires at least 2 file_paths")
     if backend not in ("matplotlib", "plotly"):
         raise ToolError(f"backend must be 'matplotlib' or 'plotly', got {backend!r}")
+    if x_field is not None and plot_type != "speedup":
+        raise ToolError("x_field only applies to plot_type='speedup'")
+    # Only the speedup plot takes an x-axis; the others reject the keyword.
+    extra = {"x_field": x_field} if x_field is not None else {}
 
     profiles = [_read_profile(path) for path in file_paths]
 
@@ -487,11 +492,16 @@ def plot_profile(
             exclude=exclude,
             ranks=ranks,
             backend=backend,
+            **extra,
         )
     except ImportError as exc:
         raise ToolError(
             "Plotting requires the 'pproc' extra: pip install 'scope-profiler[pproc]'",
         ) from exc
+    except ValueError as exc:
+        # Bad input the plot itself detected: an x_field a file did not
+        # record, filters matching no region, too few files to compare.
+        raise ToolError(str(exc)) from exc
 
     # plot_durations() returns the list containing the path it wrote; every
     # other plot function returns None and writes exactly the path it was given.

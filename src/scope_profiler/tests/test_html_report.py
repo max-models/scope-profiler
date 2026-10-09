@@ -466,19 +466,21 @@ def test_reports_leave_out_duration_over_time(tmp_path, monkeypatch):
         assert "Duration over time" not in report.read_text(encoding="utf-8")
 
 
-def _scaling_profiles(tmp_path, rank_counts, threads=None):
+def _scaling_profiles(tmp_path, rank_counts, threads=None, nodes=None):
     """One profile per rank count: solve's work split over the ranks."""
     paths = []
     for index, count in enumerate(rank_counts):
         path = tmp_path / f"r{index}.h5"
-        metadata = {"omp_num_threads": threads[index]} if threads else None
+        metadata = {"omp_num_threads": threads[index]} if threads else {}
+        if nodes:
+            metadata["num_nodes"] = nodes[index]
         _write_sample_h5(
             path,
             {
                 rank: {"setup": ([0], [10]), "solve": ([20], [20 + 80 // count])}
                 for rank in range(count)
             },
-            metadata=metadata,
+            metadata=metadata or None,
         )
         paths.append(path)
     return paths
@@ -506,7 +508,11 @@ def test_comparison_of_run_sizes_shows_a_speedup_chart(tmp_path):
         ' role="heading" aria-level="3">Speedup' in document
     )
     assert '"plot": "speedup"' in document and '"x_field": "num_ranks"' in document
-    assert "the run with the fewest MPI ranks" in document
+    assert "the run with the fewest <span data-axis-label>MPI ranks</span>" in document
+    # Only ranks differ (one thread each makes cores a copy of ranks), so there
+    # is nothing to switch to.
+    assert 'class="chart-axis"' not in document
+    assert '"variants"' not in document
     # Across run sizes, the durations bars show a call, not a sum over ranks.
     assert "each region&#x27;s mean call duration" in document or (
         "each region's mean call duration" in document
@@ -567,7 +573,164 @@ def test_comparison_of_equal_sizes_has_no_speedup_chart(tmp_path):
     assert _threads(_Run(1, {"omp_num_threads": "x"})) is None
     assert _scaling_field([_Run(1, {}), _Run(1, {"omp_num_threads": 4})]) is None
     assert _scaling_value(_Run(2, {"omp_num_threads": 3}), "total_cores") == 6
-    assert _scaling_value(_Run(2, {}), "omp_num_threads") == 1
+    assert _scaling_value(_Run(2, {}), "omp_num_threads") is None
+    assert _scaling_value(_Run(2, {}), "total_cores") is None
+
+
+def _speedup_document(document):
+    """The speedup chart's embedded chart document."""
+    documents = json.loads(
+        re.search(r"const scopeProfilerCharts = (.*?);\n", document).group(1)
+    )
+    return next(item for item in documents if item["title"] == "Speedup")
+
+
+def test_speedup_x_selects_the_axis_and_offers_the_others(tmp_path):
+    pytest.importorskip("plotly")
+    paths = _scaling_profiles(tmp_path, [1, 2, 4], threads=[2, 2, 2], nodes=[1, 1, 2])
+
+    document = create_html_report(
+        paths, tmp_path / "nodes.html", individual_reports=False, speedup_x="nodes"
+    ).read_text(encoding="utf-8")
+
+    chart = _speedup_document(document)
+    assert chart["payload"]["options"]["x_field"] == "num_nodes"
+    assert "the run with the fewest <span data-axis-label>nodes</span>" in document
+    # One payload per axis the runs differ in; threads do not, so no button.
+    assert [variant["label"] for variant in chart["variants"]] == [
+        "MPI ranks",
+        "nodes",
+        "MPI ranks × OpenMP threads",
+    ]
+    assert [
+        variant["payload"]["options"]["x_field"] for variant in chart["variants"]
+    ] == ["num_ranks", "num_nodes", "total_cores"]
+    buttons = re.findall(r'<button type="button" class="chart-axis"[^>]*>', document)
+    assert len(buttons) == 3
+    assert ['aria-pressed="true"' in button for button in buttons] == [
+        False,
+        True,
+        False,
+    ]
+    # The bundled script wires the buttons up.
+    assert 'querySelectorAll(".chart-axis")' in document
+
+    # "auto" keeps its old choice -- ranks here -- and still offers nodes.
+    document = create_html_report(
+        paths, tmp_path / "auto.html", individual_reports=False
+    ).read_text(encoding="utf-8")
+    chart = _speedup_document(document)
+    assert chart["payload"]["options"]["x_field"] == "num_ranks"
+    assert len(chart["variants"]) == 3
+
+
+@pytest.mark.parametrize(
+    ("speedup_x", "kwargs", "message"),
+    [
+        # Multi-rank files written before the node count was recorded.
+        ("nodes", {}, "older scope-profiler versions"),
+        ("threads", {}, "'omp_num_threads'"),
+        ("cores", {"threads": [1, None]}, "r1"),
+        ("sideways", {}, "must be one of"),
+    ],
+)
+def test_speedup_x_that_a_run_did_not_record_is_an_error(
+    tmp_path, speedup_x, kwargs, message
+):
+    from scope_profiler.html_report import SpeedupAxisError
+
+    threads = kwargs.get("threads")
+    paths = _scaling_profiles(tmp_path, [2, 4], threads=threads and [1, 1])
+    if threads:
+        # Drop the second run's thread count.
+        import h5py
+
+        with h5py.File(paths[1], "a") as handle:
+            del handle["metadata"].attrs["omp_num_threads"]
+    report = tmp_path / "missing.html"
+
+    with pytest.raises(SpeedupAxisError, match=message):
+        create_html_report(paths, report, speedup_x=speedup_x, include_charts=False)
+    # Checked before anything is written.
+    assert not report.exists()
+
+
+def test_speedup_x_is_ignored_for_a_single_run(tmp_path):
+    paths = _scaling_profiles(tmp_path, [2])
+    report = create_html_report(
+        paths, tmp_path / "one.html", speedup_x="nodes", include_charts=False
+    )
+    assert report.exists()
+
+
+def test_speedup_x_the_runs_share_draws_no_chart_and_says_why(tmp_path):
+    pytest.importorskip("plotly")
+    paths = _scaling_profiles(tmp_path, [1, 2], nodes=[1, 1])
+
+    document = create_html_report(
+        paths, tmp_path / "same.html", individual_reports=False, speedup_x="nodes"
+    ).read_text(encoding="utf-8")
+
+    assert "Speedup" not in _chart_titles(document)
+    assert "every run has the same num_nodes (1)" in document
+
+
+def test_speedup_axis_that_fails_to_plot_is_left_out(tmp_path, monkeypatch):
+    pytest.importorskip("plotly")
+    from scope_profiler import plotting_scripts
+
+    real = plotting_scripts.plot_speedup
+
+    def fail_on_nodes(*args, x_field, **kwargs):
+        if x_field == "num_nodes":
+            raise ValueError("no nodes today")
+        return real(*args, x_field=x_field, **kwargs)
+
+    monkeypatch.setattr(plotting_scripts, "plot_speedup", fail_on_nodes)
+    paths = _scaling_profiles(tmp_path, [1, 4], nodes=[1, 2])
+
+    document = create_html_report(
+        paths, tmp_path / "partial.html", individual_reports=False
+    ).read_text(encoding="utf-8")
+    chart = _speedup_document(document)
+    assert chart["payload"]["options"]["x_field"] == "num_ranks"
+    # The axis that failed is gone, leaving nothing to switch to.
+    assert "variants" not in chart
+    assert "Speedup over num_nodes: no nodes today" in document
+
+    # When the chosen axis itself fails, there is no chart at all.
+    document = create_html_report(
+        paths, tmp_path / "none.html", individual_reports=False, speedup_x="nodes"
+    ).read_text(encoding="utf-8")
+    assert "Speedup" not in _chart_titles(document)
+    assert "Speedup: no nodes today" in document
+
+
+def test_report_cli_speedup_x(tmp_path, capsys):
+    pytest.importorskip("plotly")
+    paths = [str(path) for path in _scaling_profiles(tmp_path, [1, 2], nodes=[1, 2])]
+    report = tmp_path / "cli.html"
+
+    assert (
+        cli_main(
+            ["report", *paths, "-o", str(report), "--speedup-x", "nodes"]
+            + ["--no-individual-reports"]
+        )
+        == 0
+    )
+    chart = _speedup_document(report.read_text(encoding="utf-8"))
+    assert chart["payload"]["options"]["x_field"] == "num_nodes"
+
+    # A run without the requested axis: a usage error naming it, no traceback.
+    with pytest.raises(SystemExit) as excinfo:
+        cli_main(["report", *paths, "-o", str(report), "--speedup-x", "threads"])
+    assert excinfo.value.code == 2
+    error = capsys.readouterr().err
+    assert "--speedup-x threads:" in error and "'omp_num_threads'" in error
+
+    with pytest.raises(SystemExit):
+        cli_main(["report", *paths, "--speedup-x", "sideways"])
+    assert "invalid choice" in capsys.readouterr().err
 
 
 def test_region_durations_compare_multiple_runs_without_stacking(tmp_path, monkeypatch):

@@ -101,7 +101,8 @@ details { margin: .75rem 0; } summary { cursor: pointer; font-weight: 600; }
   font: inherit; font-size: .9em; padding: .2rem .6rem; }
 .table-tools button:hover, .chart-controls button:hover, .chart-tools button:hover {
   background: #f3f4f6; }
-.table-tools button[aria-pressed="true"] { background: #1f2937; border-color: #1f2937; color: #fff; }
+.table-tools button[aria-pressed="true"], .chart-tools button[aria-pressed="true"] {
+  background: #1f2937; border-color: #1f2937; color: #fff; }
 .bottlenecks { margin: 1.25rem 0; }
 .bottlenecks ol { display: grid; gap: .2rem; list-style: none; margin: .5rem 0; padding: 0; }
 .bottleneck { align-items: center; background: none; border: 0; border-radius: .4rem;
@@ -170,7 +171,9 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
 .chart-controls { display: flex; gap: .5rem; margin: .75rem 0; }
 .chart-panel { border: 1px solid #e5e7eb; border-radius: .5rem; padding: .25rem 1rem; }
 .chart-heading { color: #111827; font-size: 1.17em; font-weight: 700; }
-.chart-tools { display: flex; justify-content: flex-end; margin: .25rem 0 -.5rem; }
+.chart-tools { align-items: center; display: flex; flex-wrap: wrap; gap: .4rem;
+  justify-content: flex-end; margin: .25rem 0 -.5rem; }
+.chart-tools .chart-open { margin-left: .6rem; }
 .table-scroll { overflow-x: auto; }
 .back-to-top { text-align: right; }
 .meta-table th { background: none; position: static; vertical-align: top; white-space: nowrap;
@@ -1783,12 +1786,17 @@ def _chart_description(title: str, payload: dict) -> str:
             "one run leaves a gap rather than reading as a 100% change."
         )
     elif title == "Speedup":
-        field = payload.get("options", {}).get("x_label", "ranks")
+        # Marked so the x-axis buttons can rename it along with the chart.
+        field = (
+            "<span data-axis-label>"
+            + _text(payload.get("options", {}).get("x_label", "ranks"))
+            + "</span>"
+        )
         text = (
             "Each line is one region's speedup: its mean call duration on the run "
-            f"with the fewest {_text(field)} divided by its mean call duration on "
+            f"with the fewest {field} divided by its mean call duration on "
             "each run. The dashed line is ideal scaling; a region below it gains "
-            f"less than its extra {_text(field)} would allow. The "
+            f"less than its extra {field} would allow. The "
             f"{_SPEEDUP_REGIONS} regions with the most time on that first run are "
             "shown."
         )
@@ -2068,11 +2076,83 @@ def _scaling_field(runs) -> str | None:
     return "omp_num_threads" if threads_vary else None
 
 
-def _scaling_value(run, field: str) -> int:
+#: ``speedup_x`` choices for a comparison report's speedup chart, each naming
+#: the run property it puts on the x-axis. ``"auto"`` picks for itself (see
+#: :func:`_scaling_field`).
+SPEEDUP_X_FIELDS = {
+    "ranks": "num_ranks",
+    "nodes": "num_nodes",
+    "threads": "omp_num_threads",
+    "cores": "total_cores",
+}
+SPEEDUP_X_CHOICES = ("auto", *SPEEDUP_X_FIELDS)
+
+
+def _scaling_value(run, field: str) -> int | None:
+    """A run's value of a scaling field, or None when the run did not record it."""
     if field == "num_ranks":
         return run.num_ranks
-    threads = _threads(run) or 1
+    if field == "num_nodes":
+        return run.num_nodes
+    threads = _threads(run)
+    if threads is None:
+        return None
     return threads if field == "omp_num_threads" else run.num_ranks * threads
+
+
+class SpeedupAxisError(ValueError):
+    """The requested speedup x-axis is unknown, or some run did not record it."""
+
+
+def _check_speedup_x(runs, speedup_x: str) -> str | None:
+    """The scaling field ``speedup_x`` names, checked against every run.
+
+    ``"auto"`` resolves to :func:`_scaling_field`'s choice. A named field
+    every run has to have recorded: a speedup chart silently missing some
+    runs, or silently drawn over another axis, would misread the study.
+    """
+    if speedup_x not in SPEEDUP_X_CHOICES:
+        raise SpeedupAxisError(
+            f"speedup_x must be one of {', '.join(SPEEDUP_X_CHOICES)}, "
+            f"got {speedup_x!r}",
+        )
+    if speedup_x == "auto":
+        return _scaling_field(runs)
+    field = SPEEDUP_X_FIELDS[speedup_x]
+    missing = [run.display_label for run in runs if _scaling_value(run, field) is None]
+    if missing:
+        raise SpeedupAxisError(
+            f"the {speedup_x} axis needs {field!r} in every run's metadata, "
+            f"but {', '.join(missing)} did not record it"
+            + (
+                " (files written by older scope-profiler versions lack the node "
+                "count of a multi-rank run)"
+                if field == "num_nodes"
+                else ""
+            )
+            + "; choose another axis, or 'auto'",
+        )
+    return field
+
+
+def _speedup_axes(runs, field: str) -> list[str]:
+    """The scaling fields a speedup chart over ``field`` can switch to.
+
+    Every field all runs recorded and differ in, in :data:`SPEEDUP_X_FIELDS`
+    order; ``field`` itself is always one. A field whose values match another
+    one's run for run -- cores when every run has one thread -- would draw the
+    same chart again and is left out.
+    """
+    order = list(SPEEDUP_X_FIELDS.values())
+    kept: dict[str, tuple] = {}
+    for candidate in [field, *(other for other in order if other != field)]:
+        values = tuple(_scaling_value(run, candidate) for run in runs)
+        if candidate != field and (
+            None in values or len(set(values)) < 2 or values in kept.values()
+        ):
+            continue
+        kept[candidate] = values
+    return [candidate for candidate in order if candidate in kept]
 
 
 def _comparison_entries(per_run_rows) -> list[dict]:
@@ -2460,7 +2540,13 @@ def _runs_table_html(runs, links) -> str:
 
 
 def _chart_sections(
-    runs, include, exclude, ranks, charts_cdn: bool = False, comparison: bool = False
+    runs,
+    include,
+    exclude,
+    ranks,
+    charts_cdn: bool = False,
+    comparison: bool = False,
+    scaling_field: str | None = None,
 ) -> str:
     """Build embedded chart payloads for the bundled browser renderer.
 
@@ -2490,14 +2576,7 @@ def _chart_sections(
     charts: list[tuple[str, dict, dict]] = []
     failures: list[str] = []
 
-    def collect(
-        title,
-        plotter,
-        path: Path,
-        *args,
-        chart_options: dict | None = None,
-        **kwargs,
-    ) -> None:
+    def payload_of(title, plotter, path: Path, *args, **kwargs) -> dict | None:
         try:
             plotter(
                 *args,
@@ -2514,10 +2593,20 @@ def _chart_sections(
             )
         except (ImportError, ValueError) as exc:
             failures.append(f"{title}: {exc}")
-            return
-        charts.append(
-            (title, json.loads(path.read_text(encoding="utf-8")), chart_options or {}),
-        )
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def collect(
+        title,
+        plotter,
+        path: Path,
+        *args,
+        chart_options: dict | None = None,
+        **kwargs,
+    ) -> None:
+        payload = payload_of(title, plotter, path, *args, **kwargs)
+        if payload is not None:
+            charts.append((title, payload, chart_options or {}))
 
     selected_ranks = [
         [
@@ -2527,7 +2616,8 @@ def _chart_sections(
         ]
         for run in runs
     ]
-    scaling_field = _scaling_field(runs) if comparison else None
+    # The x-axis of a comparison's speedup chart (see _check_speedup_x).
+    scaling_field = scaling_field if comparison else None
 
     with tempfile.TemporaryDirectory(prefix="scope-profiler-report-") as directory:
         payload_dir = Path(directory)
@@ -2546,24 +2636,59 @@ def _chart_sections(
                 chart_options={"layout": {"showlegend": False}},
             )
 
-        if scaling_field is not None:
+        scaling_values = (
+            [_scaling_value(run, scaling_field) for run in runs]
+            if scaling_field is not None
+            else []
+        )
+        if scaling_field is not None and len(set(scaling_values)) < 2:
+            # Only a named axis gets here; "auto" picks one the runs differ in.
+            failures.append(
+                f"Speedup: every run has the same {scaling_field} "
+                f"({scaling_values[0]}), so there is no scaling to show",
+            )
+        elif scaling_field is not None:
             baseline_run = min(runs, key=lambda run: _scaling_value(run, scaling_field))
             # A line per region gets unreadable fast: the regions with the
             # most time on the smallest run, which is where speedup matters.
+            # The same regions on every axis, so switching axes keeps the lines.
             leading = sorted(
                 baseline_run.get_regions(include=include, exclude=exclude),
                 key=lambda region: -region.total_duration,
             )[:_SPEEDUP_REGIONS]
-            collect(
-                "Speedup",
-                plot_speedup,
-                payload_dir / "speedup.json",
-                runs,
-                x_field=scaling_field,
-                include=[f"{re.escape(region.name)}$" for region in leading],
-                exclude=exclude,
-                ranks=ranks,
+            # One payload per axis the runs differ in; the report's buttons
+            # switch between them without recomputing anything in the browser.
+            variants = []
+            for field in _speedup_axes(runs, scaling_field):
+                payload = payload_of(
+                    "Speedup" if field == scaling_field else f"Speedup over {field}",
+                    plot_speedup,
+                    payload_dir / f"speedup-{field}.json",
+                    runs,
+                    x_field=field,
+                    include=[f"{re.escape(region.name)}$" for region in leading],
+                    exclude=exclude,
+                    ranks=ranks,
+                )
+                if payload is not None:
+                    variants.append(
+                        {
+                            "field": field,
+                            "label": payload["options"]["x_label"],
+                            "payload": payload,
+                        },
+                    )
+            default = next(
+                (item for item in variants if item["field"] == scaling_field), None
             )
+            if default is not None:
+                charts.append(
+                    (
+                        "Speedup",
+                        default["payload"],
+                        {"variants": variants} if len(variants) > 1 else {},
+                    ),
+                )
         if len(runs) == 2:
             # A baseline/candidate pair wants "what changed?", which reads
             # better as one signed bar per region than as two bars a viewer
@@ -2653,12 +2778,27 @@ def _chart_sections(
         is_duration_chart = payload.get("plot") == "durations"
         chart_class = "chart chart-duration" if is_duration_chart else "chart"
         explanation = _chart_description(title, payload)
+        chart_options = dict(chart_options)
+        variants = chart_options.pop("variants", None)
+        axis_buttons = ""
+        if variants:
+            axis_buttons = (
+                f'<span class="tools-label" id="{chart_id}-axis">x-axis</span>'
+                + "".join(
+                    f'<button type="button" class="chart-axis" data-chart="{chart_id}"'
+                    f' data-axis="{position}" aria-describedby="{chart_id}-axis"'
+                    f' aria-pressed="{str(variant["payload"] is payload).lower()}">'
+                    f'{_text(variant["label"])}</button>'
+                    for position, variant in enumerate(variants)
+                )
+            )
         fragments.append(
             f'<details class="chart-panel"{" open" if index in opened else ""}>'
             '<summary><span class="chart-heading" role="heading" aria-level="3">'
             f"{_text(title)}</span></summary>{explanation}"
-            '<div class="chart-tools"><button type="button" class="chart-open"'
-            f' data-chart="{chart_id}" title="Open this chart on its own page">'
+            f'<div class="chart-tools">{axis_buttons}<button type="button"'
+            f' class="chart-open" data-chart="{chart_id}"'
+            ' title="Open this chart on its own page">'
             "Open in new tab ↗</button></div>"
             f'<div class="{chart_class}" id="{chart_id}"></div></details>',
         )
@@ -2671,6 +2811,16 @@ def _chart_sections(
                     {**chart_options, "layout": {"height": 680}}
                     if is_duration_chart
                     else chart_options
+                ),
+                **(
+                    {
+                        "variants": [
+                            {"label": variant["label"], "payload": variant["payload"]}
+                            for variant in variants
+                        ]
+                    }
+                    if variants
+                    else {}
                 ),
             },
         )
@@ -2858,6 +3008,24 @@ Plotly.newPlot(target, figure.data, layout, { responsive: true, displaylogo: fal
 for (const button of document.querySelectorAll(".chart-open")) {
   const chart = scopeProfilerCharts.find((item) => item.id === button.dataset.chart);
   if (chart) button.addEventListener("click", () => openInNewTab(chart));
+}
+// The speedup chart's x-axis buttons: each swaps in the payload computed for
+// that axis, and the description's axis name with it.
+for (const button of document.querySelectorAll(".chart-axis")) {
+  const chart = scopeProfilerCharts.find((item) => item.id === button.dataset.chart);
+  const variant = chart?.variants?.[Number(button.dataset.axis)];
+  if (!variant) continue;
+  button.addEventListener("click", () => {
+    chart.payload = variant.payload;
+    const panel = button.closest(".chart-panel");
+    for (const other of panel.querySelectorAll(".chart-axis")) {
+      other.setAttribute("aria-pressed", String(other === button));
+    }
+    for (const label of panel.querySelectorAll("[data-axis-label]")) {
+      label.textContent = variant.label;
+    }
+    draw(chart);
+  });
 }
 if (typeof globalThis.scopeProfilerOnRegionFilter === "function") {
   globalThis.scopeProfilerOnRegionFilter((terms) => { activeTerms = terms; redraw(); });
@@ -3071,6 +3239,7 @@ def create_html_report(
     charts_cdn: bool = False,
     include_charts: bool = True,
     individual_reports: bool = True,
+    speedup_x: str = "auto",
 ) -> Path:
     """Write a standalone HTML report for one or more profiling results.
 
@@ -3078,6 +3247,14 @@ def create_html_report(
     first run being the baseline; with ``individual_reports`` (the default)
     a full report for each run is also written next to it, as
     ``<stem>-<index>-<label>.html``, and linked from the comparison.
+
+    ``speedup_x`` sets the x-axis of a comparison's speedup chart: ``"ranks"``
+    (MPI ranks), ``"nodes"``, ``"threads"`` (OpenMP threads) or ``"cores"``
+    (ranks times threads). ``"auto"``, the default, uses ranks, threads, or
+    cores when both change, and draws no speedup chart when the runs differ
+    in neither. A named axis must be recorded by every run, or this raises
+    ``ValueError``. Either way, the chart has a button for every other axis
+    the runs differ in.
     """
     if isinstance(profiling_data, (ProfilingResults, str, Path)):
         profiling_data = [profiling_data]
@@ -3087,13 +3264,22 @@ def create_html_report(
     ]
     if not runs:
         raise ValueError("At least one profiling result is required.")
+    comparison = len(runs) > 1
+    # Checked before anything is written, and whether or not charts are drawn,
+    # so a run that cannot have the requested axis fails the same way always.
+    scaling_field = _check_speedup_x(runs, speedup_x) if comparison else None
     output_path = Path(filepath)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    comparison = len(runs) > 1
     charts = (
         _chart_sections(
-            runs, include, exclude, ranks, charts_cdn=charts_cdn, comparison=comparison
+            runs,
+            include,
+            exclude,
+            ranks,
+            charts_cdn=charts_cdn,
+            comparison=comparison,
+            scaling_field=scaling_field,
         )
         if include_charts
         else ""

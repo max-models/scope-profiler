@@ -927,6 +927,22 @@ class ProfilingResults:
         return self._num_ranks
 
     @property
+    def num_nodes(self) -> int | None:
+        """Number of distinct hosts the run's ranks ran on, or None if unknown.
+
+        Read from the ``num_nodes`` metadata field. Files written before it
+        was recorded still answer for a single-rank run, which can only have
+        used one node; a multi-rank run without the field returns None.
+        """
+        value = self.metadata.get("num_nodes")
+        if value is not None:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+        return 1 if self._num_ranks == 1 else None
+
+    @property
     def has_likwid(self) -> bool:
         """Whether the run recorded LIKWID hardware counter results."""
         return any(self._likwid.values())
