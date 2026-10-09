@@ -61,6 +61,9 @@
   (1000 regions: 3.6 s to 0.6 s in Chrome), each chart is drawn once on load
   instead of twice, and a chart in a collapsed panel is drawn when the panel
   opens.
+- HTML report styling: a flat theme with each section, the header and every
+  chart in an outlined white box on a grey page, the headline numbers as small
+  cards and the contents as link buttons.
 - HTML report: a single run's region durations chart comes first and starts
   unfolded, above the timeline.
 - HTML report: the region filter bar leads the page and stays at the top

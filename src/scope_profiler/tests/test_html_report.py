@@ -1309,6 +1309,7 @@ def test_filter_bar_sliders_limit_every_chart(tmp_path, monkeypatch):
     # Table headers stick below the bar rather than behind it.
     assert "top: var(--filter-bar-height, 0px)" in document
     assert '"--filter-bar-height", bar.offsetHeight + "px"' in document
+    assert ".table-scroll th { top: 0; }" in document
     # Every chart is filtered to the same regions; the timeline also hides
     # the deeper calls of the regions it keeps.
     assert 'const key = isTop ? "topN" : "maxDepth";' in document

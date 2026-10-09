@@ -182,6 +182,9 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
   justify-content: flex-end; margin: .25rem 0 -.5rem; }
 .chart-tools .chart-open { margin-left: .6rem; }
 .table-scroll { overflow-x: auto; }
+/* A scrolling wrapper is its headers' sticky frame: the page bar's offset
+   would push them down over the first row. */
+.table-scroll th { top: 0; }
 .back-to-top { text-align: right; }
 .meta-table th { background: none; position: static; vertical-align: top; white-space: nowrap;
                  width: 1%; }
@@ -283,7 +286,60 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
 .region-toast button:hover { background: #374151; }
 .region-toast .toast-close { border: 0; font-size: 1.1em; }
 
+/* Theme: a flat grey page with white boxes -- the header, each section and
+   each chart -- outlined rather than shadowed. */
+:root { --page: #f4f5f7; --surface: #fff; --line: #e3e6ea; --text: #1f2937;
+        --muted: #6b7280; --accent: #2563eb; --radius: .6rem; }
+body { background: var(--page); color: var(--text); margin-top: 0; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.filter-bar { background: var(--surface); border: 1px solid var(--line); border-top: 0;
+  border-radius: 0 0 var(--radius) var(--radius); margin: 0 0 1.25rem;
+  padding: .6rem 1rem; }
+.report-header { background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 1.1rem 1.5rem .3rem; }
+.report-header h1 { font-size: 1.6em; letter-spacing: -.01em; }
+.run-meta span + span::before { content: ""; margin: 0; }
+.run-meta { display: flex; flex-wrap: wrap; gap: .4rem; }
+.run-meta span { background: var(--page); border: 1px solid var(--line);
+  border-radius: 999px; font-size: .85em; padding: .1rem .6rem; }
+.toc { align-items: center; display: flex; flex-wrap: wrap; gap: .35rem; margin: .9rem 0; }
+.toc strong { color: var(--muted); font-size: .85em; font-weight: 600; margin-right: .3rem;
+  text-transform: uppercase; letter-spacing: .04em; }
+.toc a { background: var(--surface); border: 1px solid var(--line); border-radius: .4rem;
+  color: var(--text); font-size: .9em; margin: 0; padding: .2rem .65rem; }
+.toc a:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+section { background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); margin: 1.25rem 0; padding: .4rem 1.5rem 1rem; }
+h2 { border-bottom: 0; font-size: 1.3em; margin: .9rem 0 .6rem; padding-bottom: 0; }
+section h3 { border-top: 1px solid var(--line); margin: 1.75rem -1.5rem .75rem;
+  padding: 1.1rem 1.5rem 0; }
+.kpis { gap: .6rem; }
+.kpi { background: var(--page); border: 1px solid var(--line); border-radius: .5rem;
+  flex: 1 1 9rem; padding: .55rem .8rem; }
+.kpi-label { font-size: .75em; letter-spacing: .04em; text-transform: uppercase; }
+.kpi-value { font-size: 1.25em; }
+th { background: #f8f9fb; color: #374151; font-weight: 600; }
+th, td { border-bottom-color: var(--line); }
+.region-stats, .chart-panel, .lp-functions { border-color: var(--line); }
+.region-stats > thead > tr > th { border-bottom-color: var(--line); }
+.chart-panel { background: var(--surface); margin: .75rem 0; padding: .35rem 1.1rem; }
+.chart-panel > summary { padding: .4rem 0; }
+.chart-panel[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: .5rem; }
+.table-tools button, .chart-controls button, .chart-tools button, .region-toast button {
+  border-radius: .4rem; }
+.table-tools button, .chart-controls button, .chart-tools button {
+  border-color: #d1d5db; color: #374151; }
+.table-tools button[aria-pressed="true"], .chart-tools button[aria-pressed="true"] {
+  background: var(--accent); border-color: var(--accent); }
+.region-filter { background: var(--page); border-color: var(--line); }
+.region-filter:focus { background: var(--surface); }
+.region-limits input[type="range"] { accent-color: var(--accent); }
+.hs-fill, .bar { background: #93b4f5; }
+.back-to-top { font-size: .85em; margin: .5rem 0 0; }
+
 @media print {
+  body, section, .report-header { background: #fff; border: 0; padding: 0; }
   body { max-width: 100%; }
   .filter-bar, .chart-controls, .chart-tools, .table-tools, .back-to-top, .toc,
   .region-toast { display: none; }
