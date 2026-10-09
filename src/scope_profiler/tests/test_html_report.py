@@ -85,7 +85,7 @@ def test_report_overview_flags_hot_spot_and_imbalance(tmp_path):
 
     document = report.read_text(encoding="utf-8")
     assert '<ul class="findings">' in document
-    assert "<code>solve</code></a> is the largest bottleneck" in document
+    assert "<code>solve</code></a> is the largest hotspot" in document
     assert 'href="#run-0-region-0"' in document
     assert "unevenly distributed across" in document
     # The callout points at the load-balance section, which only MPI runs get.
@@ -173,7 +173,7 @@ def test_report_handles_an_out_of_range_rank_selection(tmp_path):
 
     document = report.read_text(encoding="utf-8")
     assert "No timed regions to summarize" in document
-    assert '<div class="bottlenecks">' not in document
+    assert '<div class="hotspots">' not in document
 
 
 def test_report_rejects_an_empty_run_list(tmp_path):
@@ -520,6 +520,122 @@ def test_comparison_of_run_sizes_shows_a_speedup_chart(tmp_path):
     assert '"metrics": ["avg"]' in document
 
 
+def _open_chart_titles(document):
+    return re.findall(
+        r'<details class="chart-panel" open>.*?aria-level="3">([^<]*)', document
+    )
+
+
+def test_comparison_of_run_sizes_shows_both_scaling_charts_by_default(tmp_path):
+    pytest.importorskip("plotly")
+    paths = _scaling_profiles(tmp_path, [1, 2, 4])
+
+    document = create_html_report(
+        paths, tmp_path / "scaling.html", individual_reports=False
+    ).read_text(encoding="utf-8")
+
+    titles = _chart_titles(document)
+    assert titles[:2] == ["Speedup", "Weak scaling"]
+    # The speedup leads; the weak-scaling chart waits, collapsed.
+    open_titles = _open_chart_titles(document)
+    assert "Speedup" in open_titles and "Weak scaling" not in open_titles
+    # Weak-scaling efficiency is the baseline's mean call over each run's.
+    # These runs split a fixed problem, so solve's 80, 40 and 20 read as an
+    # efficiency above 1: the chart says so rather than guessing the study.
+    assert '"plot": "weak_scaling_efficiency"' in document
+    for count, efficiency in ((1, 1.0), (2, 2.0), (4, 4.0)):
+        assert (
+            f'"region": "solve", "num_ranks": {count}, "efficiency": {efficiency}'
+            in document
+        )
+    # Each chart says which kind of study it is valid for.
+    assert "strong-scaling study: the same total problem size" in document
+    assert "weak-scaling study: the problem grows with the run" in document
+    assert "same problem size per rank or core" in document
+    assert "The dashed line at 1 is ideal" in document
+
+
+def test_weak_scaling_chart_reads_a_weak_scaling_study(tmp_path):
+    pytest.importorskip("plotly")
+    # The same work per rank, slowed by costs that grow with the run: solve
+    # takes 40, 50 and 80 on 1, 2 and 4 ranks.
+    paths = []
+    for count, duration in ((1, 40), (2, 50), (4, 80)):
+        path = tmp_path / f"weak{count}.h5"
+        _write_sample_h5(
+            path,
+            {rank: {"solve": ([0], [duration])} for rank in range(count)},
+        )
+        paths.append(path)
+
+    document = create_html_report(
+        paths, tmp_path / "weak.html", individual_reports=False, scaling="weak"
+    ).read_text(encoding="utf-8")
+
+    assert _chart_titles(document)[0] == "Weak scaling"
+    for count, efficiency in ((1, 1.0), (2, 0.8), (4, 0.5)):
+        assert (
+            f'"region": "solve", "num_ranks": {count}, "efficiency": {efficiency}'
+            in document
+        )
+
+
+@pytest.mark.parametrize(
+    ("scaling", "expected", "missing"),
+    [("strong", "Speedup", "Weak scaling"), ("weak", "Weak scaling", "Speedup")],
+)
+def test_report_scaling_option_selects_one_scaling_chart(
+    tmp_path, scaling, expected, missing
+):
+    pytest.importorskip("plotly")
+    paths = _scaling_profiles(tmp_path, [1, 4])
+    report = tmp_path / f"{scaling}.html"
+
+    assert (
+        cli_main(
+            [
+                "report",
+                *map(str, paths),
+                "-o",
+                str(report),
+                "--no-individual-reports",
+                "--scaling",
+                scaling,
+            ]
+        )
+        == 0
+    )
+    document = report.read_text(encoding="utf-8")
+
+    titles = _chart_titles(document)
+    assert titles[0] == expected and missing not in titles
+    # Alone, either scaling chart is the one opened.
+    assert _open_chart_titles(document)[0] == expected
+
+
+def test_report_scaling_cli_defaults_to_both(tmp_path):
+    pytest.importorskip("plotly")
+    paths = _scaling_profiles(tmp_path, [1, 2])
+    report = tmp_path / "both.html"
+
+    cli_main(["report", *map(str, paths), "-o", str(report), "--no-individual-reports"])
+
+    titles = _chart_titles(report.read_text(encoding="utf-8"))
+    assert {"Speedup", "Weak scaling"} <= set(titles)
+
+
+def test_report_scaling_option_rejects_unknown_modes(tmp_path, capsys):
+    paths = _scaling_profiles(tmp_path, [1, 2])
+
+    with pytest.raises(ValueError, match="scaling must be one of"):
+        create_html_report(paths, tmp_path / "bad.html", scaling="linear")
+    assert not (tmp_path / "bad.html").exists()
+
+    with pytest.raises(SystemExit):
+        cli_main(["report", *map(str, paths), "--scaling", "linear"])
+    assert "invalid choice" in capsys.readouterr().err
+
+
 def test_comparison_of_run_sizes_compares_time_per_rank(tmp_path):
     paths = _scaling_profiles(tmp_path, [1, 4])
 
@@ -577,12 +693,12 @@ def test_comparison_of_equal_sizes_has_no_speedup_chart(tmp_path):
     assert _scaling_value(_Run(2, {}), "total_cores") is None
 
 
-def _speedup_document(document):
-    """The speedup chart's embedded chart document."""
+def _speedup_document(document, title="Speedup"):
+    """A scaling chart's embedded chart document (the speedup by default)."""
     documents = json.loads(
         re.search(r"const scopeProfilerCharts = (.*?);\n", document).group(1)
     )
-    return next(item for item in documents if item["title"] == "Speedup")
+    return next(item for item in documents if item["title"] == title)
 
 
 def test_speedup_x_selects_the_axis_and_offers_the_others(tmp_path):
@@ -605,13 +721,24 @@ def test_speedup_x_selects_the_axis_and_offers_the_others(tmp_path):
     assert [
         variant["payload"]["options"]["x_field"] for variant in chart["variants"]
     ] == ["num_ranks", "num_nodes", "total_cores"]
-    buttons = re.findall(r'<button type="button" class="chart-axis"[^>]*>', document)
-    assert len(buttons) == 3
-    assert ['aria-pressed="true"' in button for button in buttons] == [
-        False,
-        True,
-        False,
-    ]
+    # The weak-scaling chart gets the same axes, buttons and axis label.
+    weak = _speedup_document(document, "Weak scaling")
+    assert weak["payload"]["options"]["x_field"] == "num_nodes"
+    assert [
+        variant["payload"]["options"]["x_field"] for variant in weak["variants"]
+    ] == ["num_ranks", "num_nodes", "total_cores"]
+    assert document.count("the run with the fewest <span data-axis-label>") == 2
+    for chart_document in (chart, weak):
+        buttons = re.findall(
+            r'<button type="button" class="chart-axis" '
+            rf'data-chart="{chart_document["id"]}"[^>]*>',
+            document,
+        )
+        assert ['aria-pressed="true"' in button for button in buttons] == [
+            False,
+            True,
+            False,
+        ]
     # The bundled script wires the buttons up.
     assert 'querySelectorAll(".chart-axis")' in document
 
@@ -913,8 +1040,8 @@ def test_report_region_table_headers_are_sortable_and_show_a_trend_column(tmp_pa
     assert '<svg class="spark"' in document
 
 
-def test_report_summary_names_the_bottleneck_not_its_enclosing_region(tmp_path):
-    """Rank bottlenecks by exclusive time.
+def test_report_summary_names_the_hotspot_not_its_enclosing_region(tmp_path):
+    """Rank hotspots by exclusive time.
 
     An enclosing region's total is mostly its children's, so ranking by the
     inclusive total just names whatever sits nearest the top of the call tree
@@ -937,19 +1064,19 @@ def test_report_summary_names_the_bottleneck_not_its_enclosing_region(tmp_path):
     cli_main(["report", str(profile), "-o", str(report), "--no-charts"])
 
     document = report.read_text(encoding="utf-8")
-    assert "<code>kernel</code></a> (in wrapper) is the largest bottleneck" in document
-    assert "<code>wrapper</code></a> is the largest bottleneck" not in document
+    assert "<code>kernel</code></a> (in wrapper) is the largest hotspot" in document
+    assert "<code>wrapper</code></a> is the largest hotspot" not in document
     # The wrapper's own 20 ms is a leaf of the tree too, and says so.
-    bottlenecks = document[document.index('<div class="bottlenecks">') :]
-    assert re.findall(r'<li data-region="([^"]*)"', bottlenecks) == [
+    hotspots = document[document.index('<div class="hotspots">') :]
+    assert re.findall(r'<li data-region="([^"]*)"', hotspots) == [
         "kernel",
         "wrapper",
     ]
-    assert '<strong>wrapper</strong><span class="bn-tag"' in bottlenecks
+    assert '<strong>wrapper</strong><span class="hs-tag"' in hotspots
 
 
 def test_report_summary_of_a_single_region_profile(tmp_path):
-    """One region is the bottleneck, with nothing to rank it against."""
+    """One region is the hotspot, with nothing to rank it against."""
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
     _write_sample_h5(profile, {0: {"solve": ([0], [10_000_000])}})
@@ -957,9 +1084,9 @@ def test_report_summary_of_a_single_region_profile(tmp_path):
     cli_main(["report", str(profile), "-o", str(report), "--no-charts"])
 
     document = report.read_text(encoding="utf-8")
-    assert "<code>solve</code></a> is the largest bottleneck" in document
-    assert "three largest bottlenecks" not in document
-    assert '<div class="bottlenecks">' not in document
+    assert "<code>solve</code></a> is the largest hotspot" in document
+    assert "three largest hotspots" not in document
+    assert '<div class="hotspots">' not in document
 
 
 def test_report_charts_cdn_links_the_runtime_instead_of_embedding_it(tmp_path):
@@ -1269,38 +1396,38 @@ def test_report_region_table_explicit_columns_match_the_terminal(tmp_path):
     assert 'data-parent_percent="79.0"' in loop_body
 
 
-def test_report_bottlenecks_are_the_leaves_of_the_call_tree(tmp_path):
+def test_report_hotspots_are_the_leaves_of_the_call_tree(tmp_path):
     report = create_html_report(
         _nested_results(), tmp_path / "report.html", include_charts=False
     )
     document = report.read_text(encoding="utf-8")
-    bottlenecks = document[document.index('<div class="bottlenecks">') :]
-    bottlenecks = bottlenecks[: bottlenecks.index("</ol>")]
-    names = re.findall(r'<li data-region="([^"]*)"', bottlenecks)
+    hotspots = document[document.index('<div class="hotspots">') :]
+    hotspots = hotspots[: hotspots.index("</ol>")]
+    names = re.findall(r'<li data-region="([^"]*)"', hotspots)
     # One entry per call path: solve is 3.4 s under loop and 0.6 s under
     # final. loop's 4.5 s and final's 0.2 s outside solve are their own time.
     assert names == ["loop", "solve", "scope_profiler.session", "solve", "final"]
-    assert '<span class="bn-share">45.0%</span>' in bottlenecks
-    assert '<span class="bn-share">34.0%</span>' in bottlenecks
-    assert '<span class="bn-path">in loop</span>' in bottlenecks
-    assert '<span class="bn-path">in final</span>' in bottlenecks
-    assert "3.4 s · 3 calls · 1.133 s/call" in bottlenecks
+    assert '<span class="hs-share">45.0%</span>' in hotspots
+    assert '<span class="hs-share">34.0%</span>' in hotspots
+    assert '<span class="hs-path">in loop</span>' in hotspots
+    assert '<span class="hs-path">in final</span>' in hotspots
+    assert "3.4 s · 3 calls · 1.133 s/call" in hotspots
     # The session root's own time is the time no other region covers.
-    assert "<em>outside any region</em>" in bottlenecks
-    assert 'class="bottleneck" type="button"' in bottlenecks
-    # The filter hides bottlenecks too, and the whole list once none match.
-    assert 'document.querySelectorAll(".bottlenecks")' in document
+    assert "<em>outside any region</em>" in hotspots
+    assert 'class="hotspot" type="button"' in hotspots
+    # The filter hides hotspots too, and the whole list once none match.
+    assert 'document.querySelectorAll(".hotspots")' in document
     assert 'block.querySelector("li[data-filter-region]:not([hidden])")' in document
 
 
-def test_report_bottlenecks_need_two_entries(tmp_path):
+def test_report_hotspots_need_two_entries(tmp_path):
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
     _write_sample_h5(profile, {0: {"solve": ([0], [10])}})
 
     create_html_report(profile, report, include_charts=False)
 
-    assert '<div class="bottlenecks">' not in report.read_text(encoding="utf-8")
+    assert '<div class="hotspots">' not in report.read_text(encoding="utf-8")
 
 
 def test_report_run_header_names_file_time_host_and_scale(tmp_path):
@@ -1348,8 +1475,8 @@ def test_report_flags_time_outside_every_region(tmp_path):
     assert "70% of the session" in document
     assert "is outside every region" in document
     assert '<span class="kpi-value">30%</span>' in document
-    # The session root is not a bottleneck to name.
-    assert "<code>solve</code></a> is the largest bottleneck" in document
+    # The session root is not a hotspot to name.
+    assert "<code>solve</code></a> is the largest hotspot" in document
 
 
 def test_report_does_not_guess_outside_time_without_a_call_tree(tmp_path):
@@ -1414,7 +1541,7 @@ def test_report_total_bars_are_drawn(tmp_path):
 
 
 def test_report_omits_empty_findings(tmp_path):
-    """A lone session root has no bottleneck or flag to report."""
+    """A lone session root has no hotspot or flag to report."""
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
     _write_sample_h5(profile, {0: {"scope_profiler.session": ([0], [10])}})
@@ -1423,7 +1550,7 @@ def test_report_omits_empty_findings(tmp_path):
 
     document = report.read_text(encoding="utf-8")
     assert '<ul class="findings">' not in document
-    assert '<div class="bottlenecks">' not in document
+    assert '<div class="hotspots">' not in document
     assert "In regions" not in document
     assert "scope_profiler.session" in document
 
@@ -1750,7 +1877,7 @@ def test_comparison_report_links_individual_reports(tmp_path):
     assert '<h1 id="top">base vs cand</h1>' in document
     # No per-run detail: that is what the individual reports are for.
     assert 'class="region-stats"' not in document
-    assert '<div class="bottlenecks">' not in document
+    assert '<div class="hotspots">' not in document
     individual = (tmp_path / "out" / "compare-1-cand.html").read_text(encoding="utf-8")
     assert 'class="region-stats"' in individual
     assert "scope-profiler comparison" not in individual
@@ -1948,7 +2075,7 @@ def test_report_chart_clicks_highlight_without_scrolling(tmp_path):
     )
     assert 'region, runFromPoint(chart, point, region), "toast");' in document
     assert 'else if (mode === "toast") showToast(selectedRegion, target);' in document
-    # Bottlenecks still jump to the table row: finding it is their purpose.
+    # Hotspots still jump to the table row: finding it is their purpose.
     assert 'select(button.dataset.region, button.dataset.run, "scroll");' in document
 
 

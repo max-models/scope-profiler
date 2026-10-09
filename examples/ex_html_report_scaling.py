@@ -1,11 +1,18 @@
 """
-A strong-scaling comparison in an HTML report
-=============================================
+A scaling comparison in an HTML report
+======================================
 
 This example runs the same toy solver on 1, 2 and 4 MPI ranks and writes one
 profiling file per run, ready for a comparison report. With runs of different
-rank counts, ``scope-profiler report`` opens with a speedup chart and compares
+rank counts, ``scope-profiler report`` opens with scaling charts and compares
 each region's time per rank.
+
+By default the runs are a *strong-scaling* study: one fixed domain is divided
+over the ranks, which the report's speedup chart (``--scaling strong``) reads.
+With ``--weak`` the domain grows with the rank count instead, so every rank
+has the same share -- a *weak-scaling* study, read by the report's
+weak-scaling efficiency chart (``--scaling weak``). The profiles cannot tell
+the two apart; the report shows both charts unless told which one applies.
 
 The solver has three kinds of region, so the speedup chart has something to
 tell apart:
@@ -31,6 +38,7 @@ Run::
 
     python examples/ex_html_report_scaling.py                 # 1, 2 and 4 ranks
     python examples/ex_html_report_scaling.py --ranks 1 2 4 8
+    python examples/ex_html_report_scaling.py --weak          # weak scaling
 """
 
 import argparse
@@ -43,7 +51,8 @@ from pathlib import Path
 
 OUTPUT_DIR = Path("report_example_scaling")
 NUM_STEPS = 8
-# Elements in the whole domain, divided over the ranks at every step.
+# Elements in the whole domain, divided over the ranks at every step; in a
+# weak-scaling run, the elements on each rank.
 DOMAIN_SIZE = 400_000
 
 
@@ -54,12 +63,13 @@ def busy(seconds):
         pass
 
 
-def solve(comm):
+def solve(comm, weak=False):
     from scope_profiler import ProfileManager
 
-    # This rank's share of the domain.
-    start = DOMAIN_SIZE * comm.rank // comm.size
-    stop = DOMAIN_SIZE * (comm.rank + 1) // comm.size
+    # This rank's share of the domain, which grows with the ranks when weak.
+    domain = DOMAIN_SIZE * comm.size if weak else DOMAIN_SIZE
+    start = domain * comm.rank // comm.size
+    stop = domain * (comm.rank + 1) // comm.size
     for _ in range(NUM_STEPS):
         with ProfileManager.region("timestep"):
             with ProfileManager.region("compute"):
@@ -73,17 +83,17 @@ def solve(comm):
                 comm.Barrier()
 
 
-def worker(path, label):
+def worker(path, label, weak=False):
     """One run: the solver on however many ranks this process was given."""
     from mpi4py import MPI
 
     from scope_profiler import ProfileManager
 
     with ProfileManager.session(file_path=path, label=label, verbose=False):
-        solve(MPI.COMM_WORLD)
+        solve(MPI.COMM_WORLD, weak=weak)
 
 
-def launch(rank_counts):
+def launch(rank_counts, weak=False):
     """Run this script once per rank count, each under the MPI launcher."""
     launcher = shutil.which("mpiexec") or shutil.which("mpirun")
     if launcher is None:
@@ -97,18 +107,23 @@ def launch(rank_counts):
     OUTPUT_DIR.mkdir(exist_ok=True)
     paths = []
     for count in rank_counts:
-        path = OUTPUT_DIR / f"ranks_{count}.h5"
+        path = OUTPUT_DIR / f"{'weak' if weak else 'ranks'}_{count}.h5"
         label = f"{count} rank" if count == 1 else f"{count} ranks"
         command = [launcher, *extra, "-n", str(count), sys.executable, __file__]
-        subprocess.run(command + ["--worker", str(path), label], check=True)
+        command += ["--worker", str(path), label] + (["--weak"] if weak else [])
+        subprocess.run(command, check=True)
         print(f"Wrote {path} ({label})")
         paths.append(path)
 
     files = " ".join(str(path) for path in paths)
     print("\nCompare the runs (also writes and links a report per run):")
-    print(f"  scope-profiler report {files} -o {OUTPUT_DIR / 'scaling.html'} --show")
+    study = "weak" if weak else "strong"
     print(
-        "Choose the speedup chart's x-axis with "
+        f"  scope-profiler report {files} -o {OUTPUT_DIR / 'scaling.html'} "
+        f"--scaling {study} --show"
+    )
+    print(
+        "Choose the scaling charts' x-axis with "
         "--speedup-x {auto,ranks,nodes,threads,cores}.",
     )
 
@@ -124,15 +139,20 @@ def main():
         default=[1, 2, 4],
         help="rank counts to run (default: 1 2 4)",
     )
+    parser.add_argument(
+        "--weak",
+        action="store_true",
+        help="grow the domain with the ranks: a weak-scaling study",
+    )
     # Internal: what each launched run executes.
     parser.add_argument(
         "--worker", nargs=2, metavar=("PATH", "LABEL"), help=argparse.SUPPRESS
     )
     args = parser.parse_args()
     if args.worker:
-        worker(*args.worker)
+        worker(*args.worker, weak=args.weak)
     else:
-        launch(args.ranks)
+        launch(args.ranks, weak=args.weak)
 
 
 if __name__ == "__main__":

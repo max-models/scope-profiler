@@ -3,7 +3,7 @@
 The report deliberately has no plotting dependency: it is useful on a remote
 machine immediately after a run, and can be opened locally in any browser.
 
-One run gets a full report: a summary, its bottlenecks, the region table,
+One run gets a full report: a summary, its hotspots, the region table,
 load balance across ranks, line profiles, hardware counters and charts.
 Several runs get a comparison report instead -- what changed between them --
 which links to a full report built for each run alongside it.
@@ -103,24 +103,24 @@ details { margin: .75rem 0; } summary { cursor: pointer; font-weight: 600; }
   background: #f3f4f6; }
 .table-tools button[aria-pressed="true"], .chart-tools button[aria-pressed="true"] {
   background: #1f2937; border-color: #1f2937; color: #fff; }
-.bottlenecks { margin: 1.25rem 0; }
-.bottlenecks ol { display: grid; gap: .2rem; list-style: none; margin: .5rem 0; padding: 0; }
-.bottleneck { align-items: center; background: none; border: 0; border-radius: .4rem;
+.hotspots { margin: 1.25rem 0; }
+.hotspots ol { display: grid; gap: .2rem; list-style: none; margin: .5rem 0; padding: 0; }
+.hotspot { align-items: center; background: none; border: 0; border-radius: .4rem;
               color: inherit; cursor: pointer; display: grid; font: inherit; gap: .2rem .9rem;
               grid-template-columns: 1.6rem minmax(12rem, 20rem) 1fr 4rem; padding: .3rem .5rem;
               text-align: left; width: 100%; }
-.bottleneck:hover { background: #f3f4f6; }
-.bn-rank { color: #9ca3af; font-variant-numeric: tabular-nums; text-align: right; }
-.bn-name { display: flex; flex-direction: column; min-width: 0; }
-.bn-label, .bn-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bn-bar { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
-.bn-path { color: #6b7280; font-size: .82em; }
-.bn-tag { color: #6b7280; font-size: .85em; font-weight: 400; margin-left: .3rem; }
-.bn-track { background: #f3f4f6; height: .5rem; overflow: hidden; }
-.bn-fill { background: #60a5fa; display: block; height: 100%; }
-.bn-fill.own { background: #818cf8; } .bn-fill.outside { background: #9ca3af; }
-.bn-share { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
-.bn-detail { color: #6b7280; font-size: .82em; font-variant-numeric: tabular-nums;
+.hotspot:hover { background: #f3f4f6; }
+.hs-rank { color: #9ca3af; font-variant-numeric: tabular-nums; text-align: right; }
+.hs-name { display: flex; flex-direction: column; min-width: 0; }
+.hs-label, .hs-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hs-bar { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
+.hs-path { color: #6b7280; font-size: .82em; }
+.hs-tag { color: #6b7280; font-size: .85em; font-weight: 400; margin-left: .3rem; }
+.hs-track { background: #f3f4f6; height: .5rem; overflow: hidden; }
+.hs-fill { background: #60a5fa; display: block; height: 100%; }
+.hs-fill.own { background: #818cf8; } .hs-fill.outside { background: #9ca3af; }
+.hs-share { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+.hs-detail { color: #6b7280; font-size: .82em; font-variant-numeric: tabular-nums;
              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .region-stats { border: 1px solid #d1d5db; border-collapse: separate; border-radius: .5rem;
                 border-spacing: 0; width: auto; min-width: 50%; }
@@ -245,7 +245,7 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
 .change-list { display: grid; gap: .15rem; list-style: none; margin: 0; padding: 0; }
 .change-item { align-items: center; display: grid; gap: .1rem .6rem;
                grid-template-columns: minmax(8rem, 1fr) 6rem 5.5rem; padding: .2rem .3rem; }
-.change-item .bn-name { font-size: .95em; }
+.change-item .hs-name { font-size: .95em; }
 .change-track { background: #f3f4f6; height: .5rem; overflow: hidden; }
 .change-fill { display: block; height: 100%; }
 .change-fill.faster { background: #22c55e; } .change-fill.slower { background: #ef4444; }
@@ -296,7 +296,7 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
 _SCRIPT = """
 // Region selection, shared by every view. A selection highlights the region
 // everywhere; how it moves the page depends on where it came from:
-//   "scroll": jump to the region's table row (the bottleneck list, whose
+//   "scroll": jump to the region's table row (the hotspot list, whose
 //             whole purpose is finding a region in the table);
 //   "toast":  stay put and offer the jump instead (chart clicks -- yanking
 //             the page away from the chart being explored is disorienting);
@@ -411,7 +411,7 @@ _SCRIPT = """
     });
   });
 
-  document.querySelectorAll(".bottleneck").forEach(function (button) {
+  document.querySelectorAll(".hotspot").forEach(function (button) {
     button.addEventListener("click", function () {
       select(button.dataset.region, button.dataset.run, "scroll");
     });
@@ -530,12 +530,12 @@ _SCRIPT = """
       shown += visible;
       total += filterable;
     });
-    // Every other per-region element: bottlenecks, load balance, the
+    // Every other per-region element: hotspots, load balance, the
     // comparison table.
     document.querySelectorAll("[data-filter-region]").forEach(function (item) {
       item.hidden = active.length > 0 && !matches(item.dataset.filterRegion, active);
     });
-    document.querySelectorAll(".bottlenecks").forEach(function (block) {
+    document.querySelectorAll(".hotspots").forEach(function (block) {
       block.hidden = !block.querySelector("li[data-filter-region]:not([hidden])");
     });
     if (count) {
@@ -749,9 +749,14 @@ _IMBALANCE_FLAG_PCT = 15.0
 _HOT_CALL_THRESHOLD = 1000
 _HOT_CALL_AVG_SECONDS = 1e-5
 _UNCOVERED_FLAG_PCT = 25.0
-_BOTTLENECK_COUNT = 8
+_HOTSPOT_COUNT = 8
 _SESSION = "scope_profiler.session"
 _SPEEDUP_REGIONS = 8
+# Which scaling chart(s) a comparison of run sizes shows. Nothing in a profile
+# records the problem size, so the report cannot tell a strong-scaling study
+# (fixed total problem) from a weak-scaling one (fixed problem per rank); the
+# caller says which, and by default both are drawn.
+SCALING_MODES = ("strong", "weak", "both")
 _BALANCE_ROWS = 12
 _MATRIX_REGIONS = 20
 _MATRIX_RANKS = 64
@@ -781,7 +786,7 @@ def _region_linker(region_ids):
     return region_link
 
 
-def _bottleneck_entries(rows) -> list[dict]:
+def _hotspot_entries(rows) -> list[dict]:
     """Where the time goes: the leaves of the call tree, largest first.
 
     A region's own time -- its time outside every nested region -- is a leaf
@@ -829,38 +834,38 @@ def _bottleneck_entries(rows) -> list[dict]:
     return entries
 
 
-def _bottleneck_base(rows, entries) -> float:
-    """What a bottleneck's share is a share of: the session, when recorded."""
+def _hotspot_base(rows, entries) -> float:
+    """What a hotspot's share is a share of: the session, when recorded."""
     session = _session_total(rows)
     if session and any("call_path" in row for row in rows):
         return session
     return sum(entry["time"] for entry in entries)
 
 
-def _bottleneck_label(entry) -> str:
+def _hotspot_label(entry) -> str:
     if entry["kind"] == "outside":
-        return '<span class="bn-label"><em>outside any region</em></span>'
+        return '<span class="hs-label"><em>outside any region</em></span>'
     label = f"<strong>{_text(entry['name'])}</strong>"
     if entry["kind"] == "own":
-        label += '<span class="bn-tag" title="Time in this region outside its nested regions">(own)</span>'
-    return f'<span class="bn-label">{label}</span>'
+        label += '<span class="hs-tag" title="Time in this region outside its nested regions">(own)</span>'
+    return f'<span class="hs-label">{label}</span>'
 
 
-def _bottleneck_context(entry) -> str:
+def _hotspot_context(entry) -> str:
     if not entry["context"]:
         return ""
     trail = " › ".join(_text(part) for part in entry["context"])
-    return f'<span class="bn-path">in {trail}</span>'
+    return f'<span class="hs-path">in {trail}</span>'
 
 
-def _bottlenecks_html(results, entries, base) -> str:
+def _hotspots_html(results, entries, base) -> str:
     """The largest leaves of the call tree, as a ranked bar list."""
     # A single entry has nothing to be ranked against.
     if len(entries) < 2:
         return ""
     run = _text(results.display_label)
     items = []
-    for position, entry in enumerate(entries[:_BOTTLENECK_COUNT], start=1):
+    for position, entry in enumerate(entries[:_HOTSPOT_COUNT], start=1):
         name = _text(entry["name"])
         share = 100.0 * entry["time"] / base if base else 0.0
         details = [_duration_text(entry["time"])]
@@ -875,20 +880,20 @@ def _bottlenecks_html(results, entries, base) -> str:
         title = " › ".join([*entry["context"], entry["name"]])
         items.append(
             f'<li data-region="{name}" data-filter-region="{name}">'
-            f'<button class="bottleneck" type="button" data-region="{name}"'
+            f'<button class="hotspot" type="button" data-region="{name}"'
             f' data-run="{run}" title="{_text(title)}">'
-            f'<span class="bn-rank">{position}</span>'
-            f'<span class="bn-name">{_bottleneck_label(entry)}'
-            f"{_bottleneck_context(entry)}</span>"
-            '<span class="bn-bar">'
-            f'<span class="bn-track"><span class="bn-fill {entry["kind"]}"'
+            f'<span class="hs-rank">{position}</span>'
+            f'<span class="hs-name">{_hotspot_label(entry)}'
+            f"{_hotspot_context(entry)}</span>"
+            '<span class="hs-bar">'
+            f'<span class="hs-track"><span class="hs-fill {entry["kind"]}"'
             f' style="width:{min(share, 100.0):.4g}%"></span></span>'
-            f'<span class="bn-detail">{" · ".join(details)}</span></span>'
-            f'<span class="bn-share">{share:.1f}%</span>'
+            f'<span class="hs-detail">{" · ".join(details)}</span></span>'
+            f'<span class="hs-share">{share:.1f}%</span>'
             "</button></li>"
         )
     return (
-        '<div class="bottlenecks"><h3>Bottlenecks</h3>'
+        '<div class="hotspots"><h3>Hotspots</h3>'
         '<p class="muted">The leaves of the call tree with the most time: regions '
         "without nested regions, and the <em>own</em> time parents spend outside "
         "theirs. Shares are of the session. Click one to find it in the table.</p>"
@@ -955,7 +960,7 @@ def _summary_html(results, rows, entries, base, balance, region_ids, section_id)
         share = f"{100.0 * top['time'] / base:.1f}%" if base else ""
         kpis.append(
             _kpi(
-                "Top bottleneck",
+                "Top hotspot",
                 region_link(top["name"]),
                 f"{share} of the session" if share else "",
             )
@@ -971,7 +976,7 @@ def _summary_html(results, rows, entries, base, balance, region_ids, section_id)
             0,
             (
                 "info",
-                f"{subject} is the largest bottleneck: {_duration_text(top['time'])} over "
+                f"{subject} is the largest hotspot: {_duration_text(top['time'])} over "
                 f"{_plural(top['calls'], 'call')}"
                 + (f", {share} of the session." if share else "."),
             ),
@@ -983,7 +988,7 @@ def _summary_html(results, rows, entries, base, balance, region_ids, section_id)
                 (
                     "info",
                     (
-                        f"The three largest bottlenecks account for "
+                        f"The three largest hotspots account for "
                         f"{100.0 * top_three / base:.0f}% of the session."
                     ),
                 ),
@@ -1798,7 +1803,26 @@ def _chart_description(title: str, payload: dict) -> str:
             "each run. The dashed line is ideal scaling; a region below it gains "
             f"less than its extra {field} would allow. The "
             f"{_SPEEDUP_REGIONS} regions with the most time on that first run are "
-            "shown."
+            "shown. Valid for a strong-scaling study: the same total problem size "
+            "on every run."
+        )
+    elif title == "Weak scaling":
+        # Marked so the x-axis buttons can rename it along with the chart.
+        field = (
+            "<span data-axis-label>"
+            + _text(payload.get("options", {}).get("x_label", "ranks"))
+            + "</span>"
+        )
+        text = (
+            "Each line is one region's weak-scaling efficiency: its mean call "
+            f"duration on the run with the fewest {field} divided by its "
+            "mean call duration on each run. The dashed line at 1 is ideal: the "
+            "same time per call however large the run; a region below it loses "
+            "time to costs that grow with the run, such as communication or load "
+            f"imbalance. The {_SPEEDUP_REGIONS} regions with the most time on that "
+            "first run are shown. Valid for a weak-scaling study: the problem "
+            "grows with the run, so every run has the same problem size per "
+            "rank or core."
         )
     elif title == "Rank heatmap":
         text = (
@@ -2400,7 +2424,7 @@ def _change_list_html(changes, scale, tone) -> str:
             else f"<strong>{name}</strong>"
         )
         context = (
-            f'<span class="bn-path">in {" › ".join(_text(p) for p in change["context"])}</span>'
+            f'<span class="hs-path">in {" › ".join(_text(p) for p in change["context"])}</span>'
             if change["context"]
             else ""
         )
@@ -2413,7 +2437,7 @@ def _change_list_html(changes, scale, tone) -> str:
         sign = "+" if change["delta"] > 0 else "−"
         items.append(
             f'<li class="change-item" data-filter-region="{name}">'
-            f'<span class="bn-name">{label}{context}</span>'
+            f'<span class="hs-name">{label}{context}</span>'
             f'<span class="change-track"><span class="change-fill {tone}"'
             f' style="width:{width:.3g}%"></span></span>'
             f'<span class="change-value delta-text {tone}">{sign}'
@@ -2523,7 +2547,7 @@ def _runs_table_html(runs, links) -> str:
             f"<td>{change}</td><td>{link}</td></tr>"
         )
     note = (
-        "Each run's full report -- bottlenecks, region table, timeline and "
+        "Each run's full report -- hotspots, region table, timeline and "
         "hardware counters -- is linked on the right."
         if links
         else "Build a full report for one run with "
@@ -2547,11 +2571,14 @@ def _chart_sections(
     charts_cdn: bool = False,
     comparison: bool = False,
     scaling_field: str | None = None,
+    scaling: str = "both",
 ) -> str:
     """Build embedded chart payloads for the bundled browser renderer.
 
     A comparison report keeps only the charts that compare runs; each run's
-    timeline and rank charts belong to its own report.
+    timeline and rank charts belong to its own report. ``scaling`` picks the
+    chart(s) for runs of different sizes: "strong" the speedup, "weak" the
+    weak-scaling efficiency, "both" the two of them.
     """
     try:
         from plotly.offline import get_plotlyjs
@@ -2565,6 +2592,7 @@ def _chart_sections(
             plot_likwid,
             plot_rank_heatmap,
             plot_speedup,
+            plot_weak_scaling_efficiency,
         )
     except ImportError:
         return (
@@ -2650,45 +2678,60 @@ def _chart_sections(
         elif scaling_field is not None:
             baseline_run = min(runs, key=lambda run: _scaling_value(run, scaling_field))
             # A line per region gets unreadable fast: the regions with the
-            # most time on the smallest run, which is where speedup matters.
+            # most time on the smallest run, which is where scaling matters.
             # The same regions on every axis, so switching axes keeps the lines.
             leading = sorted(
                 baseline_run.get_regions(include=include, exclude=exclude),
                 key=lambda region: -region.total_duration,
             )[:_SPEEDUP_REGIONS]
-            # One payload per axis the runs differ in; the report's buttons
-            # switch between them without recomputing anything in the browser.
-            variants = []
-            for field in _speedup_axes(runs, scaling_field):
-                payload = payload_of(
-                    "Speedup" if field == scaling_field else f"Speedup over {field}",
-                    plot_speedup,
-                    payload_dir / f"speedup-{field}.json",
-                    runs,
-                    x_field=field,
-                    include=[f"{re.escape(region.name)}$" for region in leading],
-                    exclude=exclude,
-                    ranks=ranks,
-                )
-                if payload is not None:
-                    variants.append(
-                        {
-                            "field": field,
-                            "label": payload["options"]["x_label"],
-                            "payload": payload,
-                        },
-                    )
-            default = next(
-                (item for item in variants if item["field"] == scaling_field), None
+            # One payload per axis the runs differ in, for each scaling chart;
+            # the report's buttons switch between them without recomputing
+            # anything in the browser.
+            scaling_charts = (
+                ("Speedup", plot_speedup, "speedup", ("strong", "both")),
+                (
+                    "Weak scaling",
+                    plot_weak_scaling_efficiency,
+                    "weak-scaling",
+                    ("weak", "both"),
+                ),
             )
-            if default is not None:
-                charts.append(
-                    (
-                        "Speedup",
-                        default["payload"],
-                        {"variants": variants} if len(variants) > 1 else {},
-                    ),
+            axes = _speedup_axes(runs, scaling_field)
+            for title, plotter, file_stem, modes in scaling_charts:
+                if scaling not in modes:
+                    continue
+                variants = []
+                for field in axes:
+                    payload = payload_of(
+                        title if field == scaling_field else f"{title} over {field}",
+                        plotter,
+                        payload_dir / f"{file_stem}-{field}.json",
+                        runs,
+                        x_field=field,
+                        include=[f"{re.escape(region.name)}$" for region in leading],
+                        exclude=exclude,
+                        ranks=ranks,
+                    )
+                    if payload is not None:
+                        variants.append(
+                            {
+                                "field": field,
+                                "label": payload["options"]["x_label"],
+                                "payload": payload,
+                            },
+                        )
+                default = next(
+                    (item for item in variants if item["field"] == scaling_field),
+                    None,
                 )
+                if default is not None:
+                    charts.append(
+                        (
+                            title,
+                            default["payload"],
+                            {"variants": variants} if len(variants) > 1 else {},
+                        ),
+                    )
         if len(runs) == 2:
             # A baseline/candidate pair wants "what changed?", which reads
             # better as one signed bar per region than as two bars a viewer
@@ -2709,7 +2752,7 @@ def _chart_sections(
                     ),
                 )
         if len(runs) > 1:
-            # For a single run the region table and hot spots already rank
+            # For a single run the region table and hotspots already rank
             # every region; the bars earn their space comparing runs.
             collect(
                 "Region durations",
@@ -2765,7 +2808,10 @@ def _chart_sections(
 
     # Open only the views that orient a reader; the rest wait, collapsed, for
     # a reader looking for them, rather than all competing for attention.
-    kinds = ("Speedup", "Change:", "Region durations") if comparison else ("Timeline:",)
+    # With both scaling charts, the speedup leads and the weak-scaling chart
+    # waits; asked for on its own, the weak-scaling chart leads instead.
+    lead = "Weak scaling" if scaling == "weak" else "Speedup"
+    kinds = (lead, "Change:", "Region durations") if comparison else ("Timeline:",)
     opened = {
         next(index for index, chart in enumerate(charts) if chart[0].startswith(kind))
         for kind in kinds
@@ -3009,7 +3055,7 @@ for (const button of document.querySelectorAll(".chart-open")) {
   const chart = scopeProfilerCharts.find((item) => item.id === button.dataset.chart);
   if (chart) button.addEventListener("click", () => openInNewTab(chart));
 }
-// The speedup chart's x-axis buttons: each swaps in the payload computed for
+// The scaling charts' x-axis buttons: each swaps in the payload computed for
 // that axis, and the description's axis name with it.
 for (const button of document.querySelectorAll(".chart-axis")) {
   const chart = scopeProfilerCharts.find((item) => item.id === button.dataset.chart);
@@ -3086,7 +3132,7 @@ def _report_rows(results, include, exclude, ranks, sort):
         ranks=ranks,
         sort=sort,
         # Populates each row's "exclusive" time. The table's own % column
-        # is computed from the inclusive total either way; the bottlenecks
+        # is computed from the inclusive total either way; the hotspots
         # need exclusive time to name the leaves rather than their parents.
         percentage_mode="exclusive",
     )
@@ -3113,8 +3159,8 @@ def _single_run_body(results, include, exclude, ranks, sort, columns, charts):
         row["name"]: f"{section_id}-region-{row_index}"
         for row_index, row in enumerate(rows)
     }
-    entries = _bottleneck_entries(rows)
-    base = _bottleneck_base(rows, entries)
+    entries = _hotspot_entries(rows)
+    base = _hotspot_base(rows, entries)
     balance = _rank_balance(results, rows, ranks)
     # A region on several call paths has a row per path.
     region_count = len({row["name"] for row in rows})
@@ -3124,10 +3170,10 @@ def _single_run_body(results, include, exclude, ranks, sort, columns, charts):
         + _summary_html(results, rows, entries, base, balance, region_ids, section_id)
         + "</div>"
     ]
-    bottlenecks = _bottlenecks_html(results, entries, base)
-    if bottlenecks:
-        links.append((f"{section_id}-bottlenecks", "Bottlenecks"))
-        parts.append(f'<div id="{section_id}-bottlenecks">{bottlenecks}</div>')
+    hotspots = _hotspots_html(results, entries, base)
+    if hotspots:
+        links.append((f"{section_id}-hotspots", "Hotspots"))
+        parts.append(f'<div id="{section_id}-hotspots">{hotspots}</div>')
     # Each region's line profile lives in its table row's detail.
     tabled = {row["name"] for row in rows}
     line_profiles: dict[str, list[dict]] = {}
@@ -3239,6 +3285,7 @@ def create_html_report(
     charts_cdn: bool = False,
     include_charts: bool = True,
     individual_reports: bool = True,
+    scaling: str = "both",
     speedup_x: str = "auto",
 ) -> Path:
     """Write a standalone HTML report for one or more profiling results.
@@ -3248,14 +3295,25 @@ def create_html_report(
     a full report for each run is also written next to it, as
     ``<stem>-<index>-<label>.html``, and linked from the comparison.
 
-    ``speedup_x`` sets the x-axis of a comparison's speedup chart: ``"ranks"``
+    When the compared runs differ in ranks or threads, ``scaling`` says what
+    kind of study they are, which the profiles cannot tell: ``"strong"`` (the
+    same total problem size on every run) charts each region's speedup,
+    ``"weak"`` (the same problem size per rank or core) its weak-scaling
+    efficiency, and ``"both"`` (the default) charts both.
+
+    ``speedup_x`` sets the x-axis of a comparison's scaling charts: ``"ranks"``
     (MPI ranks), ``"nodes"``, ``"threads"`` (OpenMP threads) or ``"cores"``
     (ranks times threads). ``"auto"``, the default, uses ranks, threads, or
-    cores when both change, and draws no speedup chart when the runs differ
+    cores when both change, and draws no scaling chart when the runs differ
     in neither. A named axis must be recorded by every run, or this raises
-    ``ValueError``. Either way, the chart has a button for every other axis
+    ``ValueError``. Either way, each chart has a button for every other axis
     the runs differ in.
     """
+    if scaling not in SCALING_MODES:
+        raise ValueError(
+            f"scaling must be one of {', '.join(map(repr, SCALING_MODES))}, "
+            f"not {scaling!r}.",
+        )
     if isinstance(profiling_data, (ProfilingResults, str, Path)):
         profiling_data = [profiling_data]
     runs = [
@@ -3279,6 +3337,7 @@ def create_html_report(
             ranks,
             charts_cdn=charts_cdn,
             comparison=comparison,
+            scaling=scaling,
             scaling_field=scaling_field,
         )
         if include_charts

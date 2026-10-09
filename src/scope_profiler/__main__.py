@@ -324,6 +324,7 @@ def _inspect(argv):
 def _report(argv):
     """Handle ``scope-profiler report``: write a standalone HTML summary."""
     from scope_profiler.html_report import (
+        SCALING_MODES,
         SPEEDUP_X_CHOICES,
         SpeedupAxisError,
         create_html_report,
@@ -380,6 +381,17 @@ def _report(argv):
         ),
     )
     parser.add_argument(
+        "--scaling",
+        choices=SCALING_MODES,
+        default="both",
+        help=(
+            "Scaling chart(s) when the compared runs differ in ranks or "
+            "threads: 'strong' (same total problem size; speedup), 'weak' "
+            "(same problem size per rank or core; weak-scaling efficiency), "
+            "or 'both' (default)"
+        ),
+    )
+    parser.add_argument(
         "--no-individual-reports",
         action="store_true",
         help=(
@@ -392,7 +404,7 @@ def _report(argv):
         choices=SPEEDUP_X_CHOICES,
         default="auto",
         help=(
-            "X-axis of the speedup chart when comparing runs: MPI ranks, "
+            "X-axis of the scaling charts when comparing runs: MPI ranks, "
             "nodes, OpenMP threads, or cores (ranks x threads). 'auto' "
             "(default) uses ranks, threads, or cores when both change; the "
             "report can switch to any other axis the runs differ in"
@@ -419,6 +431,7 @@ def _report(argv):
             include_charts=not args.no_charts,
             charts_cdn=args.charts_cdn,
             individual_reports=not args.no_individual_reports,
+            scaling=args.scaling,
             speedup_x=args.speedup_x,
         )
     except SpeedupAxisError as exc:
