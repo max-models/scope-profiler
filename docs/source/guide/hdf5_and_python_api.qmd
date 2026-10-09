@@ -77,7 +77,7 @@ Derived fields use lower-case names:
 | `python_version` | interpreter version |
 | `scope_profiler_version` | version of this package |
 | `working_directory` | directory the run started in |
-| `omp_num_threads`, `mpi_size`, `total_cores` | parallelism, usable as scaling-plot x-axes |
+| `omp_num_threads`, `mpi_size`, `total_cores`, `num_nodes` | parallelism, usable as scaling-plot x-axes; `num_nodes` counts the distinct hosts the ranks ran on |
 | `modules` | loaded environment modules, as a **list of strings** |
 
 Captured environment variables keep their own upper-case names and are
@@ -111,7 +111,8 @@ rank 0.
 
 By default a profiling file records only what describes the run itself:
 `timestamp`, `platform`, `chip_information`, `python_version`,
-`scope_profiler_version`, `omp_num_threads`, `mpi_size`, `total_cores`, your
+`scope_profiler_version`, `omp_num_threads`, `mpi_size`, `total_cores`,
+`num_nodes` (a count, which names no machine), your
 `label`, and the run's start and finish times. Source files are stored relative
 to the working directory (`examples/run.py`); a file outside it is stored
 relative to the `sys.path` entry it was imported from
@@ -131,7 +132,7 @@ ProfileManager.setup(file_path="run.h5", metadata_detail="full")
 | | `"minimal"` (default) | `"full"` |
 | --- | --- | --- |
 | `timestamp`, `platform`, `chip_information`, `python_version`, `scope_profiler_version` | recorded | recorded |
-| `omp_num_threads`, `mpi_size`, `total_cores` | recorded | recorded |
+| `omp_num_threads`, `mpi_size`, `total_cores`, `num_nodes` | recorded | recorded |
 | `label`, `start_time_ns`, `finalize_time_ns` | recorded | recorded |
 | `user`, `hostname`, `uname`, `working_directory`, `modules` | left out | recorded |
 | environment variables (`PATH`, `LD_LIBRARY_PATH`, `VIRTUAL_ENV`, module variables) | left out | recorded |
@@ -163,6 +164,10 @@ results = read_h5("profiling_data.h5")
 
 # Number of MPI ranks in the file
 print(results.num_ranks)
+
+# Number of nodes (distinct hosts) the ranks ran on; None for a multi-rank
+# file written before scope-profiler recorded it
+print(results.num_nodes)
 
 # Get all regions (sorted by first start time)
 for region in results.get_regions():
@@ -583,4 +588,12 @@ plot_speedup(
 The speedup plot shows one line per scope, with MPI rank count on the x-axis
 and speedup on the y-axis, derived from average per-call durations for each
 matching scope. The dashed reference line shows optimal scaling relative to
-the smallest rank count present in the inputs.
+the smallest rank count present in the inputs. `x_field="num_nodes"`,
+`"omp_num_threads"` or `"total_cores"` scales over nodes, threads, or
+ranks × threads instead.
+
+`create_html_report(runs, "scaling.html", speedup_x="nodes")` sets the
+x-axis of a comparison report's speedup chart the same way: `"auto"`
+(default), `"ranks"`, `"nodes"`, `"threads"` or `"cores"`. A named axis that
+some run did not record raises `scope_profiler.html_report.SpeedupAxisError`
+(a `ValueError`).

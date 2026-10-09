@@ -30,6 +30,10 @@ tell apart:
 The script launches the runs itself through ``mpiexec``/``mpirun`` (it needs
 an MPI installation and mpi4py), then prints the report command.
 
+The speedup chart's x-axis defaults to the rank count here. ``--speedup-x``
+picks another -- ``nodes``, ``threads`` (OpenMP) or ``cores`` (ranks times
+threads) -- and the report has a button for every axis the runs differ in.
+
 Run::
 
     python examples/ex_html_report_scaling.py                 # 1, 2 and 4 ranks
@@ -117,6 +121,10 @@ def launch(rank_counts, weak=False):
     print(
         f"  scope-profiler report {files} -o {OUTPUT_DIR / 'scaling.html'} "
         f"--scaling {study} --show"
+    )
+    print(
+        "Choose the scaling charts' x-axis with "
+        "--speedup-x {auto,ranks,nodes,threads,cores}.",
     )
 
 

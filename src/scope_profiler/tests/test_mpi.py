@@ -1,5 +1,6 @@
 import math
 import random
+import socket
 
 import pytest
 
@@ -32,6 +33,9 @@ def test_mpi():
             random_math(N)
         time.sleep(0.01)
 
+    comm = ProfileManager.get_config().comm
+    _other_hosts = [] if comm is None else comm.allgather(socket.gethostname())
+
     # The gather behind return_results is collective, so every rank asks for
     # it; only rank 0 gets the merged run back, like the output file.
     results = ProfileManager.finalize(return_results=True)
@@ -48,6 +52,10 @@ def test_mpi():
         assert results.total_time is not None
         assert results.total_time > results.time_span
         assert results.total_time == from_disk.total_time
+        # Every rank's host, counted once: the count the gather in finalize()
+        # recorded must match one taken independently here.
+        hosts = {socket.gethostname()} | set(_other_hosts)
+        assert results.num_nodes == from_disk.num_nodes == len(hosts)
     else:
         # Empty and non-root, so the output calls above are no-ops here.
         assert not results.is_root

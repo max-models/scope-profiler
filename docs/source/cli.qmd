@@ -358,6 +358,20 @@ a run gets faster.
 # Every run has the same work per rank
 scope-profiler report 'ranks_*.h5' -o weak.html --scaling weak
 ```
+
+Both scaling charts share an x-axis. `--speedup-x
+{auto,ranks,nodes,threads,cores}` chooses it: MPI ranks, nodes (the number of
+distinct hosts the ranks ran on), OpenMP threads, or cores (ranks × threads).
+`auto`, the default, is the choice described above. A named axis has to be
+recorded by every run -- files from older scope-profiler versions have no node
+count for a multi-rank run -- or the command stops with an error naming the
+runs that lack it; if every run has the same value, the report says so in
+place of the charts. Buttons above each scaling chart switch it to any other
+axis the runs differ in, without regenerating the report:
+
+```bash
+scope-profiler report nodes_*.h5 -o scaling.html --speedup-x nodes
+```
 Each chart has an **Open in new tab** button that shows it, as currently
 filtered and highlighted, on a page of its own. If a profile contains LIKWID or
 built-in Linux perf events, the report adds hardware-counter tables
@@ -519,7 +533,7 @@ scope-profiler plot perf_events perf_events_example.h5 \
 | `--bins`             | histogram  | Number of duration bins (default: 30) |
 | `--metric`           | imbalance  | Per-call duration statistic plotted per rank: any of `avg`, `min`, `max`, `total` (default: `total`) |
 | `--metric`           | likwid     | Name of the LIKWID derived metric or raw event to plot, e.g. `CPI`, `MFlops/s` |
-| `--x`                | speedup, weak_scaling, weak_scaling_efficiency, scaling_efficiency | X-axis: `num_ranks` (default), `omp_num_threads`, `total_cores`, or any other metadata field |
+| `--x`                | speedup, weak_scaling, weak_scaling_efficiency, scaling_efficiency | X-axis: `num_ranks` (default), `num_nodes`, `omp_num_threads`, `total_cores`, or any other metadata field |
 | `--work-per-rank`    | weak_scaling_efficiency | Work per rank in each file, in the order the files are given, in any unit (grid cells, particles, unknowns). Checked to be equal across the files: weak-scaling efficiency compares runs that each do the same work, so unequal values are an error rather than a misleading curve |
 
 When `-o/--output` is supplied, the CLI saves one `<name>_plot.png` per plot

@@ -154,6 +154,16 @@ def _speedup_x_value(run: ProfilingResults, x_field: str):
     if x_field == "num_ranks":
         return run.num_ranks
 
+    if x_field == "num_nodes":
+        nodes = run.num_nodes
+        if nodes is None:
+            raise ValueError(
+                f"'num_nodes' not found in metadata for {run.file_path}: older "
+                "scope-profiler versions did not record the node count of a "
+                "multi-rank run",
+            )
+        return nodes
+
     if x_field == "omp_num_threads":
         value = run.metadata.get("omp_num_threads")
         if value is None:

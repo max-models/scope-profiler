@@ -24,7 +24,7 @@ from scope_profiler.plotting_scripts.statistics import (
 )
 from scope_profiler.results import ProfilingResults
 
-_SCALING_X_FIELDS = {"num_ranks", "omp_num_threads", "total_cores"}
+_SCALING_X_FIELDS = {"num_ranks", "num_nodes", "omp_num_threads", "total_cores"}
 
 
 def _scaling_hover_texts(
@@ -61,6 +61,7 @@ def _scaling_hover_texts(
 
 _X_LABELS = {
     "num_ranks": "MPI ranks",
+    "num_nodes": "nodes",
     "omp_num_threads": "OpenMP threads",
     "total_cores": "MPI ranks × OpenMP threads",
 }

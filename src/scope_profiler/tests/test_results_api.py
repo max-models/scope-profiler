@@ -963,3 +963,27 @@ def test_merging_discards_the_exclusive_totals_stored_in_each_file(tmp_path):
     merged = merge_results(driver, read_h5(kernels_path))
     assert merged["outer"].exclusive_duration == pytest.approx(80e-9)
     assert merged["native:inner"].exclusive_duration == pytest.approx(20e-9)
+
+
+@pytest.mark.parametrize(
+    ("ranks", "metadata", "expected"),
+    [
+        # Recorded: read as written, whatever the rank count.
+        (2, {"num_nodes": 2}, 2),
+        (1, {"num_nodes": 1}, 1),
+        # Written before the node count was recorded: one rank is one node...
+        (1, None, 1),
+        # ...but nothing says how many hosts a multi-rank run spread over.
+        (3, {"mpi_size": 3}, None),
+        # An unreadable value is unknown rather than an error.
+        (2, {"num_nodes": "many"}, None),
+    ],
+)
+def test_num_nodes_falls_back_for_files_without_it(tmp_path, ranks, metadata, expected):
+    path = tmp_path / "nodes.h5"
+    _write_sample_h5(
+        path,
+        {rank: {"solve": ([0], [NS])} for rank in range(ranks)},
+        metadata=metadata,
+    )
+    assert read_h5(path).num_nodes == expected

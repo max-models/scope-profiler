@@ -323,7 +323,12 @@ def _inspect(argv):
 
 def _report(argv):
     """Handle ``scope-profiler report``: write a standalone HTML summary."""
-    from scope_profiler.html_report import SCALING_MODES, create_html_report
+    from scope_profiler.html_report import (
+        SCALING_MODES,
+        SPEEDUP_X_CHOICES,
+        SpeedupAxisError,
+        create_html_report,
+    )
     from scope_profiler.post_processing import expand_file_patterns, parse_ranks
     from scope_profiler.summary import REGION_TABLE_COLUMNS, SORT_KEYS
 
@@ -395,6 +400,17 @@ def _report(argv):
         ),
     )
     parser.add_argument(
+        "--speedup-x",
+        choices=SPEEDUP_X_CHOICES,
+        default="auto",
+        help=(
+            "X-axis of the scaling charts when comparing runs: MPI ranks, "
+            "nodes, OpenMP threads, or cores (ranks x threads). 'auto' "
+            "(default) uses ranks, threads, or cores when both change; the "
+            "report can switch to any other axis the runs differ in"
+        ),
+    )
+    parser.add_argument(
         "--show",
         action="store_true",
         help="Open the generated report in the default browser",
@@ -403,19 +419,23 @@ def _report(argv):
     ranks = None
     if args.ranks:
         ranks = sorted({rank for spec in args.ranks for rank in parse_ranks(spec)})
-    output = create_html_report(
-        expand_file_patterns(args.files, parser),
-        args.output,
-        include=args.include,
-        exclude=args.exclude,
-        ranks=ranks,
-        sort=args.sort,
-        columns=args.columns,
-        include_charts=not args.no_charts,
-        charts_cdn=args.charts_cdn,
-        individual_reports=not args.no_individual_reports,
-        scaling=args.scaling,
-    )
+    try:
+        output = create_html_report(
+            expand_file_patterns(args.files, parser),
+            args.output,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=ranks,
+            sort=args.sort,
+            columns=args.columns,
+            include_charts=not args.no_charts,
+            charts_cdn=args.charts_cdn,
+            individual_reports=not args.no_individual_reports,
+            scaling=args.scaling,
+            speedup_x=args.speedup_x,
+        )
+    except SpeedupAxisError as exc:
+        parser.error(f"--speedup-x {args.speedup_x}: {exc}")
     print(f"Report written to: {output}")
     if args.show:
         import webbrowser

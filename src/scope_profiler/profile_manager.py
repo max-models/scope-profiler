@@ -1969,6 +1969,16 @@ class ProfileManager:
         need_results = return_results or (verbose and not write_file)
         need_payload = write_file or need_results
 
+        # The node count needs every rank's host name, so it is the one
+        # metadata field gathered here rather than at setup(), which issues no
+        # collective. It runs before the LIKWID read-back below: that forks,
+        # and Open MPI does not support collectives on a forked rank. Every
+        # rank ends up with the same value, as the parallel HDF5 writer needs.
+        if need_payload and config.comm is not None:
+            from scope_profiler.metadata import count_nodes
+
+            config.metadata["num_nodes"] = count_nodes(config.comm)
+
         # 1. Copy this run's timestamps out of the live buffers. The copy is
         # both what gets written and what gets returned, so the file and the
         # in-memory results are assembled from the same bytes.
