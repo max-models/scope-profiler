@@ -11,6 +11,7 @@ from scope_profiler.plotting_scripts._utils import (
     _as_runs,
     _normalize_ranks,
     _panel_gridspec,
+    _rank_suffix,
     _region_color_map,
     _to_hex,
     _unique_labels,
@@ -168,7 +169,7 @@ def plot_imbalance(
                     # ones that rank's own summary already lists.
                     _ps._hover_summary(
                         run.get_region(region_name)[int(rank)],
-                        title=f"{region_name} (rank {int(rank)})",
+                        title=region_name + _rank_suffix(run.num_ranks, int(rank)),
                     )
                     for rank in region_ranks
                 ]

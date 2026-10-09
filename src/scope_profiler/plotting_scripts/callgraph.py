@@ -11,6 +11,7 @@ from scope_profiler.plotting_scripts._utils import (
     DEFAULT_CMAP,
     _add_pyvis_controls,
     _get_cmap_colors,
+    _rank_suffix,
     _write_csv,
     _write_json,
     _write_parquet,
@@ -387,7 +388,7 @@ def plot_callgraph(
             ),
         )
         figure.update_layout(
-            title=f"Call graph (rank {rank})",
+            title="Call graph" + _rank_suffix(profiling_data.num_ranks, rank),
             xaxis_visible=False,
             yaxis_visible=False,
         )
@@ -439,7 +440,7 @@ def plot_callgraph(
         x, y = positions[key(node)]
         label = node["name"] if compact else f"{node['name']}\n#{node['call_id']}"
         axis.text(x, y - 0.12, label, ha="center", va="top", fontsize=8)
-    axis.set_title(f"Call graph (rank {rank})")
+    axis.set_title("Call graph" + _rank_suffix(profiling_data.num_ranks, rank))
     axis.set_axis_off()
     fig.tight_layout()
     if filepath:

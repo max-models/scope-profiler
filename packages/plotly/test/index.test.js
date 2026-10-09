@@ -921,3 +921,66 @@ test("updateFigure prefers react, and falls back to newPlot without one", () => 
     /react\(\) or newPlot/,
   );
 });
+
+test("one-rank runs leave the rank out of labels", () => {
+  const interval = (file, rank, region) => ({
+    file,
+    rank,
+    region,
+    start_seconds: 0,
+    end_seconds: 1,
+  });
+  // Two runs: one with a single rank, one with two.
+  const payload = {
+    intervals: [
+      interval("serial", 0, "solve"),
+      interval("mpi", 0, "solve"),
+      interval("mpi", 1, "solve"),
+    ],
+    file_ranks: { serial: 1, mpi: 2 },
+  };
+  assert.deepEqual(buildGanttFigure(payload).layout.yaxis.ticktext, [
+    "serial / solve",
+    "mpi / solve (rank 0)",
+    "mpi / solve (rank 1)",
+  ]);
+  // Rank 0 of a multi-rank run is still named when plotted alone.
+  const alone = {
+    intervals: [interval("mpi", 0, "solve")],
+    file_ranks: { mpi: 4 },
+  };
+  assert.deepEqual(buildGanttFigure(alone).layout.yaxis.ticktext, [
+    "solve (rank 0)",
+  ]);
+
+  const call = {
+    file: "serial",
+    rank: 0,
+    call_id: 0,
+    parent_call_id: null,
+    region: "solve",
+    depth: 0,
+    start_seconds: 0,
+    end_seconds: 1,
+    inclusive_duration_seconds: 1,
+    exclusive_duration_seconds: 1,
+  };
+  const flame = buildFlameFigure({ calls: [call], file_ranks: { serial: 1 } });
+  assert.doesNotMatch(flame.data[0].hovertext.join(""), /rank/);
+  const named = buildFlameFigure({ calls: [call] });
+  assert.match(named.data[0].hovertext.join(""), /serial \/ rank 0/);
+
+  const point = {
+    file: "serial",
+    region: "kernel",
+    rank: 0,
+    performance_gflops: 2,
+    bandwidth_gbs: 1,
+    arithmetic_intensity_flops_per_byte: 2,
+  };
+  const rankText = (payload) =>
+    buildRooflineFigure(payload).data.find((item) => item.customdata)
+      .customdata[0][1];
+  assert.equal(rankText({ points: [point], file_ranks: { serial: 1 } }), "");
+  assert.equal(rankText({ points: [point] }), " (rank 0)");
+});

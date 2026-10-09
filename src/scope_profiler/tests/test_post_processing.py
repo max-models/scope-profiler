@@ -2469,3 +2469,63 @@ def test_post_processing_cli_single_plot_can_write_file(tmp_path):
 
     assert output_file.exists()
     assert output_file.stat().st_size > 0
+
+
+def test_rank_suffix_names_a_rank_only_with_others_to_tell_apart():
+    from scope_profiler.plotting_scripts._utils import _hover_region, _rank_suffix
+
+    assert _rank_suffix(1, 0) == ""
+    assert _rank_suffix(4, 0) == " (rank 0)"
+    # An unknown rank count keeps the rank, as before.
+    assert _rank_suffix(None, 2) == " (rank 2)"
+
+    class _Region:
+        name = "solve"
+
+        def __contains__(self, rank):
+            return rank == 0
+
+        def __getitem__(self, rank):
+            return f"solve on {rank}"
+
+    assert _hover_region(_Region(), [0], 1) == ("solve on 0", "solve")
+    assert _hover_region(_Region(), [0], 2) == ("solve on 0", "solve (rank 0)")
+    assert _hover_region(_Region(), [0]) == ("solve on 0", "solve (rank 0)")
+
+
+def test_plot_gantt_leaves_the_rank_out_for_a_single_rank_run(tmp_path, monkeypatch):
+    h5_path = tmp_path / "run.h5"
+    _write_sample_h5(h5_path, _sample_file_data(1, 10, 20))
+
+    class _RecordingCanvas:
+        lanes = None
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def gantt(self, tasks, *args, **kwargs):
+            _RecordingCanvas.lanes = tasks
+
+        def __getattr__(self, name):
+            return lambda *args, **kwargs: None
+
+    from scope_profiler import plotting_scripts
+
+    monkeypatch.setattr(
+        plotting_scripts, "_get_canvas", lambda: lambda *a, **kw: _RecordingCanvas()
+    )
+    monkeypatch.setattr(plotting_scripts, "_render", lambda *a, **kw: None)
+
+    data_path = tmp_path / "gantt.json"
+    plot_gantt(
+        read_h5(h5_path),
+        show=False,
+        verbose=False,
+        data_filepath=data_path,
+        data_format="json",
+    )
+
+    assert _RecordingCanvas.lanes == ["setup", "solve"]
+    # The exported data tells the browser builders the same thing.
+    payload = json.loads(data_path.read_text(encoding="utf-8"))
+    assert payload["file_ranks"] == {"run": 1}

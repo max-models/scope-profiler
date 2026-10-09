@@ -109,57 +109,49 @@ rank 0.
 
 ### Sharing a profile: what identifies you
 
-By default a profiling file records more than timings. Before you attach one to
-a bug report, commit it to a repository, or send it to a collaborator, know
-that it can contain:
+By default a profiling file records only what describes the run itself:
+`timestamp`, `platform`, `chip_information`, `python_version`,
+`scope_profiler_version`, `omp_num_threads`, `mpi_size`, `total_cores`, your
+`label`, and the run's start and finish times. Source files are stored relative
+to the working directory (`examples/run.py`); a file outside it is stored
+relative to the `sys.path` entry it was imported from
+(`struphy/feec/basis_projection_ops.py`), or by name alone if neither applies.
+So no home directory or user name ends up in the file, and a report can still
+find the source. Line profiles also store the source of each profiled function,
+so the report shows the code on any machine.
 
-- **who and where**: `user`, `hostname` (also inside `uname`) and
-  `working_directory`;
-- **your software layout**: `PATH`, `LD_LIBRARY_PATH`, `VIRTUAL_ENV`, the
-  module variables and `modules`, which list directories under your home
-  directory, project names and site-specific install paths;
-- **your job**: every `SLURM_*` / `SLURMD_*` variable, including the job name,
-  account-related fields and node names;
-- **your code's location**: the absolute path of the file and line each region
-  is defined in (also carried into the JSON and Chrome-trace exports, the HTML
-  report and `.prof` files), and of every file in the line profile;
-- **your code**: the source text of each region, but only when you turned on
-  `capture_region_source=True`;
-- **your Memray capture path**, as `memory_profile_path`, when `use_memray` is
-  on.
-
-No other environment variable is read, so secrets held in variables such as
-`AWS_SECRET_ACCESS_KEY` are never stored. Region names, `label` and the names
-you give `metadata(...)` values are yours to choose and are stored as written.
-
-To record only what describes the run itself, set `metadata_detail="minimal"`:
+For runs that stay on the machine they were recorded on, more context can help
+explain why two runs behaved differently. Opt into it with
+`metadata_detail="full"`:
 
 ```python
-ProfileManager.setup(file_path="run.h5", metadata_detail="minimal")
+ProfileManager.setup(file_path="run.h5", metadata_detail="full")
 ```
 
-| | `"full"` (default) | `"minimal"` |
+| | `"minimal"` (default) | `"full"` |
 | --- | --- | --- |
 | `timestamp`, `platform`, `chip_information`, `python_version`, `scope_profiler_version` | recorded | recorded |
 | `omp_num_threads`, `mpi_size`, `total_cores` | recorded | recorded |
 | `label`, `start_time_ns`, `finalize_time_ns` | recorded | recorded |
-| `user`, `hostname`, `uname`, `working_directory`, `modules` | recorded | **left out** |
-| environment variables and `SLURM_*` / `SLURMD_*` | recorded | **left out** |
-| `memory_profile_path` | recorded | **left out** |
-| source file of a region or line profile | full path | **file name only** |
-| region source text | only with `capture_region_source` | only with `capture_region_source` |
+| `user`, `hostname`, `uname`, `working_directory`, `modules` | left out | recorded |
+| environment variables (`PATH`, `LD_LIBRARY_PATH`, `VIRTUAL_ENV`, module variables) | left out | recorded |
+| every `SLURM_*` / `SLURMD_*` variable | left out | recorded |
+| `memory_profile_path` (with `use_memray`) | left out | recorded |
+| source file of a region or line profile | relative to the working directory or import root | absolute path |
 
-`"minimal"` still keeps everything the plotting and scaling tools use: the
-thread and rank counts are what `--x omp_num_threads` and
-`total_cores` read. What it cannot make private is what you put there
-yourself, so the source text of `capture_region_source`, region names and
-labels stay as you wrote them. It is applied when the file is recorded, so a
-file recorded with `"full"` cannot be reduced afterwards; every export,
-report and the terminal UI simply show what the file holds. The absolute path
-of the input file is the one thing the HTML report adds on its own (its
-`File:` line).
+Whatever the level, the file holds what you put there yourself: region names,
+`label` and `metadata(...)` values as you wrote them; the source text of each
+region when you turn on `capture_region_source=True`; and, when line profiling
+is on, the source lines of each line-profiled function, so a report can show
+the code without the source file. No other environment variable is read, so
+secrets held in variables such as `AWS_SECRET_ACCESS_KEY` are never stored.
 
-The same setting can go in a TOML settings file (`metadata_detail = "minimal"`
+The level is applied when the file is recorded: a `"full"` file cannot be
+reduced afterwards, and every export, report and the terminal UI show what the
+file holds. Files written by the C library's own HDF5 writer also record the
+host name.
+
+The same setting can go in a TOML settings file (`metadata_detail = "full"`
 under `[profiling]`) or in a shared `ProfilingOptions`.
 
 ## Reading data with `read_h5`

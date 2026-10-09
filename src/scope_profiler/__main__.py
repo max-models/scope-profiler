@@ -339,9 +339,9 @@ def _report(argv):
     parser.add_argument(
         "-o",
         "--output",
-        required=True,
+        default="report.html",
         metavar="PATH",
-        help="HTML file to write",
+        help="HTML file to write (default: report.html)",
     )
     parser.add_argument(
         "--include",
@@ -376,6 +376,14 @@ def _report(argv):
         ),
     )
     parser.add_argument(
+        "--no-individual-reports",
+        action="store_true",
+        help=(
+            "When comparing runs, skip the full per-run reports otherwise "
+            "written next to the comparison and linked from it"
+        ),
+    )
+    parser.add_argument(
         "--show",
         action="store_true",
         help="Open the generated report in the default browser",
@@ -394,6 +402,7 @@ def _report(argv):
         columns=args.columns,
         include_charts=not args.no_charts,
         charts_cdn=args.charts_cdn,
+        individual_reports=not args.no_individual_reports,
     )
     print(f"Report written to: {output}")
     if args.show:

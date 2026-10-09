@@ -4,6 +4,7 @@ import atexit
 import fnmatch
 import functools
 import inspect
+import linecache
 import os
 import runpy
 import site
@@ -62,6 +63,51 @@ if TYPE_CHECKING:  # imported lazily in read_results() to keep imports cheap
 _PAYLOAD_TAG = 0x5C09
 _WRITE_TOKEN_TAG = 0x5C0A
 _UNSET = object()
+
+
+# HDF5 attributes cannot exceed 64 KB; a function longer than this keeps its
+# timings but not its source.
+_MAX_STORED_SOURCE_CHARS = 60_000
+_PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+_PACKAGE_TESTS_DIR = os.path.join(_PACKAGE_DIR, "tests")
+
+
+def _relative_source_path(filename: str) -> str:
+    """``filename`` relative to the working directory or its import root.
+
+    The working directory wins; otherwise the deepest ``sys.path`` entry
+    that contains the file, which turns a site-packages or editable-install
+    path into its module path. A file under neither keeps its bare name.
+    """
+    path = os.path.abspath(filename)
+    roots = [os.getcwd()] + sorted(
+        (os.path.abspath(entry) for entry in sys.path if entry),
+        key=len,
+        reverse=True,
+    )
+    for root in roots:
+        try:
+            inside = os.path.commonpath([path, root]) == root
+        except ValueError:  # different drives on Windows
+            continue
+        if inside and path != root:
+            return os.path.relpath(path, root)
+    return os.path.basename(filename)
+
+
+def _is_package_file(filename) -> bool:
+    """Whether a source file is part of scope-profiler itself (not its tests)."""
+
+    def within(path, directory):
+        return os.path.commonpath([path, directory]) == directory
+
+    try:
+        path = os.path.abspath(str(filename))
+        return within(path, _PACKAGE_DIR) and not within(path, _PACKAGE_TESTS_DIR)
+    except ValueError:
+        return False
 
 
 class _WriteToken(NamedTuple):
@@ -476,11 +522,15 @@ class ProfileManager:
     def _recorded_path(cls, filename: str) -> str:
         """The form of a source path that is stored in the output.
 
-        ``metadata_detail="minimal"`` keeps only the file name: an absolute
-        path usually carries a user name and project directory.
+        ``metadata_detail="minimal"`` stores the path relative to the working
+        directory, or, for a file outside it, relative to the ``sys.path``
+        entry it is imported from (``struphy/feec/basis_ops.py``), and the
+        bare file name only when neither applies: an absolute path usually
+        carries a user name and project directory. A relative path still
+        lets a report read the source back, which the line profile needs.
         """
         if cls._config.metadata_detail == "minimal":
-            return os.path.basename(filename)
+            return _relative_source_path(filename)
         return filename
 
     @classmethod
@@ -1726,23 +1776,60 @@ class ProfileManager:
         # Callers may open the published path immediately after finalize().
         config.comm.Barrier()
 
+    @staticmethod
+    def _line_profile_source(record: dict) -> dict:
+        """The profiled function's source lines, to store with its timings.
+
+        Read here, from the file as it was run and before its path is
+        shortened for ``metadata_detail="minimal"``, so a report shows the
+        code on any machine and from any directory. Empty when the source is
+        unavailable or too large for an HDF5 attribute.
+        """
+        numbers = [int(number) for number in record["line_numbers"]]
+        if not numbers:
+            return {}
+        first = min(int(record["first_lineno"]), *numbers)
+        lines = [
+            linecache.getline(str(record["filename"]), number).rstrip("\n")
+            for number in range(first, max(numbers) + 1)
+        ]
+        source = "\n".join(lines)
+        if not source.strip() or len(source) > _MAX_STORED_SOURCE_CHARS:
+            return {}
+        return {"source": source, "source_first_lineno": first}
+
     @classmethod
     def _snapshot_line_profile(cls) -> list:
-        """Copy line-profiler timings into MPI/HDF5-safe plain records."""
+        """Copy line-profiler timings into MPI/HDF5-safe plain records.
+
+        scope-profiler's own frames -- the session's ``__enter__``, for one
+        -- are dropped: they say nothing about the code being profiled.
+        """
         records = []
         for region_name, region in cls.get_all_regions().items():
             if not isinstance(region, LineProfilerRegion):
                 continue
             for record in region.manual_line_records(unit=1e-9):
+                if _is_package_file(record["filename"]):
+                    continue
+                record.update(cls._line_profile_source(record))
                 record["filename"] = cls._recorded_path(record["filename"])
                 records.append({"region": region_name, **record})
             stats = region.get_stats()
             unit = float(getattr(stats, "unit", 1.0))
             for (filename, first_lineno, function), timings in stats.timings.items():
-                if not timings:
+                if not timings or _is_package_file(filename):
                     continue
+                source = cls._line_profile_source(
+                    {
+                        "filename": filename,
+                        "first_lineno": first_lineno,
+                        "line_numbers": [row[0] for row in timings],
+                    }
+                )
                 records.append(
                     {
+                        **source,
                         "region": region_name,
                         "filename": cls._recorded_path(str(filename)),
                         "function": str(function),
@@ -2445,15 +2532,14 @@ class ProfileManager:
             await time rather than charging it to the region. Per-task
             running and awaiting totals are available from
             :attr:`~scope_profiler.results.ProfilingResults.tasks`.
-        metadata_detail : {"full", "minimal"}, optional
+        metadata_detail : {"minimal", "full"}, optional
             How much of the run's environment is recorded (default:
-            ``"full"``). ``"minimal"`` leaves the user name, host name,
-            working directory, loaded modules, environment variables and
-            ``SLURM_*`` variables out of the run metadata, and stores only
-            the file name of each region's and line profile's source file.
-            Use it for files that will be shared outside the machine or
-            project they were recorded on. Region source *text* is
-            controlled separately by ``capture_region_source``.
+            ``"minimal"``): versions, platform, CPU model and thread/rank
+            counts, with source files relative to the working directory.
+            ``"full"`` adds the user name, host name, working directory,
+            loaded modules, environment variables, ``SLURM_*`` variables
+            and absolute source paths. Region source *text* is controlled
+            separately by ``capture_region_source``.
         capture_region_source : bool, optional
             Record where each region is defined -- the ``with`` block or the
             decorated function -- once per distinct source file, the first

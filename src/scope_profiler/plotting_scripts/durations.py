@@ -102,7 +102,7 @@ def _duration_bar_hover(
     """
     heading = bar_name if run_label is None else f"{bar_name} - {run_label}"
     if len(members) == 1:
-        region, title = _hover_region(run.get_region(members[0]), ranks)
+        region, title = _hover_region(run.get_region(members[0]), ranks, run.num_ranks)
         if run_label is not None:
             title = f"{title} - {run_label}"
         return _ps._hover_summary(region, title=title, extra=extra)

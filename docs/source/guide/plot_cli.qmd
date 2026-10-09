@@ -396,7 +396,9 @@ run_2,0,timestep,0.039737417,0.106206750
 
 `--format json` writes JSON instead, including a `colors` map
 matching the colors used in the plots, so a re-rendered chart keeps the same
-region colors:
+region colors. Gantt, flame and roofline data also carry `file_ranks`, each
+run's rank count: plots name a rank -- `solve (rank 0)` -- only for a run with
+more than one, and the `@scope-profiler/plotly` builders follow the same rule.
 
 ```bash
 scope-profiler export plot-data run_2.h5 -o data --format json

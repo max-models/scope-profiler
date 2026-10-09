@@ -84,10 +84,13 @@ def test_report_overview_flags_hot_spot_and_imbalance(tmp_path):
     cli_main(["report", str(profile), "-o", str(report)])
 
     document = report.read_text(encoding="utf-8")
-    assert '<div class="overview">' in document
-    assert "<code>solve</code></a> dominates the recorded time" in document
+    assert '<ul class="findings">' in document
+    assert "<code>solve</code></a> is the largest bottleneck" in document
     assert 'href="#run-0-region-0"' in document
     assert "unevenly distributed across" in document
+    # The callout points at the load-balance section, which only MPI runs get.
+    assert 'href="#run-0-balance">load balance</a>' in document
+    assert '<div id="run-0-balance"><h3>Load balance</h3>' in document
     assert "Rank imbalance" in document
     assert "Points far from the mean identify stragglers." in document
 
@@ -101,7 +104,9 @@ def test_report_navigation_links_to_runs_regions_and_chart_controls(tmp_path):
 
     document = report.read_text(encoding="utf-8")
     assert '<nav class="toc" aria-label="Report contents">' in document
-    assert '<a href="#run-0">profile</a>' in document
+    assert '<a href="#run-0-summary">Summary</a>' in document
+    assert '<a href="#run-0-table">Region statistics</a>' in document
+    assert '<h1 id="top">profile</h1>' in document
     assert '<a href="#charts">Charts</a>' in document
     assert 'id="run-0-region-0"' in document
     assert 'href="#run-0-region-' in document
@@ -168,7 +173,7 @@ def test_report_handles_an_out_of_range_rank_selection(tmp_path):
 
     document = report.read_text(encoding="utf-8")
     assert "No timed regions to summarize" in document
-    assert "Hot spots" not in document
+    assert '<div class="bottlenecks">' not in document
 
 
 def test_report_rejects_an_empty_run_list(tmp_path):
@@ -335,8 +340,9 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
 
     document = report.read_text(encoding="utf-8")
     assert "Timeline: profile" in document
-    assert "Flame chart: profile" in document
-    assert "Flame graph: profile" in document
+    # The flame views are left out of reports for now.
+    assert "Flame chart" not in document
+    assert "Flame graph" not in document
     # One run on one rank, each region entered once: the durations bars would
     # repeat the table, the rank views have one rank to show and there are no
     # repeated calls to follow over time. The call graph repeats the tree.
@@ -354,21 +360,20 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
     # The timeline labels every row with its region; its legend is redundant.
     assert '"options": {"layout": {"showlegend": false}}' in document
     assert "Each bar is one recorded region call on rank 0." in document
-    assert "Each frame is one recorded call on the selected ranks." in document
-    assert "Repeated calls with the same call path are combined." in document
-    # Only the timeline and the flame graph start open.
+    # The timeline starts open.
     panels = re.findall(
         r'<details class="chart-panel"( open)?>.*?aria-level="3">([^<]*)', document
     )
     assert [title for is_open, title in panels if is_open] == [
-        "Timeline: profile (rank 0)",
-        "Flame graph: profile",
+        "Timeline: profile",
     ]
-    assert [title for is_open, title in panels if not is_open] == [
-        "Flame chart: profile"
-    ]
+    assert [title for is_open, title in panels if not is_open] == []
     assert 'data-chart-action="expand"' in document
     assert 'data-chart-action="collapse"' in document
+    # Every chart can be opened on a page of its own.
+    assert document.count('class="chart-open" data-chart="scope-profiler-chart-') == 1
+    assert "const openInNewTab = (chart) =>" in document
+    assert '<script id="scope-profiler-plotly-runtime">' in document
     assert "plotly.js" in document
     assert "<script src=" not in document
     assert 'import("https://' not in document
@@ -441,28 +446,128 @@ def test_single_run_report_leaves_region_durations_to_the_table(tmp_path, monkey
     assert "Region durations" not in report.read_text(encoding="utf-8")
 
 
-def test_duration_over_time_follows_only_repeated_regions(tmp_path, monkeypatch):
+def test_reports_leave_out_duration_over_time(tmp_path, monkeypatch):
     profile = tmp_path / "profile.h5"
-    report = tmp_path / "report.html"
     starts = np.array([30, 40, 50])
     _write_sample_h5(profile, {0: {"setup": ([0], [10]), "step": (starts, starts + 5)}})
 
     from scope_profiler import plotting_scripts
 
-    captured = {}
+    def unexpected(*args, **kwargs):
+        raise AssertionError("duration over time is not part of reports")
 
-    def fake_timeseries(*args, data_filepath, include, **kwargs):
-        captured["include"] = include
-        Path(data_filepath).write_text(
-            json.dumps({"plot": "timeseries", "points": []}), encoding="utf-8"
+    monkeypatch.setattr(plotting_scripts, "plot_duration_timeseries", unexpected)
+
+    single = create_html_report(profile, tmp_path / "single.html")
+    both = create_html_report(
+        [profile, profile], tmp_path / "both.html", individual_reports=False
+    )
+    for report in (single, both):
+        assert "Duration over time" not in report.read_text(encoding="utf-8")
+
+
+def _scaling_profiles(tmp_path, rank_counts, threads=None):
+    """One profile per rank count: solve's work split over the ranks."""
+    paths = []
+    for index, count in enumerate(rank_counts):
+        path = tmp_path / f"r{index}.h5"
+        metadata = {"omp_num_threads": threads[index]} if threads else None
+        _write_sample_h5(
+            path,
+            {
+                rank: {"setup": ([0], [10]), "solve": ([20], [20 + 80 // count])}
+                for rank in range(count)
+            },
+            metadata=metadata,
         )
+        paths.append(path)
+    return paths
 
-    monkeypatch.setattr(plotting_scripts, "plot_duration_timeseries", fake_timeseries)
 
-    create_html_report(profile, report)
+def _chart_titles(document):
+    return re.findall(
+        r'<details class="chart-panel"(?: open)?>.*?aria-level="3">([^<]*)', document
+    )
 
-    assert captured["include"] == ["step$"]
-    assert "called at least 3 times" in report.read_text(encoding="utf-8")
+
+def test_comparison_of_run_sizes_shows_a_speedup_chart(tmp_path):
+    pytest.importorskip("plotly")
+    paths = _scaling_profiles(tmp_path, [1, 2, 4])
+
+    report = create_html_report(
+        paths, tmp_path / "scaling.html", individual_reports=False
+    )
+    document = report.read_text(encoding="utf-8")
+
+    titles = _chart_titles(document)
+    assert titles[0] == "Speedup"
+    assert (
+        '<details class="chart-panel" open><summary><span class="chart-heading"'
+        ' role="heading" aria-level="3">Speedup' in document
+    )
+    assert '"plot": "speedup"' in document and '"x_field": "num_ranks"' in document
+    assert "the run with the fewest MPI ranks" in document
+    # Across run sizes, the durations bars show a call, not a sum over ranks.
+    assert "each region&#x27;s mean call duration" in document or (
+        "each region's mean call duration" in document
+    )
+    assert '"metrics": ["avg"]' in document
+
+
+def test_comparison_of_run_sizes_compares_time_per_rank(tmp_path):
+    paths = _scaling_profiles(tmp_path, [1, 4])
+
+    report = create_html_report(
+        paths, tmp_path / "scaling.html", include_charts=False, individual_reports=False
+    )
+    document = report.read_text(encoding="utf-8")
+    table = document[document.index('<table class="compare-table metric-total"') :]
+    table = table[: table.index("</table>")]
+    # solve: 80 on one rank, 20 on each of four -- per rank, 4x faster; summed
+    # over the ranks it would read as unchanged.
+    solve = table[table.index('data-region="solve"') :]
+    solve = solve[: solve.index("</tr>")]
+    assert '<span class="delta-text">−75.0%</span>' in solve
+    assert "total and own times are per rank" in document
+
+
+def test_comparison_of_thread_counts_scales_over_threads(tmp_path):
+    pytest.importorskip("plotly")
+    threads_only = _scaling_profiles(tmp_path, [1, 1], threads=[1, 4])
+    document = create_html_report(
+        threads_only, tmp_path / "threads.html", individual_reports=False
+    ).read_text(encoding="utf-8")
+    assert '"x_field": "omp_num_threads"' in document
+    assert "<th>threads</th>" in document
+
+    both = _scaling_profiles(tmp_path, [1, 2], threads=[1, 4])
+    document = create_html_report(
+        both, tmp_path / "both.html", individual_reports=False
+    ).read_text(encoding="utf-8")
+    assert '"x_field": "total_cores"' in document
+
+
+def test_comparison_of_equal_sizes_has_no_speedup_chart(tmp_path):
+    from scope_profiler.html_report import _scaling_field, _scaling_value, _threads
+
+    pytest.importorskip("plotly")
+    paths = _scaling_profiles(tmp_path, [2, 2])
+    document = create_html_report(
+        paths, tmp_path / "same.html", individual_reports=False
+    ).read_text(encoding="utf-8")
+    assert "Speedup" not in _chart_titles(document)
+    assert "<th>threads</th>" not in document
+    assert '"metrics": ["total"]' in document
+
+    class _Run:
+        def __init__(self, num_ranks, metadata):
+            self.num_ranks, self.metadata = num_ranks, metadata
+
+    # Unrecorded or unreadable thread counts do not count as different.
+    assert _threads(_Run(1, {"omp_num_threads": "x"})) is None
+    assert _scaling_field([_Run(1, {}), _Run(1, {"omp_num_threads": 4})]) is None
+    assert _scaling_value(_Run(2, {"omp_num_threads": 3}), "total_cores") == 6
+    assert _scaling_value(_Run(2, {}), "omp_num_threads") == 1
 
 
 def test_region_durations_compare_multiple_runs_without_stacking(tmp_path, monkeypatch):
@@ -645,8 +750,8 @@ def test_report_region_table_headers_are_sortable_and_show_a_trend_column(tmp_pa
     assert '<svg class="spark"' in document
 
 
-def test_report_overview_names_the_hot_spot_not_its_enclosing_region(tmp_path):
-    """Rank the hot spot by exclusive time.
+def test_report_summary_names_the_bottleneck_not_its_enclosing_region(tmp_path):
+    """Rank bottlenecks by exclusive time.
 
     An enclosing region's total is mostly its children's, so ranking by the
     inclusive total just names whatever sits nearest the top of the call tree
@@ -669,16 +774,19 @@ def test_report_overview_names_the_hot_spot_not_its_enclosing_region(tmp_path):
     cli_main(["report", str(profile), "-o", str(report), "--no-charts"])
 
     document = report.read_text(encoding="utf-8")
-    assert "<code>kernel</code></a> dominates the recorded time" in document
-    assert "in the region itself, excluding nested regions" in document
-    assert "<code>wrapper</code></a> dominates" not in document
-    # ...and say why the region at the top of the table is not the one named.
-    assert "<code>wrapper</code></a> has the largest total" in document
-    assert "is spent in the regions nested inside it" in document
+    assert "<code>kernel</code></a> (in wrapper) is the largest bottleneck" in document
+    assert "<code>wrapper</code></a> is the largest bottleneck" not in document
+    # The wrapper's own 20 ms is a leaf of the tree too, and says so.
+    bottlenecks = document[document.index('<div class="bottlenecks">') :]
+    assert re.findall(r'<li data-region="([^"]*)"', bottlenecks) == [
+        "kernel",
+        "wrapper",
+    ]
+    assert '<strong>wrapper</strong><span class="bn-tag"' in bottlenecks
 
 
-def test_report_overview_omits_the_nesting_note_for_a_flat_profile(tmp_path):
-    """One region cannot be both the hot spot and a misleading wrapper."""
+def test_report_summary_of_a_single_region_profile(tmp_path):
+    """One region is the bottleneck, with nothing to rank it against."""
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
     _write_sample_h5(profile, {0: {"solve": ([0], [10_000_000])}})
@@ -686,8 +794,9 @@ def test_report_overview_omits_the_nesting_note_for_a_flat_profile(tmp_path):
     cli_main(["report", str(profile), "-o", str(report), "--no-charts"])
 
     document = report.read_text(encoding="utf-8")
-    assert "<code>solve</code></a> dominates the recorded time" in document
-    assert "has the largest total" not in document
+    assert "<code>solve</code></a> is the largest bottleneck" in document
+    assert "three largest bottlenecks" not in document
+    assert '<div class="bottlenecks">' not in document
 
 
 def test_report_charts_cdn_links_the_runtime_instead_of_embedding_it(tmp_path):
@@ -863,8 +972,13 @@ def test_report_line_profile_section_only_appears_when_recorded(tmp_path):
     with_doc = report_with.read_text(encoding="utf-8")
     without_doc = report_without.read_text(encoding="utf-8")
     assert "Line profile" in with_doc
-    assert "solve (app.py:10)" in with_doc
-    assert "28.57" in with_doc
+    assert '<span class="lp-func">solve</span>' in with_doc
+    assert 'title="app.py">app.py:10</span>' in with_doc
+    assert "28.57%" in with_doc
+    # Without the source file, only the timed lines are listed; the slower
+    # of the two is marked.
+    assert '<tr class="lp-hot"><td class="lp-lineno">12</td>' in with_doc
+    assert '<tr class="lp-idle">' not in with_doc
     assert "Line profile" not in without_doc
 
 
@@ -992,33 +1106,38 @@ def test_report_region_table_explicit_columns_match_the_terminal(tmp_path):
     assert 'data-parent_percent="79.0"' in loop_body
 
 
-def test_report_hot_spots_rank_own_time_over_every_call_path(tmp_path):
+def test_report_bottlenecks_are_the_leaves_of_the_call_tree(tmp_path):
     report = create_html_report(
         _nested_results(), tmp_path / "report.html", include_charts=False
     )
     document = report.read_text(encoding="utf-8")
-    hotspots = document[document.index('<div class="hotspots">') :]
-    hotspots = hotspots[: hotspots.index("</ol>")]
-    names = re.findall(r'<li data-region="([^"]*)">', hotspots)
-    # solve runs 3.4 s under loop and 0.6 s under final: 4.0 s in all.
-    assert names == ["loop", "solve", "scope_profiler.session", "final"]
-    assert "4.000000 s · 40.0%" in hotspots
+    bottlenecks = document[document.index('<div class="bottlenecks">') :]
+    bottlenecks = bottlenecks[: bottlenecks.index("</ol>")]
+    names = re.findall(r'<li data-region="([^"]*)"', bottlenecks)
+    # One entry per call path: solve is 3.4 s under loop and 0.6 s under
+    # final. loop's 4.5 s and final's 0.2 s outside solve are their own time.
+    assert names == ["loop", "solve", "scope_profiler.session", "solve", "final"]
+    assert '<span class="bn-share">45.0%</span>' in bottlenecks
+    assert '<span class="bn-share">34.0%</span>' in bottlenecks
+    assert '<span class="bn-path">in loop</span>' in bottlenecks
+    assert '<span class="bn-path">in final</span>' in bottlenecks
+    assert "3.4 s · 3 calls · 1.133 s/call" in bottlenecks
     # The session root's own time is the time no other region covers.
-    assert "<em>outside any region</em>" in hotspots
-    assert 'class="hotspot" type="button"' in hotspots
-    # The filter hides hot spots too, and the whole list once none match.
-    assert 'document.querySelectorAll(".hotspots")' in document
-    assert "block.hidden = shown === 0;" in document
+    assert "<em>outside any region</em>" in bottlenecks
+    assert 'class="bottleneck" type="button"' in bottlenecks
+    # The filter hides bottlenecks too, and the whole list once none match.
+    assert 'document.querySelectorAll(".bottlenecks")' in document
+    assert 'block.querySelector("li[data-filter-region]:not([hidden])")' in document
 
 
-def test_report_hot_spots_need_two_regions(tmp_path):
+def test_report_bottlenecks_need_two_entries(tmp_path):
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
     _write_sample_h5(profile, {0: {"solve": ([0], [10])}})
 
     create_html_report(profile, report, include_charts=False)
 
-    assert '<div class="hotspots">' not in report.read_text(encoding="utf-8")
+    assert '<div class="bottlenecks">' not in report.read_text(encoding="utf-8")
 
 
 def test_report_run_header_names_file_time_host_and_scale(tmp_path):
@@ -1065,9 +1184,9 @@ def test_report_flags_time_outside_every_region(tmp_path):
     document = report.read_text(encoding="utf-8")
     assert "70% of the session" in document
     assert "is outside every region" in document
-    # The session root is neither the hot spot nor the "largest total".
-    assert "<code>solve</code></a> dominates the recorded time" in document
-    assert "has the largest total" not in document
+    assert '<span class="kpi-value">30%</span>' in document
+    # The session root is not a bottleneck to name.
+    assert "<code>solve</code></a> is the largest bottleneck" in document
 
 
 def test_report_does_not_guess_outside_time_without_a_call_tree(tmp_path):
@@ -1112,11 +1231,12 @@ def test_report_change_chart_uses_the_comparison_builder(tmp_path):
     panels = re.findall(
         r'<details class="chart-panel"( open)?>.*?aria-level="3">([^<]*)', document
     )
+    # A comparison keeps only the charts that compare runs.
     assert [title for is_open, title in panels if is_open] == [
-        "Timeline: baseline (rank 0)",
         "Change: candidate vs baseline",
-        "Flame graph: baseline",
+        "Region durations",
     ]
+    assert "Timeline:" not in document and "Flame graph:" not in document
 
 
 def test_report_total_bars_are_drawn(tmp_path):
@@ -1130,8 +1250,8 @@ def test_report_total_bars_are_drawn(tmp_path):
     assert '<span class="bar" style="width:100%"></span>' in document
 
 
-def test_report_omits_an_empty_overview(tmp_path):
-    """A lone session root has no hot spot, wrapper or flag to report."""
+def test_report_omits_empty_findings(tmp_path):
+    """A lone session root has no bottleneck or flag to report."""
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
     _write_sample_h5(profile, {0: {"scope_profiler.session": ([0], [10])}})
@@ -1139,6 +1259,865 @@ def test_report_omits_an_empty_overview(tmp_path):
     create_html_report(profile, report, include_charts=False)
 
     document = report.read_text(encoding="utf-8")
-    assert '<div class="overview">' not in document
-    assert '<div class="hotspots">' not in document
+    assert '<ul class="findings">' not in document
+    assert '<div class="bottlenecks">' not in document
+    assert "In regions" not in document
     assert "scope_profiler.session" in document
+
+
+def _ranked_results(rank_work, file_path="run.h5", extra_regions=0, num_ranks=None):
+    """A session per rank: ``work`` for a rank-dependent time, then ``wait``.
+
+    Every rank finishes at 100, so whatever ``work`` does not take, ``wait``
+    does -- the shape of ranks meeting at a barrier.
+    """
+    from scope_profiler import MPIRegion, Region
+
+    ranks = range(len(rank_work))
+    scale = 10_000_000
+
+    def region(name, spans):
+        return MPIRegion(
+            name,
+            {
+                rank: Region(
+                    np.array([start for start, _ in spans[rank]]) * scale,
+                    np.array([end for _, end in spans[rank]]) * scale,
+                )
+                for rank in ranks
+            },
+        )
+
+    regions = {
+        "scope_profiler.session": region(
+            "scope_profiler.session", {rank: [(0, 100)] for rank in ranks}
+        ),
+        "work": region(
+            "work", {rank: [(0, 10 + w)] for rank, w in enumerate(rank_work)}
+        ),
+        "wait": region(
+            "wait", {rank: [(10 + w, 100)] for rank, w in enumerate(rank_work)}
+        ),
+    }
+    for index in range(extra_regions):
+        # Nested in work's first 10 units, one unit each, the same on every rank.
+        regions[f"extra{index}"] = region(
+            f"extra{index}",
+            {rank: [(index * 0.5, index * 0.5 + 0.4)] for rank in ranks},
+        )
+    return ProfilingResults(regions, file_path=file_path, num_ranks=num_ranks)
+
+
+def test_duration_text_picks_a_short_unit():
+    from scope_profiler.html_report import _duration_text, _signed_pct
+
+    assert _duration_text(None) == "-"
+    assert _duration_text(0) == "0 s"
+    assert _duration_text(5e-10) == "0.5 ns"
+    assert _duration_text(2.5e-5) == "25 µs"
+    assert _duration_text(0.0512) == "51.2 ms"
+    assert _duration_text(12.3456) == "12.35 s"
+    assert _duration_text(12345.6) == "12,346 s"
+    assert _signed_pct(-12.34) == "−12.3%"
+    assert _signed_pct(5) == "+5.0%"
+
+
+def test_line_profile_shows_the_function_source_dedented(tmp_path):
+    from scope_profiler import MPIRegion, Region
+
+    source = tmp_path / "app.py"
+    source.write_text(
+        "class Solver:\n"
+        "    def solve(self, n):\n"
+        "        # sum the squares\n"
+        "        total = 0\n"
+        "        for i in range(n):\n"
+        "            total += i * i\n"
+        "        return total\n",
+        encoding="utf-8",
+    )
+
+    def record(times, rank_scale=1):
+        return {
+            "region": "solve",
+            "filename": str(source),
+            "function": "solve",
+            "first_lineno": 2,
+            "line_numbers": np.asarray([4, 5, 6, 7]),
+            "hits": np.asarray([1, 11, 10, 1]) * rank_scale,
+            "times": np.asarray(times, dtype=float),
+            "unit": 1e-6,
+        }
+
+    helper = {
+        "region": "setup",
+        "filename": str(source),
+        "function": "helper",
+        "first_lineno": 1,
+        "line_numbers": np.asarray([1]),
+        "hits": np.asarray([1]),
+        "times": np.asarray([1.0]),
+        "unit": 1e-6,
+    }
+    # The session's own frame is scope-profiler code, not the user's.
+    own_frame = {
+        **helper,
+        "filename": str(Path(__file__).parents[1] / "profile_manager.py"),
+    }
+    results = ProfilingResults(
+        {
+            "solve": MPIRegion(
+                "solve",
+                {
+                    0: Region(np.array([0]), np.array([1])),
+                    1: Region(np.array([0]), np.array([1])),
+                },
+            )
+        },
+        line_profile={
+            0: [record([1, 10, 80, 9]), own_frame],
+            1: [record([1, 10, 80, 9]), helper],
+        },
+    )
+
+    report = create_html_report(results, tmp_path / "report.html", include_charts=False)
+    document = report.read_text(encoding="utf-8")
+
+    assert "profile_manager.py" not in document
+    # solve's line profile is in its table row's detail.
+    body = document[document.index('<tbody data-region="solve"') :]
+    # The row's own tbody ends where the next region's begins.
+    body = body[: body.index('<tbody class="region-empty"')]
+    assert (
+        '<div class="lp-block"><p class="lp-head"><span class="lp-func">solve' in body
+    )
+    assert 'id="run-0-regions-0-lp-0"' in body
+    # Ranks are summed.
+    assert "2 ranks" in body and "200 µs" in body
+    # The function reads as written: unrecorded lines included, the common
+    # indentation stripped, nested indentation kept.
+    assert (
+        '<td class="lp-src"><span class="tk-kw">def</span> '
+        '<span class="tk-fn">solve</span>(<span class="tk-self">self</span>, n):</td>'
+        in body
+    )
+    assert '<tr class="lp-idle"><td class="lp-lineno">3</td>' in body
+    assert (
+        '<td class="lp-src">    <span class="tk-com"># sum the squares</span></td>'
+        in body
+    )
+    assert '<td class="lp-src">        total += i * i</td>' in body
+    assert '<tr class="lp-hot"><td class="lp-lineno">6</td>' in body
+    assert "<td>22</td>" in body and 'style="--pct:80%">80.00%</td>' in body
+    assert "Click a row for its call site, line profile and per-rank" in document
+
+    # helper's region is not in the table, so it is listed on its own,
+    # collapsed to one row with its share of the time.
+    section = document[document.index('id="run-0-lines"') :]
+    assert '<a href="#run-0-lines">Line profile</a>' in document
+    assert 'lp-func">solve' not in section
+    assert (
+        '<details class="lp-function"><summary><span class="lp-func">helper' in section
+    )
+    assert " open>" not in section
+    assert '<span class="lp-share">100%</span>' in section
+
+
+def test_report_balance_sections_compare_ranks(tmp_path):
+    results = _ranked_results([10, 10, 10, 30])
+    report = create_html_report(results, tmp_path / "report.html", include_charts=False)
+    document = report.read_text(encoding="utf-8")
+
+    balance = document[document.index('<div id="run-0-balance">') :]
+    table = balance[: balance.index("</table>")]
+    # work: 20, 20, 20, 40 -> mean 25, excess 15; wait mirrors it, excess 5.
+    assert re.findall(r'<tr class="select-row" data-region="([^"]*)"', table) == [
+        "work",
+        "wait",
+    ]
+    assert "<td>250 ms</td><td>200 ms</td><td>400 ms</td><td>3</td>" in table
+    assert '<td class="flag">+60%</td><td>150 ms</td>' in table
+    assert "excluding nested regions" in balance
+    # Each rank against the region mean; rank 3 does more work but the ranks
+    # wait for each other, so none is slowest overall.
+    matrix = balance[balance.index('<table class="rank-matrix">') :]
+    assert '<td class="heat" style="background:rgba(220,38,38,0.55)"' in matrix
+    assert "rank 3: 400 ms (+60.0% vs mean)" in matrix
+    assert '<th class="slowest"' not in matrix
+    assert "the differences above are ranks waiting for each other" in balance
+    assert "Rank 3 is the slowest rank" not in document
+    assert 'data-show-all="' not in document
+    # The summary reports the worst region's imbalance.
+    assert '<span class="kpi-label">Load imbalance</span>' in document
+    assert "work, slowest on rank 3" in document
+    assert "rank 3 spends 60% more time in it" in document
+
+
+def test_report_balance_names_a_slowest_rank_and_trims_large_runs(tmp_path):
+    from scope_profiler.html_report import (
+        _MATRIX_RANKS,
+        _rank_balance,
+        _rank_matrix_html,
+    )
+
+    # 30 regions and 70 ranks: more than the tables show.
+    results = _ranked_results([0] * 69 + [20], extra_regions=28)
+    report = create_html_report(results, tmp_path / "report.html", include_charts=False)
+    document = report.read_text(encoding="utf-8")
+    assert 'data-show-all="run-0-balance-table"' in document
+    assert '<tr class="select-row extra"' in document
+    assert "The 20 regions with the most time per rank are shown." in document
+    assert f"The first {_MATRIX_RANKS} of 70 ranks are shown" in document
+    assert '<table class="rank-matrix compact">' in document
+
+    # When ranks really differ in their time inside regions, say which.
+    balance = _rank_balance(
+        results, [{"name": "work", "total": 1.0, "call_path": "work"}], None
+    )
+    balance["totals"] = np.arange(70, dtype=float)
+    matrix = _rank_matrix_html(results, balance, "run-0")
+    assert '<th class="slowest" title="slowest rank overall">63</th>' in matrix
+    assert "Rank 63, in red in the header" in matrix
+
+
+def test_report_summary_names_a_rank_slowest_in_most_regions(tmp_path):
+    from scope_profiler import MPIRegion, Region
+
+    def region(name, start, totals):
+        return MPIRegion(
+            name,
+            {
+                rank: Region(
+                    np.array([start * 10**10]),
+                    np.array([int((start * 10 + total) * 1e9)]),
+                )
+                for rank, total in enumerate(totals)
+            },
+        )
+
+    # One after the other on every rank, so none nests in another.
+    results = ProfilingResults(
+        {
+            "a": region("a", 0, [1, 2]),
+            "b": region("b", 1, [1, 3]),
+            "c": region("c", 2, [2, 1]),
+        }
+    )
+    report = create_html_report(results, tmp_path / "report.html", include_charts=False)
+    document = report.read_text(encoding="utf-8")
+    assert "Rank 1 is the slowest rank in 2 of 3 regions." in document
+
+
+def test_rank_balance_needs_two_ranks_and_time(tmp_path):
+    from scope_profiler.html_report import _deviation_style, _rank_balance
+
+    single = _ranked_results([10])
+    assert _rank_balance(single, [], None) is None
+    results = _ranked_results([10, 10])
+    assert _rank_balance(results, [], None) is None
+    assert _rank_balance(results, [], [0]) is None
+    assert _deviation_style(1.0, 0.0) == ""
+
+
+def test_report_balance_uses_totals_without_a_call_tree(tmp_path):
+    from scope_profiler import MPIRegion, Region
+
+    def region(name, spans):
+        return MPIRegion(
+            name,
+            {
+                rank: Region(np.array([start]), np.array([end]))
+                for rank, (start, end) in enumerate(spans)
+            },
+        )
+
+    # Partially overlapping calls cannot form a call tree.
+    results = ProfilingResults(
+        {"a": region("a", [(10, 50), (10, 90)]), "b": region("b", [(40, 60), (40, 60)])}
+    )
+    report = create_html_report(results, tmp_path / "report.html", include_charts=False)
+    document = report.read_text(encoding="utf-8")
+    assert "Each region&#x27;s total time per rank." in document or (
+        "Each region's total time per rank." in document
+    )
+
+
+def _comparison_runs(tmp_path):
+    from scope_profiler import MPIRegion, Region
+
+    def region(name, starts, ends):
+        return MPIRegion(
+            name,
+            {0: Region(np.array(starts) * 10_000_000, np.array(ends) * 10_000_000)},
+        )
+
+    baseline = ProfilingResults(
+        {
+            "scope_profiler.session": region("scope_profiler.session", [0], [100]),
+            "solve": region("solve", [0], [60]),
+            "kernel": region("kernel", [10], [50]),
+            "io": region("io", [60], [70]),
+            "old": region("old", [70], [99]),
+        },
+        file_path=tmp_path / "base.h5",
+    )
+    candidate = ProfilingResults(
+        {
+            "scope_profiler.session": region("scope_profiler.session", [0], [80]),
+            "solve": region("solve", [0], [40]),
+            "kernel": region("kernel", [10], [30]),
+            "fresh": region("fresh", [32], [38]),
+            "io": region("io", [40], [70]),
+        },
+        file_path=tmp_path / "cand.h5",
+    )
+    return baseline, candidate
+
+
+def test_comparison_report_links_individual_reports(tmp_path):
+    baseline, candidate = _comparison_runs(tmp_path)
+    output = tmp_path / "out" / "compare.html"
+
+    create_html_report([baseline, candidate], output, include_charts=False)
+
+    document = output.read_text(encoding="utf-8")
+    assert (tmp_path / "out" / "compare-0-base.html").exists()
+    assert (tmp_path / "out" / "compare-1-cand.html").exists()
+    assert '<a href="compare-0-base.html">full report</a>' in document
+    assert '<h1 id="top">base vs cand</h1>' in document
+    # No per-run detail: that is what the individual reports are for.
+    assert 'class="region-stats"' not in document
+    assert '<div class="bottlenecks">' not in document
+    individual = (tmp_path / "out" / "compare-1-cand.html").read_text(encoding="utf-8")
+    assert 'class="region-stats"' in individual
+    assert "scope-profiler comparison" not in individual
+
+    runs = document[document.index('<table class="runs-table">') :]
+    assert '<span class="badge base">baseline</span>' in runs
+    assert "<td>1 s</td>" in runs and "<td>800 ms</td>" in runs
+    assert '<span class="delta-text">−20.0%</span>' in runs
+
+
+def test_comparison_report_without_individual_reports(tmp_path):
+    baseline, candidate = _comparison_runs(tmp_path)
+    output = tmp_path / "compare.html"
+
+    create_html_report(
+        [baseline, candidate], output, include_charts=False, individual_reports=False
+    )
+
+    assert sorted(path.name for path in tmp_path.glob("*.html")) == ["compare.html"]
+    document = output.read_text(encoding="utf-8")
+    assert "full report</a>" not in document
+    assert "scope-profiler report RUN.h5 -o RUN.html" in document
+
+
+def test_comparison_table_aligns_call_paths(tmp_path):
+    baseline, candidate = _comparison_runs(tmp_path)
+    output = tmp_path / "compare.html"
+    create_html_report(
+        [baseline, candidate], output, include_charts=False, individual_reports=False
+    )
+    document = output.read_text(encoding="utf-8")
+
+    table = document[document.index('<table class="compare-table metric-total"') :]
+    table = table[: table.index("</table>")]
+    # The candidate's new region slots in under its parent, after the
+    # baseline's children of that parent.
+    assert re.findall(r'data-region="([^"]*)" data-filter-region', table) == [
+        "scope_profiler.session",
+        "solve",
+        "kernel",
+        "fresh",
+        "io",
+        "old",
+    ]
+    assert 'style="padding-left:2.2em">kernel</span>' in table
+    assert '<span class="badge new">new</span>' in table
+    assert '<span class="badge gone">gone</span>' in table
+    # kernel: 400 ms -> 200 ms in total, faster; io: 100 ms -> 300 ms, slower.
+    assert '<span class="delta faster" title="−200 ms · 2.00× faster">' in table
+    assert '<span class="delta slower" title="+200 ms · 3.00× slower">' in table
+    # Calls are unchanged, which is neither good nor bad.
+    assert '<span class="delta same" title="+0 calls">' in table
+    # Sorting by the change of each metric.
+    assert 'data-change-total="0.2"' in table and 'data-change-calls="0"' in table
+    for metric in ("total", "own", "avg", "calls"):
+        assert f'data-compare-metric="{metric}"' in document
+    assert 'data-compare-sort="change"' in document
+
+
+def test_comparison_summary_lists_what_changed(tmp_path):
+    baseline, candidate = _comparison_runs(tmp_path)
+    output = tmp_path / "compare.html"
+    create_html_report(
+        [baseline, candidate], output, include_charts=False, individual_reports=False
+    )
+    document = output.read_text(encoding="utf-8")
+
+    changed = document[document.index('<section id="compare-changes">') :]
+    changed = changed[: changed.index("</section>")]
+    assert "<h3>cand vs base</h3>" in changed
+    assert "1 s → 800 ms" in changed and "1.25× faster" in changed
+    faster = changed[
+        changed.index("<h4>Faster</h4>") : changed.index("<h4>Slower</h4>")
+    ]
+    slower = changed[changed.index("<h4>Slower</h4>") :]
+    # Own time: old went away (290 ms), kernel halved (-200 ms) and solve's own
+    # time shrank from 200 to 140 ms.
+    assert re.findall(
+        r'<li class="change-item" data-filter-region="([^"]*)"', faster
+    ) == [
+        "old",
+        "kernel",
+        "solve",
+    ]
+    assert re.findall(
+        r'<li class="change-item" data-filter-region="([^"]*)"', slower
+    ) == [
+        "io",
+        "scope_profiler.session",
+        "fresh",
+    ]
+    assert "(new)" in slower
+    assert '<span class="kpi-label">Largest regression</span>' in changed
+
+
+def test_comparison_of_identical_runs_reports_no_changes(tmp_path):
+    from scope_profiler.html_report import _change_html, _wall_kpi
+
+    baseline, _ = _comparison_runs(tmp_path)
+    output = tmp_path / "compare.html"
+    create_html_report(
+        [baseline, baseline, baseline],
+        output,
+        include_charts=False,
+        individual_reports=False,
+    )
+    document = output.read_text(encoding="utf-8")
+    assert '<h1 id="top">base vs base vs base</h1>' in document
+    assert document.count('<div class="compare-candidate">') == 2
+    assert '<span class="kpi-value">none</span>' in document
+    assert '<p class="muted">None.</p>' in document
+
+    empty = ProfilingResults({})
+    assert _wall_kpi(empty, baseline) == (
+        '<div class="kpi"><span class="kpi-label">Wall time</span>'
+        '<span class="kpi-value">1 s</span></div>'
+    )
+    assert _change_html(None, None, "total") == ("-", None)
+    assert _change_html(0.0, 1.0, "total")[0] == '<span class="badge new">new</span>'
+    assert "delta slower" in _change_html(1.0, 0.0, "total")[0] or "faster" in (
+        _change_html(1.0, 0.0, "total")[0]
+    )
+    assert (
+        'class="delta neutral down" title="-2 calls"' in _change_html(4, 2, "calls")[0]
+    )
+
+
+def test_comparison_entries_place_a_new_root_last():
+    from scope_profiler.html_report import _comparison_entries
+
+    entries = _comparison_entries(
+        [
+            [{"name": "a", "call_path": "a", "depth": 0, "total": 1.0}],
+            [
+                {"name": "b", "call_path": "b", "depth": 0, "total": 1.0},
+                {"name": "c", "call_path": "x > c", "depth": 1, "total": 1.0},
+                {"name": "flat", "total": 1.0},
+            ],
+        ]
+    )
+    assert [entry["key"] for entry in entries] == [
+        "path:a",
+        "path:b",
+        "path:x > c",
+        "name:flat",
+    ]
+    assert entries[3]["context"] == []
+
+
+def test_report_cli_can_skip_individual_reports(tmp_path):
+    first = tmp_path / "first.h5"
+    second = tmp_path / "second.h5"
+    _write_sample_h5(first, _sample_file_data(1, 10, 20))
+    _write_sample_h5(second, _sample_file_data(1, 10, 40))
+    output = tmp_path / "compare.html"
+
+    cli_main(
+        [
+            "report",
+            str(first),
+            str(second),
+            "-o",
+            str(output),
+            "--no-charts",
+            "--no-individual-reports",
+        ]
+    )
+    assert sorted(path.name for path in tmp_path.glob("*.html")) == ["compare.html"]
+
+    cli_main(["report", str(first), str(second), "-o", str(output), "--no-charts"])
+    assert sorted(path.name for path in tmp_path.glob("*.html")) == [
+        "compare-0-first.html",
+        "compare-1-second.html",
+        "compare.html",
+    ]
+
+
+def test_report_file_names_are_safe_slugs(tmp_path):
+    from scope_profiler.html_report import _report_file_name
+
+    assert _report_file_name(tmp_path / "r.html", 2, "a b/c").name == "r-2-a-b-c.html"
+    assert _report_file_name(tmp_path / "r.html", 0, "///").name == "r-0-run.html"
+
+
+def test_report_chart_clicks_highlight_without_scrolling(tmp_path):
+    profile = tmp_path / "profile.h5"
+    report = tmp_path / "report.html"
+    _write_sample_h5(profile, _sample_file_data(1, 10, 20))
+
+    cli_main(["report", str(profile), "-o", str(report)])
+
+    document = report.read_text(encoding="utf-8")
+    assert (
+        '<div class="region-toast" id="region-toast" role="status" hidden>' in document
+    )
+    assert 'region, runFromPoint(chart, point, region), "toast");' in document
+    assert 'else if (mode === "toast") showToast(selectedRegion, target);' in document
+    # Bottlenecks still jump to the table row: finding it is their purpose.
+    assert 'select(button.dataset.region, button.dataset.run, "scroll");' in document
+
+
+def test_rank_balance_skips_regions_without_time_on_the_selected_ranks():
+    from scope_profiler import MPIRegion, Region
+    from scope_profiler.html_report import _is_own_frame, _rank_balance
+
+    results = ProfilingResults(
+        {
+            "busy": MPIRegion(
+                "busy",
+                {rank: Region(np.array([0]), np.array([10])) for rank in (0, 1)},
+            ),
+            # Entered, but for no measurable time.
+            "instant": MPIRegion(
+                "instant",
+                {rank: Region(np.array([20]), np.array([20])) for rank in (0, 1)},
+            ),
+        }
+    )
+    rows = [
+        {"name": "busy", "total": 1e-8, "call_path": "busy"},
+        {"name": "instant", "total": 0.0, "call_path": "instant"},
+    ]
+    balance = _rank_balance(results, rows, None)
+    assert [entry["name"] for entry in balance["regions"]] == ["busy"]
+    # A file name no path can be made of is not scope-profiler's own frame.
+    assert _is_own_frame("bad\0name") is False
+
+
+def _line_profile_results(tmp_path, functions):
+    """In-memory results with a line profile for each (name, source, times)."""
+    from scope_profiler import MPIRegion, Region
+
+    records = []
+    for name, source, times in functions:
+        path = tmp_path / f"{name}.py"
+        path.write_text(source, encoding="utf-8")
+        records.append(
+            {
+                "region": name,
+                "filename": str(path),
+                "function": name,
+                "first_lineno": 1,
+                "line_numbers": np.asarray([number for number, _ in times]),
+                "hits": np.ones(len(times), dtype=int),
+                "times": np.asarray([time for _, time in times], dtype=float),
+                "unit": 1e-6,
+            }
+        )
+    return ProfilingResults(
+        {"work": MPIRegion("work", {0: Region(np.array([0]), np.array([1]))})},
+        line_profile={0: records},
+    )
+
+
+def test_line_profile_shows_every_line_of_a_long_function(tmp_path):
+    # Line 20 of 40 costs everything; the box scrolls rather than folds.
+    source = "def long():\n" + "".join(f"    x{n} = {n}\n" for n in range(2, 41))
+    times = [(n, 1000.0 if n == 20 else 0.1) for n in range(2, 41)]
+    results = _line_profile_results(tmp_path, [("long", source, times)])
+
+    report = create_html_report(results, tmp_path / "report.html", include_charts=False)
+    document = report.read_text(encoding="utf-8")
+    table = document[document.index('<table class="lp-table" id="run-0-lp-0">') :]
+    table = table[: table.index("</table>")]
+
+    numbers = re.findall(r'<td class="lp-lineno">(\d+)', table)
+    assert numbers == [str(n) for n in range(1, 41)]
+    assert '<tr class="lp-hot"><td class="lp-lineno">20</td>' in table
+    assert "lines hidden" not in document
+    assert 'data-show-all="run-0-lp-0"' not in document
+
+
+def test_region_detail_puts_ranks_above_the_line_profile(tmp_path):
+    source = "def work():\n    a = 1\n"
+    results = _line_profile_results(tmp_path, [("work", source, [(2, 5.0)])])
+
+    document = create_html_report(
+        results, tmp_path / "report.html", include_charts=False
+    ).read_text(encoding="utf-8")
+    detail = document[document.index('<tr class="region-detail"') :]
+    assert detail.index("Per rank") < detail.index("Line profile")
+
+
+def test_line_profile_lists_the_largest_functions_first(tmp_path):
+    from scope_profiler.html_report import _LP_FUNCTIONS
+
+    functions = [
+        (f"f{index:02d}", f"def f{index:02d}():\n    pass\n", [(2, float(index + 1))])
+        for index in range(_LP_FUNCTIONS + 2)
+    ]
+    results = _line_profile_results(tmp_path, functions)
+
+    document = create_html_report(
+        results, tmp_path / "report.html", include_charts=False
+    ).read_text(encoding="utf-8")
+    names = re.findall(r'<span class="lp-func">([^<]*)</span>', document)
+    assert names[:2] == ["f11", "f10"]
+    assert document.count('<details class="lp-function lp-extra">') == 2
+    assert 'data-show-all="run-0-lp-functions"' in document
+    assert "Show all 12 functions" in document
+
+
+def test_report_output_defaults_to_report_html(tmp_path, monkeypatch):
+    profile = tmp_path / "profile.h5"
+    _write_sample_h5(profile, _sample_file_data(1, 10, 20))
+    monkeypatch.chdir(tmp_path)
+
+    cli_main(["report", str(profile), "--no-charts"])
+
+    assert (tmp_path / "report.html").exists()
+
+
+def test_line_profile_of_a_region_on_two_call_paths_fills_both_rows(tmp_path):
+    source = tmp_path / "solve.py"
+    source.write_text("def solve():\n    return 1\n", encoding="utf-8")
+    record = {
+        "region": "solve",
+        "filename": str(source),
+        "function": "solve",
+        "first_lineno": 1,
+        "line_numbers": np.asarray([2]),
+        "hits": np.asarray([4]),
+        "times": np.asarray([5.0]),
+        "unit": 1e-6,
+    }
+    results = _nested_results(line_profile={0: [record]})
+
+    document = create_html_report(
+        results, tmp_path / "report.html", include_charts=False
+    ).read_text(encoding="utf-8")
+    # solve sits under loop and under final: a row, and a line table, for each.
+    ids = re.findall(r'<table class="lp-table" id="([^"]*)"', document)
+    assert len(ids) == 2 and len(set(ids)) == 2
+    assert 'id="run-0-lines"' not in document
+
+
+def test_highlight_python_marks_tokens_and_escapes_text():
+    from scope_profiler.html_report import _highlight_python
+
+    lines = [
+        "@app.route('/x')",
+        "def run(self, items):",
+        '    """Doc with <b>."""',
+        "    total = len(items) + 0x1F  # count < limit",
+        "    flag = None if items else True",
+        "    label = f'{total} items'",
+        "    return self.max(a @ b)",
+    ]
+    rendered = _highlight_python(lines)
+    assert rendered[0] == (
+        '<span class="tk-dec">@</span><span class="tk-dec">app</span>'
+        '<span class="tk-dec">.</span><span class="tk-dec">route</span>'
+        '(<span class="tk-str">&#x27;/x&#x27;</span>)'
+    )
+    assert '<span class="tk-fn">run</span>' in rendered[1]
+    assert rendered[2] == (
+        '    <span class="tk-str">&quot;&quot;&quot;Doc with &lt;b&gt;.'
+        "&quot;&quot;&quot;</span>"
+    )
+    assert '<span class="tk-bi">len</span>' in rendered[3]
+    assert '<span class="tk-num">0x1F</span>' in rendered[3]
+    assert '<span class="tk-com"># count &lt; limit</span>' in rendered[3]
+    assert rendered[4].count('class="tk-const"') == 2
+    assert 'class="tk-kw">if</span>' in rendered[4]
+    assert 'class="tk-str"' in rendered[5]
+    # A method called max is not the builtin, and matrix @ is no decorator.
+    assert 'tk-bi">max' not in rendered[6]
+    assert "tk-dec" not in rendered[6]
+
+
+def test_highlight_python_survives_a_slice_ending_mid_statement():
+    from scope_profiler.html_report import _highlight_python
+
+    # A function's lines can stop inside a call or an unterminated string.
+    rendered = _highlight_python(["x = call(", "    1,", "y = '''open", "still <open"])
+    assert rendered[0] == "x = call("
+    assert rendered[1].endswith('<span class="tk-num">1</span>,')
+    assert rendered[3] == "still &lt;open"
+    # A multi-line string is marked on each of its lines.
+    rendered = _highlight_python(['s = """a', 'b"""'])
+    assert rendered == [
+        's = <span class="tk-str">&quot;&quot;&quot;a</span>',
+        '<span class="tk-str">b&quot;&quot;&quot;</span>',
+    ]
+
+
+def test_line_profile_source_travels_with_the_profile(tmp_path, monkeypatch):
+    """The report shows the code without the source file at hand."""
+    import importlib.util
+
+    pytest.importorskip("line_profiler")
+    from scope_profiler import ProfileManager
+
+    code = tmp_path / "code" / "kernels.py"
+    code.parent.mkdir()
+    code.write_text(
+        "def kernel(n):\n"
+        "    total = 0\n"
+        "    for i in range(n):\n"
+        "        total += i * i\n"
+        "    return total\n",
+        encoding="utf-8",
+    )
+    spec = importlib.util.spec_from_file_location("kernels", code)
+    kernels = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(kernels)
+
+    # Recorded from another directory, with the default (minimal) metadata.
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+    profile = workdir / "run.h5"
+    with ProfileManager.session(
+        file_path=str(profile), use_line_profiler=True, verbose=False
+    ):
+        ProfileManager.profile("kernel")(kernels.kernel)(2000)
+
+    records = read_h5(profile).line_profile[0]
+    # Only the user's function: scope-profiler's own frames are not kept.
+    assert [record["function"] for record in records] == ["kernel"]
+    assert records[0]["filename"] == "kernels.py"
+    assert records[0]["source"].startswith("def kernel(n):")
+    assert records[0]["source_first_lineno"] == 1
+
+    # The source file is gone, yet the report shows the code.
+    code.unlink()
+    import linecache
+
+    linecache.clearcache()
+    document = create_html_report(
+        profile, tmp_path / "report.html", include_charts=False
+    ).read_text(encoding="utf-8")
+    assert '<span class="tk-kw">for</span> i <span class="tk-kw">in</span>' in document
+    assert '<td class="lp-src"></td>' not in document
+
+
+def test_line_profile_says_when_it_has_no_source(tmp_path):
+    from scope_profiler import MPIRegion, Region
+
+    # As recorded before profiles stored their source, by file name only.
+    record = {
+        "region": "work",
+        "filename": "gone.py",
+        "function": "work",
+        "first_lineno": 10,
+        "line_numbers": np.asarray([11]),
+        "hits": np.asarray([1]),
+        "times": np.asarray([5.0]),
+        "unit": 1e-6,
+    }
+    results = ProfilingResults(
+        {"work": MPIRegion("work", {0: Region(np.array([0]), np.array([1]))})},
+        line_profile={0: [record]},
+    )
+    document = create_html_report(
+        results, tmp_path / "report.html", include_charts=False
+    ).read_text(encoding="utf-8")
+    assert "No source: this profile does not store it, and <code>gone.py</code>" in (
+        document
+    )
+
+
+def test_line_profile_reads_a_module_path_from_sys_path(tmp_path, monkeypatch):
+    from scope_profiler import MPIRegion, Region
+    from scope_profiler.html_report import _source_path
+
+    # A file outside the working directory is recorded by its module path.
+    module = tmp_path / "lib" / "pkg" / "mod.py"
+    module.parent.mkdir(parents=True)
+    module.write_text("def work():\n    total = 41 + 1\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.syspath_prepend(str(tmp_path / "lib"))
+    _source_path.cache_clear()
+    record = {
+        "region": "work",
+        "filename": "pkg/mod.py",
+        "function": "work",
+        "first_lineno": 1,
+        "line_numbers": np.asarray([2]),
+        "hits": np.asarray([1]),
+        "times": np.asarray([5.0]),
+        "unit": 1e-6,
+    }
+    results = ProfilingResults(
+        {"work": MPIRegion("work", {0: Region(np.array([0]), np.array([1]))})},
+        line_profile={0: [record]},
+    )
+    document = create_html_report(
+        results, tmp_path / "report.html", include_charts=False
+    ).read_text(encoding="utf-8")
+    _source_path.cache_clear()
+    assert "total = " in document
+    assert "No source" not in document
+
+
+def test_region_source_snippet_gives_way_to_line_profiles(tmp_path):
+    from scope_profiler import MPIRegion, Region
+
+    def results(line_profile):
+        region = Region(
+            np.array([0]),
+            np.array([1]),
+            source_file="app.py",
+            source_lineno=3,
+            source_text="with region('solve'):\n    solve()",
+        )
+        return ProfilingResults(
+            {"solve": MPIRegion("solve", {0: region})}, line_profile=line_profile
+        )
+
+    record = {
+        "region": "other",
+        "filename": "app.py",
+        "function": "other",
+        "first_lineno": 1,
+        "line_numbers": np.asarray([2]),
+        "hits": np.asarray([1]),
+        "times": np.asarray([1.0]),
+        "unit": 1e-6,
+    }
+    without = create_html_report(
+        results({}), tmp_path / "without.html", include_charts=False
+    ).read_text(encoding="utf-8")
+    with_lines = create_html_report(
+        results({0: [record]}), tmp_path / "with.html", include_charts=False
+    ).read_text(encoding="utf-8")
+
+    # Without line profiling, the captured snippet is the only view of the code.
+    assert "<pre><code>with region(&#x27;solve&#x27;):" in without
+    # With it, the code is shown with its timings; the snippet would repeat it.
+    assert "<pre><code>" not in with_lines
+    # The call site itself stays.
+    assert "<p class='muted'>app.py:3</p>" in with_lines

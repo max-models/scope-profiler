@@ -21,6 +21,7 @@ from scope_profiler.plotting_scripts._utils import (
     _as_runs,
     _get_cmap_colors,
     _normalize_ranks,
+    _rank_suffix,
     _to_hex,
     _write_csv,
     _write_json,
@@ -228,6 +229,7 @@ def plot_roofline(
         raise ValueError(f"No LIKWID roofline points found for {detail}.")
 
     roof = _roofline(points, peak_flops, peak_bandwidth)
+    file_ranks = {run.display_label: run.num_ranks for run in _as_runs(profiling_data)}
     labels = list(dict.fromkeys(point["file"] for point in points))
     colors = _get_cmap_colors(cmap, len(labels))
     color_map = {label: _to_hex(color) for label, color in zip(labels, colors)}
@@ -243,7 +245,10 @@ def plot_roofline(
                 [
                     "<br>".join(
                         (
-                            f"<b>{point['region']}</b> (rank {point['rank']})",
+                            f"<b>{point['region']}</b>"
+                            + _rank_suffix(
+                                file_ranks.get(point["file"]), point["rank"]
+                            ),
                             f"intensity: {point['arithmetic_intensity_flops_per_byte']:.6g} FLOP/byte",
                             f"performance: {point['performance_gflops']:.6g} GFLOP/s",
                             f"bandwidth: {point['bandwidth_gbs']:.6g} GB/s",
@@ -274,7 +279,12 @@ def plot_roofline(
     canvas.set_grid(True)
     canvas.set_legend()
 
-    payload = {"points": points, "colors": color_map, **roof}
+    payload = {
+        "points": points,
+        "colors": color_map,
+        "file_ranks": file_ranks,
+        **roof,
+    }
     if data_filepath:
         if data_format == "json":
             _write_json(data_filepath, payload, plot="roofline")
