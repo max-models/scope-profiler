@@ -30,6 +30,15 @@
   runs, the largest own-time improvements and regressions, and a durations
   table matched by call path -- plus a full report per run, linked from it.
   `--no-individual-reports` (`individual_reports=False`) skips those.
+- HTML report: a comparison of runs that differ in ranks or threads gets a
+  **Weak scaling** chart next to **Speedup** -- each region's weak-scaling
+  efficiency, the smallest run's mean call duration over each run's, against
+  an ideal of 1. A profile does not record the problem size, so
+  `scope-profiler report --scaling {strong,weak,both}`
+  (`create_html_report(..., scaling=...)`) says which study the runs are:
+  `strong` (same total problem size) keeps the speedup, `weak` (same problem
+  size per rank or core) the weak-scaling chart, and `both`, the default,
+  shows the speedup open and the weak-scaling chart collapsed.
 
 ### Changed
 

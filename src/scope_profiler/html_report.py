@@ -749,6 +749,11 @@ _UNCOVERED_FLAG_PCT = 25.0
 _HOTSPOT_COUNT = 8
 _SESSION = "scope_profiler.session"
 _SPEEDUP_REGIONS = 8
+# Which scaling chart(s) a comparison of run sizes shows. Nothing in a profile
+# records the problem size, so the report cannot tell a strong-scaling study
+# (fixed total problem) from a weak-scaling one (fixed problem per rank); the
+# caller says which, and by default both are drawn.
+SCALING_MODES = ("strong", "weak", "both")
 _BALANCE_ROWS = 12
 _MATRIX_REGIONS = 20
 _MATRIX_RANKS = 64
@@ -1790,7 +1795,21 @@ def _chart_description(title: str, payload: dict) -> str:
             "each run. The dashed line is ideal scaling; a region below it gains "
             f"less than its extra {_text(field)} would allow. The "
             f"{_SPEEDUP_REGIONS} regions with the most time on that first run are "
-            "shown."
+            "shown. Valid for a strong-scaling study: the same total problem size "
+            "on every run."
+        )
+    elif title == "Weak scaling":
+        field = payload.get("options", {}).get("x_label", "ranks")
+        text = (
+            "Each line is one region's weak-scaling efficiency: its mean call "
+            f"duration on the run with the fewest {_text(field)} divided by its "
+            "mean call duration on each run. The dashed line at 1 is ideal: the "
+            "same time per call however large the run; a region below it loses "
+            "time to costs that grow with the run, such as communication or load "
+            f"imbalance. The {_SPEEDUP_REGIONS} regions with the most time on that "
+            "first run are shown. Valid for a weak-scaling study: the problem "
+            "grows with the run, so every run has the same problem size per "
+            "rank or core."
         )
     elif title == "Rank heatmap":
         text = (
@@ -2460,12 +2479,20 @@ def _runs_table_html(runs, links) -> str:
 
 
 def _chart_sections(
-    runs, include, exclude, ranks, charts_cdn: bool = False, comparison: bool = False
+    runs,
+    include,
+    exclude,
+    ranks,
+    charts_cdn: bool = False,
+    comparison: bool = False,
+    scaling: str = "both",
 ) -> str:
     """Build embedded chart payloads for the bundled browser renderer.
 
     A comparison report keeps only the charts that compare runs; each run's
-    timeline and rank charts belong to its own report.
+    timeline and rank charts belong to its own report. ``scaling`` picks the
+    chart(s) for runs of different sizes: "strong" the speedup, "weak" the
+    weak-scaling efficiency, "both" the two of them.
     """
     try:
         from plotly.offline import get_plotlyjs
@@ -2479,6 +2506,7 @@ def _chart_sections(
             plot_likwid,
             plot_rank_heatmap,
             plot_speedup,
+            plot_weak_scaling_efficiency,
         )
     except ImportError:
         return (
@@ -2549,21 +2577,32 @@ def _chart_sections(
         if scaling_field is not None:
             baseline_run = min(runs, key=lambda run: _scaling_value(run, scaling_field))
             # A line per region gets unreadable fast: the regions with the
-            # most time on the smallest run, which is where speedup matters.
+            # most time on the smallest run, which is where scaling matters.
             leading = sorted(
                 baseline_run.get_regions(include=include, exclude=exclude),
                 key=lambda region: -region.total_duration,
             )[:_SPEEDUP_REGIONS]
-            collect(
-                "Speedup",
-                plot_speedup,
-                payload_dir / "speedup.json",
-                runs,
-                x_field=scaling_field,
-                include=[f"{re.escape(region.name)}$" for region in leading],
-                exclude=exclude,
-                ranks=ranks,
+            scaling_charts = (
+                ("Speedup", plot_speedup, "speedup.json", ("strong", "both")),
+                (
+                    "Weak scaling",
+                    plot_weak_scaling_efficiency,
+                    "weak-scaling.json",
+                    ("weak", "both"),
+                ),
             )
+            for title, plotter, file_name, modes in scaling_charts:
+                if scaling in modes:
+                    collect(
+                        title,
+                        plotter,
+                        payload_dir / file_name,
+                        runs,
+                        x_field=scaling_field,
+                        include=[f"{re.escape(region.name)}$" for region in leading],
+                        exclude=exclude,
+                        ranks=ranks,
+                    )
         if len(runs) == 2:
             # A baseline/candidate pair wants "what changed?", which reads
             # better as one signed bar per region than as two bars a viewer
@@ -2640,7 +2679,10 @@ def _chart_sections(
 
     # Open only the views that orient a reader; the rest wait, collapsed, for
     # a reader looking for them, rather than all competing for attention.
-    kinds = ("Speedup", "Change:", "Region durations") if comparison else ("Timeline:",)
+    # With both scaling charts, the speedup leads and the weak-scaling chart
+    # waits; asked for on its own, the weak-scaling chart leads instead.
+    lead = "Weak scaling" if scaling == "weak" else "Speedup"
+    kinds = (lead, "Change:", "Region durations") if comparison else ("Timeline:",)
     opened = {
         next(index for index, chart in enumerate(charts) if chart[0].startswith(kind))
         for kind in kinds
@@ -3071,6 +3113,7 @@ def create_html_report(
     charts_cdn: bool = False,
     include_charts: bool = True,
     individual_reports: bool = True,
+    scaling: str = "both",
 ) -> Path:
     """Write a standalone HTML report for one or more profiling results.
 
@@ -3078,7 +3121,18 @@ def create_html_report(
     first run being the baseline; with ``individual_reports`` (the default)
     a full report for each run is also written next to it, as
     ``<stem>-<index>-<label>.html``, and linked from the comparison.
+
+    When the compared runs differ in ranks or threads, ``scaling`` says what
+    kind of study they are, which the profiles cannot tell: ``"strong"`` (the
+    same total problem size on every run) charts each region's speedup,
+    ``"weak"`` (the same problem size per rank or core) its weak-scaling
+    efficiency, and ``"both"`` (the default) charts both.
     """
+    if scaling not in SCALING_MODES:
+        raise ValueError(
+            f"scaling must be one of {', '.join(map(repr, SCALING_MODES))}, "
+            f"not {scaling!r}.",
+        )
     if isinstance(profiling_data, (ProfilingResults, str, Path)):
         profiling_data = [profiling_data]
     runs = [
@@ -3093,7 +3147,13 @@ def create_html_report(
     comparison = len(runs) > 1
     charts = (
         _chart_sections(
-            runs, include, exclude, ranks, charts_cdn=charts_cdn, comparison=comparison
+            runs,
+            include,
+            exclude,
+            ranks,
+            charts_cdn=charts_cdn,
+            comparison=comparison,
+            scaling=scaling,
         )
         if include_charts
         else ""

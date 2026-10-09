@@ -336,11 +336,25 @@ flame graphs and flame charts, use `scope-profiler plot flame_graph` and
 `scope-profiler plot flame_chart`. A comparison keeps the charts that compare
 runs: grouped region durations and a percent-change chart for exactly two
 runs. When the runs differ in MPI ranks or OpenMP threads (the
-`omp_num_threads` metadata), a **Speedup** chart comes first: each of the
-eight regions with the most time on the smallest run, against ideal scaling,
-over ranks, threads, or ranks × threads when both change. Across run sizes the
-durations table compares time per rank and the bars show the mean call, since
-times summed over ranks grow with the rank count even as a run gets faster.
+`omp_num_threads` metadata), scaling charts come first, for each of the eight
+regions with the most time on the smallest run, over ranks, threads, or ranks ×
+threads when both change. **Speedup** (smallest run's mean call duration over
+each run's, against an ideal proportional to the scale) is for a
+*strong-scaling* study, where every run solves the same total problem.
+**Weak scaling** (the same ratio, read as an efficiency against an ideal of 1)
+is for a *weak-scaling* study, where the problem grows with the run so each
+rank or core has the same share. Nothing in a profile records the problem
+size, so the report cannot tell the two apart: `--scaling strong` or
+`--scaling weak` keeps the matching chart, and the default, `--scaling both`,
+shows both with the speedup open and the weak-scaling chart collapsed.
+Across run sizes the durations table compares time per rank and the bars show
+the mean call, since times summed over ranks grow with the rank count even as
+a run gets faster.
+
+```bash
+# Every run has the same work per rank
+scope-profiler report 'ranks_*.h5' -o weak.html --scaling weak
+```
 Each chart has an **Open in new tab** button that shows it, as currently
 filtered and highlighted, on a page of its own. If a profile contains LIKWID or
 built-in Linux perf events, the report adds hardware-counter tables

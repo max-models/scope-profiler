@@ -514,6 +514,122 @@ def test_comparison_of_run_sizes_shows_a_speedup_chart(tmp_path):
     assert '"metrics": ["avg"]' in document
 
 
+def _open_chart_titles(document):
+    return re.findall(
+        r'<details class="chart-panel" open>.*?aria-level="3">([^<]*)', document
+    )
+
+
+def test_comparison_of_run_sizes_shows_both_scaling_charts_by_default(tmp_path):
+    pytest.importorskip("plotly")
+    paths = _scaling_profiles(tmp_path, [1, 2, 4])
+
+    document = create_html_report(
+        paths, tmp_path / "scaling.html", individual_reports=False
+    ).read_text(encoding="utf-8")
+
+    titles = _chart_titles(document)
+    assert titles[:2] == ["Speedup", "Weak scaling"]
+    # The speedup leads; the weak-scaling chart waits, collapsed.
+    open_titles = _open_chart_titles(document)
+    assert "Speedup" in open_titles and "Weak scaling" not in open_titles
+    # Weak-scaling efficiency is the baseline's mean call over each run's.
+    # These runs split a fixed problem, so solve's 80, 40 and 20 read as an
+    # efficiency above 1: the chart says so rather than guessing the study.
+    assert '"plot": "weak_scaling_efficiency"' in document
+    for count, efficiency in ((1, 1.0), (2, 2.0), (4, 4.0)):
+        assert (
+            f'"region": "solve", "num_ranks": {count}, "efficiency": {efficiency}'
+            in document
+        )
+    # Each chart says which kind of study it is valid for.
+    assert "strong-scaling study: the same total problem size" in document
+    assert "weak-scaling study: the problem grows with the run" in document
+    assert "same problem size per rank or core" in document
+    assert "The dashed line at 1 is ideal" in document
+
+
+def test_weak_scaling_chart_reads_a_weak_scaling_study(tmp_path):
+    pytest.importorskip("plotly")
+    # The same work per rank, slowed by costs that grow with the run: solve
+    # takes 40, 50 and 80 on 1, 2 and 4 ranks.
+    paths = []
+    for count, duration in ((1, 40), (2, 50), (4, 80)):
+        path = tmp_path / f"weak{count}.h5"
+        _write_sample_h5(
+            path,
+            {rank: {"solve": ([0], [duration])} for rank in range(count)},
+        )
+        paths.append(path)
+
+    document = create_html_report(
+        paths, tmp_path / "weak.html", individual_reports=False, scaling="weak"
+    ).read_text(encoding="utf-8")
+
+    assert _chart_titles(document)[0] == "Weak scaling"
+    for count, efficiency in ((1, 1.0), (2, 0.8), (4, 0.5)):
+        assert (
+            f'"region": "solve", "num_ranks": {count}, "efficiency": {efficiency}'
+            in document
+        )
+
+
+@pytest.mark.parametrize(
+    ("scaling", "expected", "missing"),
+    [("strong", "Speedup", "Weak scaling"), ("weak", "Weak scaling", "Speedup")],
+)
+def test_report_scaling_option_selects_one_scaling_chart(
+    tmp_path, scaling, expected, missing
+):
+    pytest.importorskip("plotly")
+    paths = _scaling_profiles(tmp_path, [1, 4])
+    report = tmp_path / f"{scaling}.html"
+
+    assert (
+        cli_main(
+            [
+                "report",
+                *map(str, paths),
+                "-o",
+                str(report),
+                "--no-individual-reports",
+                "--scaling",
+                scaling,
+            ]
+        )
+        == 0
+    )
+    document = report.read_text(encoding="utf-8")
+
+    titles = _chart_titles(document)
+    assert titles[0] == expected and missing not in titles
+    # Alone, either scaling chart is the one opened.
+    assert _open_chart_titles(document)[0] == expected
+
+
+def test_report_scaling_cli_defaults_to_both(tmp_path):
+    pytest.importorskip("plotly")
+    paths = _scaling_profiles(tmp_path, [1, 2])
+    report = tmp_path / "both.html"
+
+    cli_main(["report", *map(str, paths), "-o", str(report), "--no-individual-reports"])
+
+    titles = _chart_titles(report.read_text(encoding="utf-8"))
+    assert {"Speedup", "Weak scaling"} <= set(titles)
+
+
+def test_report_scaling_option_rejects_unknown_modes(tmp_path, capsys):
+    paths = _scaling_profiles(tmp_path, [1, 2])
+
+    with pytest.raises(ValueError, match="scaling must be one of"):
+        create_html_report(paths, tmp_path / "bad.html", scaling="linear")
+    assert not (tmp_path / "bad.html").exists()
+
+    with pytest.raises(SystemExit):
+        cli_main(["report", *map(str, paths), "--scaling", "linear"])
+    assert "invalid choice" in capsys.readouterr().err
+
+
 def test_comparison_of_run_sizes_compares_time_per_rank(tmp_path):
     paths = _scaling_profiles(tmp_path, [1, 4])
 
