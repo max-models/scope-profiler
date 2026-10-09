@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- `selectTimelineRegions(payload, options)` returns the regions
+  `buildGanttFigure` draws for `filterRegion`, `maxDepth` and `topN`, so
+  another chart can show the same ones.
+- `buildDurationsFigure` gives a stacked segment only the bars it sits under,
+  ordering the axis through `layout.xaxis.categoryarray`; a segment per child
+  region used to carry a column for every region.
+- `buildGanttFigure` takes `maxDepth`, which hides calls nested deeper than
+  that below a top-level call (intervals carry an optional `depth`), and
+  `topN`, which keeps the regions with the most summed call time among the
+  calls still shown.
 - Gantt lanes and flame and roofline hovers leave the rank out for a run with
   one rank, as told by the payload's optional `file_ranks` (run label -> rank
   count). Payloads without it keep naming every rank.

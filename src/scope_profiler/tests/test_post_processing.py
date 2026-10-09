@@ -286,6 +286,12 @@ def test_plot_durations_stacked_bars_sum_to_the_plain_bar(tmp_path):
     )
     # 500 + 500 ns of "step", split across its own time and its children.
     assert stacked == pytest.approx(1000 / 1e9)
+    # A row per segment a bar has, not per segment any bar has: every bar
+    # keeps its own time, and a child only appears under its parent.
+    assert sorted(
+        (row["region"], row["segment"]) for row in rows if row["segment"] != "self"
+    ) == [("solve", "inner"), ("step", "assemble"), ("step", "solve")]
+    assert len([row for row in rows if row["segment"] == "self"]) == 4
 
 
 def test_plot_durations_rejects_stacking_a_min_or_max(tmp_path):
@@ -1264,6 +1270,52 @@ def test_plot_gantt_export_data_json(tmp_path):
     assert all(color.startswith("#") for color in payload["colors"].values())
     regions = {interval["region"] for interval in payload["intervals"]}
     assert regions == {"setup", "solve"}
+
+
+def test_plot_gantt_export_data_json_carries_call_depth(tmp_path):
+    file_path = tmp_path / "run.h5"
+    data_file = tmp_path / "gantt_data.json"
+    _write_sample_h5(
+        file_path,
+        {
+            0: {
+                "outer": ([0], [100]),
+                "mid": ([10, 50], [40, 90]),
+                "leaf": ([20], [30]),
+            },
+            # Overlapping without nesting: rank 1's depths are unknown.
+            1: {"outer": ([0], [50]), "mid": ([25], [75])},
+        },
+    )
+    results = read_h5(file_path)
+
+    # The depth comes from the whole run, so excluding the parent keeps it.
+    plot_gantt(
+        results,
+        include=["mid", "leaf"],
+        show=False,
+        verbose=False,
+        data_filepath=data_file,
+        data_format="json",
+    )
+
+    intervals = json.loads(data_file.read_text(encoding="utf-8"))["intervals"]
+    assert sorted(
+        (row["region"], row["depth"]) for row in intervals if row["rank"] == 0
+    ) == [("leaf", 2), ("mid", 1), ("mid", 1)]
+    assert all("depth" not in row for row in intervals if row["rank"] == 1)
+
+    # leaf ran on rank 0 only; the CSV export skips rank 1 for it too.
+    csv_file = tmp_path / "gantt_data.csv"
+    plot_gantt(
+        results,
+        show=False,
+        verbose=False,
+        data_filepath=csv_file,
+        data_format="csv",
+    )
+    rows = csv_file.read_text(encoding="utf-8").splitlines()[1:]
+    assert sum(",leaf," in row for row in rows) == 1
 
 
 def test_plot_flame_export_data_json(tmp_path, monkeypatch):

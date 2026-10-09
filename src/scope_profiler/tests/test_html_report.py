@@ -360,16 +360,11 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
     # The timeline labels every row with its region; its legend is redundant.
     assert '"options": {"layout": {"showlegend": false}}' in document
     assert "Each bar is one recorded region call on rank 0." in document
-    # The timeline starts open; the durations bars wait, collapsed.
+    # The durations bars lead, and they and the timeline start open.
     panels = re.findall(
         r'<details class="chart-panel"( open)?>.*?aria-level="3">([^<]*)', document
     )
-    assert [title for is_open, title in panels if is_open] == [
-        "Timeline: profile",
-    ]
-    assert [title for is_open, title in panels if not is_open] == [
-        "Region durations",
-    ]
+    assert panels == [(" open", "Region durations"), (" open", "Timeline: profile")]
     assert 'data-chart-action="expand"' in document
     assert 'data-chart-action="collapse"' in document
     # Every chart can be opened on a page of its own.
@@ -470,8 +465,9 @@ def test_single_run_report_stacks_region_durations(tmp_path, monkeypatch):
     panels = re.findall(
         r'<details class="chart-panel"( open)?>.*?aria-level="3">([^<]*)', document
     )
-    assert "Region durations" in [title for is_open, title in panels if not is_open]
+    assert panels[0] == (" open", "Region durations")
     assert [title for is_open, title in panels if is_open] == [
+        "Region durations",
         "Timeline: profile (rank 0)",
     ]
 
@@ -1246,43 +1242,104 @@ def test_report_region_filter_drives_the_charts_too(tmp_path):
     assert "if (panel.open && chart.stale) draw(chart);" in document
 
 
-def test_timeline_draws_only_the_regions_with_the_most_time(tmp_path, monkeypatch):
+def test_timeline_offers_top_regions_and_depth(tmp_path, monkeypatch):
     pytest.importorskip("plotly")
     from scope_profiler import html_report
 
     monkeypatch.setattr(html_report, "_TIMELINE_REGIONS", 2)
+    monkeypatch.setattr(html_report, "_TIMELINE_SLIDER_REGIONS", 1)
     profile = tmp_path / "profile.h5"
-    # rank 1's long "other" call does not count: the timeline shows rank 0.
+    # outer > mid > leaf, then aside on its own.
     _write_sample_h5(
         profile,
         {
             0: {
-                "short": ([0], [1]),
-                "long": ([1], [10]),
-                "mid": ([10], [15]),
-                "other": ([15], [16]),
+                "outer": ([0], [100]),
+                "mid": ([10], [90]),
+                "leaf": ([20, 50], [30, 60]),
+                "aside": ([100], [105]),
             },
-            1: {"other": ([0], [100])},
         },
     )
     document = create_html_report(profile, tmp_path / "report.html").read_text(
         encoding="utf-8"
     )
-    timeline = _speedup_document(document, "Timeline: profile (rank 0)")
-    assert {row["region"] for row in timeline["payload"]["intervals"]} == {
-        "long",
-        "mid",
-    }
-    assert "Only the 2 of 4 regions with the most time on rank 0" in document
+    timeline = _speedup_document(document, "Timeline: profile")
+    # The whole profile is embedded, with each call's depth; the sliders, not
+    # the payload, limit what is drawn.
+    assert sorted(
+        (row["region"], row["depth"]) for row in timeline["payload"]["intervals"]
+    ) == [("aside", 0), ("leaf", 2), ("leaf", 2), ("mid", 1), ("outer", 0)]
+    assert "topN" not in timeline["options"]
+    # Both sliders sit in the sticky filter bar, after the search box; past
+    # the limit, Regions opens on it. At its maximum a slider means all.
+    bar = document[document.index('<div class="filter-bar">') :]
+    bar = bar[: bar.index("</div>")]
+    assert bar.index('id="region-filter"') < bar.index('class="region-limits"')
+    assert (
+        '<label for="region-top">Regions</label><input type="range"'
+        ' class="region-top" id="region-top" min="1" max="4" step="1" value="2">'
+        '<output for="region-top">top 2 of 4</output>'
+    ) in bar
+    assert (
+        '<label for="region-depth">Depth</label><input type="range"'
+        ' class="region-depth" id="region-depth" min="0" max="2" step="1"'
+        ' value="2"><output for="region-depth">all levels</output>'
+    ) in bar
+    assert "position: sticky" in document
+    assert "<b>Regions</b>, at the top of the page" in document
+    assert "<b>Depth</b> hides calls" in document
+    # The sliders set the timeline's topN/maxDepth, and the regions it then
+    # draws limit the region durations as well.
+    assert 'const key = isTop ? "topN" : "maxDepth";' in document
+    assert "limitedRegions = timelinePayload && Object.keys(regionLimits).length" in (
+        document
+    )
+    assert 'chart.payload.plot === "durations"' in document
 
-    # At or under the limit, every region is drawn and nothing is said.
+    # Within the limit, Regions opens on all of them.
     monkeypatch.setattr(html_report, "_TIMELINE_REGIONS", 4)
     document = create_html_report(profile, tmp_path / "all.html").read_text(
         encoding="utf-8"
     )
-    timeline = _speedup_document(document, "Timeline: profile (rank 0)")
-    assert len({row["region"] for row in timeline["payload"]["intervals"]}) == 4
-    assert "Only the" not in document
+    assert 'max="4" step="1" value="4">' in document
+    assert ">all 4</output>" in document
+
+
+def test_comparison_filter_bar_has_no_region_sliders(tmp_path):
+    pytest.importorskip("plotly")
+    paths = _scaling_profiles(tmp_path, [1, 2])
+    document = create_html_report(
+        paths, tmp_path / "compare.html", individual_reports=False
+    ).read_text(encoding="utf-8")
+    assert 'id="region-filter"' in document
+    assert 'class="region-limits"' not in document
+
+
+def test_timeline_slider_labels():
+    from scope_profiler.html_report import _depth_label, _top_label
+
+    assert _top_label(3, 40) == "top 3 of 40"
+    assert _top_label(40, 40) == "all 40"
+    assert [_depth_label(depth, 3) for depth in range(4)] == [
+        "top level only",
+        "1 level of children",
+        "2 levels of children",
+        "all levels",
+    ]
+
+
+def test_timeline_without_choices_has_no_controls(tmp_path):
+    pytest.importorskip("plotly")
+    profile = tmp_path / "profile.h5"
+    # Two flat regions: nothing for either slider to change.
+    _write_sample_h5(profile, {0: {"setup": ([0], [1]), "solve": ([2], [5])}})
+    document = create_html_report(profile, tmp_path / "report.html").read_text(
+        encoding="utf-8"
+    )
+    assert 'class="region-limits"' not in document
+    assert "<b>Regions</b>" not in document
+    assert "<b>Depth</b>" not in document
 
 
 def test_report_escapes_a_region_name_in_the_filter_hook(tmp_path):

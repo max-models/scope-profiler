@@ -60,8 +60,19 @@
 - HTML report rendering: the timeline draws its lanes on a categorical axis
   (1000 regions: 3.6 s to 0.6 s in Chrome), each chart is drawn once on load
   instead of twice, and a chart in a collapsed panel is drawn when the panel
-  opens. A timeline with more than 500 regions on rank 0 draws the 500 with
-  the most time and says so.
+  opens.
+- HTML report: a single run's region durations chart comes first and starts
+  unfolded, above the timeline.
+- HTML report: the region filter bar stays at the top while scrolling. For a
+  single run it adds a **Regions** slider, keeping the N regions with the most
+  time (opening on 500 when there are more), and a **Depth** slider, hiding
+  calls nested deeper than the chosen number of levels; both limit the
+  durations chart and the timeline to the same regions. Gantt JSON data
+  gives each interval its call `depth` (when the rank's calls nest), and the
+  Gantt data export no longer fails for a region missing from a selected rank.
+- Stacked region durations export a child segment only under the bars it
+  belongs to: a profile of 1550 nested regions wrote 2.3 million rows, and its
+  report shrank from 313 MB to 7.2 MB.
 - HTML report: the summary at the top is now a row of headline numbers and a
   findings list, and **Hotspots** (formerly **Hot spots**) now ranks the
   leaves of the call tree, per call path, with the path each sits on. Line profiles moved

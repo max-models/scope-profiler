@@ -501,9 +501,54 @@ const rankSuffix = (payload, row) =>
     ? ""
     : ` (rank ${row.rank ?? 0})`;
 
+// `maxDepth` keeps calls at most that many levels below a top-level call (an
+// interval without a `depth` always stays); `topN` then keeps the regions with
+// the most summed call time among what is left.
+function timelineSubset(rows, options) {
+  const { maxDepth, topN } = options;
+  let kept =
+    maxDepth == null
+      ? rows
+      : rows.filter((row) => row.depth == null || row.depth <= maxDepth);
+  if (topN != null && Number.isFinite(topN)) {
+    const totals = new Map();
+    for (const row of kept)
+      totals.set(
+        row.region,
+        (totals.get(row.region) ?? 0) + row.end_seconds - row.start_seconds,
+      );
+    if (totals.size > topN) {
+      const top = new Set(
+        [...totals]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, Math.max(0, topN))
+          .map(([region]) => region),
+      );
+      kept = kept.filter((row) => top.has(row.region));
+    }
+  }
+  return kept;
+}
+
+/** The regions `buildGanttFigure` draws for these options, in no order.
+ *
+ * Lets another chart -- the region durations, say -- show the same regions as
+ * a timeline limited by `filterRegion`, `maxDepth` and `topN`.
+ */
+export function selectTimelineRegions(payload, options = {}) {
+  const rows = timelineSubset(
+    filtered(values(payload, "intervals", "gantt"), options),
+    options,
+  );
+  return new Set(rows.map((row) => row.region));
+}
+
 export function buildGanttFigure(payload, options = {}) {
   const { baseLayout, axis } = palette(options);
-  const intervals = filtered(values(payload, "intervals", "gantt"), options);
+  const intervals = timelineSubset(
+    filtered(values(payload, "intervals", "gantt"), options),
+    options,
+  );
   const byRegion = groupBy(intervals, (row) => row.region);
   const colors = colorMap(byRegion.keys(), options.colors ?? payload.colors);
   const multi = new Set(intervals.map((row) => row.file ?? "run")).size > 1;
@@ -669,19 +714,23 @@ export function buildDurationsFigure(payload, options = {}) {
   const colors = colorMap(groups.keys(), byGroup);
   const data = [...groups].map(([group, rows]) => {
     const byRegion = uniqueMap(
-      rows.map((bar) => [bar.region, bar.value_seconds]),
+      rows.map((bar) => [bar.region, bar]),
       "durations",
     );
+    // A stacked segment is one child region, present under few of the bars:
+    // a column per region for every segment would hold regions x segments
+    // cells, millions for a profile of a thousand regions. The axis keeps
+    // the order.
+    const xs = stacked
+      ? regions.filter((region) => byRegion.has(region))
+      : regions;
     return {
       type: "bar",
       name: group,
-      x: regions,
-      y: regions.map((region) => byRegion.get(region) ?? null),
+      x: xs,
+      y: xs.map((region) => byRegion.get(region)?.value_seconds ?? null),
       customdata: interactionData(
-        regions.map((region) => ({
-          ...rows.find((row) => row.region === region),
-          region,
-        })),
+        xs.map((region) => ({ ...byRegion.get(region), region })),
       ),
       marker: {
         color: colors.get(group),
@@ -694,7 +743,11 @@ export function buildDurationsFigure(payload, options = {}) {
     barmode: stacked ? "stack" : "group",
     height: Math.max(360, 34 * regions.length + 180),
     showlegend: groups.size > 1,
-    xaxis: axis({ tickangle: -35 }),
+    xaxis: axis({
+      tickangle: -35,
+      categoryorder: "array",
+      categoryarray: regions,
+    }),
     yaxis: axis({ title: `${metric} duration (s)` }),
   });
   return { data, layout: withEmptyState(layout, bars.length > 0) };

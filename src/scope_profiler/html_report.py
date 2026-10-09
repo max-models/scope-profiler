@@ -154,7 +154,14 @@ th[data-key]::after { content: ""; display: inline-block; width: .6em; }
 th[data-sort-dir="asc"]::after { content: "\\25b4"; }
 th[data-sort-dir="desc"]::after { content: "\\25be"; }
 .spark { display: block; }
-.filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin: 1rem 0 1.5rem; }
+.filter-bar { align-items: center; background: rgba(255, 255, 255, .96);
+  border-bottom: 1px solid #e5e7eb; display: flex; flex-wrap: wrap; gap: .6rem;
+  margin: -2rem 0 1rem; padding: .6rem 0; position: sticky; top: 0; z-index: 20; }
+.region-limits { align-items: center; display: flex; flex-wrap: wrap; gap: .4rem; }
+.region-limits label { font-weight: 600; margin-left: .4rem; }
+.region-limits input[type="range"] { accent-color: #1f2937; width: 9rem; }
+.region-limits output { color: #374151; font-size: .9em; min-width: 8.5rem;
+  font-variant-numeric: tabular-nums; }
 .filter-bar label { font-weight: 600; }
 .region-filter { flex: 1; max-width: 34rem; font: inherit; padding: .4rem .6rem;
                  border: 1px solid #d1d5db; border-radius: .4rem; }
@@ -686,20 +693,26 @@ def _plotlyjs_version() -> str:
         return "3.7.0"
 
 
-_FILTER_BAR = (
-    '<div class="filter-bar">'
-    '<label for="region-filter">Filter regions</label>'
-    '<input id="region-filter" class="region-filter" type="search" autocomplete="off"'
-    ' placeholder="e.g. solve, ^prop:"'
-    ' title="Comma-separated, case-insensitive substring match.'
-    ' Prefix a term with ^ to anchor it to the start of the region name."'
-    ' aria-label="Filter regions">'
-    '<span class="filter-count" id="region-filter-count" aria-live="polite"></span>'
-    '<span class="selection-status" id="region-selection" aria-live="polite"></span>'
-    '<button class="clear-selection" id="clear-region-selection" type="button" hidden>'
-    "Clear highlight</button>"
-    "</div>"
-)
+def _filter_bar(limits: str = "") -> str:
+    """The bar that stays at the top of the page: the region filter, the
+    charts' Regions and Depth sliders (``limits``) when there are any, and the
+    highlight status."""
+    return (
+        '<div class="filter-bar">'
+        '<label for="region-filter">Filter regions</label>'
+        '<input id="region-filter" class="region-filter" type="search"'
+        ' autocomplete="off" placeholder="e.g. solve, ^prop:"'
+        ' title="Comma-separated, case-insensitive substring match.'
+        ' Prefix a term with ^ to anchor it to the start of the region name."'
+        ' aria-label="Filter regions">'
+        '<span class="filter-count" id="region-filter-count" aria-live="polite">'
+        "</span>" + limits + '<span class="selection-status" id="region-selection"'
+        ' aria-live="polite"></span>'
+        '<button class="clear-selection" id="clear-region-selection" type="button"'
+        " hidden>Clear highlight</button>"
+        "</div>"
+    )
+
 
 _REGION_TOAST = (
     '<div class="region-toast" id="region-toast" role="status" hidden>'
@@ -752,10 +765,12 @@ _UNCOVERED_FLAG_PCT = 25.0
 _HOTSPOT_COUNT = 8
 _SESSION = "scope_profiler.session"
 _SPEEDUP_REGIONS = 8
-# The timeline draws a lane per region; past this many, only the regions with
-# the most time are drawn. More lanes than this cannot be read anyway, and the
-# browser spends seconds drawing them.
+# The timeline draws a lane per region; past this many, it opens on only the
+# regions with the most time. More lanes than this cannot be read anyway, and
+# the browser spends seconds drawing them. Its Regions slider is offered past
+# _TIMELINE_SLIDER_REGIONS regions; fewer fit on screen as they are.
 _TIMELINE_REGIONS = 500
+_TIMELINE_SLIDER_REGIONS = 10
 # Which scaling chart(s) a comparison of run sizes shows. Nothing in a profile
 # records the problem size, so the report cannot tell a strong-scaling study
 # (fixed total problem) from a weak-scaling one (fixed problem per rank); the
@@ -1773,6 +1788,54 @@ def _hardware_sections(runs, include, exclude, ranks) -> str:
     )
 
 
+def _top_label(value: int, regions: int) -> str:
+    """The Regions slider's readout; mirrored by the report script's topLabel."""
+    return f"all {regions}" if value >= regions else f"top {value} of {regions}"
+
+
+def _depth_label(value: int, max_depth: int) -> str:
+    """The Depth slider's readout; mirrored by the report script's depthLabel."""
+    if value >= max_depth:
+        return "all levels"
+    if value == 0:
+        return "top level only"
+    return f"{value} level{'s' if value > 1 else ''} of children"
+
+
+def _region_limits(controls: dict | None) -> str:
+    """The Regions and Depth sliders for the filter bar, each only when it can
+    change what is drawn: more than _TIMELINE_SLIDER_REGIONS regions, and calls
+    nested at least one level deep. A slider at its maximum means all."""
+    if not controls:
+        return ""
+
+    def slider(kind: str, label: str, maximum: int, value: int, minimum: int, text):
+        control = f"region-{kind}"
+        return (
+            f'<label for="{control}">{label}</label>'
+            f'<input type="range" class="region-{kind}" id="{control}"'
+            f' min="{minimum}" max="{maximum}" step="1" value="{value}">'
+            f'<output for="{control}">{text}</output>'
+        )
+
+    html = ""
+    regions = controls["regions"]
+    if regions > _TIMELINE_SLIDER_REGIONS:
+        top = controls["top"] or regions
+        html += slider("top", "Regions", regions, top, 1, _top_label(top, regions))
+    max_depth = controls["max_depth"]
+    if max_depth >= 1:
+        html += slider(
+            "depth",
+            "Depth",
+            max_depth,
+            max_depth,
+            0,
+            _depth_label(max_depth, max_depth),
+        )
+    return f'<span class="region-limits">{html}</span>' if html else ""
+
+
 def _chart_description(title: str, payload: dict, comparison: bool = False) -> str:
     """Explain how to read one chart in the report."""
     if title.startswith("Timeline:"):
@@ -1781,12 +1844,17 @@ def _chart_description(title: str, payload: dict, comparison: bool = False) -> s
             "width show when the call started and how long it ran; colors "
             "identify regions."
         )
-        limit = payload.get("timeline_regions")
-        if limit:
+        # The same conditions _timeline_controls shows each slider under.
+        intervals = payload.get("intervals", [])
+        if len({row["region"] for row in intervals}) > _TIMELINE_SLIDER_REGIONS:
             text += (
-                f" Only the {limit['shown']} of {limit['total']} regions with "
-                "the most time on rank 0 are drawn; filter the report or use "
-                "<code>scope-profiler plot gantt</code> for the rest."
+                " <b>Regions</b>, at the top of the page, draws only the regions"
+                " with the most time, here and in the region durations."
+            )
+        if any(row.get("depth", 0) >= 1 for row in intervals):
+            text += (
+                " <b>Depth</b> hides calls nested deeper than the levels chosen,"
+                " and the durations of regions only called that deep."
             )
     elif title == "Region durations":
         what = (
@@ -2612,8 +2680,11 @@ def _chart_sections(
     comparison: bool = False,
     scaling_field: str | None = None,
     scaling: str = "both",
-) -> str:
+) -> tuple[str, str]:
     """Build embedded chart payloads for the bundled browser renderer.
+
+    Returns the charts section and the Regions/Depth sliders for the filter
+    bar ("" when there is no timeline to drive them).
 
     A comparison report keeps only the charts that compare runs; each run's
     timeline and rank charts belong to its own report. ``scaling`` picks the
@@ -2636,13 +2707,18 @@ def _chart_sections(
         )
     except ImportError:
         return (
-            '<section id="charts"><h2>Charts</h2><p class="muted">Charts require '
-            "<code>scope-profiler[pproc]</code>; the statistics and metadata "
-            "above remain available without it.</p></section>"
+            (
+                '<section id="charts"><h2>Charts</h2><p class="muted">Charts '
+                "require <code>scope-profiler[pproc]</code>; the statistics and "
+                "metadata above remain available without it.</p></section>"
+            ),
+            "",
         )
 
     charts: list[tuple[str, dict, dict]] = []
     failures: list[str] = []
+    # The first timeline's Regions/Depth ranges, for the filter bar.
+    limit_controls: dict | None = None
 
     def payload_of(title, plotter, path: Path, *args, **kwargs) -> dict | None:
         try:
@@ -2690,44 +2766,33 @@ def _chart_sections(
     with tempfile.TemporaryDirectory(prefix="scope-profiler-report-") as directory:
         payload_dir = Path(directory)
         for index, run in enumerate([] if comparison else runs):
-            on_rank0 = [
-                region
-                for region in run.get_regions(include=include, exclude=exclude)
-                if 0 in region.regions
-            ]
-            timeline_include = include
-            if len(on_rank0) > _TIMELINE_REGIONS:
-                kept = sorted(
-                    on_rank0,
-                    key=lambda region: -region.regions[0].total_duration,
-                )[:_TIMELINE_REGIONS]
-                # One alternation rather than a pattern per region, which
-                # every region would be matched against in turn.
-                timeline_include = [
-                    "(?:" + "|".join(re.escape(region.name) for region in kept) + ")$",
-                ]
             title = (
                 # Naming the rank only says something with more than one.
                 f"Timeline: {run.display_label}"
                 + (" (rank 0)" if run.num_ranks > 1 else "")
             )
-            collect(
+            payload = payload_of(
                 title,
                 plot_gantt,
                 payload_dir / f"gantt-{index}.json",
                 run,
-                include=timeline_include,
+                include=include,
                 exclude=exclude,
                 ranks=[0],
-                # Every row is already labelled with its region.
-                chart_options={"layout": {"showlegend": False}},
             )
-            if timeline_include is not include and charts and charts[-1][0] == title:
-                # Read by _chart_description, to say what was left out.
-                charts[-1][1]["timeline_regions"] = {
-                    "shown": _TIMELINE_REGIONS,
-                    "total": len(on_rank0),
-                }
+            if payload is None:
+                continue
+            intervals = payload["intervals"]
+            num_regions = len({row["region"] for row in intervals})
+            depths = [row["depth"] for row in intervals if "depth" in row]
+            controls = {
+                "regions": num_regions,
+                "max_depth": max(depths, default=0),
+                "top": (_TIMELINE_REGIONS if num_regions > _TIMELINE_REGIONS else None),
+            }
+            limit_controls = limit_controls or controls
+            # Every row is already labelled with its region.
+            charts.append((title, payload, {"layout": {"showlegend": False}}))
 
         scaling_values = (
             [_scaling_value(run, scaling_field) for run in runs]
@@ -2835,6 +2900,10 @@ def _chart_sections(
             # call timestamps, which aggregated profiles do not store.
             stack_children=len(runs) == 1 and _has_call_timestamps(runs[0]),
         )
+        if not comparison and charts and charts[-1][0] == "Region durations":
+            # Where the time went is the first question about one run, so its
+            # durations lead, above the timeline.
+            charts.insert(0, charts.pop())
 
         # Both rank views are empty or trivial with a single rank.
         if not comparison and any(len(selected) > 1 for selected in selected_ranks):
@@ -2878,7 +2947,11 @@ def _chart_sections(
     # With both scaling charts, the speedup leads and the weak-scaling chart
     # waits; asked for on its own, the weak-scaling chart leads instead.
     lead = "Weak scaling" if scaling == "weak" else "Speedup"
-    kinds = (lead, "Change:", "Region durations") if comparison else ("Timeline:",)
+    kinds = (
+        (lead, "Change:", "Region durations")
+        if comparison
+        else ("Region durations", "Timeline:")
+    )
     opened = {
         next(index for index, chart in enumerate(charts) if chart[0].startswith(kind))
         for kind in kinds
@@ -2912,7 +2985,8 @@ def _chart_sections(
             f'<details class="chart-panel"{" open" if index in opened else ""}>'
             '<summary><span class="chart-heading" role="heading" aria-level="3">'
             f"{_text(title)}</span></summary>{explanation}"
-            f'<div class="chart-tools">{axis_buttons}<button type="button"'
+            f'<div class="chart-tools">{axis_buttons}'
+            '<button type="button"'
             f' class="chart-open" data-chart="{chart_id}"'
             ' title="Open this chart on its own page">'
             "Open in new tab ↗</button></div>"
@@ -2950,7 +3024,8 @@ def _chart_sections(
     if not charts:
         fragments.append('<p class="muted">No charts could be rendered.</p>')
         return (
-            '<section id="charts"><h2>Charts</h2>' + "".join(fragments) + "</section>"
+            '<section id="charts"><h2>Charts</h2>' + "".join(fragments) + "</section>",
+            "",
         )
 
     # Escape '<' so profile labels such as '</script>' cannot terminate the
@@ -3051,6 +3126,24 @@ const runFromPoint = (chart, point, region) => {
 
 let activeTerms = [];
 let selectedRegion = null;
+const termFilter = (region) => activeTerms.some((term) =>
+  term.startsWith('^')
+    ? String(region).toLowerCase().startsWith(term.slice(1))
+    : String(region).toLowerCase().includes(term));
+// The filter bar's Regions and Depth sliders: the timeline's topN and
+// maxDepth. The regions the timeline then draws limit the region durations
+// too, so both charts show the same regions.
+const regionLimits = {};
+let limitedRegions = null;
+const timelinePayload =
+  scopeProfilerCharts.find((chart) => chart.payload.plot === "gantt")?.payload;
+const updateLimitedRegions = () => {
+  limitedRegions = timelinePayload && Object.keys(regionLimits).length
+    ? selectTimelineRegions(timelinePayload, {
+        ...regionLimits, ...(activeTerms.length ? { filterRegion: termFilter } : {}),
+      })
+    : null;
+};
 const draw = (chart) => {
   const target = document.getElementById(chart.id);
   // A chart in a collapsed panel waits until the panel opens: a timeline of
@@ -3061,12 +3154,16 @@ const draw = (chart) => {
     return;
   }
   chart.stale = false;
-  const options = activeTerms.length
-    ? { ...chart.options, filterRegion: (region) => activeTerms.some((term) =>
-        term.startsWith('^')
-          ? String(region).toLowerCase().startsWith(term.slice(1))
-          : String(region).toLowerCase().includes(term)) }
+  let options = activeTerms.length
+    ? { ...chart.options, filterRegion: termFilter }
     : chart.options;
+  if (chart.payload.plot === "gantt") {
+    options = { ...options, ...regionLimits };
+  } else if (limitedRegions && chart.payload.plot === "durations") {
+    const inner = options.filterRegion;
+    options = { ...options, filterRegion: (region, row) =>
+      limitedRegions.has(region) && (!inner || inner(region, row)) };
+  }
   // buildFigure dispatches region_statistics to the ranked summary; only
   // buildComparisonFigure draws the signed per-region change.
   const build = options.comparison ? buildComparisonFigure : buildFigure;
@@ -3097,7 +3194,10 @@ const draw = (chart) => {
   }
 };
 
-const redraw = () => { for (const chart of scopeProfilerCharts) draw(chart); };
+const redraw = () => {
+  updateLimitedRegions();
+  for (const chart of scopeProfilerCharts) draw(chart);
+};
 // Both hooks call their listener as soon as it registers, which drew every
 // chart twice on load; changes arriving together are drawn once.
 let redrawQueued = false;
@@ -3144,6 +3244,40 @@ Plotly.newPlot(target, figure.data, layout, { responsive: true, displaylogo: fal
 for (const button of document.querySelectorAll(".chart-open")) {
   const chart = scopeProfilerCharts.find((item) => item.id === button.dataset.chart);
   if (chart) button.addEventListener("click", () => openInNewTab(chart));
+}
+// At its maximum a slider means all. The readout follows the thumb, while
+// the charts, which can take most of a second to draw, wait for it to rest.
+// The labels mirror _top_label and _depth_label.
+const topLabel = (value, max) => value >= max ? `all ${max}` : `top ${value} of ${max}`;
+const depthLabel = (value, max) =>
+  value >= max ? "all levels" : value === 0 ? "top level only"
+    : `${value} level${value > 1 ? "s" : ""} of children`;
+for (const slider of document.querySelectorAll(".region-top, .region-depth")) {
+  const isTop = slider.classList.contains("region-top");
+  const key = isTop ? "topN" : "maxDepth";
+  const readout = slider.nextElementSibling;
+  const read = () => {
+    const value = Number(slider.value);
+    if (value >= Number(slider.max)) delete regionLimits[key];
+    else regionLimits[key] = value;
+  };
+  // The page opens on the slider's own value: past 500 regions, the top 500.
+  read();
+  let timer = null;
+  const apply = () => {
+    window.clearTimeout(timer);
+    const before = regionLimits[key];
+    read();
+    if (regionLimits[key] !== before) scheduleRedraw();
+  };
+  slider.addEventListener("input", () => {
+    const value = Number(slider.value);
+    const max = Number(slider.max);
+    readout.textContent = isTop ? topLabel(value, max) : depthLabel(value, max);
+    window.clearTimeout(timer);
+    timer = window.setTimeout(apply, 150);
+  });
+  slider.addEventListener("change", apply);
 }
 // The scaling charts' x-axis buttons: each swaps in the payload computed for
 // that axis, and the description's axis name with it.
@@ -3210,7 +3344,8 @@ if (typeof globalThis.scopeProfilerOnRegionFilter !== "function" &&
         + controls
         + "".join(fragments)
         + script
-        + '<p class="back-to-top"><a href="#top">Back to top</a></p></section>'
+        + '<p class="back-to-top"><a href="#top">Back to top</a></p></section>',
+        _region_limits(limit_controls),
     )
 
 
@@ -3241,7 +3376,7 @@ def _navigation(links) -> str:
 _BACK_TO_TOP = '<p class="back-to-top"><a href="#top">Back to top</a></p>'
 
 
-def _single_run_body(results, include, exclude, ranks, sort, columns, charts):
+def _single_run_body(results, include, exclude, ranks, sort, columns, charts, limits):
     """Header, navigation and sections of the report for one run."""
     rows = _report_rows(results, include, exclude, ranks, sort)
     section_id = "run-0"
@@ -3314,7 +3449,15 @@ def _single_run_body(results, include, exclude, ranks, sort, columns, charts):
         f'<h1 id="top">{_text(results.display_label)}</h1>'
         f"{_run_meta_html(results, region_count)}</header>"
     )
-    return header + _navigation(links) + _FILTER_BAR + sections + hardware + charts
+    return (
+        # The bar leads the page, above the title, and stays there on scroll.
+        _filter_bar(limits)
+        + header
+        + _navigation(links)
+        + sections
+        + hardware
+        + charts
+    )
 
 
 def _report_file_name(output_path: Path, index: int, label: str) -> Path:
@@ -3358,7 +3501,7 @@ def _comparison_body(runs, include, exclude, ranks, sort, charts, links):
         + _BACK_TO_TOP
         + "</section>"
     )
-    return header + _navigation(navigation) + _FILTER_BAR + sections + charts
+    return _filter_bar() + header + _navigation(navigation) + sections + charts
 
 
 def create_html_report(
@@ -3419,7 +3562,7 @@ def create_html_report(
     output_path = Path(filepath)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    charts = (
+    charts, limits = (
         _chart_sections(
             runs,
             include,
@@ -3431,7 +3574,7 @@ def create_html_report(
             scaling_field=scaling_field,
         )
         if include_charts
-        else ""
+        else ("", "")
     )
     if comparison:
         links = []
@@ -3453,7 +3596,9 @@ def create_html_report(
         body = _comparison_body(runs, include, exclude, ranks, sort, charts, links)
         title = "scope-profiler comparison"
     else:
-        body = _single_run_body(runs[0], include, exclude, ranks, sort, columns, charts)
+        body = _single_run_body(
+            runs[0], include, exclude, ranks, sort, columns, charts, limits
+        )
         title = f"{runs[0].display_label} · scope-profiler report"
     document = (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'

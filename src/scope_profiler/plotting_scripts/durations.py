@@ -564,6 +564,11 @@ def plot_durations(
                             region_names,
                             run_values[segment],
                         ):
+                            # A child segment sits under few of the bars; a
+                            # row for every bar would be regions x children
+                            # rows. Every bar keeps its own-time row.
+                            if segment != _SELF_SEGMENT and not value:
+                                continue
                             data_rows.append(
                                 [label, region_name, metric_key, segment, float(value)],
                             )

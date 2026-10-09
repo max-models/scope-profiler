@@ -400,6 +400,9 @@ matching the colors used in the plots, so a re-rendered chart keeps the same
 region colors. Gantt, flame and roofline data also carry `file_ranks`, each
 run's rank count: plots name a rank -- `solve (rank 0)` -- only for a run with
 more than one, and the `@scope-profiler/plotly` builders follow the same rule.
+Gantt JSON intervals also carry `depth`, the call's nesting level (0 for a
+top-level call), when the rank's calls nest; the builders' `maxDepth` and
+`topN` options use it to hide nested calls and keep the most expensive regions.
 
 ```bash
 scope-profiler export plot-data run_2.h5 -o data --format json

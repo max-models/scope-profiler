@@ -53,6 +53,8 @@ export interface Interval extends RegionRow {
   start_seconds: number;
   end_seconds: number;
   call_id?: number | string;
+  /** Call nesting depth; 0 is a top-level call. */
+  depth?: number;
 }
 export type FlameCall = RegionRow & {
   call_id: number | string;
@@ -247,6 +249,7 @@ export type PlotData = {
 }[PlotKind];
 export type LegacyPlotData = PayloadByKind[PlotKind];
 export interface SummaryOptions {
+  /** How many regions to show, those with the most time (summary, gantt). */
   topN?: number;
   files?: (string | number)[];
   orientation?: "h" | "v";
@@ -265,6 +268,8 @@ export interface BuildOptions extends SummaryOptions {
   plot?: PlotKind;
   theme?: ThemeName | ThemeTokens;
   laneBy?: "rank" | "region";
+  /** Gantt: keep calls at most this many levels below a top-level call. */
+  maxDepth?: number;
   valueKey?: string;
   colorscale?: string;
   logScale?: boolean;
@@ -284,6 +289,11 @@ export function createFigureBuilder(
 export function getPointIdentity(
   point: { customdata?: { identity?: PointIdentity } } | null | undefined,
 ): PointIdentity | null;
+/** The regions buildGanttFigure draws for these options. */
+export function selectTimelineRegions(
+  payload: GanttPayload,
+  options?: BuildOptions,
+): Set<string>;
 export function buildGanttFigure(
   payload: GanttPayload,
   options?: BuildOptions,
