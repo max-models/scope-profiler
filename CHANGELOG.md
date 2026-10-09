@@ -34,13 +34,18 @@
 ### Changed
 
 - HTML report: the summary at the top is now a row of headline numbers and a
-  findings list, and **Hot spots** became **Bottlenecks**: the leaves of the
-  call tree, per call path, with the path each sits on. Line profiles moved
+  findings list, and **Hotspots** (formerly **Hot spots**) now ranks the
+  leaves of the call tree, per call path, with the path each sits on. Line profiles moved
   into the region table: clicking a region's row shows its functions' source,
   syntax-highlighted and summed over ranks, with the hottest line highlighted, in a scrolling box that opens at that
   line. Clicking a chart no longer scrolls the page
   to the table; it offers a **Show in table** jump instead.
 - `scope-profiler report -o/--output` defaults to `report.html`.
+- HTML report: the ranked list of the most expensive regions, briefly called
+  **Bottlenecks** during development, is named **Hotspots** throughout -- its
+  heading, the "Top hotspot" headline and "largest hotspot" finding, section
+  anchors (`#<run>-hotspots`) and CSS classes (`.hotspots`, `.hotspot`,
+  `.hs-*`).
 - Plots of a single-rank run no longer label regions and titles with
   `(rank 0)`: Gantt lanes, flame, call-graph, heatmap, imbalance, roofline,
   LIKWID and perf-event labels and hovers, and the report's timeline. Gantt,

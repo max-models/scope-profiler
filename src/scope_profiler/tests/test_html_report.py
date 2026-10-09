@@ -85,7 +85,7 @@ def test_report_overview_flags_hot_spot_and_imbalance(tmp_path):
 
     document = report.read_text(encoding="utf-8")
     assert '<ul class="findings">' in document
-    assert "<code>solve</code></a> is the largest bottleneck" in document
+    assert "<code>solve</code></a> is the largest hotspot" in document
     assert 'href="#run-0-region-0"' in document
     assert "unevenly distributed across" in document
     # The callout points at the load-balance section, which only MPI runs get.
@@ -173,7 +173,7 @@ def test_report_handles_an_out_of_range_rank_selection(tmp_path):
 
     document = report.read_text(encoding="utf-8")
     assert "No timed regions to summarize" in document
-    assert '<div class="bottlenecks">' not in document
+    assert '<div class="hotspots">' not in document
 
 
 def test_report_rejects_an_empty_run_list(tmp_path):
@@ -750,8 +750,8 @@ def test_report_region_table_headers_are_sortable_and_show_a_trend_column(tmp_pa
     assert '<svg class="spark"' in document
 
 
-def test_report_summary_names_the_bottleneck_not_its_enclosing_region(tmp_path):
-    """Rank bottlenecks by exclusive time.
+def test_report_summary_names_the_hotspot_not_its_enclosing_region(tmp_path):
+    """Rank hotspots by exclusive time.
 
     An enclosing region's total is mostly its children's, so ranking by the
     inclusive total just names whatever sits nearest the top of the call tree
@@ -774,19 +774,19 @@ def test_report_summary_names_the_bottleneck_not_its_enclosing_region(tmp_path):
     cli_main(["report", str(profile), "-o", str(report), "--no-charts"])
 
     document = report.read_text(encoding="utf-8")
-    assert "<code>kernel</code></a> (in wrapper) is the largest bottleneck" in document
-    assert "<code>wrapper</code></a> is the largest bottleneck" not in document
+    assert "<code>kernel</code></a> (in wrapper) is the largest hotspot" in document
+    assert "<code>wrapper</code></a> is the largest hotspot" not in document
     # The wrapper's own 20 ms is a leaf of the tree too, and says so.
-    bottlenecks = document[document.index('<div class="bottlenecks">') :]
-    assert re.findall(r'<li data-region="([^"]*)"', bottlenecks) == [
+    hotspots = document[document.index('<div class="hotspots">') :]
+    assert re.findall(r'<li data-region="([^"]*)"', hotspots) == [
         "kernel",
         "wrapper",
     ]
-    assert '<strong>wrapper</strong><span class="bn-tag"' in bottlenecks
+    assert '<strong>wrapper</strong><span class="hs-tag"' in hotspots
 
 
 def test_report_summary_of_a_single_region_profile(tmp_path):
-    """One region is the bottleneck, with nothing to rank it against."""
+    """One region is the hotspot, with nothing to rank it against."""
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
     _write_sample_h5(profile, {0: {"solve": ([0], [10_000_000])}})
@@ -794,9 +794,9 @@ def test_report_summary_of_a_single_region_profile(tmp_path):
     cli_main(["report", str(profile), "-o", str(report), "--no-charts"])
 
     document = report.read_text(encoding="utf-8")
-    assert "<code>solve</code></a> is the largest bottleneck" in document
-    assert "three largest bottlenecks" not in document
-    assert '<div class="bottlenecks">' not in document
+    assert "<code>solve</code></a> is the largest hotspot" in document
+    assert "three largest hotspots" not in document
+    assert '<div class="hotspots">' not in document
 
 
 def test_report_charts_cdn_links_the_runtime_instead_of_embedding_it(tmp_path):
@@ -1106,38 +1106,38 @@ def test_report_region_table_explicit_columns_match_the_terminal(tmp_path):
     assert 'data-parent_percent="79.0"' in loop_body
 
 
-def test_report_bottlenecks_are_the_leaves_of_the_call_tree(tmp_path):
+def test_report_hotspots_are_the_leaves_of_the_call_tree(tmp_path):
     report = create_html_report(
         _nested_results(), tmp_path / "report.html", include_charts=False
     )
     document = report.read_text(encoding="utf-8")
-    bottlenecks = document[document.index('<div class="bottlenecks">') :]
-    bottlenecks = bottlenecks[: bottlenecks.index("</ol>")]
-    names = re.findall(r'<li data-region="([^"]*)"', bottlenecks)
+    hotspots = document[document.index('<div class="hotspots">') :]
+    hotspots = hotspots[: hotspots.index("</ol>")]
+    names = re.findall(r'<li data-region="([^"]*)"', hotspots)
     # One entry per call path: solve is 3.4 s under loop and 0.6 s under
     # final. loop's 4.5 s and final's 0.2 s outside solve are their own time.
     assert names == ["loop", "solve", "scope_profiler.session", "solve", "final"]
-    assert '<span class="bn-share">45.0%</span>' in bottlenecks
-    assert '<span class="bn-share">34.0%</span>' in bottlenecks
-    assert '<span class="bn-path">in loop</span>' in bottlenecks
-    assert '<span class="bn-path">in final</span>' in bottlenecks
-    assert "3.4 s · 3 calls · 1.133 s/call" in bottlenecks
+    assert '<span class="hs-share">45.0%</span>' in hotspots
+    assert '<span class="hs-share">34.0%</span>' in hotspots
+    assert '<span class="hs-path">in loop</span>' in hotspots
+    assert '<span class="hs-path">in final</span>' in hotspots
+    assert "3.4 s · 3 calls · 1.133 s/call" in hotspots
     # The session root's own time is the time no other region covers.
-    assert "<em>outside any region</em>" in bottlenecks
-    assert 'class="bottleneck" type="button"' in bottlenecks
-    # The filter hides bottlenecks too, and the whole list once none match.
-    assert 'document.querySelectorAll(".bottlenecks")' in document
+    assert "<em>outside any region</em>" in hotspots
+    assert 'class="hotspot" type="button"' in hotspots
+    # The filter hides hotspots too, and the whole list once none match.
+    assert 'document.querySelectorAll(".hotspots")' in document
     assert 'block.querySelector("li[data-filter-region]:not([hidden])")' in document
 
 
-def test_report_bottlenecks_need_two_entries(tmp_path):
+def test_report_hotspots_need_two_entries(tmp_path):
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
     _write_sample_h5(profile, {0: {"solve": ([0], [10])}})
 
     create_html_report(profile, report, include_charts=False)
 
-    assert '<div class="bottlenecks">' not in report.read_text(encoding="utf-8")
+    assert '<div class="hotspots">' not in report.read_text(encoding="utf-8")
 
 
 def test_report_run_header_names_file_time_host_and_scale(tmp_path):
@@ -1185,8 +1185,8 @@ def test_report_flags_time_outside_every_region(tmp_path):
     assert "70% of the session" in document
     assert "is outside every region" in document
     assert '<span class="kpi-value">30%</span>' in document
-    # The session root is not a bottleneck to name.
-    assert "<code>solve</code></a> is the largest bottleneck" in document
+    # The session root is not a hotspot to name.
+    assert "<code>solve</code></a> is the largest hotspot" in document
 
 
 def test_report_does_not_guess_outside_time_without_a_call_tree(tmp_path):
@@ -1251,7 +1251,7 @@ def test_report_total_bars_are_drawn(tmp_path):
 
 
 def test_report_omits_empty_findings(tmp_path):
-    """A lone session root has no bottleneck or flag to report."""
+    """A lone session root has no hotspot or flag to report."""
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
     _write_sample_h5(profile, {0: {"scope_profiler.session": ([0], [10])}})
@@ -1260,7 +1260,7 @@ def test_report_omits_empty_findings(tmp_path):
 
     document = report.read_text(encoding="utf-8")
     assert '<ul class="findings">' not in document
-    assert '<div class="bottlenecks">' not in document
+    assert '<div class="hotspots">' not in document
     assert "In regions" not in document
     assert "scope_profiler.session" in document
 
@@ -1587,7 +1587,7 @@ def test_comparison_report_links_individual_reports(tmp_path):
     assert '<h1 id="top">base vs cand</h1>' in document
     # No per-run detail: that is what the individual reports are for.
     assert 'class="region-stats"' not in document
-    assert '<div class="bottlenecks">' not in document
+    assert '<div class="hotspots">' not in document
     individual = (tmp_path / "out" / "compare-1-cand.html").read_text(encoding="utf-8")
     assert 'class="region-stats"' in individual
     assert "scope-profiler comparison" not in individual
@@ -1785,7 +1785,7 @@ def test_report_chart_clicks_highlight_without_scrolling(tmp_path):
     )
     assert 'region, runFromPoint(chart, point, region), "toast");' in document
     assert 'else if (mode === "toast") showToast(selectedRegion, target);' in document
-    # Bottlenecks still jump to the table row: finding it is their purpose.
+    # Hotspots still jump to the table row: finding it is their purpose.
     assert 'select(button.dataset.region, button.dataset.run, "scroll");' in document
 
 
