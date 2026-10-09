@@ -74,7 +74,7 @@ testing) - not run directly in a terminal you intend to type into.
 Add it as an MCP server, either via the CLI:
 
 ```bash
-claude mcp add scope-profiler - scope-profiler-mcp
+claude mcp add scope-profiler -- scope-profiler-mcp
 ```
 
 or by adding it directly to your project's `.mcp.json` (or Claude Code's
