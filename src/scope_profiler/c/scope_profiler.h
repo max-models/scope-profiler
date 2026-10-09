@@ -5,11 +5,11 @@
  * as a Python one. Two output formats, chosen with
  * sp_profiler_set_output_format() (see sp_output_format):
  *
- *   - "<prefix>_rank<NNNNN>.h5" -- the preferred format, and the default
+ *   - "<prefix>_rank<NNNNN>.h5" - the preferred format, and the default
  *     where available: the same schema-2 HDF5 layout the Python API writes,
  *     readable directly by `scope-profiler inspect`/`plot` and `read_h5()`.
  *     Needs a build compiled with SP_USE_HDF5 and linked against libhdf5.
- *   - "<prefix>_rank<NNNNN>.spt" -- a compact binary trace that
+ *   - "<prefix>_rank<NNNNN>.spt" - a compact binary trace that
  *     `scope-profiler import-native` converts afterwards. The format is
  *     shared with the Fortran API, so a program built from both lands in one
  *     profile. Needs nothing beyond libc.
@@ -35,7 +35,7 @@
  *        sp_finalize();                        // writes profile_rank00000.h5
  *
  *    These operate on a hidden default context, and are always safe to call
- *    even before sp_init() -- sp_region() returns SP_INVALID_REGION and
+ *    even before sp_init() - sp_region() returns SP_INVALID_REGION and
  *    sp_begin/sp_end silently ignore it, so instrumentation can stay in a
  *    build that never profiles.
  *
@@ -109,7 +109,7 @@ typedef struct {
 /* A single open call, returned by sp_scope_begin()/sp_profiler_scope_begin()
  * and consumed by sp_scope_end()/sp_profiler_scope_end(). Opaque: a C++ RAII
  * wrapper stores one of these per scope and passes it to sp_scope_end() in
- * its destructor. Ending it twice, or after a move, is harmless -- the second
+ * its destructor. Ending it twice, or after a move, is harmless - the second
  * call finds nothing open and returns SP_ERR_UNMATCHED_END rather than
  * corrupting another call's timing. */
 typedef struct {
@@ -173,13 +173,13 @@ sp_output_format sp_profiler_output_format(const sp_profiler *profiler);
  *
  * Returns a new, empty, inactive-only-if-no-clock-was-found profiler; NULL
  * only if the sp_profiler struct itself could not be allocated. A profiler
- * returned because no clock was available is safe to use -- every call
- * against it is a harmless no-op -- and sp_profiler_last_error() reports
+ * returned because no clock was available is safe to use - every call
+ * against it is a harmless no-op - and sp_profiler_last_error() reports
  * SP_ERR_NO_CLOCK. Never NULL to check for that case; check
  * sp_profiler_is_active() or sp_profiler_last_error() instead. */
 sp_profiler *sp_create(const char *prefix, int rank);
 
-/* Release a profiler and everything it owns. Does not write a trace -- call
+/* Release a profiler and everything it owns. Does not write a trace - call
  * sp_profiler_finalize() first if you want one. Safe to call with NULL. */
 void sp_destroy(sp_profiler *profiler);
 
@@ -198,7 +198,7 @@ int sp_profiler_region(sp_profiler *profiler, const char *name);
  * sp_profiler_region(), or sp_profiler_region_at() with a NULL source_file)
  * can still pick one up later: the next sp_profiler_region_at() call for the
  * same name backfills it onto the existing handle. Once a handle has a
- * source location, later calls never overwrite it -- first writer wins. */
+ * source location, later calls never overwrite it - first writer wins. */
 int sp_profiler_region_at(
     sp_profiler *profiler,
     const char *name,
@@ -231,7 +231,7 @@ sp_scope sp_profiler_scope_begin(sp_profiler *profiler, int region);
  *
  * Checked: if another call on the same region was opened after this one and
  * has not yet been closed, ending it here is refused (SP_ERR_UNMATCHED_END)
- * instead of mistiming whichever call is actually on top -- the token stays
+ * instead of mistiming whichever call is actually on top - the token stays
  * valid, so ending it again later (once it is on top, e.g. after an inner
  * scope opened after it has ended) succeeds normally. If this scope was
  * already ended, ending it again is also refused, but harmlessly: it is left
@@ -239,7 +239,7 @@ sp_scope sp_profiler_scope_begin(sp_profiler *profiler, int region);
 int sp_scope_end(sp_scope *scope);
 
 /* Discard every recorded call and reset each region's statistics, but keep
- * every region name and handle valid -- resolve them again is unnecessary.
+ * every region name and handle valid - resolve them again is unnecessary.
  * For periodic reporting followed by a fresh measurement window.
  *
  * Refuses (SP_ERR_OPEN_SCOPES) if any region has a call still open; finish or
@@ -260,7 +260,7 @@ int sp_profiler_num_regions(const sp_profiler *profiler);
 const char *sp_profiler_region_name(const sp_profiler *profiler, int region);
 
 /* Write everything recorded so far to sp_profiler_output_path(), without
- * stopping profiling or discarding anything -- calls still open are simply
+ * stopping profiling or discarding anything - calls still open are simply
  * not yet in the file. For long-running applications that want to publish
  * completed data before the run ends. Returns 0 on success, non-zero if the
  * file could not be written (also recorded as SP_ERR_IO). */

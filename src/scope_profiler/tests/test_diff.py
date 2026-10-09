@@ -130,7 +130,7 @@ def test_diff_rows_sort_by_delta_magnitude(file_a, file_b):
     from scope_profiler.h5reader import read_h5
 
     rows = diff_rows(read_h5(file_a), read_h5(file_b), sort="delta")
-    # |delta|: teardown 2.0, solve 2.0, setup 0.0 -- ties keep alpha order.
+    # |delta|: teardown 2.0, solve 2.0, setup 0.0 - ties keep alpha order.
     assert [row["name"] for row in rows] == ["solve", "teardown", "setup"]
 
 

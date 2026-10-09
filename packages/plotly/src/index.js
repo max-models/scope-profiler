@@ -294,7 +294,7 @@ function values(payload, key, kind, options) {
 // the text colour unset and paints gridlines in a half-transparent grey that
 // reads on either background, which is what every figure did before themes
 // existed and so stays the default. A host that knows which theme it is in
-// passes "light" or "dark" -- or its own token object -- and gets chrome that
+// passes "light" or "dark" - or its own token object - and gets chrome that
 // matches, since a grey that works on both is never the best on either.
 const THEMES = {
   auto: {
@@ -430,7 +430,7 @@ function withEmptyState(layout, hasData) {
   };
 }
 
-// Pooled magnitude per region, largest first -- the order both the durations
+// Pooled magnitude per region, largest first - the order both the durations
 // bars and the heatmap columns are laid out in, and the one
 // `buildRegionSummaryFigure` has always ranked by.
 function totalsByRegion(rows, value) {
@@ -463,7 +463,7 @@ function groupBy(rows, key) {
 }
 
 // Several payloads carry rows from more than one run. Dropping that column
-// merges runs into one series -- silently, and wrongly -- so every builder that
+// merges runs into one series - silently, and wrongly - so every builder that
 // can see two runs keys its series by file as well, and says so in the label.
 function runAware(rows) {
   const files = new Set(rows.map((row) => row.file ?? "run"));
@@ -486,7 +486,7 @@ const FILE_PATTERNS = ["", "/", "\\", "x", "-"];
 /** Build a multi-run, multi-rank timeline: a lane per region and rank.
  *
  * A lane per rank alone cannot show a nested profile: every region of a rank
- * lands on one row, and the outermost region -- the session, typically -- is
+ * lands on one row, and the outermost region - the session, typically - is
  * drawn over everything inside it. One lane per region and rank is also what
  * `scope-profiler plot gantt` draws, so the two agree. Pass
  * `{ laneBy: "rank" }` for the compact one-row-per-rank view, which suits a
@@ -574,7 +574,7 @@ export function buildGanttFigure(payload, options = {}) {
   });
   const byRank = options.laneBy === "rank";
   const perLane = byRank ? 48 : 26;
-  // Region lanes read bottom-up, so the first region -- the enclosing one --
+  // Region lanes read bottom-up, so the first region - the enclosing one --
   // sits at the bottom, as `scope-profiler plot gantt` draws it. Rank lanes
   // keep rank 0 on top, like the rank heatmap.
   const layout = baseLayout({
@@ -688,7 +688,7 @@ export function buildDurationsFigure(payload, options = {}) {
   // different region sets interleaves them unpredictably.
   const regions = [...totalsByRegion(bars, (bar) => bar.value_seconds).keys()];
   // A group is a rank, a run, or a stacked child region depending on the
-  // export, but a caller -- and the payload's own `colors` -- keys colours by
+  // export, but a caller - and the payload's own `colors` - keys colours by
   // the name it knows. "rank 3" is a label this builder invents, so accept a
   // colour supplied under the bare rank rather than silently dropping to the
   // default cycle.
@@ -765,7 +765,7 @@ const SCALING_KINDS = {
     ideal: () => 1,
   },
   // Shares its y column with scaling_efficiency, so it has to be named --
-  // by the document's own `plot` field, or options.plot -- rather than
+  // by the document's own `plot` field, or options.plot - rather than
   // recognised from the rows. Listed after it so a payload with neither
   // still infers the strong-scaling reading it always did.
   weak_scaling_efficiency: {
@@ -881,7 +881,7 @@ export function buildScalingEfficiencyFigure(payload, options = {}) {
 /** Build a weak-scaling efficiency curve (baseline runtime over runtime).
  *
  * For a study that grows the problem with the machine, where the ideal is
- * constant runtime -- not the rank-proportional speedup
+ * constant runtime - not the rank-proportional speedup
  * `buildScalingEfficiencyFigure` measures against.
  */
 export function buildWeakScalingEfficiencyFigure(payload, options = {}) {
@@ -1160,7 +1160,7 @@ export function buildDensityFigure(payload, options = {}) {
   // Each cell sits at the centre of its own bin. Deriving one bin width from
   // the first point and applying it to every lane put the second run's cells
   // at the wrong times whenever two runs of different length were binned into
-  // the same number of bins -- which is exactly what the exporter does.
+  // the same number of bins - which is exactly what the exporter does.
   const centre = (point) =>
     (point.bin_start_seconds + point.bin_end_seconds) / 2;
   const centres = [...new Set(points.map(centre))].sort((a, b) => a - b);
@@ -1471,7 +1471,7 @@ export function buildRegionSummaryFigure(payload, options = {}) {
  * The same bars as `buildRegionSummaryFigure`, narrowed to the runs named in
  * `options.files` (every run in the document by default, not only the first
  * two) and to the regions all of them recorded, and drawn vertically with
- * every shared region kept rather than a ranked top slice -- the reading for
+ * every shared region kept rather than a ranked top slice - the reading for
  * "what changed between these runs?" rather than "where did this run spend
  * its time?". `options.comparison: "absolute"` or `"percent"` instead draws a
  * single delta bar per region, which needs exactly two runs.

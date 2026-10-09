@@ -393,7 +393,7 @@ def collect_marker_results(pylikwid) -> list[LikwidRegionResult]:
 
     try:
         # LIKWID separates the event sets of a multi-group run with "|", and
-        # numbers the groups in that order -- the same ids markerregiongroup()
+        # numbers the groups in that order - the same ids markerregiongroup()
         # reports, so re-adding them in order restores the mapping.
         group_names = {}
         for event_set in event_string.split("|"):
@@ -538,7 +538,7 @@ def _child_environment() -> dict:
         [path for path in sys.path if path] + [env.get("PYTHONPATH", "")],
     ).strip(os.pathsep)
 
-    # The explicit override, plus the launcher variables it overrides -- so
+    # The explicit override, plus the launcher variables it overrides - so
     # that anything else the child imports also sees a non-MPI process.
     env["SCOPE_PROFILER_MPI"] = "0"
     for var in LAUNCHER_ENV_VARS:

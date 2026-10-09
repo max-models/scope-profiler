@@ -231,7 +231,7 @@ def export_speedscope(
                 raise ValueError(f"Invalid rank requested: {rank}")
             calls = build_call_arrays(regions, rank)
             # One profile per lane, which is exactly speedscope's model of a
-            # thread -- and a necessity rather than a nicety: an evented
+            # thread - and a necessity rather than a nicety: an evented
             # profile's timestamps must not go backwards, and two interleaved
             # lanes walked as one tree do exactly that.
             for lane, lane_calls in split_by_lane(calls):

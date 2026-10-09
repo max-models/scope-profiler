@@ -699,7 +699,7 @@ def test_comparison_of_run_sizes_compares_time_per_rank(tmp_path):
     document = report.read_text(encoding="utf-8")
     table = document[document.index('<table class="compare-table metric-total"') :]
     table = table[: table.index("</table>")]
-    # solve: 80 on one rank, 20 on each of four -- per rank, 4x faster; summed
+    # solve: 80 on one rank, 20 on each of four - per rank, 4x faster; summed
     # over the ranks it would read as unchanged.
     solve = table[table.index('data-region="solve"') :]
     solve = solve[: solve.index("</tr>")]
@@ -802,7 +802,7 @@ def test_speedup_x_selects_the_axis_and_offers_the_others(tmp_path):
     # The bundled script wires the buttons up.
     assert 'querySelectorAll(".chart-axis")' in document
 
-    # "auto" keeps its old choice -- ranks here -- and still offers nodes.
+    # "auto" keeps its old choice - ranks here - and still offers nodes.
     document = create_html_report(
         paths, tmp_path / "auto.html", individual_reports=False
     ).read_text(encoding="utf-8")
@@ -1106,7 +1106,7 @@ def test_report_summary_names_the_hotspot_not_its_enclosing_region(tmp_path):
 
     An enclosing region's total is mostly its children's, so ranking by the
     inclusive total just names whatever sits nearest the top of the call tree
-    -- a wrapper that does no work of its own.
+    - a wrapper that does no work of its own.
     """
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
@@ -1778,7 +1778,7 @@ def _ranked_results(rank_work, file_path="run.h5", extra_regions=0, num_ranks=No
     """A session per rank: ``work`` for a rank-dependent time, then ``wait``.
 
     Every rank finishes at 100, so whatever ``work`` does not take, ``wait``
-    does -- the shape of ranks meeting at a barrier.
+    does - the shape of ranks meeting at a barrier.
     """
     from scope_profiler import MPIRegion, Region
 

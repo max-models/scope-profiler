@@ -163,7 +163,7 @@ class ProfilingOptions:
     """A bag of :meth:`ProfileManager.setup` settings, to reuse or pass around.
 
     Every field mirrors a ``setup()``/``session()`` keyword argument and
-    defaults to ``None``, meaning "unset -- let ``setup()``'s own default, or
+    defaults to ``None``, meaning "unset - let ``setup()``'s own default, or
     its ``config_path`` file, decide". Pass one to ``setup()`` or
     ``session()`` instead of repeating the same handful of keyword arguments
     at every call site::
@@ -201,7 +201,7 @@ class ProfilingOptions:
         Short name for this run (default: None, i.e. the output file's
         stem). Post-processing uses it wherever a run has to be named --
         chart legends, the summary heading, ``scope-profiler inspect``, the
-        JSON statistics -- and it is stored in the output file as the
+        JSON statistics - and it is stored in the output file as the
         ``label`` metadata field, so it survives into every later
         post-processing step.
     use_likwid : bool or None
@@ -256,8 +256,8 @@ class ProfilingOptions:
         much of the call was spent awaiting (default: False). Implies
         ``track_threads``.
     capture_region_source : bool or None
-        Record where each region is defined -- the ``with`` block or the
-        decorated function -- once per distinct source file, the first time
+        Record where each region is defined - the ``with`` block or the
+        decorated function - once per distinct source file, the first time
         any of its regions is created (default: False). See
         :attr:`~scope_profiler.region.Region.source_text`. Off by default:
         the cost tracks that file's total size (one ``ast.parse`` + tree
@@ -378,7 +378,7 @@ class SetupOptions(TypedDict, total=False):
     ``setup()`` and ``session()`` take their settings as ``**overrides``
     rather than restating 28 keyword parameters, so this is what gives type
     checkers and editors the names and types of those keywords. It mirrors
-    :class:`ProfilingOptions` exactly -- ``test_setup_options_match_fields``
+    :class:`ProfilingOptions` exactly - ``test_setup_options_match_fields``
     fails the build if the two ever drift.
     """
 
@@ -738,7 +738,7 @@ class ProfilingConfig:
             created. Off by default: measured cost is driven almost entirely
             by that file's total size (an ``ast.parse`` + one tree walk), not
             by the number or size of the regions in it, and every rank pays
-            it independently and concurrently -- under a millisecond for a
+            it independently and concurrently - under a millisecond for a
             typical file of a few hundred lines regardless of MPI rank count,
             but tenths of a second *per rank* for a single ~10,000-line file
             with many regions, compounding into whole seconds under
@@ -1025,7 +1025,7 @@ class ProfilingConfig:
 
         if not markers_available():
             # markerinit() degrades to a no-op outside likwid-perfctr, so there
-            # are no counters to read -- not an error, just nothing to report.
+            # are no counters to read - not an error, just nothing to report.
             self.pylikwid_markerclose()
             return []
 

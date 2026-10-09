@@ -18,11 +18,11 @@
  *     per region:
  *         int32     length of the name in bytes
  *         char[]    name
- *         -- version 2 only --
+ *         - version 2 only --
  *         int32     length of the source file path in bytes (0 if unknown)
  *         char[]    source file path
  *         int32     source line (-1 if unknown)
- *         -- end version 2 only --
+ *         - end version 2 only --
  *         int64     number of calls
  *         int64[]   start timestamps, nanoseconds
  *         int64[]   end timestamps, nanoseconds
@@ -303,7 +303,7 @@ static int sp_profiler_region_impl(
         if (strcmp(profiler->regions[i].name, name) == 0) {
             /* Backfill: a name first seen via plain sp_region() may be
              * re-registered later with a source location (or vice versa,
-             * which is a no-op here) -- take it if this handle does not have
+             * which is a no-op here) - take it if this handle does not have
              * one yet. Never overwrites a location it already has. */
             if (source_file != NULL && profiler->regions[i].source_file == NULL) {
                 profiler->regions[i].source_file = strdup(source_file);
@@ -540,7 +540,7 @@ SP_IMPL_API int sp_scope_end(sp_scope *scope)
     r = &profiler->regions[scope->region];
 
     if (r->depth <= 0 || r->open_slots[r->depth - 1] != scope->slot) {
-        /* Something else is on top -- ending this token now would mistime
+        /* Something else is on top - ending this token now would mistime
          * whichever call actually is. The call this token names is still
          * open; leave the token valid so it can be ended once it is on top
          * (e.g. an inner scope, opened after this one, ends first). */
@@ -693,7 +693,7 @@ static int64_t written_count(const sp_region_t *region)
 }
 
 /* Shared by sp_profiler_flush() and sp_profiler_finalize(). Does not modify
- * `profiler` -- flush must be safe to call while profiling continues. */
+ * `profiler` - flush must be safe to call while profiling continues. */
 static int write_trace(sp_profiler *profiler)
 {
     const char *path;

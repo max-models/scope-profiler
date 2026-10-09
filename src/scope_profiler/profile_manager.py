@@ -131,7 +131,7 @@ class RankPayload(NamedTuple):
     """Everything one rank has to hand to rank 0 at ``finalize()``.
 
     This is what crosses the wire under MPI, and it is also what rank 0 writes
-    into the output file and folds into the returned results -- one transport
+    into the output file and folds into the returned results - one transport
     feeding both, so they cannot disagree. A NamedTuple because it pickles as a
     plain tuple, which is what mpi4py's ``send``/``recv`` use.
     """
@@ -487,7 +487,7 @@ class ProfileManager:
     _next_call_id = 0
     # Resolved on first use, never at import. Building a ProfilingConfig reads
     # the communicator, which imports mpi4py (i.e. calls MPI_Init) whenever the
-    # process looks like an MPI rank -- so constructing one here would mean
+    # process looks like an MPI rank - so constructing one here would mean
     # that merely importing scope_profiler joins the MPI job. That bites any
     # child process of a rank that happens to import the library, including
     # the one LIKWID's counter read-back forks. See get_config().
@@ -825,7 +825,7 @@ class ProfileManager:
 
         Every active region records timestamps; the remaining options decide
         what it records *on top* of them. ``deactivate_file_output`` does not
-        affect the choice -- recording is identical either way, it only
+        affect the choice - recording is identical either way, it only
         decides whether finalize() writes the data out.
         """
         cfg = cls._config
@@ -857,7 +857,7 @@ class ProfileManager:
         Shared between the initial ``@ProfileManager.profile`` decoration and
         ``set_config()``'s rebind, since a config change replaces every region
         object (see ``set_config``) and the new one starts with no source of
-        its own -- skipping this on rebind would silently drop it.
+        its own - skipping this on rebind would silently drop it.
         """
         region = cls.profile_region(name)
         if not isinstance(region, DisabledProfileRegion):
@@ -1258,8 +1258,8 @@ class ProfileManager:
 
         A region that is still open has a slot reserved but no end timestamp
         written yet, so that call is left out entirely rather than snapshotted
-        half-finished. It stays in the buffer -- ``mark_written()`` refuses to
-        rewind under an open scope -- and is picked up whole by the next
+        half-finished. It stays in the buffer - ``mark_written()`` refuses to
+        rewind under an open scope - and is picked up whole by the next
         finalize().
 
         Returns
@@ -1268,7 +1268,7 @@ class ProfileManager:
             Region name -> a tuple of nanosecond arrays, positionally
             ``(start_times, end_times, gpu_durations, call_ids, parent_ids,
             thread_ids, task_ids, await_ns)``. It is truncated after the last
-            column the run actually has, and any column may be None -- a
+            column the run actually has, and any column may be None - a
             reader must check both. The call graph columns are filled in
             afterwards by :meth:`_snapshot_call_graph`.
         """
@@ -1439,8 +1439,8 @@ class ProfileManager:
 
         Only the file whose rank matches this one is taken, so under MPI every
         rank folds in its own and the merge downstream is unchanged. Either
-        native format is accepted -- a ``.spt`` trace, or the ``.h5`` an
-        ``SP_USE_HDF5`` C build writes -- so a mixed-language run still comes
+        native format is accepted - a ``.spt`` trace, or the ``.h5`` an
+        ``SP_USE_HDF5`` C build writes - so a mixed-language run still comes
         out as one file however its C side was compiled.
 
         Raises
@@ -1493,8 +1493,8 @@ class ProfileManager:
     def _collect_payloads(cls, payload, write_file: bool, need_results: bool):
         """Move every rank's payload to rank 0 and consume it there.
 
-        Rank 0 takes one payload at a time -- its own first, then one per
-        remaining rank -- writes it into the output file, folds it into the
+        Rank 0 takes one payload at a time - its own first, then one per
+        remaining rank - writes it into the output file, folds it into the
         results, and drops it before taking the next. Peak memory on rank 0 is
         therefore one rank's data plus the open file, not the whole job's,
         which is what makes this scale to thousands of ranks. (With
@@ -1531,8 +1531,8 @@ class ProfileManager:
 
         The messages go over the run's own communicator, tagged with
         ``_PAYLOAD_TAG``, rather than over a private duplicate of it. A
-        duplicate would be tidier -- it could not be intercepted by an
-        application posting ``recv(ANY_SOURCE, ANY_TAG)`` -- but ``MPI_Comm_dup``
+        duplicate would be tidier - it could not be intercepted by an
+        application posting ``recv(ANY_SOURCE, ANY_TAG)`` - but ``MPI_Comm_dup``
         is a collective that allocates a new context id, and by this point
         every rank may have forked a child process: ``use_likwid=True`` reads
         the counters back in a subprocess (see
@@ -1602,8 +1602,8 @@ class ProfileManager:
         rank reports completion.
 
         The token carries the file's :class:`~scope_profiler.h5writer.ColumnarIndex`
-        state -- the region names already assigned an id, and the ranks already
-        written -- so each rank appends without first reading back index
+        state - the region names already assigned an id, and the ranks already
+        written - so each rank appends without first reading back index
         columns that grow with every rank before it. That read made the whole
         relay quadratic in the rank count; the state itself is a few ints and
         the region names, which do not grow with the job.
@@ -1802,8 +1802,8 @@ class ProfileManager:
     def _snapshot_line_profile(cls) -> list:
         """Copy line-profiler timings into MPI/HDF5-safe plain records.
 
-        scope-profiler's own frames -- the session's ``__enter__``, for one
-        -- are dropped: they say nothing about the code being profiled.
+        scope-profiler's own frames - the session's ``__enter__``, for one
+        - are dropped: they say nothing about the code being profiled.
         """
         records = []
         for region_name, region in cls.get_all_regions().items():
@@ -1868,7 +1868,7 @@ class ProfileManager:
         prints profiling statistics for each region.
 
         Under MPI this is **collective**: every rank must call it, with the
-        same arguments, or the job hangs -- rank 0 waits for a payload from
+        same arguments, or the job hangs - rank 0 waits for a payload from
         every other rank. A rank that dies before reaching it therefore leaves
         the job waiting rather than silently dropping that rank's data.
 
@@ -1902,7 +1902,7 @@ class ProfileManager:
 
         native_traces : path or sequence of paths, optional
             Files (or directories of them) written by the C or Fortran region
-            API in this same process, to fold into this run's output -- either
+            API in this same process, to fold into this run's output - either
             native format, a ``.spt`` trace or the ``.h5`` an ``SP_USE_HDF5``
             C build writes. Each rank picks up the file matching its own rank,
             so a mixed-language MPI run still produces one file::
@@ -2014,7 +2014,7 @@ class ProfileManager:
 
         # The data is safely copied, so the run boundary can be marked now: a
         # second finalize() in this process then reports only its own events.
-        # Not when nothing is written, though -- there the buffers are the only
+        # Not when nothing is written, though - there the buffers are the only
         # copy the caller has left.
         if write_file:
             for region in cls.get_all_regions().values():
@@ -2447,7 +2447,7 @@ class ProfileManager:
             :class:`~scope_profiler.profile_config.ProfilingOptions`, which
             is where they are declared once and typed; an unrecognised name
             raises ``TypeError`` naming the closest match. Prefixed settings
-            can also be given as groups on ``options`` -- see
+            can also be given as groups on ``options`` - see
             :class:`~scope_profiler.profile_config.MemrayOptions`,
             :class:`~scope_profiler.profile_config.GPUOptions` and
             :class:`~scope_profiler.profile_config.HDF5Options`.
@@ -2457,7 +2457,7 @@ class ProfileManager:
             Short name for this run (default: None, i.e. the output file's
             stem). Post-processing uses it wherever a run has to be named --
             chart legends, the summary heading, ``scope-profiler inspect``,
-            the JSON statistics -- which is what makes several runs
+            the JSON statistics - which is what makes several runs
             distinguishable when they are compared::
 
                 ProfileManager.setup(file_path="run_a.h5", label="128 ranks")
@@ -2526,7 +2526,7 @@ class ProfileManager:
             buffers and scope stack, so regions entered concurrently no
             longer overwrite one another, and every recorded call carries the
             thread it ran on. The run also reports each thread's name, OS
-            ids, lifetime and CPU time -- see
+            ids, lifetime and CPU time - see
             :attr:`~scope_profiler.results.ProfilingResults.threads`::
 
                 with ProfileManager.session(track_threads=True):
@@ -2551,14 +2551,14 @@ class ProfileManager:
             and absolute source paths. Region source *text* is controlled
             separately by ``capture_region_source``.
         capture_region_source : bool, optional
-            Record where each region is defined -- the ``with`` block or the
-            decorated function -- once per distinct source file, the first
+            Record where each region is defined - the ``with`` block or the
+            decorated function - once per distinct source file, the first
             time any of its regions is created (default: False). See
             :attr:`~scope_profiler.region.Region.source_text`. Off by
             default because the cost, while cheap for a typical file, is not
             always: it is one ``ast.parse`` + tree walk of that file, so it
             tracks the file's total size, not the size or number of the
-            regions in it -- under a millisecond for a typical few-hundred-
+            regions in it - under a millisecond for a typical few-hundred-
             line file, but tenths of a second per rank for one containing
             thousands of lines across many regions. Every rank pays that
             independently, so it can compound to whole seconds under
@@ -2680,7 +2680,7 @@ class ProfileManager:
 
         Every argument other than ``verbose``, ``verbose_line_profiler``,
         ``return_results`` and ``native_traces`` is passed to :meth:`setup`,
-        with the same meaning and precedence there -- ``options`` (a
+        with the same meaning and precedence there - ``options`` (a
         :class:`~scope_profiler.profile_config.ProfilingOptions`),
         ``config_path``, and any setting as a keyword::
 
@@ -2695,7 +2695,7 @@ class ProfileManager:
 
         ``native_traces`` is handed to :meth:`finalize`, which folds the
         output of a C or Fortran library profiled in this same process into
-        this run's file -- in either native format. See its documentation for
+        this run's file - in either native format. See its documentation for
         the two rules that mixing languages imposes.
 
         When ``return_results=True``, the context object exposes the finalized
@@ -2784,7 +2784,7 @@ class ProfileManager:
         MPI communicator, which imports mpi4py and therefore calls
         ``MPI_Init`` in any process the launcher marked as a rank. Doing that
         at import time would mean ``import scope_profiler`` silently joins the
-        MPI job -- fatal in a process forked from a rank, which is exactly
+        MPI job - fatal in a process forked from a rank, which is exactly
         what the LIKWID counter read-back does.
 
         Resolving defaults is not itself setup. Regions remain disabled until

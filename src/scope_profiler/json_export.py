@@ -3,7 +3,7 @@
 The HDF5 file remains the default output: it is compact, appendable rank by
 rank, and the only format the parallel writer can produce. This module adds a
 second, dependency-free representation of exactly the same run, for the cases
-where HDF5 is the wrong shape -- a browser, ``jq``, a notebook on a machine
+where HDF5 is the wrong shape - a browser, ``jq``, a notebook on a machine
 without h5py, or a diff in code review.
 
 The document is *lossless*: :func:`read_json` rebuilds a
@@ -135,7 +135,7 @@ def _region_row(name: str, rank: int, region: Region) -> dict:
         # An aggregation-mode run keeps fixed-size statistics and no timeline;
         # writing empty event columns for it would claim it recorded none. The
         # same branch carries a summary-only read, whose statistics include
-        # two floats (``mean``, ``m2``) among the integers -- so the values
+        # two floats (``mean``, ``m2``) among the integers - so the values
         # keep their own type rather than being coerced to int.
         row["aggregate"] = {
             key: int(value) if float(value).is_integer() else float(value)
@@ -143,7 +143,7 @@ def _region_row(name: str, rank: int, region: Region) -> dict:
         }
         if not region.has_event_data:
             # A run that recorded a timeline this reader did not load. Unlike
-            # aggregation mode, the events exist -- in the file it came from.
+            # aggregation mode, the events exist - in the file it came from.
             row["event_data_available"] = False
         return row
 
@@ -344,7 +344,7 @@ def write_json_file(filepath: str | Path, document: dict, indent=None) -> Path:
     text = json.dumps(document, indent=indent, allow_nan=False)
     if output_path.name.lower().endswith(".gz"):
         # Neither the name nor the time of writing goes into the header, so
-        # two exports of the same run are byte-identical -- what deterministic
+        # two exports of the same run are byte-identical - what deterministic
         # output means, and what a content hash in CI relies on.
         with (
             open(output_path, "wb") as raw,

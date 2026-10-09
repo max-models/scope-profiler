@@ -65,8 +65,8 @@ def _write_parquet(
 def _write_json(filepath: str | Path, payload: dict, plot: str) -> None:
     """Write the exact data behind a plot to a JSON file.
 
-    Every plot-data document carries the same envelope -- ``format``,
-    ``format_version`` and the ``plot`` kind that produced it -- so a consumer
+    Every plot-data document carries the same envelope - ``format``,
+    ``format_version`` and the ``plot`` kind that produced it - so a consumer
     (e.g. the ``@scope-profiler/plotly`` package) can dispatch on the file
     itself instead of guessing from its keys. Stamping it here rather than at
     each call site is what keeps the envelope on every kind.
@@ -205,7 +205,7 @@ _HOVER_LABELS: dict[str, str] = {
 }
 
 # ``name`` is the hover box's heading, and ``inclusive_duration`` is an alias
-# of ``total_duration`` -- neither earns a line of its own.
+# of ``total_duration`` - neither earns a line of its own.
 _HOVER_SKIP = frozenset({"name", "inclusive_duration"})
 
 
@@ -252,7 +252,7 @@ def _hover_summary(
     Both :class:`~scope_profiler.region.Region` (one rank) and
     :class:`~scope_profiler.mpi_region.MPIRegion` (pooled over ranks) expose
     ``get_summary()``, so hovering shows exactly the statistics that region
-    object reports -- there is no second, parallel definition of "the usual
+    object reports - there is no second, parallel definition of "the usual
     information" to keep in step with it.
 
     ``extra`` lines (the hovered call's own start and duration, a bar's

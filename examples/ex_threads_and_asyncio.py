@@ -38,7 +38,7 @@ def profile_without_tracking():
 
     Four threads share one buffer and one scope stack, so their intervals
     interleave instead of nesting. finalize() keeps the timings and drops the
-    call graph with a warning rather than throwing the run away -- which means
+    call graph with a warning rather than throwing the run away - which means
     exclusive time, the flame chart and the call-path exports have nothing to
     work from.
     """

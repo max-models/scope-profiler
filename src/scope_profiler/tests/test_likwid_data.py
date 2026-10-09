@@ -466,7 +466,7 @@ def test_collection_falls_back_to_the_marker_file(monkeypatch, tmp_path):
     """When the isolated read-back fails, real values still reach the file.
 
     The fallback loses event names and derived metrics, but keeps the counts,
-    runtimes and raw counter values -- which is the difference between a
+    runtimes and raw counter values - which is the difference between a
     degraded run and a lost one.
     """
     marker = tmp_path / "likwid.txt"

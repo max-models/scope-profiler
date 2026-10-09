@@ -37,7 +37,7 @@ That writes, into `site/public/figures/`:
 | `profile.speedscope.json` | [speedscope](https://www.speedscope.app), embedded in an iframe |
 | `flamegraph.svg` | inlined into the page, so its per-frame tooltips work |
 
-Name the companions to pick a subset -- `--with prof speedscope`. A bare
+Name the companions to pick a subset - `--with prof speedscope`. A bare
 `--with` means "everything this install can produce": the flame graph needs the
 `pproc` extra, and without it that one export is reported and skipped rather
 than failing the run. Naming `--with flamegraph` outright still fails, because
@@ -46,7 +46,7 @@ then you asked for that file specifically.
 ## A page of figures
 
 Every figure on a real page shares two problems. Plotly bakes colours into the
-layout, so a theme toggle means rebuilding every figure -- which means knowing
+layout, so a theme toggle means rebuilding every figure - which means knowing
 which containers hold one and what each was built from. And a filter box needs
 a syntax, which the builders deliberately do not have: `filterRegion` takes a
 predicate, because a library should not decide how a user spells a filter.
@@ -73,7 +73,7 @@ await figures.render(document.querySelector("#durations"), payload, {
 ```
 
 `render` dispatches on the document's own `plot` field, so one call handles any
-payload. Call it again on the same container -- a new metric, an edited filter
+payload. Call it again on the same container - a new metric, an edited filter
 -- and the figure is redrawn through Plotly's `react`, so the reader keeps the
 zoom and pan they had.
 
@@ -105,7 +105,7 @@ merely mention it:
 | `solve` | every region whose name contains "solve" |
 | `prop:, setup: total` | both groups |
 | `^prop:` | `prop: push`, but not `setup prop: push` |
-| *(empty)* | every region -- no predicate is built at all |
+| *(empty)* | every region - no predicate is built at all |
 
 The same three functions drive a chart and an HTML table, so a page can filter
 both from one box:

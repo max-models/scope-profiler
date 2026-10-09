@@ -97,7 +97,7 @@ def _duration_bar_hover(
 
     An ordinary bar is one region, so it describes itself with its own
     ``get_summary()``. A ``combine_regions`` bar has no region object behind
-    it -- it is several regions pooled -- so it names its members and the
+    it - it is several regions pooled - so it names its members and the
     pooled statistics instead.
     """
     heading = bar_name if run_label is None else f"{bar_name} - {run_label}"
@@ -246,7 +246,7 @@ def _stacked_segments(
 
     Regions record no call graph, so the nesting is reconstructed from
     timestamp containment (:func:`~scope_profiler.call_stack.build_call_arrays`)
-    -- the same call graph the flame chart draws, over *all* the run's
+    - the same call graph the flame chart draws, over *all* the run's
     regions, not just the plotted ones, since a region filtered out of the
     bars is still somebody's parent.
 
@@ -258,7 +258,7 @@ def _stacked_segments(
 
     Returns ``{bar name: {segment label: total nanoseconds}}``, where the
     ``"self"`` segment is exclusive time and every other key is a child
-    region's name -- its bar name when that child is itself a plotted bar.
+    region's name - its bar name when that child is itself a plotted bar.
     """
     from scope_profiler.call_stack import build_call_arrays
 
@@ -410,7 +410,7 @@ def plot_durations(
     metrics : Sequence[str], optional
         Render several metrics instead of one. Each gets its own figure --
         ``filepath`` is suffixed with the metric name, as it always was for
-        multiple metrics -- but a single ``data_filepath`` holds them all,
+        multiple metrics - but a single ``data_filepath`` holds them all,
         with the metric named per row, so one export can back a chart whose
         metric the viewer switches. Overrides ``metric`` when given.
     stack_children : bool
@@ -621,7 +621,7 @@ def plot_durations(
 
             # Stack by drawing each segment's cumulative top as an opaque bar
             # from zero, tallest first, so the next one paints over it. That
-            # needs nothing from the backend beyond a plain bar -- maxplotlib
+            # needs nothing from the backend beyond a plain bar - maxplotlib
             # forwards neither Matplotlib's ``bottom`` nor Plotly's ``base``.
             heights = np.vstack([run_values[segment] for segment in segment_labels])
             cumulative = np.cumsum(np.nan_to_num(heights), axis=0)

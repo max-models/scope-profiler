@@ -1,5 +1,5 @@
 // A compile-only exercise of src/index.d.ts. The declarations were shipped
-// entirely unchecked, so a builder could gain an option -- `laneBy` did -- and
+// entirely unchecked, so a builder could gain an option - `laneBy` did - and
 // stay invisible to every TypeScript consumer. `npm run check:types` fails if
 // any line here stops type-checking.
 import {

@@ -398,7 +398,7 @@ run_2,0,timestep,0.039737417,0.106206750
 `--format json` writes JSON instead, including a `colors` map
 matching the colors used in the plots, so a re-rendered chart keeps the same
 region colors. Gantt, flame and roofline data also carry `file_ranks`, each
-run's rank count: plots name a rank -- `solve (rank 0)` -- only for a run with
+run's rank count: plots name a rank - `solve (rank 0)` - only for a run with
 more than one, and the `@scope-profiler/plotly` builders follow the same rule.
 Gantt JSON intervals also carry `depth`, the call's nesting level (0 for a
 top-level call), when the rank's calls nest; the builders' `maxDepth` and

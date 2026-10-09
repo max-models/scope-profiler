@@ -12,8 +12,8 @@ The prettier pass is what keeps the checked-in files stable: json.dumps and
 prettier disagree about short arrays, so skipping it leaves a diff in files
 this script did not change.
 
-The runs are synthetic and deterministic -- two files, three ranks, three
-regions with several calls each -- so the fixtures stay small and a rerun
+The runs are synthetic and deterministic - two files, three ranks, three
+regions with several calls each - so the fixtures stay small and a rerun
 produces no diff.
 """
 
@@ -64,7 +64,7 @@ PLOTS = [
 ]
 #: The metric `--likwid-metric` asks for, and one of the two this script writes.
 LIKWID_METRIC = "MFlops/s"
-#: Counters for the synthetic marker regions, per rank -- deterministic, and
+#: Counters for the synthetic marker regions, per rank - deterministic, and
 #: shaped like what `likwid-perfctr -m` reports: two derived metrics over two
 #: hardware threads, plus the raw events they came from.
 LIKWID_METRICS = {

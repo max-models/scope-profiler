@@ -197,7 +197,7 @@ def inspect_file(
         Print long metadata values in full instead of clipping them.
     source : list of str, optional
         Region names to print the captured call-site source of (the ``with``
-        block or decorated function that defines each region -- see
+        block or decorated function that defines each region - see
         ``ProfileManager.profile_region`` and issue #161). Printed after the
         region table, regardless of ``include``/``exclude``.
     columns : list of str or str, optional

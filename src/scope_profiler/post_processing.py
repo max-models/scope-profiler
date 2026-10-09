@@ -35,7 +35,7 @@ from scope_profiler.profile_io import read_profile
 from scope_profiler.speedscope_export import export_speedscope
 
 # Single source of truth for --plots: name -> (one-line description, is a
-# default plot). Everything else derives from this -- the argparse choices,
+# default plot). Everything else derives from this - the argparse choices,
 # the --plots help text, and the default set used when --plots is omitted --
 # so the three can never drift out of sync.
 _PLOT_CATALOG: dict[str, tuple[str, bool]] = {
@@ -138,7 +138,7 @@ def parse_region_groups(
     """Parse ``--combine-regions`` specs into a ``{name: [patterns]}`` dict.
 
     Each spec has the form ``NAME=PATTERN1,PATTERN2``. Repeating the same
-    NAME across specs is not supported -- pass every pattern for a group in
+    NAME across specs is not supported - pass every pattern for a group in
     one spec instead.
     """
     if not specs:
@@ -387,8 +387,8 @@ def _add_common_plot_args(parser: argparse.ArgumentParser) -> None:
 
 
 #: What `export plot-data --with` can add to a plot-data export. These are the
-#: files a browser dashboard embeds alongside the plot JSON -- a call tree for
-#: a pstats viewer, a speedscope timeline, an inlinable flame graph -- and each
+#: files a browser dashboard embeds alongside the plot JSON - a call tree for
+#: a pstats viewer, a speedscope timeline, an inlinable flame graph - and each
 #: previously meant a second and third `scope-profiler export` invocation over
 #: the same profiles.
 COMPANION_EXPORTS = ("prof", "speedscope", "flamegraph")
@@ -539,7 +539,7 @@ def build_parser() -> argparse.ArgumentParser:
                     metavar="WORK",
                     help=(
                         "Work per rank in each file, in the order the files "
-                        "are given (grid cells, particles, unknowns -- any "
+                        "are given (grid cells, particles, unknowns - any "
                         "unit). Checked to be equal across the files, since "
                         "weak-scaling efficiency is meaningless otherwise."
                     ),

@@ -242,7 +242,7 @@ def test_stacked_segments_split_self_time_from_children(tmp_path):
     # "step" spans 0-500 and 1000-1500: 100 ns in assemble, 200 in solve,
     # and everything else its own.
     assert segments["step"] == {"self": 700.0, "assemble": 100.0, "solve": 200.0}
-    # "inner" is a child of "solve", not of "step" -- only direct children
+    # "inner" is a child of "solve", not of "step" - only direct children
     # become segments, and solve's self time excludes it.
     assert segments["solve"] == {"self": 150.0, "inner": 50.0}
     assert segments["inner"] == {"self": 50.0}
@@ -357,7 +357,7 @@ def test_hover_summary_reports_every_statistic_the_region_does(tmp_path):
 def test_hover_summary_survives_a_broken_call_graph(tmp_path):
     file_path = tmp_path / "overlapping.h5"
     # "solve" starts inside "setup" and ends after it: no nesting, so no
-    # exclusive time -- but the other statistics are still recorded.
+    # exclusive time - but the other statistics are still recorded.
     _write_sample_h5(
         file_path,
         {0: {"setup": ([0], [100]), "solve": ([20], [220])}},
@@ -952,7 +952,7 @@ def test_plot_weak_scaling_efficiency(tmp_path):
         for point in document["points"]
         if point["region"] == "solve"
     }
-    # Baseline runtime over runtime -- no division by an ideal speedup, which
+    # Baseline runtime over runtime - no division by an ideal speedup, which
     # is what separates this from plot_scaling_efficiency.
     assert efficiencies == {1: 1.0, 2: 0.8, 4: 0.5}
 
@@ -1611,7 +1611,7 @@ def test_plot_duration_histogram_export_data_json(tmp_path):
 
 def test_plot_imbalance_export_data_json(tmp_path):
     file_path = tmp_path / "run.h5"
-    # Rank 1 is twice as slow as rank 0 in "solve" -- an obvious imbalance.
+    # Rank 1 is twice as slow as rank 0 in "solve" - an obvious imbalance.
     _write_sample_h5(
         file_path,
         {

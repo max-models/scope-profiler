@@ -5,7 +5,7 @@
 > `pip install "scope-profiler[mcp,pproc]"`.
 
 [MCP](https://modelcontextprotocol.io) (Model Context Protocol) is a standard
-way for an AI coding agent -- Claude Code, or any other MCP-capable client --
+way for an AI coding agent - Claude Code, or any other MCP-capable client --
 to call tools exposed by a local server. `scope-profiler-mcp` is such a
 server: it exposes profiling, benchmarking and comparison as structured
 tools, so an agent can inspect a run's performance and check whether a code
@@ -34,7 +34,7 @@ inspect / benchmark / compare -> structured JSON
 
 This page covers using the MCP server as it stands today: an agent can read
 profiling data and judge whether a change helped. It does **not** modify
-your code, run an optimization search, or make commits -- an agent using
+your code, run an optimization search, or make commits - an agent using
 these tools still has to decide what to try next and make the edit itself,
 the same as it would from a `git diff` and your instructions.
 
@@ -67,14 +67,14 @@ python -m scope_profiler.mcp_server
 
 This speaks MCP over stdio and is meant to be launched by an MCP client
 (Claude Code, another agent, or `mcp dev`/an MCP inspector for manual
-testing) -- not run directly in a terminal you intend to type into.
+testing) - not run directly in a terminal you intend to type into.
 
 ## Configuring Claude Code
 
 Add it as an MCP server, either via the CLI:
 
 ```bash
-claude mcp add scope-profiler -- scope-profiler-mcp
+claude mcp add scope-profiler - scope-profiler-mcp
 ```
 
 or by adding it directly to your project's `.mcp.json` (or Claude Code's
@@ -125,7 +125,7 @@ above.
 ### `inspect_profile`
 
 Structured version of `scope-profiler inspect`: runtime, rank count, region
-statistics (sorted, capped at `top_n` -- raise it or pass `0` for no limit),
+statistics (sorted, capped at `top_n` - raise it or pass `0` for no limit),
 metadata grouped the same way (run info, hardware, MPI/OpenMP, Slurm), and a
 LIKWID hardware-counter summary when the run recorded one. Large,
 rarely-useful metadata (raw environment variables, unrecognized fields) is
@@ -142,7 +142,7 @@ Structured version of `scope-profiler diff`, plus the whole-run comparison
 `overall.faster` (bool), `overall.speedup`, `overall.relative_change_pct` and
 `overall.absolute_diff_seconds`, alongside the per-region deltas and a
 `regressions`/`improvements` split by `threshold_pct`. The arithmetic is done
-here, in Python -- an agent should never need to subtract two numbers from
+here, in Python - an agent should never need to subtract two numbers from
 two separate `inspect_profile` calls to answer "did this get faster?".
 
 ### `run_benchmark`
@@ -152,13 +152,13 @@ Structured version of the declarative benchmark runner described in
 configured number of times, runs the correctness check, and returns a
 manifest (timing statistics plus a pass/fail correctness result) tagged with
 `label`. Prefer this over `run_profile` when a repo already has a
-`benchmark.toml` -- it gives repeated-run statistics and a correctness gate
+`benchmark.toml` - it gives repeated-run statistics and a correctness gate
 in one call instead of a single profiling run.
 
 ### `compare_benchmarks`
 
 Compares two manifests produced by `run_benchmark` and returns a
-`decision: "keep"` / `"reject"` verdict alongside the timing deltas -- the
+`decision: "keep"` / `"reject"` verdict alongside the timing deltas - the
 same keep/reject rule the CLI optimization workflow in `AGENTS.md` uses, so
 an agent following its "benchmark, change, benchmark, compare" loop does not
 have to reimplement the threshold logic itself.
@@ -198,7 +198,7 @@ A typical loop, in words, for "is this function faster after my change?":
    `overall.faster` and `overall.speedup` directly, plus `regressions`/
    `improvements` to see which regions moved.
 5. It reports the result (and, optionally, calls `plot_profile` to attach a
-   Gantt or duration chart) -- and decides, itself, whether to keep the
+   Gantt or duration chart) - and decides, itself, whether to keep the
    change, try something else, or ask you.
 
 Step 5 is where this stops: the agent reasons about the structured numbers

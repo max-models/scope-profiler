@@ -100,7 +100,7 @@ def test_interleaved_threads_without_tracking_are_rejected():
 
     Two overlapping-but-not-nested intervals are exactly what one shared
     buffer records for two threads, and there is no call graph to build from
-    them -- which is why this raises rather than inventing one.
+    them - which is why this raises rather than inventing one.
     """
     from scope_profiler.call_stack import regions_from_snapshot
 
@@ -448,7 +448,7 @@ def test_speedscope_export_writes_one_profile_per_lane(tmp_path):
     """An evented profile's timestamps must never go backwards.
 
     Two threads walked as one call tree emit exactly that, so each lane gets a
-    profile of its own -- which is also what speedscope calls a thread.
+    profile of its own - which is also what speedscope calls a thread.
     """
     import json
 
@@ -556,7 +556,7 @@ def test_an_untracked_run_builds_no_lane_column(tmp_path):
 
     Materializing a full-length column of ``-1`` to say "one stack" would put
     an allocation, a concatenate and a gather over every event into the
-    reconstruction of every single-threaded run -- ~8 ms per two million
+    reconstruction of every single-threaded run - ~8 ms per two million
     events, for no information.
     """
     manager = ProfileManager()

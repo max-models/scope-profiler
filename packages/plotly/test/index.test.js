@@ -87,7 +87,7 @@ test("gantt keeps a nested profile legible instead of stacking it on one row", (
   };
   const figure = buildGanttFigure(payload);
   // The y axis counts up from the bottom, so an ascending range puts the
-  // first (enclosing) region on the bottom lane -- the order
+  // first (enclosing) region on the bottom lane - the order
   // `scope-profiler plot gantt` draws.
   assert.deepEqual(figure.layout.yaxis.categoryarray, [
     "session (rank 0)",

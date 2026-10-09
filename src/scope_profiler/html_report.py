@@ -5,7 +5,7 @@ machine immediately after a run, and can be opened locally in any browser.
 
 One run gets a full report: a summary, its hotspots, the region table,
 load balance across ranks, line profiles, hardware counters and charts.
-Several runs get a comparison report instead -- what changed between them --
+Several runs get a comparison report instead - what changed between them --
 which links to a full report built for each run alongside it.
 """
 
@@ -286,8 +286,8 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
 .region-toast button:hover { background: #374151; }
 .region-toast .toast-close { border: 0; font-size: 1.1em; }
 
-/* Theme: a flat grey page with white boxes -- the header, each section and
-   each chart -- outlined rather than shadowed. */
+/* Theme: a flat grey page with white boxes - the header, each section and
+   each chart - outlined rather than shadowed. */
 :root { --page: #f4f5f7; --surface: #fff; --line: #e3e6ea; --text: #1f2937;
         --muted: #6b7280; --accent: #2563eb; --radius: .6rem; }
 body { background: var(--page); color: var(--text); margin-top: 0; }
@@ -361,7 +361,7 @@ _SCRIPT = """
 // everywhere; how it moves the page depends on where it came from:
 //   "scroll": jump to the region's table row (the hotspot list, whose
 //             whole purpose is finding a region in the table);
-//   "toast":  stay put and offer the jump instead (chart clicks -- yanking
+//   "toast":  stay put and offer the jump instead (chart clicks - yanking
 //             the page away from the chart being explored is disorienting);
 //   "none":   nothing (a click on the table row itself).
 (function () {
@@ -891,7 +891,7 @@ def _region_linker(region_ids):
 def _hotspot_entries(rows) -> list[dict]:
     """Where the time goes: the leaves of the call tree, largest first.
 
-    A region's own time -- its time outside every nested region -- is a leaf
+    A region's own time - its time outside every nested region - is a leaf
     of the tree the region table draws: a leaf region's own time is all of
     its time, and a parent's is its ``(own)`` row. Ranking leaves rather
     than inclusive totals names the code that costs the time instead of
@@ -1496,8 +1496,8 @@ def _region_table(
     )
 
 
-# Line profiles of scope-profiler's own frames -- the session's __enter__,
-# for one -- say nothing about the code being profiled.
+# Line profiles of scope-profiler's own frames - the session's __enter__,
+# for one - say nothing about the code being profiled.
 _PACKAGE_DIR = Path(__file__).resolve().parent
 
 
@@ -1760,7 +1760,7 @@ def _line_profile_html(results, functions, section_id="run-0") -> str:
     """Line profiles of regions the table does not show: one row per function.
 
     Regions in the table carry their line profile in their detail row; this
-    lists the rest -- regions the include/exclude patterns left out, say.
+    lists the rest - regions the include/exclude patterns left out, say.
     Every function starts collapsed, and only the largest few are listed
     until asked for.
     """
@@ -1890,8 +1890,8 @@ def _region_index(runs, include, exclude, ranks) -> dict[str, list]:
 
     ``seconds`` is the region's largest total over the runs, summed over the
     selected ranks, so a region costly in any run ranks high. ``depth`` is the
-    shallowest level its calls reach on the first rank of any run -- 0 for a
-    top-level call -- or None when that rank's calls do not nest.
+    shallowest level its calls reach on the first rank of any run - 0 for a
+    top-level call - or None when that rank's calls do not nest.
     """
     from scope_profiler.call_stack import NestingError, build_call_arrays
 
@@ -2387,7 +2387,7 @@ def _speedup_axes(runs, field: str) -> list[str]:
 
     Every field all runs recorded and differ in, in :data:`SPEEDUP_X_FIELDS`
     order; ``field`` itself is always one. A field whose values match another
-    one's run for run -- cores when every run has one thread -- would draw the
+    one's run for run - cores when every run has one thread - would draw the
     same chart again and is left out.
     """
     order = list(SPEEDUP_X_FIELDS.values())
@@ -2723,8 +2723,8 @@ def _candidate_html(runs, entries, run_index) -> str:
         + "</div><div><h4>Slower</h4>"
         + _change_list_html(regressions, scale, "slower")
         + "</div></div>"
-        '<p class="muted table-note">Changes in own time -- time outside nested '
-        "regions -- so each change is counted once, where it happened.</p></div>"
+        '<p class="muted table-note">Changes in own time - time outside nested '
+        "regions - so each change is counted once, where it happened.</p></div>"
     )
 
 
@@ -2770,8 +2770,7 @@ def _runs_table_html(runs, links) -> str:
             f"<td>{change}</td><td>{link}</td></tr>"
         )
     note = (
-        "Each run's full report -- hotspots, region table, timeline and "
-        "hardware counters -- is linked on the right."
+        "Each run's full report is linked on the right."
         if links
         else "Build a full report for one run with "
         "<code>scope-profiler report RUN.h5 -o RUN.html</code>."
@@ -3335,7 +3334,7 @@ for (const chart of scopeProfilerCharts) {
   panel?.addEventListener('toggle', () => { if (panel.open && chart.stale) draw(chart); });
 }
 
-// "Open in new tab": the chart as drawn -- filter and highlight included --
+// "Open in new tab": the chart as drawn - filter and highlight included --
 // on a page of its own, sized to the window. The page carries the Plotly
 // runtime this report loaded, so it works offline exactly when this does.
 const escapeHtml = (value) => String(value).replace(/[&<>"]/g, (c) =>

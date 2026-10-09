@@ -6,7 +6,7 @@ in how the process was started::
     python3 check_mpi_launch.py serial
     mpirun -n 2 python3 check_mpi_launch.py mpi 2
 
-``serial`` asserts that no MPI call happens at all -- in particular that
+``serial`` asserts that no MPI call happens at all - in particular that
 ``mpi4py.MPI`` is never imported, since importing it already calls
 ``MPI_Init``. ``mpi`` asserts that the communicator is picked up and that all
 ranks end up in the merged output.

@@ -10,7 +10,7 @@ each region's time per rank.
 By default the runs are a *strong-scaling* study: one fixed domain is divided
 over the ranks, which the report's speedup chart (``--scaling strong``) reads.
 With ``--weak`` the domain grows with the rank count instead, so every rank
-has the same share -- a *weak-scaling* study, read by the report's
+has the same share - a *weak-scaling* study, read by the report's
 weak-scaling efficiency chart (``--scaling weak``). The profiles cannot tell
 the two apart; the report shows both charts unless told which one applies.
 
@@ -31,8 +31,8 @@ The script launches the runs itself through ``mpiexec``/``mpirun`` (it needs
 an MPI installation and mpi4py), then prints the report command.
 
 The speedup chart's x-axis defaults to the rank count here. ``--speedup-x``
-picks another -- ``nodes``, ``threads`` (OpenMP) or ``cores`` (ranks times
-threads) -- and the report has a button for every axis the runs differ in.
+picks another - ``nodes``, ``threads`` (OpenMP) or ``cores`` (ranks times
+threads) - and the report has a button for every axis the runs differ in.
 
 Run::
 

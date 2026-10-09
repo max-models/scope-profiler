@@ -34,7 +34,7 @@ def _nested_file_data():
 def _calls(*specs):
     """Build the CallArrays ``build_pstats_dict`` expects, from seconds.
 
-    The ``parent`` column of each spec is not passed through -- nesting is
+    The ``parent`` column of each spec is not passed through - nesting is
     reconstructed from the intervals, which is the only way the exporter can
     ever receive it. It is kept in the specs as documentation of the shape
     each test is describing.
@@ -553,7 +553,7 @@ def test_export_prof_rejects_filters_matching_no_region(tmp_path):
 
 def test_export_prof_rejects_a_rank_with_no_recorded_calls(tmp_path):
     """Rank 1 exists in the file but recorded nothing, so there is nothing
-    to write -- as opposed to a rank that is out of range entirely."""
+    to write - as opposed to a rank that is out of range entirely."""
     h5_file = tmp_path / "profiling_data.h5"
     _write_sample_h5(h5_file, {0: {"main": ([0], [100 * MS])}, 1: {"main": ([], [])}})
 
@@ -619,7 +619,7 @@ def test_export_flamegraph_svg_scales_to_its_container_by_default(tmp_path):
     assert [path.name for path in written] == ["flamegraph_rank0.svg"]
     svg = written[0].read_text(encoding="utf-8")
     # A viewBox instead of a fixed width, and no XML prolog, so the graph can
-    # be inlined in a page and scaled to it -- inlining being the only way
+    # be inlined in a page and scaled to it - inlining being the only way
     # flameprof's per-frame tooltips survive.
     assert svg.startswith('<svg version="1.1" viewBox="0 0 1200 ')
     assert "<?xml" not in svg

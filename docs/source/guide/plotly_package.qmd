@@ -222,8 +222,8 @@ work per rank and the ideal is constant runtime.
 
 ## Themes
 
-Every builder paints its chrome -- text, gridlines, hover surface, the dashed
-ideal lines -- from a theme. The default, `auto`, leaves the text colour unset
+Every builder paints its chrome - text, gridlines, hover surface, the dashed
+ideal lines - from a theme. The default, `auto`, leaves the text colour unset
 and draws gridlines in a half-transparent grey that reads on any background,
 so a figure inherits whatever the host page does.
 
@@ -248,7 +248,7 @@ themed: those eight hues are chosen to read on both backgrounds.
 
 Rebuilding means knowing which containers hold a figure and what each was built
 from. `@scope-profiler/plotly/dashboard` keeps that bookkeeping, along with a
-filter syntax for the `filterRegion` predicate -- see {doc}`dashboard`.
+filter syntax for the `filterRegion` predicate - see {doc}`dashboard`.
 
 ## Payloads with more than one run
 
@@ -257,7 +257,7 @@ resulting payload names the run it came from. The builders keep those runs
 apart rather than pooling them: the gantt, density and rank-heatmap charts give
 each run its own lanes, while the histogram, imbalance and duration time series
 give each run its own trace, named `run / region`. A region keeps its colour
-across runs -- what changes between runs is the marker symbol on a line, or the
-bar pattern on a histogram -- so the same region stays recognisable while the
+across runs - what changes between runs is the marker symbol on a line, or the
+bar pattern on a histogram - so the same region stays recognisable while the
 runs stay distinguishable. Single-run payloads are unaffected: series are named
 by region alone, as before.

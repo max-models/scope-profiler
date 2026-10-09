@@ -162,8 +162,8 @@ def test_call_id_columns_are_absent_unless_the_run_numbered_its_calls(profile):
     """A run that recorded no call ids must leave the columns out entirely.
 
     Filling them with -1 instead would be read back as data: every call would
-    share one id, and ``call_graph`` -- which switches on the column being
-    present -- would collapse the whole rank to a single node instead of
+    share one id, and ``call_graph`` - which switches on the column being
+    present - would collapse the whole rank to a single node instead of
     reconstructing the nesting from the timestamps. Native output (the C and
     Fortran APIs, and imports of it) is exactly the case that records no
     parent links, so this is the shape those files take.
@@ -248,7 +248,7 @@ def test_an_index_row_pointing_past_the_event_columns_is_rejected(profile):
 
     The index and the shared event columns are written together, so a file
     where they disagree is damaged. Reading it anyway would silently give a
-    region another region's calls, or drop calls the run recorded -- neither
+    region another region's calls, or drop calls the run recorded - neither
     of which is visible in the numbers that come out.
     """
     with h5py.File(profile, "r+") as handle:

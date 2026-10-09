@@ -3,7 +3,7 @@ Zero-instrumentation profiling with `scope-profiler run`
 ==========================================================
 
 This script contains no scope-profiler imports, decorators, or context
-managers -- it looks like ordinary code. Run it under scope-profiler's CLI
+managers - it looks like ordinary code. Run it under scope-profiler's CLI
 the same way you'd run `python -m cProfile`, and every function call it
 makes is automatically recorded as its own region.
 

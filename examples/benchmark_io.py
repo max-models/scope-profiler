@@ -5,7 +5,7 @@ Benchmark the HDF5 write, read and summary paths
 
 The counterpart to ``benchmark_overhead.py``: that one measures what
 instrumentation costs *during* a run, this one measures what a run costs
-*afterwards* -- writing the merged file, reading it back, and producing a
+*afterwards* - writing the merged file, reading it back, and producing a
 summary from it.
 
 Four stages are timed, on a synthetic run of ``ranks x regions x events``
@@ -42,7 +42,7 @@ Run::
     python examples/benchmark_io.py --scaling 4,16,64,256 --figure figures
 
 The JSON form exists so the numbers can be diffed between two revisions the
-same way ``scope-profiler diff`` compares two profiles -- a regression here is
+same way ``scope-profiler diff`` compares two profiles - a regression here is
 a number that moved, not a table someone has to read.
 """
 
@@ -68,8 +68,8 @@ def build_regions(rank: int, regions: int, events: int) -> dict:
     """One rank's timing arrays: an outer region with the rest nested inside.
 
     Nesting is not decoration. Exclusive time is defined by containment, so a
-    flat set of regions would make the call-stack reconstruction -- the most
-    expensive thing being measured here -- unrepresentatively cheap.
+    flat set of regions would make the call-stack reconstruction - the most
+    expensive thing being measured here - unrepresentatively cheap.
 
     Parameters
     ----------
@@ -122,7 +122,7 @@ def write_file(
 
     Only the ``write_rank`` calls and the closing publish are counted.
     Building each rank's payload is left out because it is the caller's work,
-    not the writer's, and it is O(events) -- large enough to hide the very
+    not the writer's, and it is O(events) - large enough to hide the very
     thing this measures. The payloads are still built one rank at a time, so
     the whole job is never in memory at once.
 
@@ -188,8 +188,8 @@ def measure(ranks: int, regions: int, events: int, directory: str) -> dict:
     rebuilt_seconds, plain_rows = timed(plain_results.summary)
 
     # The two paths are only worth comparing if they agree. They are computed
-    # differently -- one sums what the writer stored, the other reconstructs
-    # the nesting from the events -- so a mismatch is a bug, not noise.
+    # differently - one sums what the writer stored, the other reconstructs
+    # the nesting from the events - so a mismatch is a bug, not noise.
     stored_exclusive = {row["name"]: row["exclusive_duration"] for row in rows}
     rebuilt_exclusive = {row["name"]: row["exclusive_duration"] for row in plain_rows}
     if stored_exclusive != rebuilt_exclusive:
@@ -299,7 +299,7 @@ def print_scaling(results: list) -> None:
     demonstrations: writing a rank costs the same whether it is the first or
     the two-thousandth (measured up to 2048 ranks, before and after
     :class:`~scope_profiler.h5writer.ColumnarIndex` removed the per-rank index
-    re-read -- that read is superlinear in principle but stays small at these
+    re-read - that read is superlinear in principle but stays small at these
     sizes). A rising write column would mean per-rank work that grows with the
     job; a rising read column would mean the reader is touching the file per
     index row rather than per column.

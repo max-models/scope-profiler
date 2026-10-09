@@ -6,8 +6,8 @@ This example profiles the same toy solver twice and writes one profiling file
 per case, ready for ``scope-profiler report``:
 
 ``baseline``
-    A pure-Python kernel, a preconditioner rebuilt every step, and -- under
-    MPI -- work split unevenly, so higher ranks do more of it.
+    A pure-Python kernel, a preconditioner rebuilt every step, and - under
+    MPI - work split unevenly, so higher ranks do more of it.
 
 ``optimized``
     A NumPy kernel, a preconditioner built once and reused (a new region,

@@ -66,7 +66,7 @@ def create_server() -> FastMCP:
                 (alphabetical).
             top_n: Maximum number of regions to return, ranked by `sort`
                 (default: 20). Pass a larger number or 0/None for every
-                region matching the filters -- the response also reports
+                region matching the filters - the response also reports
                 how many regions matched in total, so raise `top_n` only
                 when the summary isn't enough.
             full_metadata: If False (default), raw environment variables and
@@ -109,7 +109,7 @@ def create_server() -> FastMCP:
         of the change: point `baseline_path` at the run before the change
         and `candidate_path` at the run after. All the arithmetic (absolute
         and relative change, per-region deltas, which regions regressed or
-        improved) is computed here -- do not try to infer it from two
+        improved) is computed here - do not try to infer it from two
         separate `inspect_profile` calls.
 
         Args:
@@ -134,7 +134,7 @@ def create_server() -> FastMCP:
             A dict with `baseline`/`candidate` (each an `inspect_profile`-style
             headline: total_time_seconds, num_ranks, ...), `overall`
             (absolute_diff_seconds, relative_change_pct, speedup, and a
-            `faster` boolean -- the direct answer to "did this get faster?"),
+            `faster` boolean - the direct answer to "did this get faster?"),
             `regions` (per-region deltas), and `regressions`/`improvements`
             (the subset exceeding `threshold_pct`, sorted by magnitude).
         """
@@ -171,7 +171,7 @@ def create_server() -> FastMCP:
         Args:
             script_path: Path to the Python script to run and profile.
             script_args: Command-line arguments to pass to the script
-                (each a separate string, like `sys.argv[1:]` -- no shell
+                (each a separate string, like `sys.argv[1:]` - no shell
                 involved, so shell metacharacters are not interpreted).
             only_user_code: If True (default), only the script's own code is
                 instrumented (standard library and installed packages are
@@ -261,7 +261,7 @@ def create_server() -> FastMCP:
 
         Returns:
             A dict with `plot_type`, `backend`, and `paths` (the file(s)
-            written -- normally one, except `durations` with multiple
+            written - normally one, except `durations` with multiple
             requested metrics).
         """
         return tools.plot_profile(

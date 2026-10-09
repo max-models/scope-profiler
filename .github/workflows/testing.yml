@@ -273,7 +273,7 @@ jobs:
       # The parallel-HDF5 writer and the MPI finalize path only execute under
       # a launcher, in processes pytest never starts. `coverage run -p` gives
       # each rank its own data file (parallel = true in pyproject.toml), and
-      # the combine below folds them into the same report -- otherwise a few
+      # the combine below folds them into the same report - otherwise a few
       # hundred statements of h5writer.py look permanently untested.
       - name: Measure the MPI paths under coverage
         env:
@@ -578,7 +578,7 @@ jobs:
           pip install ".[dev]"
 
       # The C API shares the trace format with the Fortran one, and its clock
-      # selection differs per platform -- so build and run it on Linux too.
+      # selection differs per platform - so build and run it on Linux too.
       # Baked into the CI image; installed here only when this run uses an
       # image built before that, so the HDF5 steps below cannot go quietly
       # missing while waiting for an image rebuild. The serial build, not the
@@ -600,7 +600,7 @@ jobs:
       # The same sources with the HDF5 backend compiled in (libhdf5-dev is in
       # the CI image). Here sp_finalize() writes the profile itself, so what
       # is being checked is that the file it produces needs no import to be
-      # read -- `inspect` opens the program's own output, not a converted one.
+      # read - `inspect` opens the program's own output, not a converted one.
       - name: Test C API with the HDF5 backend
         run: |
           make -C src/scope_profiler/c run SP_HDF5=1 BUILD_DIR=$PWD/c_h5_build
@@ -727,8 +727,8 @@ jobs:
       #
       # The budgets are absolute, deliberately set ~10x above an idle laptop so
       # a loaded shared runner still passes. They catch a structural regression
-      # -- an allocation or a lock on the hot path, a per-event Python loop in
-      # the writer, a quadratic index rebuild -- not a 2x slowdown. The scaling
+      # - an allocation or a lock on the hot path, a per-event Python loop in
+      # the writer, a quadratic index rebuild - not a 2x slowdown. The scaling
       # assertions alongside them are what catch a change in the shape of a
       # cost, which no absolute budget reliably does.
       #

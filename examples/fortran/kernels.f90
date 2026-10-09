@@ -6,13 +6,13 @@
 !! through f2py. Either way the regions below end up in the profile.
 !!
 !! Region names are prefixed `fortran:` so they cannot collide with the
-!! driver's own regions -- scope-profiler refuses to merge a name recorded on
+!! driver's own regions - scope-profiler refuses to merge a name recorded on
 !! both sides, since that would double-count a wrapper and the region inside it.
 !!
 !! One f2py trap is worth knowing, and is why this file says `double precision`
 !! rather than the more modern `real(dp)`: f2py does not resolve *named* kind
-!! parameters. Wrap `real(dp)` with `dp = kind(1.0d0)` -- or `real(real64)`
-!! from `iso_fortran_env` -- and the extension builds, runs, records its
+!! parameters. Wrap `real(dp)` with `dp = kind(1.0d0)` - or `real(real64)`
+!! from `iso_fortran_env` - and the extension builds, runs, records its
 !! regions correctly, and hands back garbage for the value. Spell kinds
 !! literally (`double precision`, or `real(kind=8)`) in anything f2py wraps.
 module kernels
@@ -89,7 +89,7 @@ contains
 
    !> Stand-in for writing a checkpoint: a region that is entered rarely.
    !!
-   !! Rare regions are worth marking too -- they are what a Gantt chart makes
+   !! Rare regions are worth marking too - they are what a Gantt chart makes
    !! obvious and a total-time table hides.
    subroutine checkpoint(n)
       integer, intent(in) :: n

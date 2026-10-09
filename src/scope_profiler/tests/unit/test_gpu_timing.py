@@ -1,8 +1,8 @@
 """CUDA-event timing backends, exercised against stand-in CUDA modules.
 
-The real backends need a GPU. Everything the profiler asks of them -- event
+The real backends need a GPU. Everything the profiler asks of them - event
 creation, stream selection, the millisecond-to-nanosecond conversion, and the
-resolution rules in :func:`resolve_gpu_timing_backend` -- is provider-agnostic,
+resolution rules in :func:`resolve_gpu_timing_backend` - is provider-agnostic,
 so the tests install fake ``torch``/``cupy`` modules and check that contract.
 """
 

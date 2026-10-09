@@ -208,7 +208,7 @@ Region durations are in seconds, aggregated over the selected ranks. See
 ### Showing a region's source
 
 A region can remember the `with` block or decorated function it was defined
-with -- captured once when the region is first created, but only if the run
+with - captured once when the region is first created, but only if the run
 was profiled with `capture_region_source=True` (off by default; see
 {doc}`/guide/configuration` for its cost and {doc}`/guide/hdf5_and_python_api`
 for the Python API). `--source` prints it, after the region table:
@@ -289,9 +289,9 @@ scope-profiler report profiling_data.h5 -o report.html --include solve --ranks 0
 meaning as `scope-profiler inspect` and control the region-statistics table.
 
 **One file** gets a full report. It opens with the run's file, recording time,
-host and scale, a row of headline numbers -- wall time, ranks, regions, the
+host and scale, a row of headline numbers - wall time, ranks, regions, the
 share of the session inside regions, the top hotspot and, for MPI runs, the
-worst load imbalance -- and a few findings worth acting on. **Hotspots**
+worst load imbalance - and a few findings worth acting on. **Hotspots**
 then ranks the leaves of the call tree by time: regions without nested
 regions, and the *own* time a parent spends outside its children, each with
 the call path it sits on. These add up to the session, so they name the code
@@ -306,22 +306,22 @@ place to show the captured call-site source, tags, and a per-rank
 calls/total/avg/min/max breakdown.
 
 With more than one rank selected, **Load balance** lists each region's own time
-per rank -- mean, min, max, the slowest rank, its imbalance over the mean, and
+per rank - mean, min, max, the slowest rank, its imbalance over the mean, and
 the *excess* time the slowest rank spends above the average, which orders the
-table -- and **Rank comparison** sets every rank side by side, coloring each
+table - and **Rank comparison** sets every rank side by side, coloring each
 cell by how far that rank is from the region's mean. Runs recorded with
 `line_profiler` show each region's line profile in its table row: clicking the
 row shows its per-rank table and then the profiled function's source as
 written and syntax-highlighted, summed over the selected ranks, with the time
 on each line and the hottest one highlighted. A long function scrolls inside a
 box of limited height, which opens at the hottest line. Functions
-whose region is not in the table -- left out by `--include`, say -- are listed
+whose region is not in the table - left out by `--include`, say - are listed
 in a separate **Line profile** section instead.
 
 **Several files** get a comparison report instead, with the first file as the
 baseline. It lists the runs with their wall times, shows what changed in each
-run against the baseline -- the largest own-time improvements and regressions,
-ignoring changes too small to be more than noise -- and puts every region's
+run against the baseline - the largest own-time improvements and regressions,
+ignoring changes too small to be more than noise - and puts every region's
 duration in every run side by side, matched by call path, with a switch between
 total, own, per-call time and calls and an ordering by largest change. A full
 report for each run is written next to the comparison, as
@@ -368,8 +368,8 @@ Both scaling charts share an x-axis. `--speedup-x
 {auto,ranks,nodes,threads,cores}` chooses it: MPI ranks, nodes (the number of
 distinct hosts the ranks ran on), OpenMP threads, or cores (ranks × threads).
 `auto`, the default, is the choice described above. A named axis has to be
-recorded by every run -- files from older scope-profiler versions have no node
-count for a multi-rank run -- or the command stops with an error naming the
+recorded by every run - files from older scope-profiler versions have no node
+count for a multi-rank run - or the command stops with an error naming the
 runs that lack it; if every run has the same value, the report says so in
 place of the charts. Buttons above each scaling chart switch it to any other
 axis the runs differ in, without regenerating the report:
@@ -395,7 +395,7 @@ embedded in the report, so opening the file never requires a network connection.
 That runtime is most of the file: a report is around 4.8 MB almost regardless
 of the profile, of which ~4.7 MB is Plotly. Pass `--charts-cdn` to load Plotly
 from `https://cdn.plot.ly` instead, which brings the same report down to about
-80 kB -- small enough to email or commit -- at the cost of needing a network
+80 kB - small enough to email or commit - at the cost of needing a network
 connection to draw the charts. The version is pinned to the one this
 scope-profiler would have embedded, so both modes render identically, and a
 report that cannot reach the CDN says so in place of its charts rather than
@@ -408,7 +408,7 @@ scope-profiler report profiling_data.h5 -o report.html --charts-cdn
 A search box at the top of the report filters which regions are shown, in both
 the statistics tables and the charts at once. It takes a comma-separated list
 of terms, each matched case-insensitively against any part of a region name --
-`solve, exchange` keeps both -- and a term prefixed with `^` is anchored to the
+`solve, exchange` keeps both - and a term prefixed with `^` is anchored to the
 start, so `^field` keeps `field_energy` but not `apply_field_boundary`. An
 empty box shows everything. This is the same syntax the profiling-data site
 uses, and the charts are refiltered by the builder that drew them rather than
@@ -417,8 +417,8 @@ by a second implementation.
 ## `scope-profiler diff`
 
 Compare region statistics between two merged HDF5 profiling files, region by
-region, so a regression (or an improvement) between two runs -- two commits,
-two configs, two job sizes -- shows up as a single table.
+region, so a regression (or an improvement) between two runs - two commits,
+two configs, two job sizes - shows up as a single table.
 
 ```text
 usage: scope-profiler diff [-h] [--include INCLUDE [INCLUDE ...]]
@@ -465,7 +465,7 @@ Example output:
 
 A region present in only one file still gets a `delta` (treating the missing
 side as 0 calls), but a percent change is only reported when the file it is
-missing from is `b` -- dropping out from a nonzero baseline in `a` is a
+missing from is `b` - dropping out from a nonzero baseline in `a` is a
 well-defined -100%, while a region appearing fresh in `b` has no baseline to
 divide by, and is listed under "Only in b" instead. `--threshold` never drops
 those regions, since there is nothing to compare against.
@@ -529,7 +529,7 @@ scope-profiler plot perf_events perf_events_example.h5 \
 
 | Flag                 | Plot(s)    | Description                                      |
 | -------------------- | ---------- | ------------------------------------------------- |
-| `--metrics`          | durations  | Duration statistics to draw as bar columns: any of `avg`, `min`, `max`, `total`, `first`, `last` (default: `total`). `first` and `last` are the chronologically first and last call's duration, which separate one-off warmup -- JIT, allocation, the first device transfer -- from steady state |
+| `--metrics`          | durations  | Duration statistics to draw as bar columns: any of `avg`, `min`, `max`, `total`, `first`, `last` (default: `total`). `first` and `last` are the chronologically first and last call's duration, which separate one-off warmup - JIT, allocation, the first device transfer - from steady state |
 | `--sort-by`           | durations, likwid | Order the bar chart's regions by this statistic, descending (`name` sorts alphabetically). Default: order of first appearance |
 | `--top-n`             | durations, likwid | Keep only the top N regions after `--sort-by` |
 | `--combine-regions`   | durations  | Merge several regions into one bar: `NAME=PATTERN1,PATTERN2` (repeat once per group). Region names are matched against the comma-separated regexes like `--include`; a region matched by more than one group is claimed by whichever group is listed first |
