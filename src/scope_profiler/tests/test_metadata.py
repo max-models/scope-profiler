@@ -374,8 +374,15 @@ def test_count_nodes_counts_distinct_hosts():
     assert count_nodes(_HostComm(["n1", "n1"])) == 1
 
 
-def test_finalize_records_the_node_count_once_with_one_collective(tmp_path):
+def test_finalize_records_the_node_count_once_with_one_collective(
+    tmp_path, monkeypatch
+):
+    from scope_profiler import h5writer
     from scope_profiler.tests.unit.test_payload_collection import FakeComm
+
+    # The fake communicator only supports the gather-to-rank-0 writer; keep
+    # MPI-enabled h5py builds (as in CI) off the parallel HDF5 path.
+    monkeypatch.setattr(h5writer, "parallel_hdf5_available", lambda: False)
 
     class Comm(FakeComm):
         def __init__(self):
