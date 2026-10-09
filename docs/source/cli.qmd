@@ -340,8 +340,8 @@ flame graphs and flame charts, use `scope-profiler plot flame_graph` and
 runs: grouped region durations and a percent-change chart for exactly two
 runs. When the runs differ in MPI ranks or OpenMP threads (the
 `omp_num_threads` metadata), scaling charts come first, for each of the eight
-regions with the most time on the smallest run, over ranks, threads, or ranks ×
-threads when both change. **Speedup** (smallest run's mean call duration over
+regions with the most time on the smallest run, over MPI ranks when they change
+(even if threads change too), otherwise over threads. **Speedup** (smallest run's mean call duration over
 each run's, against an ideal proportional to the scale) is for a
 *strong-scaling* study, where every run solves the same total problem.
 **Weak scaling** (the same ratio, read as an efficiency against an ideal of 1)

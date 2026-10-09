@@ -406,8 +406,8 @@ def _report(argv):
         help=(
             "X-axis of the scaling charts when comparing runs: MPI ranks, "
             "nodes, OpenMP threads, or cores (ranks x threads). 'auto' "
-            "(default) uses ranks, threads, or cores when both change; the "
-            "report can switch to any other axis the runs differ in"
+            "(default) uses MPI ranks when they change, otherwise threads; "
+            "the report can switch to any other axis the runs differ in"
         ),
     )
     parser.add_argument(
