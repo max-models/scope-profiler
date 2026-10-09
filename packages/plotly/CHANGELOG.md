@@ -2,9 +2,6 @@
 
 ## Unreleased
 
-- `selectTimelineRegions(payload, options)` returns the regions
-  `buildGanttFigure` draws for `filterRegion`, `maxDepth` and `topN`, so
-  another chart can show the same ones.
 - `buildDurationsFigure` gives a stacked segment only the bars it sits under,
   ordering the axis through `layout.xaxis.categoryarray`; a segment per child
   region used to carry a column for every region.

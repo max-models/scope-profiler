@@ -75,7 +75,7 @@ h2 { border-bottom: 1px solid #e5e7eb; padding-bottom: .3rem; }
 .flag { color: #b45309; }
 table { border-collapse: collapse; width: 100%; margin: .75rem 0; }
 th, td { border-bottom: 1px solid #d1d5db; padding: .45rem .6rem; text-align: right; }
-th { background: #f9fafb; position: sticky; top: 0; } th:first-child, td:first-child { text-align: left; }
+th { background: #f9fafb; position: sticky; top: var(--filter-bar-height, 0px); z-index: 2; } th:first-child, td:first-child { text-align: left; }
 details { margin: .75rem 0; } summary { cursor: pointer; font-weight: 600; }
 .muted { color: #6b7280; } code { overflow-wrap: anywhere; }
 .region-row, .select-row { cursor: pointer; }
@@ -154,7 +154,7 @@ th[data-key]::after { content: ""; display: inline-block; width: .6em; }
 th[data-sort-dir="asc"]::after { content: "\\25b4"; }
 th[data-sort-dir="desc"]::after { content: "\\25be"; }
 .spark { display: block; }
-.filter-bar { align-items: center; background: rgba(255, 255, 255, .96);
+.filter-bar { align-items: center; background: #fff;
   border-bottom: 1px solid #e5e7eb; display: flex; flex-wrap: wrap; gap: .6rem;
   margin: -2rem 0 1rem; padding: .6rem 0; position: sticky; top: 0; z-index: 20; }
 .region-limits { align-items: center; display: flex; flex-wrap: wrap; gap: .4rem; }
@@ -496,6 +496,14 @@ _SCRIPT = """
 // classic scripts run first, so the hook is in place by the time it does.
 (function () {
   var input = document.getElementById("region-filter");
+  // Table headers stick just below the bar, whose height grows when it wraps.
+  var bar = input && input.closest(".filter-bar");
+  if (bar && window.ResizeObserver) {
+    new ResizeObserver(function () {
+      document.documentElement.style.setProperty(
+        "--filter-bar-height", bar.offsetHeight + "px");
+    }).observe(bar);
+  }
   var count = document.getElementById("region-filter-count");
   if (!input) return;
   var listeners = [];
@@ -765,12 +773,10 @@ _UNCOVERED_FLAG_PCT = 25.0
 _HOTSPOT_COUNT = 8
 _SESSION = "scope_profiler.session"
 _SPEEDUP_REGIONS = 8
-# The timeline draws a lane per region; past this many, it opens on only the
-# regions with the most time. More lanes than this cannot be read anyway, and
-# the browser spends seconds drawing them. Its Regions slider is offered past
-# _TIMELINE_SLIDER_REGIONS regions; fewer fit on screen as they are.
+# Past this many regions, the Regions slider opens on only the ones with the
+# most time: more lanes and bars than this cannot be read anyway, and the
+# browser spends seconds drawing them.
 _TIMELINE_REGIONS = 500
-_TIMELINE_SLIDER_REGIONS = 10
 # Which scaling chart(s) a comparison of run sizes shows. Nothing in a profile
 # records the problem size, so the report cannot tell a strong-scaling study
 # (fixed total problem) from a weak-scaling one (fixed problem per rank); the
@@ -1802,27 +1808,70 @@ def _depth_label(value: int, max_depth: int) -> str:
     return f"{value} level{'s' if value > 1 else ''} of children"
 
 
-def _region_limits(controls: dict | None) -> str:
-    """The Regions and Depth sliders for the filter bar, each only when it can
-    change what is drawn: more than _TIMELINE_SLIDER_REGIONS regions, and calls
-    nested at least one level deep. A slider at its maximum means all."""
-    if not controls:
-        return ""
+def _region_index(runs, include, exclude, ranks) -> dict[str, list]:
+    """``{region: [seconds, depth]}`` for the Regions and Depth sliders.
 
-    def slider(kind: str, label: str, maximum: int, value: int, minimum: int, text):
+    ``seconds`` is the region's largest total over the runs, summed over the
+    selected ranks, so a region costly in any run ranks high. ``depth`` is the
+    shallowest level its calls reach on the first rank of any run -- 0 for a
+    top-level call -- or None when that rank's calls do not nest.
+    """
+    from scope_profiler.call_stack import NestingError, build_call_arrays
+
+    index: dict[str, list] = {}
+    for run in runs:
+        for region in run.get_regions(include=include, exclude=exclude):
+            seconds = sum(
+                rank_region.total_duration
+                for rank, rank_region in region.regions.items()
+                if ranks is None or rank in ranks
+            )
+            entry = index.setdefault(region.name, [0.0, None])
+            entry[0] = max(entry[0], seconds)
+        rank = 0 if ranks is None else min(ranks, default=0)
+        try:
+            arrays = build_call_arrays(run.get_regions(), rank)
+        except NestingError:
+            continue
+        shallowest: dict[str, int] = {}
+        for row, depth in zip(arrays.region_index.tolist(), arrays.depth.tolist()):
+            name = arrays.names[row]
+            shallowest[name] = min(depth, shallowest.get(name, depth))
+        for name, depth in shallowest.items():
+            if name in index:
+                known = index[name][1]
+                index[name][1] = depth if known is None else min(known, depth)
+    return index
+
+
+def _region_limits(controls: dict) -> str:
+    """The Regions and Depth sliders for the filter bar, each only when it can
+    change what is drawn: two regions or more, and calls nested at least one
+    level deep. A slider at its maximum means all."""
+
+    def slider(kind, label, maximum, value, minimum, text, hint):
         control = f"region-{kind}"
         return (
-            f'<label for="{control}">{label}</label>'
+            f'<label for="{control}" title="{hint}">{label}</label>'
             f'<input type="range" class="region-{kind}" id="{control}"'
+            f' title="{hint}"'
             f' min="{minimum}" max="{maximum}" step="1" value="{value}">'
             f'<output for="{control}">{text}</output>'
         )
 
     html = ""
     regions = controls["regions"]
-    if regions > _TIMELINE_SLIDER_REGIONS:
+    if regions > 1:
         top = controls["top"] or regions
-        html += slider("top", "Regions", regions, top, 1, _top_label(top, regions))
+        html += slider(
+            "top",
+            "Regions",
+            regions,
+            top,
+            1,
+            _top_label(top, regions),
+            "Draw only the regions with the most time, in every chart",
+        )
     max_depth = controls["max_depth"]
     if max_depth >= 1:
         html += slider(
@@ -1832,6 +1881,7 @@ def _region_limits(controls: dict | None) -> str:
             max_depth,
             0,
             _depth_label(max_depth, max_depth),
+            "Hide regions, and timeline calls, nested deeper than this",
         )
     return f'<span class="region-limits">{html}</span>' if html else ""
 
@@ -1844,18 +1894,6 @@ def _chart_description(title: str, payload: dict, comparison: bool = False) -> s
             "width show when the call started and how long it ran; colors "
             "identify regions."
         )
-        # The same conditions _timeline_controls shows each slider under.
-        intervals = payload.get("intervals", [])
-        if len({row["region"] for row in intervals}) > _TIMELINE_SLIDER_REGIONS:
-            text += (
-                " <b>Regions</b>, at the top of the page, draws only the regions"
-                " with the most time, here and in the region durations."
-            )
-        if any(row.get("depth", 0) >= 1 for row in intervals):
-            text += (
-                " <b>Depth</b> hides calls nested deeper than the levels chosen,"
-                " and the durations of regions only called that deep."
-            )
     elif title == "Region durations":
         what = (
             "mean call duration"
@@ -2717,8 +2755,6 @@ def _chart_sections(
 
     charts: list[tuple[str, dict, dict]] = []
     failures: list[str] = []
-    # The first timeline's Regions/Depth ranges, for the filter bar.
-    limit_controls: dict | None = None
 
     def payload_of(title, plotter, path: Path, *args, **kwargs) -> dict | None:
         try:
@@ -2782,15 +2818,6 @@ def _chart_sections(
             )
             if payload is None:
                 continue
-            intervals = payload["intervals"]
-            num_regions = len({row["region"] for row in intervals})
-            depths = [row["depth"] for row in intervals if "depth" in row]
-            controls = {
-                "regions": num_regions,
-                "max_depth": max(depths, default=0),
-                "top": (_TIMELINE_REGIONS if num_regions > _TIMELINE_REGIONS else None),
-            }
-            limit_controls = limit_controls or controls
             # Every row is already labelled with its region.
             charts.append((title, payload, {"layout": {"showlegend": False}}))
 
@@ -3036,6 +3063,17 @@ def _chart_sections(
         "<",
         "\\u003c",
     )
+    region_index = _region_index(runs, include, exclude, ranks)
+    index_json = json.dumps(region_index, ensure_ascii=False).replace("<", "\\u003c")
+    num_regions = len(region_index)
+    limit_controls = {
+        "regions": num_regions,
+        "max_depth": max(
+            (depth for _, depth in region_index.values() if depth is not None),
+            default=0,
+        ),
+        "top": _TIMELINE_REGIONS if num_regions > _TIMELINE_REGIONS else None,
+    }
     plotly_builders = (
         files("scope_profiler._assets")
         .joinpath("scope-profiler-plotly-0.2.0.js")
@@ -3130,20 +3168,33 @@ const termFilter = (region) => activeTerms.some((term) =>
   term.startsWith('^')
     ? String(region).toLowerCase().startsWith(term.slice(1))
     : String(region).toLowerCase().includes(term));
-// The filter bar's Regions and Depth sliders: the timeline's topN and
-// maxDepth. The regions the timeline then draws limit the region durations
-// too, so both charts show the same regions.
+// The filter bar's Regions and Depth sliders limit every chart to the same
+// regions: those no deeper than maxDepth, then the topN of them by time (each
+// region's [seconds, depth] in scopeProfilerRegionIndex). The timeline also
+// hides the deeper calls of the regions it keeps.
 const regionLimits = {};
 let limitedRegions = null;
-const timelinePayload =
-  scopeProfilerCharts.find((chart) => chart.payload.plot === "gantt")?.payload;
 const updateLimitedRegions = () => {
-  limitedRegions = timelinePayload && Object.keys(regionLimits).length
-    ? selectTimelineRegions(timelinePayload, {
-        ...regionLimits, ...(activeTerms.length ? { filterRegion: termFilter } : {}),
-      })
-    : null;
+  if (!Object.keys(regionLimits).length) {
+    limitedRegions = null;
+    return;
+  }
+  const { topN, maxDepth } = regionLimits;
+  let names = Object.keys(scopeProfilerRegionIndex).filter((name) => {
+    const depth = scopeProfilerRegionIndex[name][1];
+    return (!activeTerms.length || termFilter(name)) &&
+      (maxDepth == null || depth == null || depth <= maxDepth);
+  });
+  if (topN != null) {
+    names = names
+      .sort((a, b) => scopeProfilerRegionIndex[b][0] - scopeProfilerRegionIndex[a][0])
+      .slice(0, topN);
+  }
+  limitedRegions = new Set(names);
 };
+const chartFilter = (region) =>
+  (!activeTerms.length || termFilter(region)) &&
+  (!limitedRegions || limitedRegions.has(region));
 const draw = (chart) => {
   const target = document.getElementById(chart.id);
   // A chart in a collapsed panel waits until the panel opens: a timeline of
@@ -3154,15 +3205,11 @@ const draw = (chart) => {
     return;
   }
   chart.stale = false;
-  let options = activeTerms.length
-    ? { ...chart.options, filterRegion: termFilter }
+  let options = activeTerms.length || limitedRegions
+    ? { ...chart.options, filterRegion: chartFilter }
     : chart.options;
-  if (chart.payload.plot === "gantt") {
-    options = { ...options, ...regionLimits };
-  } else if (limitedRegions && chart.payload.plot === "durations") {
-    const inner = options.filterRegion;
-    options = { ...options, filterRegion: (region, row) =>
-      limitedRegions.has(region) && (!inner || inner(region, row)) };
+  if (chart.payload.plot === "gantt" && regionLimits.maxDepth != null) {
+    options = { ...options, maxDepth: regionLimits.maxDepth };
   }
   // buildFigure dispatches region_statistics to the ranked summary; only
   // buildComparisonFigure draws the signed per-region change.
@@ -3262,6 +3309,7 @@ for (const slider of document.querySelectorAll(".region-top, .region-depth")) {
     else regionLimits[key] = value;
   };
   // The page opens on the slider's own value: past 500 regions, the top 500.
+  // The index sets the limits before the first draw.
   read();
   let timer = null;
   const apply = () => {
@@ -3312,6 +3360,8 @@ if (typeof globalThis.scopeProfilerOnRegionFilter !== "function" &&
         + plotly_builders
         + "\nconst scopeProfilerCharts = "
         + documents_json
+        + ";\nconst scopeProfilerRegionIndex = "
+        + index_json
         + ";\n"
         # Redraw on every filter change rather than only once: the region
         # filter is handed to the builders, which decide what a filtered chart
@@ -3465,7 +3515,7 @@ def _report_file_name(output_path: Path, index: int, label: str) -> Path:
     return output_path.with_name(f"{output_path.stem}-{index}-{slug}.html")
 
 
-def _comparison_body(runs, include, exclude, ranks, sort, charts, links):
+def _comparison_body(runs, include, exclude, ranks, sort, charts, links, limits):
     """Header, navigation and sections of the report comparing runs."""
     per_run_rows = [_report_rows(run, include, exclude, ranks, sort) for run in runs]
     per_rank = len({run.num_ranks for run in runs}) > 1
@@ -3501,7 +3551,7 @@ def _comparison_body(runs, include, exclude, ranks, sort, charts, links):
         + _BACK_TO_TOP
         + "</section>"
     )
-    return _filter_bar() + header + _navigation(navigation) + sections + charts
+    return _filter_bar(limits) + header + _navigation(navigation) + sections + charts
 
 
 def create_html_report(
@@ -3593,7 +3643,9 @@ def create_html_report(
                     include_charts=include_charts,
                 )
                 links.append(path.name)
-        body = _comparison_body(runs, include, exclude, ranks, sort, charts, links)
+        body = _comparison_body(
+            runs, include, exclude, ranks, sort, charts, links, limits
+        )
         title = "scope-profiler comparison"
     else:
         body = _single_run_body(

@@ -289,11 +289,6 @@ export function createFigureBuilder(
 export function getPointIdentity(
   point: { customdata?: { identity?: PointIdentity } } | null | undefined,
 ): PointIdentity | null;
-/** The regions buildGanttFigure draws for these options. */
-export function selectTimelineRegions(
-  payload: GanttPayload,
-  options?: BuildOptions,
-): Set<string>;
 export function buildGanttFigure(
   payload: GanttPayload,
   options?: BuildOptions,

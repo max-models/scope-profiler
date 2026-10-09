@@ -530,19 +530,6 @@ function timelineSubset(rows, options) {
   return kept;
 }
 
-/** The regions `buildGanttFigure` draws for these options, in no order.
- *
- * Lets another chart -- the region durations, say -- show the same regions as
- * a timeline limited by `filterRegion`, `maxDepth` and `topN`.
- */
-export function selectTimelineRegions(payload, options = {}) {
-  const rows = timelineSubset(
-    filtered(values(payload, "intervals", "gantt"), options),
-    options,
-  );
-  return new Set(rows.map((row) => row.region));
-}
-
 export function buildGanttFigure(payload, options = {}) {
   const { baseLayout, axis } = palette(options);
   const intervals = timelineSubset(

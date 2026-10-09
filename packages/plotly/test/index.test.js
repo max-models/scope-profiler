@@ -8,7 +8,6 @@ import {
   buildFigure,
   buildFlameFigure,
   buildGanttFigure,
-  selectTimelineRegions,
   buildHistogramFigure,
   buildImbalanceFigure,
   buildLikwidFigure,
@@ -141,39 +140,6 @@ test("gantt hides calls below maxDepth, then keeps the topN regions by time", ()
   assert.deepEqual(lanes({ maxDepth: 1, topN: 2 }), ["outer", "mid"]);
   assert.deepEqual(lanes({ topN: Infinity }), lanes({}));
   assert.deepEqual(lanes({ topN: 0 }), []);
-});
-
-test("selectTimelineRegions names the regions the gantt would draw", () => {
-  const row = (region, depth, end) => ({
-    region,
-    depth,
-    start_seconds: 0,
-    end_seconds: end,
-  });
-  const payload = {
-    intervals: [row("outer", 0, 10), row("mid", 1, 8), row("aside", 0, 1)],
-  };
-  assert.deepEqual([...selectTimelineRegions(payload)].sort(), [
-    "aside",
-    "mid",
-    "outer",
-  ]);
-  assert.deepEqual([...selectTimelineRegions(payload, { topN: 2 })].sort(), [
-    "mid",
-    "outer",
-  ]);
-  assert.deepEqual(
-    [...selectTimelineRegions(payload, { maxDepth: 0, topN: 1 })],
-    ["outer"],
-  );
-  assert.deepEqual(
-    [
-      ...selectTimelineRegions(payload, {
-        filterRegion: (name) => name !== "outer",
-      }),
-    ].sort(),
-    ["aside", "mid"],
-  );
 });
 
 test("gantt names a lane by its run only when the payload holds several", () => {

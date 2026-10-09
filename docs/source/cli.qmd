@@ -334,12 +334,12 @@ the compact table-only version. A single run opens on a region durations
 chart, whose bars split each region's total into its own time and the regions
 it calls directly (plain bars for an aggregated profile, which has no
 timeline), followed by a timeline, both unfolded, plus a rank-imbalance chart and rank heatmap when more than one
-rank is selected. The region filter stays at the top of the page while you
-scroll, and for a single run it holds two sliders that limit both the
-durations chart and the timeline to the same regions: **Regions** keeps the N
-with the most time on rank 0 (it opens on 500 when there are more), and
-**Depth** hides calls nested more than the chosen number of levels below a
-top-level call. Charts in collapsed panels are drawn when they are opened. For
+rank is selected. A bar at the top of the page stays there while you scroll.
+It holds the region filter and two sliders that limit every chart to the same
+regions: **Regions** keeps the N with the most time (it opens on 500 when there
+are more; in a comparison, a region's larger total over the runs counts), and
+**Depth** hides regions nested more than the chosen number of levels below a
+top-level call, along with the timeline's deeper calls. Charts in collapsed panels are drawn when they are opened. For
 flame graphs and flame charts, use `scope-profiler plot flame_graph` and
 `scope-profiler plot flame_chart`. A comparison keeps the charts that compare
 runs: grouped region durations and a percent-change chart for exactly two

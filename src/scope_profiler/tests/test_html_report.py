@@ -1242,12 +1242,17 @@ def test_report_region_filter_drives_the_charts_too(tmp_path):
     assert "if (panel.open && chart.stale) draw(chart);" in document
 
 
-def test_timeline_offers_top_regions_and_depth(tmp_path, monkeypatch):
+def _region_index(document):
+    return json.loads(
+        re.search(r"const scopeProfilerRegionIndex = (.*?);\n", document).group(1)
+    )
+
+
+def test_filter_bar_sliders_limit_every_chart(tmp_path, monkeypatch):
     pytest.importorskip("plotly")
     from scope_profiler import html_report
 
     monkeypatch.setattr(html_report, "_TIMELINE_REGIONS", 2)
-    monkeypatch.setattr(html_report, "_TIMELINE_SLIDER_REGIONS", 1)
     profile = tmp_path / "profile.h5"
     # outer > mid > leaf, then aside on its own.
     _write_sample_h5(
@@ -1271,49 +1276,94 @@ def test_timeline_offers_top_regions_and_depth(tmp_path, monkeypatch):
         (row["region"], row["depth"]) for row in timeline["payload"]["intervals"]
     ) == [("aside", 0), ("leaf", 2), ("leaf", 2), ("mid", 1), ("outer", 0)]
     assert "topN" not in timeline["options"]
+    # Each region's time and shallowest depth, which the sliders rank and cut.
+    assert _region_index(document) == {
+        "outer": [pytest.approx(100e-9), 0],
+        "mid": [pytest.approx(80e-9), 1],
+        "leaf": [pytest.approx(20e-9), 2],
+        "aside": [pytest.approx(5e-9), 0],
+    }
     # Both sliders sit in the sticky filter bar, after the search box; past
     # the limit, Regions opens on it. At its maximum a slider means all.
     bar = document[document.index('<div class="filter-bar">') :]
     bar = bar[: bar.index("</div>")]
     assert bar.index('id="region-filter"') < bar.index('class="region-limits"')
-    assert (
-        '<label for="region-top">Regions</label><input type="range"'
-        ' class="region-top" id="region-top" min="1" max="4" step="1" value="2">'
-        '<output for="region-top">top 2 of 4</output>'
-    ) in bar
-    assert (
-        '<label for="region-depth">Depth</label><input type="range"'
-        ' class="region-depth" id="region-depth" min="0" max="2" step="1"'
-        ' value="2"><output for="region-depth">all levels</output>'
-    ) in bar
-    assert "position: sticky" in document
-    assert "<b>Regions</b>, at the top of the page" in document
-    assert "<b>Depth</b> hides calls" in document
-    # The sliders set the timeline's topN/maxDepth, and the regions it then
-    # draws limit the region durations as well.
-    assert 'const key = isTop ? "topN" : "maxDepth";' in document
-    assert "limitedRegions = timelinePayload && Object.keys(regionLimits).length" in (
-        document
+    assert re.search(
+        r'<label for="region-top" title="[^"]+">Regions</label><input type="range"'
+        r' class="region-top" id="region-top" title="[^"]+" min="1" max="4"'
+        r' step="1" value="2"><output for="region-top">top 2 of 4</output>',
+        bar,
     )
-    assert 'chart.payload.plot === "durations"' in document
+    assert re.search(
+        r'<label for="region-depth" title="[^"]+">Depth</label><input'
+        r' type="range" class="region-depth" id="region-depth" title="[^"]+"'
+        r' min="0" max="2" step="1" value="2"><output for="region-depth">all'
+        r" levels</output>",
+        bar,
+    )
+    assert "position: sticky" in document
+    # The bar leads the page, above the title and the contents.
+    body = document[document.index("<body>") :]
+    assert body.index('<div class="filter-bar">') < body.index('<h1 id="top">')
+    assert body.index('<div class="filter-bar">') < body.index('<nav class="toc"')
+    # Table headers stick below the bar rather than behind it.
+    assert "top: var(--filter-bar-height, 0px)" in document
+    assert '"--filter-bar-height", bar.offsetHeight + "px"' in document
+    # Every chart is filtered to the same regions; the timeline also hides
+    # the deeper calls of the regions it keeps.
+    assert 'const key = isTop ? "topN" : "maxDepth";' in document
+    assert "filterRegion: chartFilter" in document
+    assert "maxDepth: regionLimits.maxDepth" in document
 
     # Within the limit, Regions opens on all of them.
     monkeypatch.setattr(html_report, "_TIMELINE_REGIONS", 4)
     document = create_html_report(profile, tmp_path / "all.html").read_text(
         encoding="utf-8"
     )
-    assert 'max="4" step="1" value="4">' in document
+    assert 'min="1" max="4" step="1" value="4">' in document
     assert ">all 4</output>" in document
 
 
-def test_comparison_filter_bar_has_no_region_sliders(tmp_path):
+def test_comparison_filter_bar_has_the_region_sliders_too(tmp_path):
     pytest.importorskip("plotly")
     paths = _scaling_profiles(tmp_path, [1, 2])
     document = create_html_report(
         paths, tmp_path / "compare.html", individual_reports=False
     ).read_text(encoding="utf-8")
-    assert 'id="region-filter"' in document
-    assert 'class="region-limits"' not in document
+    body = document[document.index("<body>") :]
+    assert body.index('<div class="filter-bar">') < body.index('<h1 id="top">')
+    # setup and solve, flat: Regions, but no depth to cut.
+    assert 'id="region-top"' in document
+    assert 'id="region-depth"' not in document
+    # A region ranks by its larger total over the runs: solve takes 80 ns
+    # on the one-rank run and 2 x 40 ns on the two-rank run.
+    index = _region_index(document)
+    assert index["solve"] == [pytest.approx(80e-9), 0]
+    assert index["setup"] == [pytest.approx(20e-9), 0]
+
+
+def test_region_index_ranks_selected_ranks_and_skips_unnested_depths(tmp_path):
+    from scope_profiler.html_report import _region_index
+
+    profile = tmp_path / "profile.h5"
+    # Rank 1's calls overlap without nesting: no depth can be read from it.
+    _write_sample_h5(
+        profile,
+        {
+            0: {"outer": ([0], [100]), "inner": ([10], [20])},
+            1: {"outer": ([0], [50]), "inner": ([25], [75])},
+        },
+    )
+    run = read_h5(profile)
+    assert _region_index([run], None, None, [1]) == {
+        "outer": [pytest.approx(50e-9), None],
+        "inner": [pytest.approx(50e-9), None],
+    }
+    # Totals sum the selected ranks; depths come from the first of them.
+    assert _region_index([run], None, None, None) == {
+        "outer": [pytest.approx(150e-9), 0],
+        "inner": [pytest.approx(60e-9), 1],
+    }
 
 
 def test_timeline_slider_labels():
@@ -1329,17 +1379,15 @@ def test_timeline_slider_labels():
     ]
 
 
-def test_timeline_without_choices_has_no_controls(tmp_path):
+def test_filter_bar_without_choices_has_no_sliders(tmp_path):
     pytest.importorskip("plotly")
     profile = tmp_path / "profile.h5"
-    # Two flat regions: nothing for either slider to change.
-    _write_sample_h5(profile, {0: {"setup": ([0], [1]), "solve": ([2], [5])}})
+    # One region: nothing for either slider to change.
+    _write_sample_h5(profile, {0: {"solve": ([2], [5])}})
     document = create_html_report(profile, tmp_path / "report.html").read_text(
         encoding="utf-8"
     )
     assert 'class="region-limits"' not in document
-    assert "<b>Regions</b>" not in document
-    assert "<b>Depth</b>" not in document
 
 
 def test_report_escapes_a_region_name_in_the_filter_hook(tmp_path):
