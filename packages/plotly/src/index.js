@@ -514,21 +514,20 @@ export function buildGanttFigure(payload, options = {}) {
     `${multi ? `${row.file ?? "run"} / ` : ""}${row.region}${rankSuffix(payload, row)}`;
   const laneOf = options.laneBy === "rank" ? rankLane : regionLane;
   const lanes = [...new Set(intervals.map(laneOf))];
-  // A lane index rather than the lane string on every bar. The label is
-  // already in `lanes`; repeating it per interval costs one string per row and
-  // makes Plotly resolve a category for each of them, which a 200k-interval
-  // trace feels. The axis carries the names back via ticktext.
-  const laneIndex = new Map(lanes.map((lane, position) => [lane, position]));
+  // A categorical y axis, not lane indices labelled through tickvals/ticktext:
+  // Plotly lays out an array-mode tick axis in time quadratic in its ticks,
+  // so a 1000-lane timeline took 3.6 s to draw against 0.6 s as categories,
+  // while 200k bars on few lanes drew equally fast either way. Each bar
+  // reuses its lane's string from `lanes` rather than holding a copy.
+  const laneName = new Map(lanes.map((lane) => [lane, lane]));
   const data = [...byRegion].map(([region, rows]) => {
     return {
       type: "bar",
       orientation: "h",
       name: region,
-      y: rows.map((row) => laneIndex.get(laneOf(row))),
+      y: rows.map((row) => laneName.get(laneOf(row))),
       x: rows.map((row) => row.end_seconds - row.start_seconds),
       base: rows.map((row) => row.start_seconds),
-      // A categorical axis gave every bar its slot; a linear one sizes bars
-      // from the data, so the thickness has to be said out loud.
       width: 0.8,
       marker: {
         color: colors.get(region),
@@ -552,9 +551,9 @@ export function buildGanttFigure(payload, options = {}) {
     showlegend: byRegion.size > 1,
     xaxis: axis({ title: "Time (s)" }),
     yaxis: axis({
-      tickmode: "array",
-      tickvals: lanes.map((_, position) => position),
-      ticktext: lanes,
+      type: "category",
+      categoryorder: "array",
+      categoryarray: lanes,
       range: byRank ? [lanes.length - 0.5, -0.5] : [-0.5, lanes.length - 0.5],
       showgrid: false,
     }),

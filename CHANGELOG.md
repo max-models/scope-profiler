@@ -57,6 +57,11 @@
 
 ### Changed
 
+- HTML report rendering: the timeline draws its lanes on a categorical axis
+  (1000 regions: 3.6 s to 0.6 s in Chrome), each chart is drawn once on load
+  instead of twice, and a chart in a collapsed panel is drawn when the panel
+  opens. A timeline with more than 500 regions on rank 0 draws the 500 with
+  the most time and says so.
 - HTML report: the summary at the top is now a row of headline numbers and a
   findings list, and **Hotspots** (formerly **Hot spots**) now ranks the
   leaves of the call tree, per call path, with the path each sits on. Line profiles moved

@@ -48,13 +48,13 @@ test("gantt gives each region and rank a lane, and honours supplied colors", () 
       },
     ],
   });
-  // Bars carry a lane index; the axis carries the names.
-  assert.deepEqual(figure.data[0].y, [0, 1]);
-  assert.deepEqual(figure.layout.yaxis.ticktext, [
+  // Bars sit on categorical lanes, in the order the axis lists them.
+  assert.deepEqual(figure.data[0].y, ["solve (rank 0)", "solve (rank 1)"]);
+  assert.equal(figure.layout.yaxis.type, "category");
+  assert.deepEqual(figure.layout.yaxis.categoryarray, [
     "solve (rank 0)",
     "solve (rank 1)",
   ]);
-  assert.deepEqual(figure.layout.yaxis.tickvals, [0, 1]);
   assert.equal(figure.data[0].marker.color, "#123456");
 });
 
@@ -89,7 +89,7 @@ test("gantt keeps a nested profile legible instead of stacking it on one row", (
   // The y axis counts up from the bottom, so an ascending range puts the
   // first (enclosing) region on the bottom lane -- the order
   // `scope-profiler plot gantt` draws.
-  assert.deepEqual(figure.layout.yaxis.ticktext, [
+  assert.deepEqual(figure.layout.yaxis.categoryarray, [
     "session (rank 0)",
     "setup (rank 0)",
     "solve (rank 0)",
@@ -98,7 +98,7 @@ test("gantt keeps a nested profile legible instead of stacking it on one row", (
   assert.equal(new Set(figure.data.flatMap((trace) => trace.y)).size, 3);
   // The opt-out keeps the compact one-row-per-rank view, rank 0 on top.
   const compact = buildGanttFigure(payload, { laneBy: "rank" });
-  assert.deepEqual(compact.layout.yaxis.ticktext, ["one / rank 0"]);
+  assert.deepEqual(compact.layout.yaxis.categoryarray, ["one / rank 0"]);
   assert.deepEqual(compact.layout.yaxis.range, [0.5, -0.5]);
 });
 
@@ -121,7 +121,7 @@ test("gantt names a lane by its run only when the payload holds several", () => 
       },
     ],
   });
-  assert.deepEqual(figure.layout.yaxis.ticktext, [
+  assert.deepEqual(figure.layout.yaxis.categoryarray, [
     "one / solve (rank 0)",
     "two / solve (rank 0)",
   ]);
@@ -939,7 +939,7 @@ test("one-rank runs leave the rank out of labels", () => {
     ],
     file_ranks: { serial: 1, mpi: 2 },
   };
-  assert.deepEqual(buildGanttFigure(payload).layout.yaxis.ticktext, [
+  assert.deepEqual(buildGanttFigure(payload).layout.yaxis.categoryarray, [
     "serial / solve",
     "mpi / solve (rank 0)",
     "mpi / solve (rank 1)",
@@ -949,7 +949,7 @@ test("one-rank runs leave the rank out of labels", () => {
     intervals: [interval("mpi", 0, "solve")],
     file_ranks: { mpi: 4 },
   };
-  assert.deepEqual(buildGanttFigure(alone).layout.yaxis.ticktext, [
+  assert.deepEqual(buildGanttFigure(alone).layout.yaxis.categoryarray, [
     "solve (rank 0)",
   ]);
 

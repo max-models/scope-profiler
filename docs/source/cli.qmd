@@ -334,7 +334,9 @@ the compact table-only version. A single run gets a timeline and a region
 durations chart whose bars split each region's total into its own time and
 the regions it calls directly (plain bars for an aggregated profile, which has
 no timeline), plus a rank-imbalance chart and rank heatmap when more than one
-rank is selected. For
+rank is selected. The timeline draws at most 500 regions, those with the
+most time on rank 0, and its description says when it left some out. Charts in
+collapsed panels are drawn when they are opened. For
 flame graphs and flame charts, use `scope-profiler plot flame_graph` and
 `scope-profiler plot flame_chart`. A comparison keeps the charts that compare
 runs: grouped region durations and a percent-change chart for exactly two

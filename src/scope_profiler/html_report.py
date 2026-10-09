@@ -752,6 +752,10 @@ _UNCOVERED_FLAG_PCT = 25.0
 _HOTSPOT_COUNT = 8
 _SESSION = "scope_profiler.session"
 _SPEEDUP_REGIONS = 8
+# The timeline draws a lane per region; past this many, only the regions with
+# the most time are drawn. More lanes than this cannot be read anyway, and the
+# browser spends seconds drawing them.
+_TIMELINE_REGIONS = 500
 # Which scaling chart(s) a comparison of run sizes shows. Nothing in a profile
 # records the problem size, so the report cannot tell a strong-scaling study
 # (fixed total problem) from a weak-scaling one (fixed problem per rank); the
@@ -1777,6 +1781,13 @@ def _chart_description(title: str, payload: dict, comparison: bool = False) -> s
             "width show when the call started and how long it ran; colors "
             "identify regions."
         )
+        limit = payload.get("timeline_regions")
+        if limit:
+            text += (
+                f" Only the {limit['shown']} of {limit['total']} regions with "
+                "the most time on rank 0 are drawn; filter the report or use "
+                "<code>scope-profiler plot gantt</code> for the rest."
+            )
     elif title == "Region durations":
         what = (
             "mean call duration"
@@ -2679,19 +2690,44 @@ def _chart_sections(
     with tempfile.TemporaryDirectory(prefix="scope-profiler-report-") as directory:
         payload_dir = Path(directory)
         for index, run in enumerate([] if comparison else runs):
-            collect(
+            on_rank0 = [
+                region
+                for region in run.get_regions(include=include, exclude=exclude)
+                if 0 in region.regions
+            ]
+            timeline_include = include
+            if len(on_rank0) > _TIMELINE_REGIONS:
+                kept = sorted(
+                    on_rank0,
+                    key=lambda region: -region.regions[0].total_duration,
+                )[:_TIMELINE_REGIONS]
+                # One alternation rather than a pattern per region, which
+                # every region would be matched against in turn.
+                timeline_include = [
+                    "(?:" + "|".join(re.escape(region.name) for region in kept) + ")$",
+                ]
+            title = (
                 # Naming the rank only says something with more than one.
                 f"Timeline: {run.display_label}"
-                + (" (rank 0)" if run.num_ranks > 1 else ""),
+                + (" (rank 0)" if run.num_ranks > 1 else "")
+            )
+            collect(
+                title,
                 plot_gantt,
                 payload_dir / f"gantt-{index}.json",
                 run,
-                include=include,
+                include=timeline_include,
                 exclude=exclude,
                 ranks=[0],
                 # Every row is already labelled with its region.
                 chart_options={"layout": {"showlegend": False}},
             )
+            if timeline_include is not include and charts and charts[-1][0] == title:
+                # Read by _chart_description, to say what was left out.
+                charts[-1][1]["timeline_regions"] = {
+                    "shown": _TIMELINE_REGIONS,
+                    "total": len(on_rank0),
+                }
 
         scaling_values = (
             [_scaling_value(run, scaling_field) for run in runs]
@@ -3017,6 +3053,14 @@ let activeTerms = [];
 let selectedRegion = null;
 const draw = (chart) => {
   const target = document.getElementById(chart.id);
+  // A chart in a collapsed panel waits until the panel opens: a timeline of
+  // hundreds of lanes is seconds of drawing that nobody may look at.
+  const panel = target.closest('details');
+  if (panel && !panel.open) {
+    chart.stale = true;
+    return;
+  }
+  chart.stale = false;
   const options = activeTerms.length
     ? { ...chart.options, filterRegion: (region) => activeTerms.some((term) =>
         term.startsWith('^')
@@ -3054,6 +3098,18 @@ const draw = (chart) => {
 };
 
 const redraw = () => { for (const chart of scopeProfilerCharts) draw(chart); };
+// Both hooks call their listener as soon as it registers, which drew every
+// chart twice on load; changes arriving together are drawn once.
+let redrawQueued = false;
+const scheduleRedraw = () => {
+  if (redrawQueued) return;
+  redrawQueued = true;
+  queueMicrotask(() => { redrawQueued = false; redraw(); });
+};
+for (const chart of scopeProfilerCharts) {
+  const panel = document.getElementById(chart.id).closest('details');
+  panel?.addEventListener('toggle', () => { if (panel.open && chart.stale) draw(chart); });
+}
 
 // "Open in new tab": the chart as drawn -- filter and highlight included --
 // on a page of its own, sized to the window. The page carries the Plotly
@@ -3108,13 +3164,13 @@ for (const button of document.querySelectorAll(".chart-axis")) {
   });
 }
 if (typeof globalThis.scopeProfilerOnRegionFilter === "function") {
-  globalThis.scopeProfilerOnRegionFilter((terms) => { activeTerms = terms; redraw(); });
+  globalThis.scopeProfilerOnRegionFilter((terms) => { activeTerms = terms; scheduleRedraw(); });
 }
 if (typeof globalThis.scopeProfilerOnRegionSelect === "function") {
-  globalThis.scopeProfilerOnRegionSelect((region) => { selectedRegion = region; redraw(); });
+  globalThis.scopeProfilerOnRegionSelect((region) => { selectedRegion = region; scheduleRedraw(); });
 }
 if (typeof globalThis.scopeProfilerOnRegionFilter !== "function" &&
-    typeof globalThis.scopeProfilerOnRegionSelect !== "function") redraw();
+    typeof globalThis.scopeProfilerOnRegionSelect !== "function") scheduleRedraw();
 """
     script = (
         runtime

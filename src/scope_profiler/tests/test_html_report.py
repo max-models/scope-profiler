@@ -1239,6 +1239,50 @@ def test_report_region_filter_drives_the_charts_too(tmp_path):
     assert "filterRegion:" in document
     # react(), not newPlot(): typing must not tear every chart down.
     assert "Plotly.react(" in document
+    # Both hooks fire on registration; the charts are drawn once, not twice.
+    assert "activeTerms = terms; scheduleRedraw(); });" in document
+    assert "selectedRegion = region; scheduleRedraw(); });" in document
+    # A collapsed panel's chart waits for the panel to open.
+    assert "if (panel.open && chart.stale) draw(chart);" in document
+
+
+def test_timeline_draws_only_the_regions_with_the_most_time(tmp_path, monkeypatch):
+    pytest.importorskip("plotly")
+    from scope_profiler import html_report
+
+    monkeypatch.setattr(html_report, "_TIMELINE_REGIONS", 2)
+    profile = tmp_path / "profile.h5"
+    # rank 1's long "other" call does not count: the timeline shows rank 0.
+    _write_sample_h5(
+        profile,
+        {
+            0: {
+                "short": ([0], [1]),
+                "long": ([1], [10]),
+                "mid": ([10], [15]),
+                "other": ([15], [16]),
+            },
+            1: {"other": ([0], [100])},
+        },
+    )
+    document = create_html_report(profile, tmp_path / "report.html").read_text(
+        encoding="utf-8"
+    )
+    timeline = _speedup_document(document, "Timeline: profile (rank 0)")
+    assert {row["region"] for row in timeline["payload"]["intervals"]} == {
+        "long",
+        "mid",
+    }
+    assert "Only the 2 of 4 regions with the most time on rank 0" in document
+
+    # At or under the limit, every region is drawn and nothing is said.
+    monkeypatch.setattr(html_report, "_TIMELINE_REGIONS", 4)
+    document = create_html_report(profile, tmp_path / "all.html").read_text(
+        encoding="utf-8"
+    )
+    timeline = _speedup_document(document, "Timeline: profile (rank 0)")
+    assert len({row["region"] for row in timeline["payload"]["intervals"]}) == 4
+    assert "Only the" not in document
 
 
 def test_report_escapes_a_region_name_in_the_filter_hook(tmp_path):
