@@ -57,6 +57,12 @@
 
 ### Changed
 
+- Report generation benchmark (`benchmarks/report.toml`, five synthetic
+  profile shapes up to 1550 nested regions and a two-run comparison) and
+  `slow` tests holding each shape to a time and size limit, plus a check that
+  ten times the regions costs about ten times the time. Stacked region
+  durations fill in only the segments each bar has: a 1550-region report is
+  about 40% faster.
 - HTML report rendering: the timeline draws its lanes on a categorical axis
   (1000 regions: 3.6 s to 0.6 s in Chrome), each chart is drawn once on load
   instead of twice, and a chart in a collapsed panel is drawn when the panel

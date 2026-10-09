@@ -352,19 +352,20 @@ def _stacked_bar_values(
             ]
         else:
             scales = [1.0] * len(region_names)
-        run_values: dict[str, np.ndarray] = {}
-        for label in segment_labels:
-            heights = np.array(
-                [
-                    (
-                        segments.get(name, {}).get(label, 0.0) / NS_PER_SECOND / scale
-                        if scale
-                        else float("nan")
-                    )
-                    for name, scale in zip(region_names, scales)
-                ],
-            )
-            run_values[label] = heights
+        # A child is a segment under few of the bars: fill in the segments
+        # each bar has rather than looking every bar up for every segment,
+        # which is regions x children lookups -- millions for a thousand
+        # nested regions.
+        run_values = {label: np.zeros(len(region_names)) for label in segment_labels}
+        for index, name in enumerate(region_names):
+            for label, value in segments.get(name, {}).items():
+                run_values[label][index] = value / NS_PER_SECOND
+        scale_array = np.asarray(scales, dtype=float)
+        unscaled = scale_array == 0
+        divisor = np.where(unscaled, 1.0, scale_array)
+        for label, heights in run_values.items():
+            heights /= divisor
+            heights[unscaled] = np.nan
         values.append(run_values)
     return segment_labels, values
 
@@ -536,10 +537,9 @@ def plot_durations(
                 zip(segment_labels, _get_cmap_colors(cmap, len(segment_labels))),
             )
             values = [
-                [
-                    float(sum(run_values[segment][index] for segment in segment_labels))
-                    for index in range(len(region_names))
-                ]
+                np.vstack([run_values[segment] for segment in segment_labels])
+                .sum(axis=0)
+                .tolist()
                 for run_values in stacked_values
             ]
         else:
