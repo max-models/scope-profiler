@@ -5,7 +5,7 @@ machine immediately after a run, and can be opened locally in any browser.
 
 One run gets a full report: a summary, its hotspots, the region table,
 load balance across ranks, line profiles, hardware counters and charts.
-Several runs get a comparison report instead -- what changed between them --
+Several runs get a comparison report instead - what changed between them --
 which links to a full report built for each run alongside it.
 """
 
@@ -75,7 +75,7 @@ h2 { border-bottom: 1px solid #e5e7eb; padding-bottom: .3rem; }
 .flag { color: #b45309; }
 table { border-collapse: collapse; width: 100%; margin: .75rem 0; }
 th, td { border-bottom: 1px solid #d1d5db; padding: .45rem .6rem; text-align: right; }
-th { background: #f9fafb; position: sticky; top: 0; } th:first-child, td:first-child { text-align: left; }
+th { background: #f9fafb; position: sticky; top: var(--filter-bar-height, 0px); z-index: 2; } th:first-child, td:first-child { text-align: left; }
 details { margin: .75rem 0; } summary { cursor: pointer; font-weight: 600; }
 .muted { color: #6b7280; } code { overflow-wrap: anywhere; }
 .region-row, .select-row { cursor: pointer; }
@@ -154,7 +154,14 @@ th[data-key]::after { content: ""; display: inline-block; width: .6em; }
 th[data-sort-dir="asc"]::after { content: "\\25b4"; }
 th[data-sort-dir="desc"]::after { content: "\\25be"; }
 .spark { display: block; }
-.filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin: 1rem 0 1.5rem; }
+.filter-bar { align-items: center; background: #fff;
+  border-bottom: 1px solid #e5e7eb; display: flex; flex-wrap: wrap; gap: .6rem;
+  margin: -2rem 0 1rem; padding: .6rem 0; position: sticky; top: 0; z-index: 20; }
+.region-limits { align-items: center; display: flex; flex-wrap: wrap; gap: .4rem; }
+.region-limits label { font-weight: 600; margin-left: .4rem; }
+.region-limits input[type="range"] { accent-color: #1f2937; width: 9rem; }
+.region-limits output { color: #374151; font-size: .9em; min-width: 8.5rem;
+  font-variant-numeric: tabular-nums; }
 .filter-bar label { font-weight: 600; }
 .region-filter { flex: 1; max-width: 34rem; font: inherit; padding: .4rem .6rem;
                  border: 1px solid #d1d5db; border-radius: .4rem; }
@@ -175,6 +182,9 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
   justify-content: flex-end; margin: .25rem 0 -.5rem; }
 .chart-tools .chart-open { margin-left: .6rem; }
 .table-scroll { overflow-x: auto; }
+/* A scrolling wrapper is its headers' sticky frame: the page bar's offset
+   would push them down over the first row. */
+.table-scroll th { top: 0; }
 .back-to-top { text-align: right; }
 .meta-table th { background: none; position: static; vertical-align: top; white-space: nowrap;
                  width: 1%; }
@@ -276,7 +286,60 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
 .region-toast button:hover { background: #374151; }
 .region-toast .toast-close { border: 0; font-size: 1.1em; }
 
+/* Theme: a flat grey page with white boxes - the header, each section and
+   each chart - outlined rather than shadowed. */
+:root { --page: #f4f5f7; --surface: #fff; --line: #e3e6ea; --text: #1f2937;
+        --muted: #6b7280; --accent: #2563eb; --radius: .6rem; }
+body { background: var(--page); color: var(--text); margin-top: 0; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.filter-bar { background: var(--surface); border: 1px solid var(--line); border-top: 0;
+  border-radius: 0 0 var(--radius) var(--radius); margin: 0 0 1.25rem;
+  padding: .6rem 1rem; }
+.report-header { background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 1.1rem 1.5rem .3rem; }
+.report-header h1 { font-size: 1.6em; letter-spacing: -.01em; }
+.run-meta span + span::before { content: ""; margin: 0; }
+.run-meta { display: flex; flex-wrap: wrap; gap: .4rem; }
+.run-meta span { background: var(--page); border: 1px solid var(--line);
+  border-radius: 999px; font-size: .85em; padding: .1rem .6rem; }
+.toc { align-items: center; display: flex; flex-wrap: wrap; gap: .35rem; margin: .9rem 0; }
+.toc strong { color: var(--muted); font-size: .85em; font-weight: 600; margin-right: .3rem;
+  text-transform: uppercase; letter-spacing: .04em; }
+.toc a { background: var(--surface); border: 1px solid var(--line); border-radius: .4rem;
+  color: var(--text); font-size: .9em; margin: 0; padding: .2rem .65rem; }
+.toc a:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+section { background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); margin: 1.25rem 0; padding: .4rem 1.5rem 1rem; }
+h2 { border-bottom: 0; font-size: 1.3em; margin: .9rem 0 .6rem; padding-bottom: 0; }
+section h3 { border-top: 1px solid var(--line); margin: 1.75rem -1.5rem .75rem;
+  padding: 1.1rem 1.5rem 0; }
+.kpis { gap: .6rem; }
+.kpi { background: var(--page); border: 1px solid var(--line); border-radius: .5rem;
+  flex: 1 1 9rem; padding: .55rem .8rem; }
+.kpi-label { font-size: .75em; letter-spacing: .04em; text-transform: uppercase; }
+.kpi-value { font-size: 1.25em; }
+th { background: #f8f9fb; color: #374151; font-weight: 600; }
+th, td { border-bottom-color: var(--line); }
+.region-stats, .chart-panel, .lp-functions { border-color: var(--line); }
+.region-stats > thead > tr > th { border-bottom-color: var(--line); }
+.chart-panel { background: var(--surface); margin: .75rem 0; padding: .35rem 1.1rem; }
+.chart-panel > summary { padding: .4rem 0; }
+.chart-panel[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: .5rem; }
+.table-tools button, .chart-controls button, .chart-tools button, .region-toast button {
+  border-radius: .4rem; }
+.table-tools button, .chart-controls button, .chart-tools button {
+  border-color: #d1d5db; color: #374151; }
+.table-tools button[aria-pressed="true"], .chart-tools button[aria-pressed="true"] {
+  background: var(--accent); border-color: var(--accent); }
+.region-filter { background: var(--page); border-color: var(--line); }
+.region-filter:focus { background: var(--surface); }
+.region-limits input[type="range"] { accent-color: var(--accent); }
+.hs-fill, .bar { background: #93b4f5; }
+.back-to-top { font-size: .85em; margin: .5rem 0 0; }
+
 @media print {
+  body, section, .report-header { background: #fff; border: 0; padding: 0; }
   body { max-width: 100%; }
   .filter-bar, .chart-controls, .chart-tools, .table-tools, .back-to-top, .toc,
   .region-toast { display: none; }
@@ -298,7 +361,7 @@ _SCRIPT = """
 // everywhere; how it moves the page depends on where it came from:
 //   "scroll": jump to the region's table row (the hotspot list, whose
 //             whole purpose is finding a region in the table);
-//   "toast":  stay put and offer the jump instead (chart clicks -- yanking
+//   "toast":  stay put and offer the jump instead (chart clicks - yanking
 //             the page away from the chart being explored is disorienting);
 //   "none":   nothing (a click on the table row itself).
 (function () {
@@ -489,6 +552,14 @@ _SCRIPT = """
 // classic scripts run first, so the hook is in place by the time it does.
 (function () {
   var input = document.getElementById("region-filter");
+  // Table headers stick just below the bar, whose height grows when it wraps.
+  var bar = input && input.closest(".filter-bar");
+  if (bar && window.ResizeObserver) {
+    new ResizeObserver(function () {
+      document.documentElement.style.setProperty(
+        "--filter-bar-height", bar.offsetHeight + "px");
+    }).observe(bar);
+  }
   var count = document.getElementById("region-filter-count");
   if (!input) return;
   var listeners = [];
@@ -509,8 +580,17 @@ _SCRIPT = """
     });
   }
 
-  function apply() {
-    var active = terms();
+  // The Regions/Depth sliders' region set, handed over by the chart module
+  // (scopeProfilerSetRegionLimit below); null while they limit nothing.
+  var limit = null;
+
+  function allowed(region, active) {
+    return (!active.length || matches(region, active)) &&
+      (!limit || limit.has(region));
+  }
+
+  function filterTables(active) {
+    var limiting = active.length > 0 || limit !== null;
     var shown = 0;
     var total = 0;
     document.querySelectorAll("table.region-stats").forEach(function (table) {
@@ -520,33 +600,45 @@ _SCRIPT = """
         var region = tbody.dataset.region;
         if (region === undefined) return;
         filterable += 1;
-        var match = !active.length || matches(region, active);
+        var match = allowed(region, active);
         tbody.hidden = !match;
         if (match) visible += 1;
       });
       var empty = table.querySelector("tbody.region-empty");
       if (empty) empty.hidden = !filterable || visible > 0;
-      table.classList.toggle("filtering", active.length > 0);
+      table.classList.toggle("filtering", limiting);
       shown += visible;
       total += filterable;
     });
     // Every other per-region element: hotspots, load balance, the
     // comparison table.
     document.querySelectorAll("[data-filter-region]").forEach(function (item) {
-      item.hidden = active.length > 0 && !matches(item.dataset.filterRegion, active);
+      item.hidden = limiting && !allowed(item.dataset.filterRegion, active);
     });
     document.querySelectorAll(".hotspots").forEach(function (block) {
       block.hidden = !block.querySelector("li[data-filter-region]:not([hidden])");
     });
     if (count) {
-      count.textContent = !active.length || !total
+      count.textContent = !limiting || !total
         ? ""
         : shown + " of " + total + " region" + (total === 1 ? "" : "s");
     }
+  }
+
+  function apply() {
+    var active = terms();
+    filterTables(active);
     listeners.forEach(function (listener) {
       try { listener(active.slice()); } catch (error) { /* one chart must not stop the rest */ }
     });
   }
+
+  // The chart module passes the sliders' region set here, so the tables keep
+  // to the same regions as the charts.
+  window.scopeProfilerSetRegionLimit = function (regions) {
+    limit = regions;
+    filterTables(terms());
+  };
 
   // Charts register here to redraw themselves when the filter changes.
   window.scopeProfilerOnRegionFilter = function (listener) {
@@ -686,20 +778,26 @@ def _plotlyjs_version() -> str:
         return "3.7.0"
 
 
-_FILTER_BAR = (
-    '<div class="filter-bar">'
-    '<label for="region-filter">Filter regions</label>'
-    '<input id="region-filter" class="region-filter" type="search" autocomplete="off"'
-    ' placeholder="e.g. solve, ^prop:"'
-    ' title="Comma-separated, case-insensitive substring match.'
-    ' Prefix a term with ^ to anchor it to the start of the region name."'
-    ' aria-label="Filter regions">'
-    '<span class="filter-count" id="region-filter-count" aria-live="polite"></span>'
-    '<span class="selection-status" id="region-selection" aria-live="polite"></span>'
-    '<button class="clear-selection" id="clear-region-selection" type="button" hidden>'
-    "Clear highlight</button>"
-    "</div>"
-)
+def _filter_bar(limits: str = "") -> str:
+    """The bar that stays at the top of the page: the region filter, the
+    charts' Regions and Depth sliders (``limits``) when there are any, and the
+    highlight status."""
+    return (
+        '<div class="filter-bar">'
+        '<label for="region-filter">Filter regions</label>'
+        '<input id="region-filter" class="region-filter" type="search"'
+        ' autocomplete="off" placeholder="e.g. solve, ^prop:"'
+        ' title="Comma-separated, case-insensitive substring match.'
+        ' Prefix a term with ^ to anchor it to the start of the region name."'
+        ' aria-label="Filter regions">'
+        '<span class="filter-count" id="region-filter-count" aria-live="polite">'
+        "</span>" + limits + '<span class="selection-status" id="region-selection"'
+        ' aria-live="polite"></span>'
+        '<button class="clear-selection" id="clear-region-selection" type="button"'
+        " hidden>Clear highlight</button>"
+        "</div>"
+    )
+
 
 _REGION_TOAST = (
     '<div class="region-toast" id="region-toast" role="status" hidden>'
@@ -752,6 +850,10 @@ _UNCOVERED_FLAG_PCT = 25.0
 _HOTSPOT_COUNT = 8
 _SESSION = "scope_profiler.session"
 _SPEEDUP_REGIONS = 8
+# Past this many regions, the Regions slider opens on only the ones with the
+# most time: more lanes and bars than this cannot be read anyway, and the
+# browser spends seconds drawing them.
+_TIMELINE_REGIONS = 500
 # Which scaling chart(s) a comparison of run sizes shows. Nothing in a profile
 # records the problem size, so the report cannot tell a strong-scaling study
 # (fixed total problem) from a weak-scaling one (fixed problem per rank); the
@@ -789,7 +891,7 @@ def _region_linker(region_ids):
 def _hotspot_entries(rows) -> list[dict]:
     """Where the time goes: the leaves of the call tree, largest first.
 
-    A region's own time -- its time outside every nested region -- is a leaf
+    A region's own time - its time outside every nested region - is a leaf
     of the tree the region table draws: a leaf region's own time is all of
     its time, and a parent's is its ``(own)`` row. Ranking leaves rather
     than inclusive totals names the code that costs the time instead of
@@ -1394,8 +1496,8 @@ def _region_table(
     )
 
 
-# Line profiles of scope-profiler's own frames -- the session's __enter__,
-# for one -- say nothing about the code being profiled.
+# Line profiles of scope-profiler's own frames - the session's __enter__,
+# for one - say nothing about the code being profiled.
 _PACKAGE_DIR = Path(__file__).resolve().parent
 
 
@@ -1658,7 +1760,7 @@ def _line_profile_html(results, functions, section_id="run-0") -> str:
     """Line profiles of regions the table does not show: one row per function.
 
     Regions in the table carry their line profile in their detail row; this
-    lists the rest -- regions the include/exclude patterns left out, say.
+    lists the rest - regions the include/exclude patterns left out, say.
     Every function starts collapsed, and only the largest few are listed
     until asked for.
     """
@@ -1767,6 +1869,98 @@ def _hardware_sections(runs, include, exclude, ranks) -> str:
         + "".join(fragments)
         + '<p class="back-to-top"><a href="#top">Back to top</a></p></section>'
     )
+
+
+def _top_label(value: int, regions: int) -> str:
+    """The Regions slider's readout; mirrored by the report script's topLabel."""
+    return f"all {regions}" if value >= regions else f"top {value} of {regions}"
+
+
+def _depth_label(value: int, max_depth: int) -> str:
+    """The Depth slider's readout; mirrored by the report script's depthLabel."""
+    if value >= max_depth:
+        return "all levels"
+    if value == 0:
+        return "top level only"
+    return f"{value} level{'s' if value > 1 else ''} of children"
+
+
+def _region_index(runs, include, exclude, ranks) -> dict[str, list]:
+    """``{region: [seconds, depth]}`` for the Regions and Depth sliders.
+
+    ``seconds`` is the region's largest total over the runs, summed over the
+    selected ranks, so a region costly in any run ranks high. ``depth`` is the
+    shallowest level its calls reach on the first rank of any run - 0 for a
+    top-level call - or None when that rank's calls do not nest.
+    """
+    from scope_profiler.call_stack import NestingError, build_call_arrays
+
+    index: dict[str, list] = {}
+    for run in runs:
+        for region in run.get_regions(include=include, exclude=exclude):
+            seconds = sum(
+                rank_region.total_duration
+                for rank, rank_region in region.regions.items()
+                if ranks is None or rank in ranks
+            )
+            entry = index.setdefault(region.name, [0.0, None])
+            entry[0] = max(entry[0], seconds)
+        rank = 0 if ranks is None else min(ranks, default=0)
+        try:
+            arrays = build_call_arrays(run.get_regions(), rank)
+        except NestingError:
+            continue
+        shallowest: dict[str, int] = {}
+        for row, depth in zip(arrays.region_index.tolist(), arrays.depth.tolist()):
+            name = arrays.names[row]
+            shallowest[name] = min(depth, shallowest.get(name, depth))
+        for name, depth in shallowest.items():
+            if name in index:
+                known = index[name][1]
+                index[name][1] = depth if known is None else min(known, depth)
+    return index
+
+
+def _region_limits(controls: dict) -> str:
+    """The Regions and Depth sliders for the filter bar, each only when it can
+    change what is drawn: two regions or more, and calls nested at least one
+    level deep. A slider at its maximum means all."""
+
+    def slider(kind, label, maximum, value, minimum, text, hint):
+        control = f"region-{kind}"
+        return (
+            f'<label for="{control}" title="{hint}">{label}</label>'
+            f'<input type="range" class="region-{kind}" id="{control}"'
+            f' title="{hint}"'
+            f' min="{minimum}" max="{maximum}" step="1" value="{value}">'
+            f'<output for="{control}">{text}</output>'
+        )
+
+    html = ""
+    regions = controls["regions"]
+    if regions > 1:
+        top = controls["top"] or regions
+        html += slider(
+            "top",
+            "Regions",
+            regions,
+            top,
+            1,
+            _top_label(top, regions),
+            "Draw only the regions with the most time, in every chart",
+        )
+    max_depth = controls["max_depth"]
+    if max_depth >= 1:
+        html += slider(
+            "depth",
+            "Depth",
+            max_depth,
+            max_depth,
+            0,
+            _depth_label(max_depth, max_depth),
+            "Hide regions, and timeline calls, nested deeper than this",
+        )
+    return f'<span class="region-limits">{html}</span>' if html else ""
 
 
 def _chart_description(title: str, payload: dict, comparison: bool = False) -> str:
@@ -2193,7 +2387,7 @@ def _speedup_axes(runs, field: str) -> list[str]:
 
     Every field all runs recorded and differ in, in :data:`SPEEDUP_X_FIELDS`
     order; ``field`` itself is always one. A field whose values match another
-    one's run for run -- cores when every run has one thread -- would draw the
+    one's run for run - cores when every run has one thread - would draw the
     same chart again and is left out.
     """
     order = list(SPEEDUP_X_FIELDS.values())
@@ -2529,8 +2723,8 @@ def _candidate_html(runs, entries, run_index) -> str:
         + "</div><div><h4>Slower</h4>"
         + _change_list_html(regressions, scale, "slower")
         + "</div></div>"
-        '<p class="muted table-note">Changes in own time -- time outside nested '
-        "regions -- so each change is counted once, where it happened.</p></div>"
+        '<p class="muted table-note">Changes in own time - time outside nested '
+        "regions - so each change is counted once, where it happened.</p></div>"
     )
 
 
@@ -2576,8 +2770,7 @@ def _runs_table_html(runs, links) -> str:
             f"<td>{change}</td><td>{link}</td></tr>"
         )
     note = (
-        "Each run's full report -- hotspots, region table, timeline and "
-        "hardware counters -- is linked on the right."
+        "Each run's full report is linked on the right."
         if links
         else "Build a full report for one run with "
         "<code>scope-profiler report RUN.h5 -o RUN.html</code>."
@@ -2601,8 +2794,11 @@ def _chart_sections(
     comparison: bool = False,
     scaling_field: str | None = None,
     scaling: str = "both",
-) -> str:
+) -> tuple[str, str]:
     """Build embedded chart payloads for the bundled browser renderer.
+
+    Returns the charts section and the Regions/Depth sliders for the filter
+    bar ("" when there is no timeline to drive them).
 
     A comparison report keeps only the charts that compare runs; each run's
     timeline and rank charts belong to its own report. ``scaling`` picks the
@@ -2625,9 +2821,12 @@ def _chart_sections(
         )
     except ImportError:
         return (
-            '<section id="charts"><h2>Charts</h2><p class="muted">Charts require '
-            "<code>scope-profiler[pproc]</code>; the statistics and metadata "
-            "above remain available without it.</p></section>"
+            (
+                '<section id="charts"><h2>Charts</h2><p class="muted">Charts '
+                "require <code>scope-profiler[pproc]</code>; the statistics and "
+                "metadata above remain available without it.</p></section>"
+            ),
+            "",
         )
 
     charts: list[tuple[str, dict, dict]] = []
@@ -2679,19 +2878,24 @@ def _chart_sections(
     with tempfile.TemporaryDirectory(prefix="scope-profiler-report-") as directory:
         payload_dir = Path(directory)
         for index, run in enumerate([] if comparison else runs):
-            collect(
+            title = (
                 # Naming the rank only says something with more than one.
                 f"Timeline: {run.display_label}"
-                + (" (rank 0)" if run.num_ranks > 1 else ""),
+                + (" (rank 0)" if run.num_ranks > 1 else "")
+            )
+            payload = payload_of(
+                title,
                 plot_gantt,
                 payload_dir / f"gantt-{index}.json",
                 run,
                 include=include,
                 exclude=exclude,
                 ranks=[0],
-                # Every row is already labelled with its region.
-                chart_options={"layout": {"showlegend": False}},
             )
+            if payload is None:
+                continue
+            # Every row is already labelled with its region.
+            charts.append((title, payload, {"layout": {"showlegend": False}}))
 
         scaling_values = (
             [_scaling_value(run, scaling_field) for run in runs]
@@ -2799,6 +3003,10 @@ def _chart_sections(
             # call timestamps, which aggregated profiles do not store.
             stack_children=len(runs) == 1 and _has_call_timestamps(runs[0]),
         )
+        if not comparison and charts and charts[-1][0] == "Region durations":
+            # Where the time went is the first question about one run, so its
+            # durations lead, above the timeline.
+            charts.insert(0, charts.pop())
 
         # Both rank views are empty or trivial with a single rank.
         if not comparison and any(len(selected) > 1 for selected in selected_ranks):
@@ -2842,7 +3050,11 @@ def _chart_sections(
     # With both scaling charts, the speedup leads and the weak-scaling chart
     # waits; asked for on its own, the weak-scaling chart leads instead.
     lead = "Weak scaling" if scaling == "weak" else "Speedup"
-    kinds = (lead, "Change:", "Region durations") if comparison else ("Timeline:",)
+    kinds = (
+        (lead, "Change:", "Region durations")
+        if comparison
+        else ("Region durations", "Timeline:")
+    )
     opened = {
         next(index for index, chart in enumerate(charts) if chart[0].startswith(kind))
         for kind in kinds
@@ -2876,7 +3088,8 @@ def _chart_sections(
             f'<details class="chart-panel"{" open" if index in opened else ""}>'
             '<summary><span class="chart-heading" role="heading" aria-level="3">'
             f"{_text(title)}</span></summary>{explanation}"
-            f'<div class="chart-tools">{axis_buttons}<button type="button"'
+            f'<div class="chart-tools">{axis_buttons}'
+            '<button type="button"'
             f' class="chart-open" data-chart="{chart_id}"'
             ' title="Open this chart on its own page">'
             "Open in new tab ↗</button></div>"
@@ -2914,7 +3127,8 @@ def _chart_sections(
     if not charts:
         fragments.append('<p class="muted">No charts could be rendered.</p>')
         return (
-            '<section id="charts"><h2>Charts</h2>' + "".join(fragments) + "</section>"
+            '<section id="charts"><h2>Charts</h2>' + "".join(fragments) + "</section>",
+            "",
         )
 
     # Escape '<' so profile labels such as '</script>' cannot terminate the
@@ -2925,6 +3139,17 @@ def _chart_sections(
         "<",
         "\\u003c",
     )
+    region_index = _region_index(runs, include, exclude, ranks)
+    index_json = json.dumps(region_index, ensure_ascii=False).replace("<", "\\u003c")
+    num_regions = len(region_index)
+    limit_controls = {
+        "regions": num_regions,
+        "max_depth": max(
+            (depth for _, depth in region_index.values() if depth is not None),
+            default=0,
+        ),
+        "top": _TIMELINE_REGIONS if num_regions > _TIMELINE_REGIONS else None,
+    }
     plotly_builders = (
         files("scope_profiler._assets")
         .joinpath("scope-profiler-plotly-0.2.0.js")
@@ -3015,14 +3240,53 @@ const runFromPoint = (chart, point, region) => {
 
 let activeTerms = [];
 let selectedRegion = null;
+const termFilter = (region) => activeTerms.some((term) =>
+  term.startsWith('^')
+    ? String(region).toLowerCase().startsWith(term.slice(1))
+    : String(region).toLowerCase().includes(term));
+// The filter bar's Regions and Depth sliders limit every chart to the same
+// regions: those no deeper than maxDepth, then the topN of them by time (each
+// region's [seconds, depth] in scopeProfilerRegionIndex). The timeline also
+// hides the deeper calls of the regions it keeps.
+const regionLimits = {};
+let limitedRegions = null;
+const updateLimitedRegions = () => {
+  limitedRegions = Object.keys(regionLimits).length ? limitedSet() : null;
+  globalThis.scopeProfilerSetRegionLimit?.(limitedRegions);
+};
+const limitedSet = () => {
+  const { topN, maxDepth } = regionLimits;
+  let names = Object.keys(scopeProfilerRegionIndex).filter((name) => {
+    const depth = scopeProfilerRegionIndex[name][1];
+    return (!activeTerms.length || termFilter(name)) &&
+      (maxDepth == null || depth == null || depth <= maxDepth);
+  });
+  if (topN != null) {
+    names = names
+      .sort((a, b) => scopeProfilerRegionIndex[b][0] - scopeProfilerRegionIndex[a][0])
+      .slice(0, topN);
+  }
+  return new Set(names);
+};
+const chartFilter = (region) =>
+  (!activeTerms.length || termFilter(region)) &&
+  (!limitedRegions || limitedRegions.has(region));
 const draw = (chart) => {
   const target = document.getElementById(chart.id);
-  const options = activeTerms.length
-    ? { ...chart.options, filterRegion: (region) => activeTerms.some((term) =>
-        term.startsWith('^')
-          ? String(region).toLowerCase().startsWith(term.slice(1))
-          : String(region).toLowerCase().includes(term)) }
+  // A chart in a collapsed panel waits until the panel opens: a timeline of
+  // hundreds of lanes is seconds of drawing that nobody may look at.
+  const panel = target.closest('details');
+  if (panel && !panel.open) {
+    chart.stale = true;
+    return;
+  }
+  chart.stale = false;
+  let options = activeTerms.length || limitedRegions
+    ? { ...chart.options, filterRegion: chartFilter }
     : chart.options;
+  if (chart.payload.plot === "gantt" && regionLimits.maxDepth != null) {
+    options = { ...options, maxDepth: regionLimits.maxDepth };
+  }
   // buildFigure dispatches region_statistics to the ranked summary; only
   // buildComparisonFigure draws the signed per-region change.
   const build = options.comparison ? buildComparisonFigure : buildFigure;
@@ -3053,9 +3317,24 @@ const draw = (chart) => {
   }
 };
 
-const redraw = () => { for (const chart of scopeProfilerCharts) draw(chart); };
+const redraw = () => {
+  updateLimitedRegions();
+  for (const chart of scopeProfilerCharts) draw(chart);
+};
+// Both hooks call their listener as soon as it registers, which drew every
+// chart twice on load; changes arriving together are drawn once.
+let redrawQueued = false;
+const scheduleRedraw = () => {
+  if (redrawQueued) return;
+  redrawQueued = true;
+  queueMicrotask(() => { redrawQueued = false; redraw(); });
+};
+for (const chart of scopeProfilerCharts) {
+  const panel = document.getElementById(chart.id).closest('details');
+  panel?.addEventListener('toggle', () => { if (panel.open && chart.stale) draw(chart); });
+}
 
-// "Open in new tab": the chart as drawn -- filter and highlight included --
+// "Open in new tab": the chart as drawn - filter and highlight included --
 // on a page of its own, sized to the window. The page carries the Plotly
 // runtime this report loaded, so it works offline exactly when this does.
 const escapeHtml = (value) => String(value).replace(/[&<>"]/g, (c) =>
@@ -3089,6 +3368,41 @@ for (const button of document.querySelectorAll(".chart-open")) {
   const chart = scopeProfilerCharts.find((item) => item.id === button.dataset.chart);
   if (chart) button.addEventListener("click", () => openInNewTab(chart));
 }
+// At its maximum a slider means all. The readout follows the thumb, while
+// the charts, which can take most of a second to draw, wait for it to rest.
+// The labels mirror _top_label and _depth_label.
+const topLabel = (value, max) => value >= max ? `all ${max}` : `top ${value} of ${max}`;
+const depthLabel = (value, max) =>
+  value >= max ? "all levels" : value === 0 ? "top level only"
+    : `${value} level${value > 1 ? "s" : ""} of children`;
+for (const slider of document.querySelectorAll(".region-top, .region-depth")) {
+  const isTop = slider.classList.contains("region-top");
+  const key = isTop ? "topN" : "maxDepth";
+  const readout = slider.nextElementSibling;
+  const read = () => {
+    const value = Number(slider.value);
+    if (value >= Number(slider.max)) delete regionLimits[key];
+    else regionLimits[key] = value;
+  };
+  // The page opens on the slider's own value: past 500 regions, the top 500.
+  // The index sets the limits before the first draw.
+  read();
+  let timer = null;
+  const apply = () => {
+    window.clearTimeout(timer);
+    const before = regionLimits[key];
+    read();
+    if (regionLimits[key] !== before) scheduleRedraw();
+  };
+  slider.addEventListener("input", () => {
+    const value = Number(slider.value);
+    const max = Number(slider.max);
+    readout.textContent = isTop ? topLabel(value, max) : depthLabel(value, max);
+    window.clearTimeout(timer);
+    timer = window.setTimeout(apply, 150);
+  });
+  slider.addEventListener("change", apply);
+}
 // The scaling charts' x-axis buttons: each swaps in the payload computed for
 // that axis, and the description's axis name with it.
 for (const button of document.querySelectorAll(".chart-axis")) {
@@ -3108,13 +3422,13 @@ for (const button of document.querySelectorAll(".chart-axis")) {
   });
 }
 if (typeof globalThis.scopeProfilerOnRegionFilter === "function") {
-  globalThis.scopeProfilerOnRegionFilter((terms) => { activeTerms = terms; redraw(); });
+  globalThis.scopeProfilerOnRegionFilter((terms) => { activeTerms = terms; scheduleRedraw(); });
 }
 if (typeof globalThis.scopeProfilerOnRegionSelect === "function") {
-  globalThis.scopeProfilerOnRegionSelect((region) => { selectedRegion = region; redraw(); });
+  globalThis.scopeProfilerOnRegionSelect((region) => { selectedRegion = region; scheduleRedraw(); });
 }
 if (typeof globalThis.scopeProfilerOnRegionFilter !== "function" &&
-    typeof globalThis.scopeProfilerOnRegionSelect !== "function") redraw();
+    typeof globalThis.scopeProfilerOnRegionSelect !== "function") scheduleRedraw();
 """
     script = (
         runtime
@@ -3122,6 +3436,8 @@ if (typeof globalThis.scopeProfilerOnRegionFilter !== "function" &&
         + plotly_builders
         + "\nconst scopeProfilerCharts = "
         + documents_json
+        + ";\nconst scopeProfilerRegionIndex = "
+        + index_json
         + ";\n"
         # Redraw on every filter change rather than only once: the region
         # filter is handed to the builders, which decide what a filtered chart
@@ -3154,7 +3470,8 @@ if (typeof globalThis.scopeProfilerOnRegionFilter !== "function" &&
         + controls
         + "".join(fragments)
         + script
-        + '<p class="back-to-top"><a href="#top">Back to top</a></p></section>'
+        + '<p class="back-to-top"><a href="#top">Back to top</a></p></section>',
+        _region_limits(limit_controls),
     )
 
 
@@ -3185,7 +3502,7 @@ def _navigation(links) -> str:
 _BACK_TO_TOP = '<p class="back-to-top"><a href="#top">Back to top</a></p>'
 
 
-def _single_run_body(results, include, exclude, ranks, sort, columns, charts):
+def _single_run_body(results, include, exclude, ranks, sort, columns, charts, limits):
     """Header, navigation and sections of the report for one run."""
     rows = _report_rows(results, include, exclude, ranks, sort)
     section_id = "run-0"
@@ -3258,7 +3575,15 @@ def _single_run_body(results, include, exclude, ranks, sort, columns, charts):
         f'<h1 id="top">{_text(results.display_label)}</h1>'
         f"{_run_meta_html(results, region_count)}</header>"
     )
-    return header + _navigation(links) + _FILTER_BAR + sections + hardware + charts
+    return (
+        # The bar leads the page, above the title, and stays there on scroll.
+        _filter_bar(limits)
+        + header
+        + _navigation(links)
+        + sections
+        + hardware
+        + charts
+    )
 
 
 def _report_file_name(output_path: Path, index: int, label: str) -> Path:
@@ -3266,7 +3591,7 @@ def _report_file_name(output_path: Path, index: int, label: str) -> Path:
     return output_path.with_name(f"{output_path.stem}-{index}-{slug}.html")
 
 
-def _comparison_body(runs, include, exclude, ranks, sort, charts, links):
+def _comparison_body(runs, include, exclude, ranks, sort, charts, links, limits):
     """Header, navigation and sections of the report comparing runs."""
     per_run_rows = [_report_rows(run, include, exclude, ranks, sort) for run in runs]
     per_rank = len({run.num_ranks for run in runs}) > 1
@@ -3302,7 +3627,7 @@ def _comparison_body(runs, include, exclude, ranks, sort, charts, links):
         + _BACK_TO_TOP
         + "</section>"
     )
-    return header + _navigation(navigation) + _FILTER_BAR + sections + charts
+    return _filter_bar(limits) + header + _navigation(navigation) + sections + charts
 
 
 def create_html_report(
@@ -3363,7 +3688,7 @@ def create_html_report(
     output_path = Path(filepath)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    charts = (
+    charts, limits = (
         _chart_sections(
             runs,
             include,
@@ -3375,7 +3700,7 @@ def create_html_report(
             scaling_field=scaling_field,
         )
         if include_charts
-        else ""
+        else ("", "")
     )
     if comparison:
         links = []
@@ -3394,10 +3719,14 @@ def create_html_report(
                     include_charts=include_charts,
                 )
                 links.append(path.name)
-        body = _comparison_body(runs, include, exclude, ranks, sort, charts, links)
+        body = _comparison_body(
+            runs, include, exclude, ranks, sort, charts, links, limits
+        )
         title = "scope-profiler comparison"
     else:
-        body = _single_run_body(runs[0], include, exclude, ranks, sort, columns, charts)
+        body = _single_run_body(
+            runs[0], include, exclude, ranks, sort, columns, charts, limits
+        )
         title = f"{runs[0].display_label} · scope-profiler report"
     document = (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'

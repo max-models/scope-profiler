@@ -48,7 +48,7 @@ def test_mpi():
         assert results.summary() == from_disk.summary()
         # finalize_time_ns/start_time_ns are only rank 0's clock readings
         # (like every other run-level metadata field), so total_time is only
-        # meaningful -- and only checked -- here, and must match the file.
+        # meaningful - and only checked - here, and must match the file.
         assert results.total_time is not None
         assert results.total_time > results.time_span
         assert results.total_time == from_disk.total_time

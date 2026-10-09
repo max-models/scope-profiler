@@ -5,7 +5,7 @@ requires = [ "setuptools", "wheel" ]
 
 [project]
 name = "scope-profiler"
-version = "0.7.3"
+version = "0.7.4"
 description = "Profile code regions in python, optionally with LIKWID markers."
 readme = "README.md"
 keywords = [ "python" ]
@@ -92,7 +92,7 @@ optional-dependencies.extras = [
 
 optional-dependencies.dev = [
   # Black is the one code formatter; ruff only lints (`ruff format` is not
-  # used -- the two disagree on a handful of constructs). Pinned to a year
+  # used - the two disagree on a handful of constructs). Pinned to a year
   # series: black changes its stable style only in the January release.
   "black[jupyter] >= 26.1, < 27",
   "isort >= 9.0.0",
@@ -190,7 +190,7 @@ files = [
 # Resolve imports against the source tree rather than whatever happens to be
 # installed. Without this, an editable install (a .pth file mypy cannot follow)
 # silently degrades every intra-package import to Any locally, while CI's
-# regular install -- which now carries a py.typed marker -- checks them for
+# regular install - which now carries a py.typed marker - checks them for
 # real. That difference hid 131 errors from local runs.
 mypy_path = "src"
 # Run the checker on the lowest CI-supported modern typing environment. The
@@ -260,7 +260,7 @@ src = [ "src" ]
 
 [tool.ruff.lint]
 # Ruff's default rule set grows between releases, so these are the rules this
-# project has looked at and deliberately declined -- not a backlog. See the
+# project has looked at and deliberately declined - not a backlog. See the
 # pinned ruff version in the dev extra: an unpinned one turns a routine upgrade
 # into a red build on an untouched commit.
 ignore = [
@@ -270,7 +270,7 @@ ignore = [
   # because an optional counter was unavailable.
   "BLE001",
   # The same pattern's try/except/pass and try/except/continue forms. There is
-  # nowhere to log to -- the library has no logger and writing to stderr from
+  # nowhere to log to - the library has no logger and writing to stderr from
   # a profiled hot path is worse than the failure it reports.
   "S110",
   "S112",
@@ -301,7 +301,7 @@ ignore = [
 # one `with` keeps the semantics and loses the meaning.
 "src/scope_profiler/tests/*" = [ "E402", "RUF012", "SIM117" ]
 # A verbatim copy of pylikwid's README example, kept runnable as a LIKWID
-# smoke test. PERF402: the append loop is the measured workload -- rewriting
+# smoke test. PERF402: the append loop is the measured workload - rewriting
 # it as list(range(...)) profiles nothing.
 "src/scope_profiler/tests/pylikwid_readme.py" = [ "PERF402" ]
 # Tutorials, examples and doc generators nest profiling regions for the same

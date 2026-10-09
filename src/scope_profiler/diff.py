@@ -2,7 +2,7 @@
 
 Aligns region statistics between two merged HDF5 profiling files by region
 name and reports the change in one metric (default: total duration), so a
-regression -- or an improvement -- between two runs (two commits, two
+regression - or an improvement - between two runs (two commits, two
 configs, two job sizes) shows up as a single table instead of two separate
 ``inspect`` runs a human has to cross-reference by eye.
 """
@@ -92,8 +92,8 @@ def diff_rows(
     -------
     list of dict
         Each entry has ``name``, ``a``, ``b`` (the metric's value in each
-        file, or None when the region is missing -- or timed no calls on the
-        selected ranks -- there), ``delta`` (``b - a``, treating a missing
+        file, or None when the region is missing - or timed no calls on the
+        selected ranks - there), ``delta`` (``b - a``, treating a missing
         side as 0) and ``pct`` (percent change, or None when ``a`` is None or
         0).
     """

@@ -2,7 +2,7 @@
 
 The point of the backend is that a C run needs no import step: what
 ``sp_finalize()`` writes is already a profile ``read_h5()`` opens. Only a
-compiled run can show that, and only against the real library -- the layout
+compiled run can show that, and only against the real library - the layout
 is a contract between ``scope_profiler_hdf5.h`` and
 :mod:`scope_profiler.h5writer`, and every way of getting it wrong (a compound
 field in the wrong order, a string that is not variable-length, an event
@@ -10,7 +10,7 @@ column a row's offsets do not line up with) is invisible until h5py reads it
 back.
 
 The module skips where libhdf5's headers cannot be found, so it is the
-format-selection tests in ``test_c_api.py`` -- which need no HDF5 at all --
+format-selection tests in ``test_c_api.py`` - which need no HDF5 at all --
 that keep the fallback path covered on a machine without it. CI installs the
 serial library (``libhdf5-dev``, baked into the image in ``docker/ci/``), so a
 skip *there* means the backend went untested and is a problem to fix, not a
@@ -57,8 +57,8 @@ def _candidate_flags():
 
     # Serial first: on Debian/Ubuntu a plain "hdf5" resolves to the MPI build,
     # whose headers include mpi.h and whose libraries drag libmpi into every
-    # test binary. The C backend needs neither -- each rank writes its own
-    # file -- so ask for the serial build by the name it actually has.
+    # test binary. The C backend needs neither - each rank writes its own
+    # file - so ask for the serial build by the name it actually has.
     for package in ("hdf5-serial", "hdf5"):
         query = shutil.which("pkg-config")
         if query is None:
@@ -202,7 +202,7 @@ def test_hdf5_is_the_default_format_and_needs_no_import(tmp_path):
 
     results = read_h5(tmp_path / "run_rank00003.h5")
     assert sorted(region.name for region in results.get_regions()) == ["inner", "outer"]
-    # One rank per file, under the rank sp_init() was given -- so the ranks of
+    # One rank per file, under the rank sp_init() was given - so the ranks of
     # an MPI run stay distinguishable when they are merged afterwards.
     assert sorted(results.get_region("outer").regions) == [3]
 
@@ -479,7 +479,7 @@ def reset_manager():
 
 
 def test_a_python_run_folds_in_an_hdf5_writing_c_library(tmp_path, reset_manager):
-    """One process, two languages, one file -- whichever format the C side wrote.
+    """One process, two languages, one file - whichever format the C side wrote.
 
     ``finalize(native_traces=...)`` is the single-process counterpart of
     ``import-native``, and it has to accept what an ``SP_USE_HDF5`` build

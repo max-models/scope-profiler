@@ -8,42 +8,42 @@ the file name.
 
 The subcommands:
 
-- ``scope-profiler run script.py [args...]`` -- activates explicit
+- ``scope-profiler run script.py [args...]`` - activates explicit
   ``scope_profiler.profile`` and ``scope_profiler.region`` instrumentation in
   a script without requiring an in-source session. Pass ``--recursive`` for
   function-call tracing similar to ``python -m cProfile``; add ``--all`` to
   include standard-library and installed-package calls. The
   extension of ``-o`` picks the output format: HDF5 by default, a JSON
   profile for ``.json``/``.json.gz``, a rendered report for ``.html``.
-- ``scope-profiler plot <kind> file.h5 [...]`` -- reads merged HDF5 profiling
+- ``scope-profiler plot <kind> file.h5 [...]`` - reads merged HDF5 profiling
   output and renders Gantt/flame/duration/speedup charts. See
   ``scope_profiler.post_processing`` for its full set of options.
-- ``scope-profiler export <kind> file.h5 [...]`` -- writes plot data,
+- ``scope-profiler export <kind> file.h5 [...]`` - writes plot data,
   cProfile/pstats files, speedscope or Chrome Trace JSON, or the whole run as
   a JSON profile,
   without rendering charts.
-- ``scope-profiler inspect file.h5 [...]`` -- prints the run metadata and a
+- ``scope-profiler inspect file.h5 [...]`` - prints the run metadata and a
   per-region statistics table (including LIKWID hardware counters, when the
   run recorded any) for merged HDF5 profiling output, without producing any
   plots. See ``scope_profiler.inspection``.
-- ``scope-profiler report file.h5 -o report.html`` -- writes a standalone HTML
+- ``scope-profiler report file.h5 -o report.html`` - writes a standalone HTML
   summary with metadata and per-region timing statistics.
-- ``scope-profiler tui file.h5`` -- opens an interactive Textual browser for
+- ``scope-profiler tui file.h5`` - opens an interactive Textual browser for
   metadata, region statistics, per-rank calls, LIKWID counters and the raw
   HDF5 tree.
-- ``scope-profiler line-profile file.h5 [...]`` -- prints persisted
+- ``scope-profiler line-profile file.h5 [...]`` - prints persisted
   line-profiler timings from an HDF5 profile.
-- ``scope-profiler diff a.h5 b.h5`` -- compares region statistics between two
+- ``scope-profiler diff a.h5 b.h5`` - compares region statistics between two
   merged HDF5 profiling files, region by region, so a regression (or
   improvement) between two runs shows up in one table. See
   ``scope_profiler.diff``.
-- ``scope-profiler check a.h5 b.h5`` -- applies a regression budget and
+- ``scope-profiler check a.h5 b.h5`` - applies a regression budget and
   returns a CI-friendly exit code.
-- ``scope-profiler benchmark run config.toml`` -- runs a repeatable benchmark
+- ``scope-profiler benchmark run config.toml`` - runs a repeatable benchmark
   with a correctness gate and writes a JSON manifest.
-- ``scope-profiler benchmark compare baseline.json candidate.json`` -- makes a
+- ``scope-profiler benchmark compare baseline.json candidate.json`` - makes a
   median-based keep/reject decision for an AI agent or CI.
-- ``scope-profiler import-native traces/ -o out.h5`` -- merges the per-rank
+- ``scope-profiler import-native traces/ -o out.h5`` - merges the per-rank
   files written by the C and Fortran region APIs
   (``scope_profiler/c/scope_profiler.c``,
   ``scope_profiler/fortran/scope_profiler.f90``) into one HDF5 file, so a
@@ -235,8 +235,8 @@ def _run(argv):
 
     The output format follows the ``-o`` extension, as viztracer's does: HDF5
     unless the name asks for a JSON profile or an HTML report. The run itself
-    always writes HDF5 -- that is the format the parallel and rank-by-rank
-    writers produce -- and the requested format is rendered from it once the
+    always writes HDF5 - that is the format the parallel and rank-by-rank
+    writers produce - and the requested format is rendered from it once the
     script is done, so nothing about the measured run changes with ``-o``.
     """
     from scope_profiler.profile_io import FORMAT_HDF5, profile_format

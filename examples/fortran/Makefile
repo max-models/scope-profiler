@@ -18,7 +18,7 @@ BUILD_DIR ?= build
 SP_MODULE := $(shell $(PYTHON) -c "import scope_profiler.native_trace as t; print(t.fortran_source_path())" 2>/dev/null)
 
 # Only a build needs the sources, so `make clean` still works when the
-# package is not importable -- otherwise a moved install would strand the
+# package is not importable - otherwise a moved install would strand the
 # build artefacts here.
 ifeq ($(strip $(SP_MODULE)),)
 ifneq ($(MAKECMDGOALS),clean)
@@ -51,13 +51,13 @@ run-standalone: standalone
 
 # --------------------------------------------------------------------- mixed
 # f2py compiles the profiler module and the kernels into one extension, which
-# Python imports directly -- so both languages run in a single process.
+# Python imports directly - so both languages run in a single process.
 #
 # `only:` limits what gets wrapped for Python to the kernels' own entry points.
 # Without it f2py also wraps the profiler module's public functions, and the
 # Fortran wrapper it generates for the ones returning `integer(int64)` uses
 # that kind without importing iso_fortran_env, which gfortran rejects. Python
-# never calls into the profiler module anyway -- the kernels do, in Fortran.
+# never calls into the profiler module anyway - the kernels do, in Fortran.
 EXT_SUFFIX := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))")
 EXTENSION := kernels$(EXT_SUFFIX)
 

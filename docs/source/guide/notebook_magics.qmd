@@ -10,7 +10,7 @@ session, so a quick "how long is this cell/line taking, and where" doesn't
 need the `ProfileManager.session()`/`region()` boilerplate spelled
 out by hand each time. It is a thin adapter, not a second implementation:
 every magic calls straight into the same API the {doc}`hdf5_and_python_api`
-page describes -- `ProfileManager.session`/`region`,
+page describes - `ProfileManager.session`/`region`,
 `ProfilingResults.print_summary`/`to_dataframe`, `read_h5`, the
 `diff_rows`/`print_diff_table` functions behind `scope-profiler diff`, and
 `prof_export`/`speedscope_export`.
@@ -54,7 +54,7 @@ Load the extension once per kernel:
 %load_ext scope_profiler.ipython_magics
 ```
 
-## `%%scope` -- profile a cell
+## `%%scope` - profile a cell
 
 ```python
 %%scope solve
@@ -63,23 +63,23 @@ result = solve(problem)
 
 Runs the cell inside a profiling region named `solve` (the name is optional;
 it defaults to `"cell"`) and prints the region summary table immediately
-after. Nothing is written to disk -- the result lives in the kernel's memory
+after. Nothing is written to disk - the result lives in the kernel's memory
 for the rest of the session, stored under that name for `%scope_last` and
 `%scope_compare` to refer back to.
 
 Options:
 
-- `-q`/`--quiet` -- suppress the printed table (still records the run).
-- `-p`/`--plot` -- also show a duration bar chart (`plot_durations`).
-- `--include PATTERN` -- regex restricting which regions the table/plot show,
+- `-q`/`--quiet` - suppress the printed table (still records the run).
+- `-p`/`--plot` - also show a duration bar chart (`plot_durations`).
+- `--include PATTERN` - regex restricting which regions the table/plot show,
   same matching `ProfilingResults.get_regions` uses.
 
 To profile sub-parts of the cell separately, nest `ProfileManager.region`
-calls inside it as usual -- `%%scope` only adds the outer region and the
+calls inside it as usual - `%%scope` only adds the outer region and the
 in-memory session, everything nested inside works exactly as it does in a
 script.
 
-## `%scope_timeit` -- time a statement
+## `%scope_timeit` - time a statement
 
 ```python
 %scope_timeit -n 20 solve(problem)
@@ -88,13 +88,13 @@ script.
 Runs the given statement `n` times (default 7) inside a profiling region
 named `"timeit"` and prints calls/total/avg/min/max. It answers the same
 question as the built-in `%timeit`, but through scope-profiler's own region
-timer and table instead of the `timeit` module -- useful when you want the
+timer and table instead of the `timeit` module - useful when you want the
 result to be comparable with `%%scope`/`%scope_compare` output, or plan to
 follow up with `-p` to see run-to-run variance as a bar chart.
 
 `-q` suppresses the printed table, same as for `%%scope`.
 
-## `%%scope_line` -- line-by-line profiling for a cell
+## `%%scope_line` - line-by-line profiling for a cell
 
 ```python
 %%scope_line
@@ -120,7 +120,7 @@ pip install "scope-profiler[line-profiler]"
 ```
 
 Prefer decorating the function you care about with `@ProfileManager.profile`,
-as above -- it registers cleanly regardless of where it's called from. A bare
+as above - it registers cleanly regardless of where it's called from. A bare
 `with ProfileManager.region(...):` at the cell's top level also
 works, but line_profiler's own handling of a module-level code object
 containing a nested `def` can cut the printed table off at that `def` --
@@ -130,7 +130,7 @@ magic.
 `-q` suppresses the region summary table, `-Q` suppresses the line-by-line
 tables; both can be combined.
 
-## `%%scope_recursive` -- profile a cell with nothing instrumented
+## `%%scope_recursive` - profile a cell with nothing instrumented
 
 ```python
 %%scope_recursive
@@ -159,7 +159,7 @@ for a cheap, focused measurement.
 Two things to know, both inherited from how recursive profiling works in a
 script rather than from the magic:
 
-- Tracing is not limited to your own functions -- library internals called
+- Tracing is not limited to your own functions - library internals called
   from the cell are recorded too, and each traced call carries per-call
   overhead. Keep the cell small and use `--include` to filter the table.
 - The cell is run with `exec` rather than IPython's own execution, so a
@@ -171,7 +171,7 @@ profile of everything up to the failure is still recorded and printed --
 which is often exactly what you want to see when a run dies halfway. That
 holds for `%%scope` and `%%scope_agg` too.
 
-## `%%scope_agg` -- aggregation mode for very hot regions
+## `%%scope_agg` - aggregation mode for very hot regions
 
 ```python
 %%scope_agg
@@ -190,7 +190,7 @@ The trade-off is that the per-call event data is gone: the Gantt chart,
 summary table, `%scope_compare` and `%scope_df` (region rows) work as usual.
 Aggregation mode cannot be combined with line, GPU, NVTX or LIKWID timing.
 
-## `%scope_load` -- bring in a run from outside the notebook
+## `%scope_load` - bring in a run from outside the notebook
 
 ```python
 %scope_load results/run_128ranks.h5
@@ -198,7 +198,7 @@ Aggregation mode cannot be combined with line, GPU, NVTX or LIKWID timing.
 ```
 
 Reads an HDF5 file with `read_h5` and stores it under the same names the
-other magics use -- so a run from an MPI job, a `scope-profiler run`, or a
+other magics use - so a run from an MPI job, a `scope-profiler run`, or a
 colleague becomes directly comparable with what you just measured in a cell:
 
 ```python
@@ -213,7 +213,7 @@ solve(problem)
 The name defaults to the file's stem; `-n`/`--name` overrides it and `-q`
 skips the summary table.
 
-## `%scope_df` -- a run as a pandas DataFrame
+## `%scope_df` - a run as a pandas DataFrame
 
 ```python
 df = %scope_df
@@ -222,17 +222,17 @@ df.nlargest(5, "total_duration")
 
 Returns the recorded run as a DataFrame (`to_dataframe`), so it both renders
 as a table on its own and can be captured for analysis, grouping or plotting
-in the notebook -- everything {doc}`/tutorials/02_postprocessing` does with a
+in the notebook - everything {doc}`/tutorials/02_postprocessing` does with a
 file, on the run you just measured. Needs pandas (the `pproc` extra).
 
-- `-n`/`--name` -- which recorded run (default: the most recent).
-- `--per-rank` -- one row per (region, rank) instead of one aggregated row.
-- `--events` -- one row per recorded call (`to_events_dataframe`) instead of
+- `-n`/`--name` - which recorded run (default: the most recent).
+- `--per-rank` - one row per (region, rank) instead of one aggregated row.
+- `--events` - one row per recorded call (`to_events_dataframe`) instead of
   one per region. An aggregation-mode run records no per-call events, so this
   comes back empty with a note saying why.
-- `--include`/`--exclude` -- regex region filters.
+- `--include`/`--exclude` - regex region filters.
 
-## `%scope_last` -- reprint a previous run
+## `%scope_last` - reprint a previous run
 
 ```python
 %scope_last            # the most recently recorded run
@@ -244,7 +244,7 @@ Reprints the summary table for a run recorded earlier by `%%scope` or
 and `--include` options as `%%scope`. Useful after scrolling past a result,
 or to re-render it with a different `--include` filter.
 
-## `%scope_compare` -- compare two runs
+## `%scope_compare` - compare two runs
 
 ```python
 %%scope baseline
@@ -261,16 +261,16 @@ solve_optimized(problem)
 ```
 
 Aligns the two runs' regions by name and prints one row per region with the
-change in a chosen metric -- the same table `scope-profiler diff` prints for
+change in a chosen metric - the same table `scope-profiler diff` prints for
 two HDF5 files, here for two in-notebook runs. With no arguments, it compares
 the two most recently recorded runs, so `%scope_compare` right after the two
 cells above works without naming them.
 
-- `--metric` -- one of `total`, `avg`, `min`, `max`, `p50`, `p95`, `p99`,
+- `--metric` - one of `total`, `avg`, `min`, `max`, `p50`, `p95`, `p99`,
   `imbalance`, `calls` (default `total`).
-- `--sort` -- `delta`, `pct`, or `name` (default `delta`).
+- `--sort` - `delta`, `pct`, or `name` (default `delta`).
 
-## `%scope_export` -- export a run to a file
+## `%scope_export` - export a run to a file
 
 ```python
 %scope_export candidate.prof
@@ -280,14 +280,14 @@ cells above works without naming them.
 Writes a previously recorded run to a `.prof` file (openable in `snakeviz` or
 any `pstats` viewer) or a speedscope JSON file, via
 `scope_profiler.prof_export.export_prof`/
-`scope_profiler.speedscope_export.export_speedscope` -- the same functions
+`scope_profiler.speedscope_export.export_speedscope` - the same functions
 `scope-profiler export` uses on an HDF5 file, here applied directly to an
 in-memory `ProfilingResults`. Format is inferred from `filepath`'s extension
 (`--format prof`/`--format speedscope` to force one); `-n`/`--name` selects
 which recorded run to export (default: the most recent one); `--include`/
 `--exclude` restrict which regions are written.
 
-## `%scope_reset` -- drop recorded runs
+## `%scope_reset` - drop recorded runs
 
 ```python
 %scope_reset            # clear every recorded run

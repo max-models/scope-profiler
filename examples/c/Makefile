@@ -17,7 +17,7 @@ BUILD_DIR ?= build
 
 # Optional HDF5 output: `make SP_HDF5=1 run-standalone` compiles the profiler
 # with its HDF5 backend, so sp_finalize() writes standalone_rank00000.h5
-# directly -- an ordinary profile, with no `import-native` step. Needs libhdf5
+# directly - an ordinary profile, with no `import-native` step. Needs libhdf5
 # and its headers; pkg-config finds them where it knows about them (the serial
 # build, asked for first because the MPI one would drag in mpi.h), and
 # HDF5_CFLAGS/HDF5_LIBS override it where it does not:
@@ -38,7 +38,7 @@ SP_SOURCE := $(shell $(PYTHON) -c "import scope_profiler.native_trace as t; prin
 SP_INCLUDE := $(shell $(PYTHON) -c "import scope_profiler.native_trace as t; print(t.c_include_dir())" 2>/dev/null)
 
 # Only a build needs the sources, so `make clean` still works when the
-# package is not importable -- otherwise a moved install would strand the
+# package is not importable - otherwise a moved install would strand the
 # build artefacts here.
 ifeq ($(strip $(SP_SOURCE)),)
 ifneq ($(MAKECMDGOALS),clean)
@@ -71,7 +71,7 @@ $(BUILD_DIR)/standalone: standalone.c $(BUILD_DIR)/kernels.o $(BUILD_DIR)/scope_
 		$(BUILD_DIR)/scope_profiler.o -lm $(LDLIBS) -o $@
 
 # import-native reads both formats, and merges the ranks of an MPI run either
-# way, so the same rule serves an SP_HDF5=1 build -- there it is a rename of
+# way, so the same rule serves an SP_HDF5=1 build - there it is a rename of
 # one already-complete profile rather than a conversion.
 run-standalone: standalone
 	cd $(BUILD_DIR) && ./standalone
@@ -79,7 +79,7 @@ run-standalone: standalone
 
 # --------------------------------------------------------------------- mixed
 # One shared library holding the kernels and the profiler, which Python loads
-# with ctypes -- so both languages run in a single process. No build backend
+# with ctypes - so both languages run in a single process. No build backend
 # and no binding generator: ctypes needs nothing but the .so.
 mixed: $(BUILD_DIR)/libkernels.so
 

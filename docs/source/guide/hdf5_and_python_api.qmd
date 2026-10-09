@@ -249,7 +249,7 @@ print(region.source_text)
 before this feature existed, or for a region created only by the recursive
 tracer (`recursive_profile=True`) or `scope-profiler run`, none of which have
 one call site to point at. If the same region name is used at more than one
-call site, the source of whichever call created it first is kept -- their
+call site, the source of whichever call created it first is kept - their
 timings are pooled together under that one name either way. The same
 information is available without writing any Python, via
 `scope-profiler inspect --source`; see {doc}`/cli`.

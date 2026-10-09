@@ -231,7 +231,7 @@ reads it back into the very same `ProfilingResults`, and `read_profile()` /
 
 ### Native (C and Fortran) traces
 
-Reading what the C and Fortran region APIs write -- they share one format; see
+Reading what the C and Fortran region APIs write - they share one format; see
 {doc}`guide/c` and {doc}`guide/fortran`.
 
 ```{eval-rst}

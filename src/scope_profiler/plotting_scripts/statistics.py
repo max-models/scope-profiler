@@ -63,7 +63,7 @@ def _pooled_first_last_duration(
     """Duration of the chronologically first and last call, over several regions.
 
     Pooling durations loses call order, so first/last are found from each
-    rank's own first/last call instead -- the earliest-starting rank of any
+    rank's own first/last call instead - the earliest-starting rank of any
     of the regions supplies "first", the latest-ending one supplies "last".
     Several regions are pooled the same way a ``combine_regions`` bar pools
     its members: the group's first call is whichever member started first.
@@ -101,7 +101,7 @@ def _stats_from_values(
 
     ``first``/``last`` (the chronologically first/last call's duration) can't
     be derived from ``values`` alone once several ranks have been pooled into
-    one array, since that loses call order -- callers that can determine them
+    one array, since that loses call order - callers that can determine them
     (e.g. a single rank's own, order-preserving array) pass them in.
     """
     if values.size == 0:

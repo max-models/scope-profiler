@@ -3,7 +3,7 @@
 scope-profiler writes and reads a run in three shapes: the HDF5 file that is
 the default output, the JSON document of :mod:`scope_profiler.json_export`,
 and the standalone HTML report of :mod:`scope_profiler.html_report` (which is
-write-only -- a report is a rendering of a run, not a copy of it).
+write-only - a report is a rendering of a run, not a copy of it).
 
 Everything that takes a profile path from a user goes through
 :func:`read_profile` rather than :func:`~scope_profiler.h5reader.read_h5`, so
@@ -157,7 +157,7 @@ def read_profile_summary(file_path, **kwargs) -> ProfilingResults:
     Only HDF5 can be read partially: its per-call columns are separate
     datasets, so a summary-only read never touches them. A JSON document is
     parsed as a whole either way, so this falls back to the full read for one
-    -- the caller gets a result set that answers strictly more, never less.
+    - the caller gets a result set that answers strictly more, never less.
     """
     if profile_format(file_path) == FORMAT_JSON:
         from scope_profiler.json_export import read_json

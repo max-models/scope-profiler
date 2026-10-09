@@ -50,7 +50,7 @@ class NestingError(ValueError):
 
     In practice this means a mismatched ``sp_begin``/``sp_end`` pair in C or
     Fortran, or regions driven from several threads in a run that did not
-    profile with ``track_threads=True`` -- without that, every thread's calls
+    profile with ``track_threads=True`` - without that, every thread's calls
     land in one lane and interleave.
     """
 
@@ -78,7 +78,7 @@ class CallArrays(NamedTuple):
     """Which stack each call belongs to; see :func:`scope_profiler.concurrency.lane_ids`.
 
     **Empty** for a run that did not track threads, meaning the whole rank is
-    one stack -- rather than a full-length array of ``-1``, which would cost
+    one stack - rather than a full-length array of ``-1``, which would cost
     three more passes over the events of every single-threaded run to say
     nothing. Consumers must therefore check ``lane.size`` before indexing it.
     Defaulted so the field can be omitted by older callers constructing this
@@ -214,8 +214,8 @@ def build_call_arrays(regions: Iterable, rank: int) -> CallArrays:
     # (call count, thread ids or None, task ids or None) per region. Held
     # rather than turned into a lane column straight away: a run that tracked
     # no threads has one lane, and materializing a full-length array of -1 for
-    # it would put three more passes over every event -- an allocation, a
-    # concatenate and a gather -- into the reconstruction of every
+    # it would put three more passes over every event - an allocation, a
+    # concatenate and a gather - into the reconstruction of every
     # single-threaded run, which is the overwhelmingly common one.
     lane_sources: list[tuple[int, Any, Any]] = []
     any_lane = False
@@ -273,8 +273,8 @@ def build_call_arrays(regions: Iterable, rank: int) -> CallArrays:
     n = start_ns.size
 
     if any_lane:
-        # A region with no lane column of its own -- one imported from a
-        # Fortran trace, say -- lands on lane -1, which no thread or task
+        # A region with no lane column of its own - one imported from a
+        # Fortran trace, say - lands on lane -1, which no thread or task
         # uses. See concurrency.lane_ids.
         lane = np.concatenate(
             [
@@ -328,8 +328,8 @@ def build_call_arrays(regions: Iterable, rank: int) -> CallArrays:
 def split_by_lane(calls: CallArrays) -> list[tuple[int, CallArrays]]:
     """Split a reconstruction into one :class:`CallArrays` per lane.
 
-    Anything that has to emit calls in time order -- the speedscope exporter,
-    above all -- cannot walk a multi-lane reconstruction as one tree: two
+    Anything that has to emit calls in time order - the speedscope exporter,
+    above all - cannot walk a multi-lane reconstruction as one tree: two
     lanes interleave, so a depth-first walk of the roots emits an event at a
     time earlier than the one before it. Per lane the intervals nest, so each
     lane walks exactly the way a single-threaded run always did.
@@ -527,7 +527,7 @@ def exclusive_totals_ns(regions: dict, rank: int = 0) -> dict:
 
     ``finalize()`` calls this because a rank already holds its whole region
     set in memory, which is exactly the set exclusive time is defined against
-    -- and reconstructing the nesting is by far the most expensive part of
+    - and reconstructing the nesting is by far the most expensive part of
     reading a run back.
 
     Parameters

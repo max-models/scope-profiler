@@ -42,7 +42,7 @@ def plot_imbalance(
     """Plot each region's duration statistic per rank, to surface load imbalance.
 
     One point per (region, rank), connected by a line in rank order, with a
-    dashed horizontal line at the mean over ranks -- so a straggler rank shows
+    dashed horizontal line at the mean over ranks - so a straggler rank shows
     up as a point sitting well off its region's line. This is a per-rank view
     of the same statistics :func:`plot_durations` aggregates across ranks.
 

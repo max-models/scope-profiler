@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `buildDurationsFigure` gives a stacked segment only the bars it sits under,
+  ordering the axis through `layout.xaxis.categoryarray`; a segment per child
+  region used to carry a column for every region.
+- `buildGanttFigure` takes `maxDepth`, which hides calls nested deeper than
+  that below a top-level call (intervals carry an optional `depth`), and
+  `topN`, which keeps the regions with the most summed call time among the
+  calls still shown.
 - Gantt lanes and flame and roofline hovers leave the rank out for a run with
   one rank, as told by the payload's optional `file_ranks` (run label -> rank
   count). Payloads without it keep naming every rank.
@@ -46,10 +53,10 @@
 - `buildDurationsFigure` and `buildRankHeatmapFigure` order their categories by
   pooled cost rather than by the order the exporter happened to walk, which
   interleaved two runs with different region sets unpredictably.
-- `buildGanttFigure` puts a lane index on each bar and the lane names on the
-  axis (`tickvals`/`ticktext`) instead of repeating the lane string per
-  interval, which a large trace felt. `layout.yaxis.categoryarray` is gone;
-  read `layout.yaxis.ticktext` for the lane order.
+- `buildGanttFigure` keeps its lanes on a categorical y axis, in
+  `layout.yaxis.categoryarray`, and each bar reuses its lane's string. An
+  array-mode tick axis (`tickvals`/`ticktext`) is laid out in time quadratic in
+  its lanes: 1000 lanes took 3.6 s to draw instead of 0.6 s.
 
 ### Added
 

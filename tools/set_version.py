@@ -29,7 +29,7 @@ from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parent.parent
 
-#: Semantic version, without a pre-release or build suffix -- the only shape
+#: Semantic version, without a pre-release or build suffix - the only shape
 #: both setuptools and CMake's ``project(VERSION)`` accept unambiguously.
 VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 

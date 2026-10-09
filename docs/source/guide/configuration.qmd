@@ -117,7 +117,7 @@ ProfileManager.setup(options=options, file_path="run_b.h5")
 A keyword argument passed alongside `options` wins over the same field on it,
 which in turn wins over a `config_path` TOML file.
 
-The settings that share a prefix -- the Memray, GPU and HDF5 ones -- can also
+The settings that share a prefix - the Memray, GPU and HDF5 ones - can also
 be given as groups, which spell them without the prefix:
 
 ```python
@@ -287,7 +287,7 @@ filename and line number for decorators and direct context-manager regions,
 using a one-time frame/code-object lookup. It neither reads nor parses source
 files and adds no per-call work.
 
-Off by default, because its cost -- while cheap for a typical file -- is not
+Off by default, because its cost - while cheap for a typical file - is not
 always. Capturing a region's source parses its defining file's AST and walks
 it once per distinct file, the first time any of its regions is created --
 not once per region, and not on any later call. Measured cost tracks that
@@ -299,11 +299,11 @@ file's **total size**, not the size or number of the regions it defines:
 | ~10,000 lines, ~1,000 regions (one spanning 3,000 lines) | ~0.3 s       | ~2.9 s                                                    |
 
 The per-region text itself is cheap to extract even when huge (~0.1 ms for a
-3,000-line block) -- the file-wide parse dominates. Every rank pays this
+3,000-line block) - the file-wide parse dominates. Every rank pays this
 independently and concurrently, so on a job with more ranks than idle cores it
 compounds under contention; at rank counts within the idle core count (1--8
 ranks, above), it stays flat. For a typical, modestly sized codebase this is
-negligible either way -- turn it on with:
+negligible either way - turn it on with:
 
 ```python
 ProfileManager.setup(capture_region_source=True)

@@ -48,13 +48,13 @@ test("gantt gives each region and rank a lane, and honours supplied colors", () 
       },
     ],
   });
-  // Bars carry a lane index; the axis carries the names.
-  assert.deepEqual(figure.data[0].y, [0, 1]);
-  assert.deepEqual(figure.layout.yaxis.ticktext, [
+  // Bars sit on categorical lanes, in the order the axis lists them.
+  assert.deepEqual(figure.data[0].y, ["solve (rank 0)", "solve (rank 1)"]);
+  assert.equal(figure.layout.yaxis.type, "category");
+  assert.deepEqual(figure.layout.yaxis.categoryarray, [
     "solve (rank 0)",
     "solve (rank 1)",
   ]);
-  assert.deepEqual(figure.layout.yaxis.tickvals, [0, 1]);
   assert.equal(figure.data[0].marker.color, "#123456");
 });
 
@@ -87,9 +87,9 @@ test("gantt keeps a nested profile legible instead of stacking it on one row", (
   };
   const figure = buildGanttFigure(payload);
   // The y axis counts up from the bottom, so an ascending range puts the
-  // first (enclosing) region on the bottom lane -- the order
+  // first (enclosing) region on the bottom lane - the order
   // `scope-profiler plot gantt` draws.
-  assert.deepEqual(figure.layout.yaxis.ticktext, [
+  assert.deepEqual(figure.layout.yaxis.categoryarray, [
     "session (rank 0)",
     "setup (rank 0)",
     "solve (rank 0)",
@@ -98,8 +98,48 @@ test("gantt keeps a nested profile legible instead of stacking it on one row", (
   assert.equal(new Set(figure.data.flatMap((trace) => trace.y)).size, 3);
   // The opt-out keeps the compact one-row-per-rank view, rank 0 on top.
   const compact = buildGanttFigure(payload, { laneBy: "rank" });
-  assert.deepEqual(compact.layout.yaxis.ticktext, ["one / rank 0"]);
+  assert.deepEqual(compact.layout.yaxis.categoryarray, ["one / rank 0"]);
   assert.deepEqual(compact.layout.yaxis.range, [0.5, -0.5]);
+});
+
+test("gantt hides calls below maxDepth, then keeps the topN regions by time", () => {
+  const row = (region, depth, start, end) => ({
+    file: "one",
+    rank: 0,
+    region,
+    depth,
+    start_seconds: start,
+    end_seconds: end,
+  });
+  const payload = {
+    file_ranks: { one: 1 },
+    intervals: [
+      row("outer", 0, 0, 10),
+      row("mid", 1, 1, 9),
+      row("leaf", 2, 2, 8),
+      row("leaf", 2, 8.5, 8.9),
+      row("aside", 1, 9, 9.5),
+      // A row without a depth is never hidden by it.
+      {
+        file: "one",
+        rank: 0,
+        region: "flat",
+        start_seconds: 0,
+        end_seconds: 1,
+      },
+    ],
+  };
+  const lanes = (options) =>
+    buildGanttFigure(payload, options).layout.yaxis.categoryarray;
+  assert.deepEqual(lanes({}), ["outer", "mid", "leaf", "aside", "flat"]);
+  assert.deepEqual(lanes({ maxDepth: 0 }), ["outer", "flat"]);
+  assert.deepEqual(lanes({ maxDepth: 1 }), ["outer", "mid", "aside", "flat"]);
+  // leaf's two calls sum to 6.4 s, more than flat's or aside's.
+  assert.deepEqual(lanes({ topN: 3 }), ["outer", "mid", "leaf"]);
+  // The depth goes first: topN picks among the calls still shown.
+  assert.deepEqual(lanes({ maxDepth: 1, topN: 2 }), ["outer", "mid"]);
+  assert.deepEqual(lanes({ topN: Infinity }), lanes({}));
+  assert.deepEqual(lanes({ topN: 0 }), []);
 });
 
 test("gantt names a lane by its run only when the payload holds several", () => {
@@ -121,7 +161,7 @@ test("gantt names a lane by its run only when the payload holds several", () => 
       },
     ],
   });
-  assert.deepEqual(figure.layout.yaxis.ticktext, [
+  assert.deepEqual(figure.layout.yaxis.categoryarray, [
     "one / solve (rank 0)",
     "two / solve (rank 0)",
   ]);
@@ -196,6 +236,35 @@ test("durations preserves stacked child segments", () => {
     ["own", "child"],
   );
   assert.equal(figure.data[0].marker.color, "#111111");
+});
+
+test("stacked durations give a segment only the bars it is under", () => {
+  const bar = (region, segment, value_seconds) => ({
+    file: "one",
+    region,
+    metric: "total",
+    segment,
+    value_seconds,
+  });
+  const figure = buildDurationsFigure({
+    bars: [
+      bar("outer", "self", 1),
+      bar("outer", "mid", 8),
+      bar("mid", "self", 3),
+      bar("mid", "leaf", 5),
+      bar("leaf", "self", 5),
+    ],
+  });
+  const byName = Object.fromEntries(
+    figure.data.map((trace) => [trace.name, trace]),
+  );
+  assert.deepEqual(byName.self.x, ["outer", "mid", "leaf"]);
+  assert.deepEqual(byName.mid.x, ["outer"]);
+  assert.deepEqual(byName.leaf.x, ["mid"]);
+  assert.deepEqual(byName.leaf.y, [5]);
+  assert.equal(byName.leaf.customdata[0].identity.region, "mid");
+  // The axis, not trace order, keeps the costliest bar first.
+  assert.deepEqual(figure.layout.xaxis.categoryarray, ["outer", "mid", "leaf"]);
 });
 
 test("additional exported data types build Plotly traces", () => {
@@ -939,7 +1008,7 @@ test("one-rank runs leave the rank out of labels", () => {
     ],
     file_ranks: { serial: 1, mpi: 2 },
   };
-  assert.deepEqual(buildGanttFigure(payload).layout.yaxis.ticktext, [
+  assert.deepEqual(buildGanttFigure(payload).layout.yaxis.categoryarray, [
     "serial / solve",
     "mpi / solve (rank 0)",
     "mpi / solve (rank 1)",
@@ -949,7 +1018,7 @@ test("one-rank runs leave the rank out of labels", () => {
     intervals: [interval("mpi", 0, "solve")],
     file_ranks: { mpi: 4 },
   };
-  assert.deepEqual(buildGanttFigure(alone).layout.yaxis.ticktext, [
+  assert.deepEqual(buildGanttFigure(alone).layout.yaxis.categoryarray, [
     "solve (rank 0)",
   ]);
 

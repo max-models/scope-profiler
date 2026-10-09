@@ -40,7 +40,7 @@ def _parsed_module(filename: str) -> ast.Module | None:
 # Lineno -> With node, memoized by filename. Keeping this separate from
 # _AST_CACHE means a file with many regions costs one ast.walk() in total
 # (done the first time any region in it is captured), not one per region: the
-# naive approach -- walking the whole tree again for every new region name --
+# naive approach - walking the whole tree again for every new region name --
 # turned out to cost hundreds of microseconds per region on a file of a few
 # hundred lines (measured in test_source_capture_is_a_one_time_per_name_cost),
 # which is fine once but not once per distinct name in a busy file.
@@ -173,7 +173,7 @@ _EMPTY_TIMES.flags.writeable = False
 # End-time value of a slot that has been reserved but not yet written: the
 # call is still running. Entering a region hands out its slot before the code
 # runs, so a finalize() in the middle of a call would otherwise copy out an
-# uninitialised end timestamp -- as garbage from `np.empty` in the decorator
+# uninitialised end timestamp - as garbage from `np.empty` in the decorator
 # form, which does not touch either buffer until the call returns.
 #
 # Zero is the marker, and it costs nothing on either axis. A monotonic clock
@@ -320,7 +320,7 @@ class BaseProfileRegion:
 
     Handles start/end time buffering and call counting. The buffers grow on
     demand and are copied out once, at the end of the run, by
-    ``ProfileManager.finalize()`` -- regions never touch HDF5 themselves.
+    ``ProfileManager.finalize()`` - regions never touch HDF5 themselves.
     """
 
     __slots__ = (
@@ -501,7 +501,7 @@ class BaseProfileRegion:
         """Mask of buffered slots this finalize() should copy out.
 
         A slot qualifies once its end time is written and it has not already
-        gone out with an earlier finalize(). None -- the usual case -- means
+        gone out with an earlier finalize(). None - the usual case - means
         every slot qualifies and the caller can skip the mask entirely.
         """
         if not self.ptr:
@@ -1147,7 +1147,7 @@ class _LaneBuffer:
 
     Threaded regions never share a buffer between threads: a slot is reserved
     and written by the same thread that owns the arrays, so the hot path needs
-    no lock, no atomic, and no retry -- which is what keeps per-call overhead
+    no lock, no atomic, and no retry - which is what keeps per-call overhead
     in the same order as the single-threaded path. The price is that a
     region's calls arrive as one buffer per thread and are concatenated once,
     at ``finalize()``.
@@ -1260,7 +1260,7 @@ class _LaneBuffer:
 
 
 class ThreadedProfileRegion(BaseProfileRegion):
-    """Region that records which thread -- and which task -- each call ran on.
+    """Region that records which thread - and which task - each call ran on.
 
     Selected by ``track_threads=True``. Two things change against
     :class:`TimeOnlyProfileRegion`:
@@ -1274,7 +1274,7 @@ class ThreadedProfileRegion(BaseProfileRegion):
 
     With ``track_async=True`` a call additionally carries the id of the
     asyncio task or greenlet it ran in, and the time that task spent suspended
-    *inside* the call -- the await time of that one call, as opposed to the
+    *inside* the call - the await time of that one call, as opposed to the
     task's total.
 
     The per-call cost over :class:`TimeOnlyProfileRegion` is one thread-local
@@ -1404,7 +1404,7 @@ class ThreadedProfileRegion(BaseProfileRegion):
 
         return wrapper
 
-    # -- collection -----------------------------------------------------
+    # - collection -----------------------------------------------------
     def snapshot_arrays(self):
         """This run's completed calls, concatenated over every thread.
 

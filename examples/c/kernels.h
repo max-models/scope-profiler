@@ -5,7 +5,7 @@
  * Either way the regions inside it end up in the profile.
  *
  * Region names are prefixed `c:` so they cannot collide with the driver's own
- * regions -- scope-profiler refuses to merge a name recorded on both sides,
+ * regions - scope-profiler refuses to merge a name recorded on both sides,
  * since that would double-count a wrapper and the region inside it.
  */
 #ifndef KERNELS_H
@@ -33,7 +33,7 @@ double kernels_jacobi_solve(int n, int iterations);
 
 /* Stand-in for writing a checkpoint: a region entered rarely.
  *
- * Rare regions are worth marking too -- they are what a Gantt chart makes
+ * Rare regions are worth marking too - they are what a Gantt chart makes
  * obvious and a total-time table hides. */
 void kernels_checkpoint(int n);
 

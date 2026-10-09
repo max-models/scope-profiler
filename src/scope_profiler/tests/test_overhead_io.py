@@ -56,7 +56,7 @@ REPEATS = 3
 
 # Nanoseconds per event to write a profile out, including the publication
 # pass. Measured on an idle laptop: ~93 ns/event at 100k events, but ~510 at
-# 10k -- the publication copy is a fixed ~2.5 ms, so a small profile is
+# 10k - the publication copy is a fixed ~2.5 ms, so a small profile is
 # dominated by it and gets its own budget rather than one blurry number that
 # would be loose at scale and tight below it.
 WRITE_BUDGET_NS = {10_000: 8_000, 100_000: 2_000}

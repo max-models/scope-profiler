@@ -2,7 +2,7 @@
 
 Drop one or more plot-data JSON files below and see them rendered, without
 installing anything or writing any code. This page runs entirely in your
-browser -- files you drop here are never uploaded anywhere.
+browser - files you drop here are never uploaded anywhere.
 
 Export the files with:
 
@@ -78,7 +78,7 @@ renders as a summary table instead of a chart.
 This is the same recipe as {doc}`dashboard`, minus the build step: `buildFigure`
 reads the `plot` field each exported JSON file carries and dispatches to the
 matching builder, so one drop zone handles every plot kind without naming any
-of them. Nothing here needs a server -- the same `<div>` and `<script type="module">`
+of them. Nothing here needs a server - the same `<div>` and `<script type="module">`
 work in a plain `index.html` served from a bucket, which is the point of
 shipping `@scope-profiler/plotly` as a dependency-free package in the first
 place.

@@ -2,7 +2,7 @@
 
 Same approach as the Fortran tests: build the shipped source with the system C
 compiler, run a program against it, and check what came out. Compiling is the
-only way to catch what actually breaks here -- a feature macro that hides the
+only way to catch what actually breaks here - a feature macro that hides the
 right clock, a struct written with the wrong width, a trace the reader cannot
 parse. The module skips when no C compiler is available.
 """
@@ -259,7 +259,7 @@ def test_timestamps_share_pythons_clock(tmp_path):
 
     This is the test that catches a wrong clock. On macOS, defining
     _POSIX_C_SOURCE hides CLOCK_UPTIME_RAW and the code falls back to
-    CLOCK_MONOTONIC -- which is microsecond-granular *and* starts from a
+    CLOCK_MONOTONIC - which is microsecond-granular *and* starts from a
     different epoch, so these bounds would fail by hundreds of seconds.
     """
     executable = build(tmp_path, BASIC_PROGRAM)
@@ -1338,7 +1338,7 @@ int main(void)
 
     assert "end outer while inner open: 5" in output  # SP_ERR_UNMATCHED_END
     assert "end inner: 0" in output  # SP_OK
-    assert "end outer now on top: 0" in output  # SP_OK -- retry after inner closed
+    assert "end outer now on top: 0" in output  # SP_OK - retry after inner closed
     assert "end outer again: 5" in output  # inert now
 
 

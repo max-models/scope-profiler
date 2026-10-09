@@ -294,7 +294,7 @@ function values(payload, key, kind, options) {
 // the text colour unset and paints gridlines in a half-transparent grey that
 // reads on either background, which is what every figure did before themes
 // existed and so stays the default. A host that knows which theme it is in
-// passes "light" or "dark" -- or its own token object -- and gets chrome that
+// passes "light" or "dark" - or its own token object - and gets chrome that
 // matches, since a grey that works on both is never the best on either.
 const THEMES = {
   auto: {
@@ -430,7 +430,7 @@ function withEmptyState(layout, hasData) {
   };
 }
 
-// Pooled magnitude per region, largest first -- the order both the durations
+// Pooled magnitude per region, largest first - the order both the durations
 // bars and the heatmap columns are laid out in, and the one
 // `buildRegionSummaryFigure` has always ranked by.
 function totalsByRegion(rows, value) {
@@ -463,7 +463,7 @@ function groupBy(rows, key) {
 }
 
 // Several payloads carry rows from more than one run. Dropping that column
-// merges runs into one series -- silently, and wrongly -- so every builder that
+// merges runs into one series - silently, and wrongly - so every builder that
 // can see two runs keys its series by file as well, and says so in the label.
 function runAware(rows) {
   const files = new Set(rows.map((row) => row.file ?? "run"));
@@ -486,7 +486,7 @@ const FILE_PATTERNS = ["", "/", "\\", "x", "-"];
 /** Build a multi-run, multi-rank timeline: a lane per region and rank.
  *
  * A lane per rank alone cannot show a nested profile: every region of a rank
- * lands on one row, and the outermost region -- the session, typically -- is
+ * lands on one row, and the outermost region - the session, typically - is
  * drawn over everything inside it. One lane per region and rank is also what
  * `scope-profiler plot gantt` draws, so the two agree. Pass
  * `{ laneBy: "rank" }` for the compact one-row-per-rank view, which suits a
@@ -501,9 +501,41 @@ const rankSuffix = (payload, row) =>
     ? ""
     : ` (rank ${row.rank ?? 0})`;
 
+// `maxDepth` keeps calls at most that many levels below a top-level call (an
+// interval without a `depth` always stays); `topN` then keeps the regions with
+// the most summed call time among what is left.
+function timelineSubset(rows, options) {
+  const { maxDepth, topN } = options;
+  let kept =
+    maxDepth == null
+      ? rows
+      : rows.filter((row) => row.depth == null || row.depth <= maxDepth);
+  if (topN != null && Number.isFinite(topN)) {
+    const totals = new Map();
+    for (const row of kept)
+      totals.set(
+        row.region,
+        (totals.get(row.region) ?? 0) + row.end_seconds - row.start_seconds,
+      );
+    if (totals.size > topN) {
+      const top = new Set(
+        [...totals]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, Math.max(0, topN))
+          .map(([region]) => region),
+      );
+      kept = kept.filter((row) => top.has(row.region));
+    }
+  }
+  return kept;
+}
+
 export function buildGanttFigure(payload, options = {}) {
   const { baseLayout, axis } = palette(options);
-  const intervals = filtered(values(payload, "intervals", "gantt"), options);
+  const intervals = timelineSubset(
+    filtered(values(payload, "intervals", "gantt"), options),
+    options,
+  );
   const byRegion = groupBy(intervals, (row) => row.region);
   const colors = colorMap(byRegion.keys(), options.colors ?? payload.colors);
   const multi = new Set(intervals.map((row) => row.file ?? "run")).size > 1;
@@ -514,21 +546,20 @@ export function buildGanttFigure(payload, options = {}) {
     `${multi ? `${row.file ?? "run"} / ` : ""}${row.region}${rankSuffix(payload, row)}`;
   const laneOf = options.laneBy === "rank" ? rankLane : regionLane;
   const lanes = [...new Set(intervals.map(laneOf))];
-  // A lane index rather than the lane string on every bar. The label is
-  // already in `lanes`; repeating it per interval costs one string per row and
-  // makes Plotly resolve a category for each of them, which a 200k-interval
-  // trace feels. The axis carries the names back via ticktext.
-  const laneIndex = new Map(lanes.map((lane, position) => [lane, position]));
+  // A categorical y axis, not lane indices labelled through tickvals/ticktext:
+  // Plotly lays out an array-mode tick axis in time quadratic in its ticks,
+  // so a 1000-lane timeline took 3.6 s to draw against 0.6 s as categories,
+  // while 200k bars on few lanes drew equally fast either way. Each bar
+  // reuses its lane's string from `lanes` rather than holding a copy.
+  const laneName = new Map(lanes.map((lane) => [lane, lane]));
   const data = [...byRegion].map(([region, rows]) => {
     return {
       type: "bar",
       orientation: "h",
       name: region,
-      y: rows.map((row) => laneIndex.get(laneOf(row))),
+      y: rows.map((row) => laneName.get(laneOf(row))),
       x: rows.map((row) => row.end_seconds - row.start_seconds),
       base: rows.map((row) => row.start_seconds),
-      // A categorical axis gave every bar its slot; a linear one sizes bars
-      // from the data, so the thickness has to be said out loud.
       width: 0.8,
       marker: {
         color: colors.get(region),
@@ -543,7 +574,7 @@ export function buildGanttFigure(payload, options = {}) {
   });
   const byRank = options.laneBy === "rank";
   const perLane = byRank ? 48 : 26;
-  // Region lanes read bottom-up, so the first region -- the enclosing one --
+  // Region lanes read bottom-up, so the first region - the enclosing one --
   // sits at the bottom, as `scope-profiler plot gantt` draws it. Rank lanes
   // keep rank 0 on top, like the rank heatmap.
   const layout = baseLayout({
@@ -552,9 +583,9 @@ export function buildGanttFigure(payload, options = {}) {
     showlegend: byRegion.size > 1,
     xaxis: axis({ title: "Time (s)" }),
     yaxis: axis({
-      tickmode: "array",
-      tickvals: lanes.map((_, position) => position),
-      ticktext: lanes,
+      type: "category",
+      categoryorder: "array",
+      categoryarray: lanes,
       range: byRank ? [lanes.length - 0.5, -0.5] : [-0.5, lanes.length - 0.5],
       showgrid: false,
     }),
@@ -657,7 +688,7 @@ export function buildDurationsFigure(payload, options = {}) {
   // different region sets interleaves them unpredictably.
   const regions = [...totalsByRegion(bars, (bar) => bar.value_seconds).keys()];
   // A group is a rank, a run, or a stacked child region depending on the
-  // export, but a caller -- and the payload's own `colors` -- keys colours by
+  // export, but a caller - and the payload's own `colors` - keys colours by
   // the name it knows. "rank 3" is a label this builder invents, so accept a
   // colour supplied under the bare rank rather than silently dropping to the
   // default cycle.
@@ -670,19 +701,23 @@ export function buildDurationsFigure(payload, options = {}) {
   const colors = colorMap(groups.keys(), byGroup);
   const data = [...groups].map(([group, rows]) => {
     const byRegion = uniqueMap(
-      rows.map((bar) => [bar.region, bar.value_seconds]),
+      rows.map((bar) => [bar.region, bar]),
       "durations",
     );
+    // A stacked segment is one child region, present under few of the bars:
+    // a column per region for every segment would hold regions x segments
+    // cells, millions for a profile of a thousand regions. The axis keeps
+    // the order.
+    const xs = stacked
+      ? regions.filter((region) => byRegion.has(region))
+      : regions;
     return {
       type: "bar",
       name: group,
-      x: regions,
-      y: regions.map((region) => byRegion.get(region) ?? null),
+      x: xs,
+      y: xs.map((region) => byRegion.get(region)?.value_seconds ?? null),
       customdata: interactionData(
-        regions.map((region) => ({
-          ...rows.find((row) => row.region === region),
-          region,
-        })),
+        xs.map((region) => ({ ...byRegion.get(region), region })),
       ),
       marker: {
         color: colors.get(group),
@@ -695,7 +730,11 @@ export function buildDurationsFigure(payload, options = {}) {
     barmode: stacked ? "stack" : "group",
     height: Math.max(360, 34 * regions.length + 180),
     showlegend: groups.size > 1,
-    xaxis: axis({ tickangle: -35 }),
+    xaxis: axis({
+      tickangle: -35,
+      categoryorder: "array",
+      categoryarray: regions,
+    }),
     yaxis: axis({ title: `${metric} duration (s)` }),
   });
   return { data, layout: withEmptyState(layout, bars.length > 0) };
@@ -726,7 +765,7 @@ const SCALING_KINDS = {
     ideal: () => 1,
   },
   // Shares its y column with scaling_efficiency, so it has to be named --
-  // by the document's own `plot` field, or options.plot -- rather than
+  // by the document's own `plot` field, or options.plot - rather than
   // recognised from the rows. Listed after it so a payload with neither
   // still infers the strong-scaling reading it always did.
   weak_scaling_efficiency: {
@@ -842,7 +881,7 @@ export function buildScalingEfficiencyFigure(payload, options = {}) {
 /** Build a weak-scaling efficiency curve (baseline runtime over runtime).
  *
  * For a study that grows the problem with the machine, where the ideal is
- * constant runtime -- not the rank-proportional speedup
+ * constant runtime - not the rank-proportional speedup
  * `buildScalingEfficiencyFigure` measures against.
  */
 export function buildWeakScalingEfficiencyFigure(payload, options = {}) {
@@ -1121,7 +1160,7 @@ export function buildDensityFigure(payload, options = {}) {
   // Each cell sits at the centre of its own bin. Deriving one bin width from
   // the first point and applying it to every lane put the second run's cells
   // at the wrong times whenever two runs of different length were binned into
-  // the same number of bins -- which is exactly what the exporter does.
+  // the same number of bins - which is exactly what the exporter does.
   const centre = (point) =>
     (point.bin_start_seconds + point.bin_end_seconds) / 2;
   const centres = [...new Set(points.map(centre))].sort((a, b) => a - b);
@@ -1432,7 +1471,7 @@ export function buildRegionSummaryFigure(payload, options = {}) {
  * The same bars as `buildRegionSummaryFigure`, narrowed to the runs named in
  * `options.files` (every run in the document by default, not only the first
  * two) and to the regions all of them recorded, and drawn vertically with
- * every shared region kept rather than a ranked top slice -- the reading for
+ * every shared region kept rather than a ranked top slice - the reading for
  * "what changed between these runs?" rather than "where did this run spend
  * its time?". `options.comparison: "absolute"` or `"percent"` instead draws a
  * single delta bar per region, which needs exactly two runs.

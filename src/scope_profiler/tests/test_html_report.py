@@ -360,16 +360,11 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
     # The timeline labels every row with its region; its legend is redundant.
     assert '"options": {"layout": {"showlegend": false}}' in document
     assert "Each bar is one recorded region call on rank 0." in document
-    # The timeline starts open; the durations bars wait, collapsed.
+    # The durations bars lead, and they and the timeline start open.
     panels = re.findall(
         r'<details class="chart-panel"( open)?>.*?aria-level="3">([^<]*)', document
     )
-    assert [title for is_open, title in panels if is_open] == [
-        "Timeline: profile",
-    ]
-    assert [title for is_open, title in panels if not is_open] == [
-        "Region durations",
-    ]
+    assert panels == [(" open", "Region durations"), (" open", "Timeline: profile")]
     assert 'data-chart-action="expand"' in document
     assert 'data-chart-action="collapse"' in document
     # Every chart can be opened on a page of its own.
@@ -470,8 +465,9 @@ def test_single_run_report_stacks_region_durations(tmp_path, monkeypatch):
     panels = re.findall(
         r'<details class="chart-panel"( open)?>.*?aria-level="3">([^<]*)', document
     )
-    assert "Region durations" in [title for is_open, title in panels if not is_open]
+    assert panels[0] == (" open", "Region durations")
     assert [title for is_open, title in panels if is_open] == [
+        "Region durations",
         "Timeline: profile (rank 0)",
     ]
 
@@ -703,7 +699,7 @@ def test_comparison_of_run_sizes_compares_time_per_rank(tmp_path):
     document = report.read_text(encoding="utf-8")
     table = document[document.index('<table class="compare-table metric-total"') :]
     table = table[: table.index("</table>")]
-    # solve: 80 on one rank, 20 on each of four -- per rank, 4x faster; summed
+    # solve: 80 on one rank, 20 on each of four - per rank, 4x faster; summed
     # over the ranks it would read as unchanged.
     solve = table[table.index('data-region="solve"') :]
     solve = solve[: solve.index("</tr>")]
@@ -806,7 +802,7 @@ def test_speedup_x_selects_the_axis_and_offers_the_others(tmp_path):
     # The bundled script wires the buttons up.
     assert 'querySelectorAll(".chart-axis")' in document
 
-    # "auto" keeps its old choice -- ranks here -- and still offers nodes.
+    # "auto" keeps its old choice - ranks here - and still offers nodes.
     document = create_html_report(
         paths, tmp_path / "auto.html", individual_reports=False
     ).read_text(encoding="utf-8")
@@ -1110,7 +1106,7 @@ def test_report_summary_names_the_hotspot_not_its_enclosing_region(tmp_path):
 
     An enclosing region's total is mostly its children's, so ranking by the
     inclusive total just names whatever sits nearest the top of the call tree
-    -- a wrapper that does no work of its own.
+    - a wrapper that does no work of its own.
     """
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
@@ -1239,6 +1235,164 @@ def test_report_region_filter_drives_the_charts_too(tmp_path):
     assert "filterRegion:" in document
     # react(), not newPlot(): typing must not tear every chart down.
     assert "Plotly.react(" in document
+    # Both hooks fire on registration; the charts are drawn once, not twice.
+    assert "activeTerms = terms; scheduleRedraw(); });" in document
+    assert "selectedRegion = region; scheduleRedraw(); });" in document
+    # A collapsed panel's chart waits for the panel to open.
+    assert "if (panel.open && chart.stale) draw(chart);" in document
+
+
+def _region_index(document):
+    return json.loads(
+        re.search(r"const scopeProfilerRegionIndex = (.*?);\n", document).group(1)
+    )
+
+
+def test_filter_bar_sliders_limit_every_chart(tmp_path, monkeypatch):
+    pytest.importorskip("plotly")
+    from scope_profiler import html_report
+
+    monkeypatch.setattr(html_report, "_TIMELINE_REGIONS", 2)
+    profile = tmp_path / "profile.h5"
+    # outer > mid > leaf, then aside on its own.
+    _write_sample_h5(
+        profile,
+        {
+            0: {
+                "outer": ([0], [100]),
+                "mid": ([10], [90]),
+                "leaf": ([20, 50], [30, 60]),
+                "aside": ([100], [105]),
+            },
+        },
+    )
+    document = create_html_report(profile, tmp_path / "report.html").read_text(
+        encoding="utf-8"
+    )
+    timeline = _speedup_document(document, "Timeline: profile")
+    # The whole profile is embedded, with each call's depth; the sliders, not
+    # the payload, limit what is drawn.
+    assert sorted(
+        (row["region"], row["depth"]) for row in timeline["payload"]["intervals"]
+    ) == [("aside", 0), ("leaf", 2), ("leaf", 2), ("mid", 1), ("outer", 0)]
+    assert "topN" not in timeline["options"]
+    # Each region's time and shallowest depth, which the sliders rank and cut.
+    assert _region_index(document) == {
+        "outer": [pytest.approx(100e-9), 0],
+        "mid": [pytest.approx(80e-9), 1],
+        "leaf": [pytest.approx(20e-9), 2],
+        "aside": [pytest.approx(5e-9), 0],
+    }
+    # Both sliders sit in the sticky filter bar, after the search box; past
+    # the limit, Regions opens on it. At its maximum a slider means all.
+    bar = document[document.index('<div class="filter-bar">') :]
+    bar = bar[: bar.index("</div>")]
+    assert bar.index('id="region-filter"') < bar.index('class="region-limits"')
+    assert re.search(
+        r'<label for="region-top" title="[^"]+">Regions</label><input type="range"'
+        r' class="region-top" id="region-top" title="[^"]+" min="1" max="4"'
+        r' step="1" value="2"><output for="region-top">top 2 of 4</output>',
+        bar,
+    )
+    assert re.search(
+        r'<label for="region-depth" title="[^"]+">Depth</label><input'
+        r' type="range" class="region-depth" id="region-depth" title="[^"]+"'
+        r' min="0" max="2" step="1" value="2"><output for="region-depth">all'
+        r" levels</output>",
+        bar,
+    )
+    assert "position: sticky" in document
+    # The bar leads the page, above the title and the contents.
+    body = document[document.index("<body>") :]
+    assert body.index('<div class="filter-bar">') < body.index('<h1 id="top">')
+    assert body.index('<div class="filter-bar">') < body.index('<nav class="toc"')
+    # Table headers stick below the bar rather than behind it.
+    assert "top: var(--filter-bar-height, 0px)" in document
+    assert '"--filter-bar-height", bar.offsetHeight + "px"' in document
+    assert ".table-scroll th { top: 0; }" in document
+    # Every chart is filtered to the same regions; the timeline also hides
+    # the deeper calls of the regions it keeps.
+    assert 'const key = isTop ? "topN" : "maxDepth";' in document
+    assert "filterRegion: chartFilter" in document
+    assert "maxDepth: regionLimits.maxDepth" in document
+    # ...and the tables keep to the same regions as the charts.
+    assert "globalThis.scopeProfilerSetRegionLimit?.(limitedRegions);" in document
+    assert "window.scopeProfilerSetRegionLimit = function (regions) {" in document
+    assert "(!limit || limit.has(region))" in document
+
+    # Within the limit, Regions opens on all of them.
+    monkeypatch.setattr(html_report, "_TIMELINE_REGIONS", 4)
+    document = create_html_report(profile, tmp_path / "all.html").read_text(
+        encoding="utf-8"
+    )
+    assert 'min="1" max="4" step="1" value="4">' in document
+    assert ">all 4</output>" in document
+
+
+def test_comparison_filter_bar_has_the_region_sliders_too(tmp_path):
+    pytest.importorskip("plotly")
+    paths = _scaling_profiles(tmp_path, [1, 2])
+    document = create_html_report(
+        paths, tmp_path / "compare.html", individual_reports=False
+    ).read_text(encoding="utf-8")
+    body = document[document.index("<body>") :]
+    assert body.index('<div class="filter-bar">') < body.index('<h1 id="top">')
+    # setup and solve, flat: Regions, but no depth to cut.
+    assert 'id="region-top"' in document
+    assert 'id="region-depth"' not in document
+    # A region ranks by its larger total over the runs: solve takes 80 ns
+    # on the one-rank run and 2 x 40 ns on the two-rank run.
+    index = _region_index(document)
+    assert index["solve"] == [pytest.approx(80e-9), 0]
+    assert index["setup"] == [pytest.approx(20e-9), 0]
+
+
+def test_region_index_ranks_selected_ranks_and_skips_unnested_depths(tmp_path):
+    from scope_profiler.html_report import _region_index
+
+    profile = tmp_path / "profile.h5"
+    # Rank 1's calls overlap without nesting: no depth can be read from it.
+    _write_sample_h5(
+        profile,
+        {
+            0: {"outer": ([0], [100]), "inner": ([10], [20])},
+            1: {"outer": ([0], [50]), "inner": ([25], [75])},
+        },
+    )
+    run = read_h5(profile)
+    assert _region_index([run], None, None, [1]) == {
+        "outer": [pytest.approx(50e-9), None],
+        "inner": [pytest.approx(50e-9), None],
+    }
+    # Totals sum the selected ranks; depths come from the first of them.
+    assert _region_index([run], None, None, None) == {
+        "outer": [pytest.approx(150e-9), 0],
+        "inner": [pytest.approx(60e-9), 1],
+    }
+
+
+def test_timeline_slider_labels():
+    from scope_profiler.html_report import _depth_label, _top_label
+
+    assert _top_label(3, 40) == "top 3 of 40"
+    assert _top_label(40, 40) == "all 40"
+    assert [_depth_label(depth, 3) for depth in range(4)] == [
+        "top level only",
+        "1 level of children",
+        "2 levels of children",
+        "all levels",
+    ]
+
+
+def test_filter_bar_without_choices_has_no_sliders(tmp_path):
+    pytest.importorskip("plotly")
+    profile = tmp_path / "profile.h5"
+    # One region: nothing for either slider to change.
+    _write_sample_h5(profile, {0: {"solve": ([2], [5])}})
+    document = create_html_report(profile, tmp_path / "report.html").read_text(
+        encoding="utf-8"
+    )
+    assert 'class="region-limits"' not in document
 
 
 def test_report_escapes_a_region_name_in_the_filter_hook(tmp_path):
@@ -1624,7 +1778,7 @@ def _ranked_results(rank_work, file_path="run.h5", extra_regions=0, num_ranks=No
     """A session per rank: ``work`` for a rank-dependent time, then ``wait``.
 
     Every rank finishes at 100, so whatever ``work`` does not take, ``wait``
-    does -- the shape of ranks meeting at a barrier.
+    does - the shape of ranks meeting at a barrier.
     """
     from scope_profiler import MPIRegion, Region
 

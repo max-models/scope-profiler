@@ -12,7 +12,7 @@
 # sqrt): the implementation entry point is C99, with no HDF5 and no MPI.
 #
 # SP_HDF5=1 compiles the optional HDF5 backend in, so sp_finalize() writes
-# <prefix>_rank<NNNNN>.h5 -- an ordinary profile, needing no import -- instead
+# <prefix>_rank<NNNNN>.h5 - an ordinary profile, needing no import - instead
 # of a .spt trace. That is the one thing that gives the library a dependency:
 # libhdf5 and its headers. pkg-config locates them where it knows about them
 # (the serial build, not the MPI one, which would drag in mpi.h), and
@@ -57,7 +57,7 @@ $(EXAMPLE): example.c $(LIB_OBJ)
 	$(CC) $(CFLAGS) -I. example.c $(LIB_OBJ) -lm $(LDLIBS) -o $@
 
 # import-native reads both formats, so the same rule serves an SP_HDF5=1
-# build -- there it merges (or, for one rank, renames) profiles that are
+# build - there it merges (or, for one rank, renames) profiles that are
 # already complete rather than converting traces.
 run: $(EXAMPLE)
 	cd $(BUILD_DIR) && ./example

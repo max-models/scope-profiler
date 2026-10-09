@@ -287,8 +287,8 @@ def _weak_scaling_curve(
     """Draw one of the two weak-scaling curves.
 
     Weak-scaling runtime and weak-scaling efficiency are reciprocals of each
-    other -- the same durations, normalized to the baseline scale in either
-    direction, against the same flat ideal line at 1.0 -- so both are drawn
+    other - the same durations, normalized to the baseline scale in either
+    direction, against the same flat ideal line at 1.0 - so both are drawn
     from here and differ only by :data:`_WEAK_SCALING_KINDS`.
     """
     spec = _WEAK_SCALING_KINDS[kind]
@@ -549,13 +549,13 @@ def plot_weak_scaling_efficiency(
     A weak-scaling study grows the problem with the machine, so every run
     does the same work per rank and ideal efficiency is a flat 1.0. A region
     at 0.6 on 64 ranks is spending 40% of its time on costs that only appear
-    at that scale -- communication, load imbalance, or contention.
+    at that scale - communication, load imbalance, or contention.
 
     This differs from :func:`plot_scaling_efficiency`, which is for a
     *strong*-scaling study: there the problem size is fixed, so the ideal is
     a speedup proportional to the rank count and efficiency divides the
     measured speedup by that. Here the ideal is constant runtime, so no such
-    division applies -- using the strong-scaling plot on weak-scaling runs
+    division applies - using the strong-scaling plot on weak-scaling runs
     reports a near-zero efficiency that means nothing.
 
     Parameters
@@ -563,7 +563,7 @@ def plot_weak_scaling_efficiency(
     work_per_rank : Sequence[float], optional
         Work per rank for each profiling run, in whatever unit suits the
         problem (grid cells, particles, unknowns). Only the caller can know
-        this -- it is a property of the problem, not of the profile -- so it
+        this - it is a property of the problem, not of the profile - so it
         is optional, but when given it is checked: the runs must agree, and
         a mismatch raises rather than plotting an efficiency that silently
         compares runs doing different amounts of work. The value is recorded

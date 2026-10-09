@@ -57,13 +57,13 @@ def setup(app):
     app.add_css_file("custom.css")
 
 
-# -- Project information -----------------------------------------------------
+# - Project information -----------------------------------------------------
 
 project = "scope-profiler"
 copyright = "2025, Max"
 author = "Max"
 
-# -- General configuration ---------------------------------------------------
+# - General configuration ---------------------------------------------------
 
 extensions = [
     "nbsphinx",
@@ -99,7 +99,7 @@ intersphinx_mapping = {
     "h5py": ("https://docs.h5py.org/en/stable", None),
 }
 
-# -- Options for HTML output -------------------------------------------------
+# - Options for HTML output -------------------------------------------------
 
 html_theme = "sphinx_book_theme"
 

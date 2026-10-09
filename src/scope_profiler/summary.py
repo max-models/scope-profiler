@@ -154,7 +154,7 @@ def _first_last_durations(region, ranks=None):
 
     Pooling durations (as ``_region_durations`` does) loses call order across
     ranks, so first/last are found from each rank's own first/last call
-    instead -- the earliest-starting rank supplies "first", the
+    instead - the earliest-starting rank supplies "first", the
     latest-ending rank supplies "last".
     """
     selected = (
@@ -997,7 +997,7 @@ def likwid_tables(results, include=None, exclude=None, ranks=None) -> list:
             for thread in range(nthreads):
                 cpu = result.cpus[thread] if thread < len(result.cpus) else thread
                 # One column per region, unless the region really did span
-                # several hardware threads -- then name the CPU, rather than
+                # several hardware threads - then name the CPU, rather than
                 # inventing an aggregate LIKWID never reported.
                 label = tag if nthreads == 1 else f"{tag}@cpu{cpu}"
                 table["columns"].append(label)

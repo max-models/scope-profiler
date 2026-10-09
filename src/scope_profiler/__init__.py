@@ -62,7 +62,7 @@ from scope_profiler.results import ProfilingResults, merge_results
 #:             solve()
 #:
 #: These are the ``ProfileManager`` class methods themselves rather than
-#: forwarding wrappers -- ``region()`` runs on the per-event path, and an
+#: forwarding wrappers - ``region()`` runs on the per-event path, and an
 #: extra frame there is measurable overhead. They act on the same global
 #: manager state the class methods do.
 finalize = ProfileManager.finalize

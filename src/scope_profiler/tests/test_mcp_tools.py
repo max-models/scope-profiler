@@ -1,7 +1,7 @@
 """Tests for ``scope_profiler.mcp_server.tools``.
 
 These test the plain Python functions the MCP server delegates to, without
-importing the ``mcp`` package at all -- the ``mcp``-dependent wiring in
+importing the ``mcp`` package at all - the ``mcp``-dependent wiring in
 ``scope_profiler.mcp_server.server`` is covered separately in
 ``test_mcp_server.py``.
 """
@@ -259,7 +259,7 @@ class TestRunProfile:
         )
 
         # A shell metacharacter-laden argument must reach the script literally,
-        # never be interpreted -- proving no shell is involved.
+        # never be interpreted - proving no shell is involved.
         payload = run_profile(str(script), script_args=["hello world", "$(rm -rf /)"])
         assert payload["num_ranks"] == 1
 

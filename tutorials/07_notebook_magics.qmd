@@ -177,8 +177,8 @@ assert result_optimized == result_naive
 %scope_compare naive optimized
 ```
 
-Regions are matched by name, so `naive` and `optimized` -- named after their
-own `%%scope` cell -- each show up as "only in a"/"only in b": there is
+Regions are matched by name, so `naive` and `optimized` - named after their
+own `%%scope` cell - each show up as "only in a"/"only in b": there is
 nothing on the other side to diff them against. `scope_profiler.session`, the
 outer region every run has, *is* present in both, and its row is the real
 before/after number. To get a per-region diff instead of just the session
@@ -200,7 +200,7 @@ are ordered.
 Wall-clock totals tell you *that* `naive_sum_of_squares` is slow; line
 profiling tells you *which line*. `%%scope_line` runs the cell with
 `use_line_profiler=True` and prints per-line hit counts and time for whatever
-the cell hands to line_profiler -- needs the `line-profiler` extra. Prefer
+the cell hands to line_profiler - needs the `line-profiler` extra. Prefer
 decorating the function you care about with `@ProfileManager.profile`, as
 below: it registers cleanly regardless of where it's called from.
 
@@ -218,14 +218,14 @@ def naive_sum_of_squares_traced(n):
 naive_sum_of_squares_traced(20)
 ```
 
-The `time.sleep` line dominates the table, as expected -- in a real
+The `time.sleep` line dominates the table, as expected - in a real
 workload this is exactly how you'd spot the line actually worth optimizing.
 
 ## `%scope_export` --- save a run to a file
 
 A recorded run doesn't have to stay in the notebook. Export it to a `.prof`
 file for `snakeviz`/`pstats`, or to speedscope JSON, via
-`export_prof`/`export_speedscope` -- the same functions
+`export_prof`/`export_speedscope` - the same functions
 `scope-profiler export` uses on an HDF5 file, here applied directly to the
 in-memory result.
 
