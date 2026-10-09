@@ -1761,7 +1761,7 @@ def _hardware_sections(runs, include, exclude, ranks) -> str:
     )
 
 
-def _chart_description(title: str, payload: dict) -> str:
+def _chart_description(title: str, payload: dict, comparison: bool = False) -> str:
     """Explain how to read one chart in the report."""
     if title.startswith("Timeline:"):
         text = (
@@ -1775,7 +1775,22 @@ def _chart_description(title: str, payload: dict) -> str:
             if payload.get("metrics") == ["avg"]
             else "total recorded duration"
         )
-        text = f"Grouped bars compare each region's {what} across the profiled runs."
+        if payload.get("options", {}).get("stack_children"):
+            text = (
+                f"Each bar shows a region's {what}, summed over the selected "
+                "ranks. The stacked segments divide that time between the "
+                "region itself (self) and the regions it calls directly."
+            )
+        elif not comparison:
+            text = (
+                f"Each bar shows a region's {what}, summed over the selected "
+                "ranks, longest first."
+            )
+        else:
+            text = (
+                f"Grouped bars compare each region's {what} across the "
+                "profiled runs."
+            )
     elif title.startswith("Change:"):
         text = (
             "Percent change in each region's total duration, candidate over "
@@ -2052,6 +2067,20 @@ def _threads(run) -> int | None:
         return int(run.metadata["omp_num_threads"])
     except (KeyError, TypeError, ValueError):
         return None
+
+
+def _has_call_timestamps(run) -> bool:
+    """Whether a run recorded its calls, rather than only summary statistics.
+
+    Aggregated and summary-only profiles keep per-region totals but no call
+    timestamps, so the nesting a stacked durations bar needs cannot be
+    reconstructed from them.
+    """
+    return all(
+        rank_region.stored_summary is None
+        for region in run.get_regions()
+        for rank_region in region.regions.values()
+    )
 
 
 def _scaling_field(runs) -> str | None:
@@ -2583,23 +2612,25 @@ def _chart_sections(
                         {"comparison": "percent"},
                     ),
                 )
-        if len(runs) > 1:
-            # For a single run the region table and hot spots already rank
-            # every region; the bars earn their space comparing runs.
-            collect(
-                "Region durations",
-                plot_durations,
-                payload_dir / "durations.json",
-                runs,
-                include=include,
-                exclude=exclude,
-                ranks=ranks,
-                # Totals summed over ranks grow with the rank count; across
-                # run sizes, the mean call reads like the speedup chart.
-                metric="total" if len({run.num_ranks for run in runs}) == 1 else "avg",
-                sort_by="total",
-                stack_children=False,
-            )
+        collect(
+            "Region durations",
+            plot_durations,
+            payload_dir / "durations.json",
+            runs,
+            include=include,
+            exclude=exclude,
+            ranks=ranks,
+            # Totals summed over ranks grow with the rank count; across
+            # run sizes, the mean call reads like the speedup chart.
+            metric="total" if len({run.num_ranks for run in runs}) == 1 else "avg",
+            sort_by="total",
+            # One run's bars split into the region's own time and its direct
+            # children, which the ranked table cannot show at a glance. Runs
+            # compare as grouped bars instead: stacking both ways on one axis
+            # would merge equal segment names across runs. The split needs
+            # call timestamps, which aggregated profiles do not store.
+            stack_children=len(runs) == 1 and _has_call_timestamps(runs[0]),
+        )
 
         # Both rank views are empty or trivial with a single rank.
         if not comparison and any(len(selected) > 1 for selected in selected_ranks):
@@ -2646,13 +2677,16 @@ def _chart_sections(
         for kind in kinds
         if any(chart[0].startswith(kind) for chart in charts)
     }
+    if not opened and charts:
+        # An aggregated profile has no timeline; never leave every panel shut.
+        opened = {0}
     fragments = []
     chart_documents = []
     for index, (title, payload, chart_options) in enumerate(charts):
         chart_id = f"scope-profiler-chart-{index}"
         is_duration_chart = payload.get("plot") == "durations"
         chart_class = "chart chart-duration" if is_duration_chart else "chart"
-        explanation = _chart_description(title, payload)
+        explanation = _chart_description(title, payload, comparison)
         fragments.append(
             f'<details class="chart-panel"{" open" if index in opened else ""}>'
             '<summary><span class="chart-heading" role="heading" aria-level="3">'
