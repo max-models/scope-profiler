@@ -2142,6 +2142,15 @@ def test_comparison_table_aligns_call_paths(tmp_path):
         "old",
     ]
     assert 'style="padding-left:2.2em">kernel</span>' in table
+    # The name sits in a grid cell with no minimum width, so a long name is
+    # elided instead of pushing the change columns out of view.
+    assert (
+        'title="solve › kernel"><span class="cmp-cell"><span class="cmp-name"' in table
+    )
+    assert (
+        ".cmp-cell { display: grid; grid-template-columns: minmax(0, max-content);"
+        in document
+    )
     assert '<span class="badge new">new</span>' in table
     assert '<span class="badge gone">gone</span>' in table
     # kernel: 400 ms -> 200 ms in total, faster; io: 100 ms -> 300 ms, slower.

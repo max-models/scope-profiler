@@ -263,8 +263,13 @@ th[data-sort-dir="desc"]::after { content: "\\25be"; }
 .compare-table { font-size: .92em; min-width: 60%; width: auto; }
 .compare-table th { white-space: nowrap; }
 .compare-table td { font-variant-numeric: tabular-nums; white-space: nowrap; }
-.compare-table td:first-child { max-width: 24rem; overflow: hidden; text-overflow: ellipsis; }
-.compare-table .cmp-name { display: inline-block; }
+/* A cell ignores max-width, and a long or deeply nested name would push the change
+   columns out of view. The grid track gives the name no minimum width, so the
+   table shrinks to fit by eliding the name rather than scrolling. */
+.compare-table .cmp-cell { display: grid; grid-template-columns: minmax(0, max-content);
+                           overflow: hidden; }
+.compare-table .cmp-name { box-sizing: border-box; max-width: 24rem; overflow: hidden;
+                           text-overflow: ellipsis; }
 .compare-table.flat .cmp-name { padding-left: 0 !important; }
 .compare-table [data-m] { display: none; }
 .compare-table.metric-total [data-m="total"], .compare-table.metric-own [data-m="own"],
@@ -2566,8 +2571,8 @@ def _comparison_table_html(runs, entries, per_rank=False) -> str:
         body.append(
             f'<tr class="select-row" data-region="{name}" data-filter-region="{name}"'
             f' data-order="{order}"{change_attrs}>'
-            f'<td title="{_text(title)}"><span class="cmp-name"'
-            f' style="padding-left:{1.1 * entry["depth"]:.3g}em">{name}</span></td>'
+            f'<td title="{_text(title)}"><span class="cmp-cell"><span class="cmp-name"'
+            f' style="padding-left:{1.1 * entry["depth"]:.3g}em">{name}</span></span></td>'
             + "".join(cells)
             + "</tr>"
         )
