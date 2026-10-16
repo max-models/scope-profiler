@@ -354,6 +354,12 @@ def region_row(region, ranks=None, *, include_exclusive: bool = False) -> dict:
     }
 
 
+def _nested_in_itself(call) -> bool:
+    """Whether a call was made directly from another call of the same region."""
+    parts = call["call_path"].rsplit(" > ", 2)
+    return len(parts) > 1 and parts[-2] == parts[-1]
+
+
 def region_rows(
     results,
     include=None,
@@ -470,8 +476,16 @@ def region_rows(
                     coverage += end - start
                     start, end = next_start, next_end
             coverage += end - start
+        # A recursive row pools every level of the recursion, and each level's
+        # inclusive duration already contains the levels below it. Summing
+        # them all would count nested time once per level, so a recursive
+        # child could exceed its parent: only the outermost calls add up.
         totals_by_rank = [
-            sum(call["duration"] for call in rank_calls)
+            sum(
+                call["duration"]
+                for call in rank_calls
+                if not entry["recursive"] or not _nested_in_itself(call)
+            )
             for rank_calls in by_rank.values()
         ]
         mean_rank_total = float(np.mean(totals_by_rank))
@@ -481,7 +495,7 @@ def region_rows(
                 "call_path": " > ".join(path),
                 "num_ranks": len(by_rank),
                 "calls": len(calls_for_path),
-                "total": float(np.sum(durations)),
+                "total": float(sum(totals_by_rank)),
                 "gpu_total": sum(gpu_durations) if gpu_durations else None,
                 "gpu_avg": float(np.mean(gpu_durations)) if gpu_durations else None,
                 "coverage": coverage,
@@ -866,7 +880,10 @@ def print_region_table(
             "Regions may nest, so the summed total can exceed the wall-clock time.",
         )
     if any(row.get("recursive") for row in rows):
-        notes.append("↻ Recursive rows aggregate all invocations of that region.")
+        notes.append(
+            "↻ Recursive rows pool every level of the recursion: the call count "
+            "includes nested calls, the total only the outermost ones.",
+        )
     if _session_total(rows) is not None:
         notes.append(
             (

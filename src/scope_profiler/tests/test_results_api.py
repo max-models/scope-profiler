@@ -109,6 +109,62 @@ def test_summary_collapses_self_recursive_paths():
     assert [row["name"] for row in rows] == ["outer", "fib"]
     assert rows[1]["recursive"] is True
     assert rows[1]["calls"] == 3
+    # Each level's duration contains the levels below it, so only the
+    # outermost call counts towards the total: 80, not 80 + 60 + 40, which
+    # would exceed the 100 of its parent.
+    assert rows[1]["total"] == pytest.approx(80e-9)
+    assert rows[1]["total"] <= rows[0]["total"]
+    assert rows[1]["total"] == pytest.approx(rows[1]["coverage"])
+
+
+def test_summary_notes_explain_recursive_rows(capsys):
+    results = ProfilingResults(
+        {
+            "fib": MPIRegion(
+                "fib", {0: Region(np.array([10, 20]), np.array([90, 80]))}
+            ),
+        },
+    )
+
+    results.print_summary()
+
+    output = capsys.readouterr().out
+    assert "fib ↻" in output
+    assert "the call count includes nested calls, the total only the outermost" in (
+        output
+    )
+
+
+def test_summary_recursive_total_sums_outermost_calls_per_rank():
+    """Separate recursive chains, and ranks, each add their outermost call."""
+    results = ProfilingResults(
+        {
+            "outer": MPIRegion(
+                "outer",
+                {
+                    0: Region(np.array([0]), np.array([100])),
+                    1: Region(np.array([0]), np.array([100])),
+                },
+            ),
+            "fib": MPIRegion(
+                "fib",
+                {
+                    # Two chains on rank 0: 10-40 (with 20-30 inside) and 50-60.
+                    0: Region(np.array([10, 20, 50]), np.array([40, 30, 60])),
+                    1: Region(np.array([10, 20]), np.array([90, 30])),
+                },
+            ),
+        },
+    )
+
+    from scope_profiler.summary import region_rows
+
+    fib = region_rows(results)[1]
+
+    assert fib["calls"] == 5
+    assert fib["total"] == pytest.approx((30 + 10 + 80) * 1e-9)
+    # Rank totals are 40 and 80 around a mean of 60.
+    assert fib["imbalance"] == pytest.approx(100.0 / 3)
 
 
 def test_summary_pools_same_named_regions_by_call_path(capsys):
