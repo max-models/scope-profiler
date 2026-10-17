@@ -414,6 +414,74 @@ empty box shows everything. This is the same syntax the profiling-data site
 uses, and the charts are refiltered by the builder that drew them rather than
 by a second implementation.
 
+## `scope-profiler site`
+
+`scope-profiler site` builds a **catalogue website** from many profiling files:
+it writes the pages and chart data of a catalogue into an Astro/Starlight
+project, instead of standalone HTML reports. The site's own build turns them
+into a static website, so a code can publish its profiling history on GitHub
+Pages with search, a sidebar and a dark mode. The
+[`scope-profiler-catalog`](https://github.com/max-models/scope-profiler-catalog)
+repository is a template for such a site: fork it, fill in a manifest, and let
+its workflow fetch the profiling files, run this command and deploy.
+
+```bash
+scope-profiler site catalogue.yaml -o docs
+scope-profiler site catalogue.yaml --check   # only validate the manifest
+```
+
+The manifest lists *cases*, each a set of runs shown together:
+
+```yaml
+title: Struphy profiling
+description: Profiling runs of the Poisson solver.
+base: /my-catalogue             # the site's base path: "/" plus the repo name
+defaults: {scaling: strong, speedup_x: auto}
+cases:
+  - id: poisson-cube            # default: the slug of the title
+    title: Poisson cube, strong scaling
+    description: The solver on a 256^3 cube.
+    group: Poisson              # optional: a sidebar group
+    tags: [cpu, scaling]
+    scaling: strong             # strong, weak, both or none
+    speedup_x: auto             # auto, ranks, nodes, threads or cores
+    info: {commit: 843a82cd, date: 2026-10-16}
+    runs:
+      - {path: data/np1.h5, label: 1 rank}
+      - {path: "data/np*.h5"}   # globs, relative to the manifest
+```
+
+`base` is the base path the site is served from (`/` plus the repository name on GitHub Pages,
+`""` at the root of a domain). The pages link to each other with it, because Starlight's link
+check rejects relative links; `--base` overrides it. Quote values YAML would read as something else, such as a commit hash in `info`:
+`commit: "0000000"`, not `commit: 0000000`, which is the number 0. Per case, `include`, `exclude` (region regular expressions), `ranks` and
+`charts: false` select what the pages show; the same keys under `defaults`
+apply to every case. The manifest is checked as a whole before anything is
+written, and an error names the case and the field it comes from.
+
+The command writes, below the `-o` directory (the Astro project):
+
+- `src/content/docs/catalogue/`: an index of the cases, a page per case (its
+  runs, a region table and, for several runs, the scaling and comparison
+  charts) and a page per run (summary, hotspots, charts and the identifying
+  metadata).
+- `public/catalogue/`: the chart data, as the plot-data JSON that
+  `scope-profiler export plot-data` writes, and an `index.json` of the cases.
+
+Pages link to each other under `base`, and they draw their charts with a `ScopeChart` component that the Astro
+project provides (`src/components/ScopeChart.astro` in the template) using the
+[`@scope-profiler/plotly`](https://www.npmjs.com/package/@scope-profiler/plotly)
+package. Both generated directories are replaced on every run, but only when
+a previous run wrote them (they hold a `.scope-profiler-site` marker); any
+other content there is never deleted, and `--no-clean` writes into the
+directories as they are. Only metadata that identifies the run is published
+(time, platform, versions, threads, ranks, nodes), never the host, user or
+environment.
+
+Reading the manifest needs PyYAML and the charts need `scope-profiler[pproc]`;
+`pip install "scope-profiler[site]"` installs just the former and
+`--no-charts` writes pages without charts.
+
 ## `scope-profiler diff`
 
 Compare region statistics between two merged HDF5 profiling files, region by

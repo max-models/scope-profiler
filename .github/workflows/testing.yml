@@ -377,7 +377,8 @@ jobs:
             examples/ex_recursive_profiling.py \
             examples/ex_recursive_totals.py \
             examples/ex_region_source.py \
-            examples/ex_self_recursive_region.py
+            examples/ex_self_recursive_region.py \
+            examples/ex_site.py
           do
             echo "Running $example"
             python3 "$example"
