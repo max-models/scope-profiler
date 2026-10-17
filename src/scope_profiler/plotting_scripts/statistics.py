@@ -149,6 +149,21 @@ def _common_region_names(
     ]
 
 
+def _all_region_names(
+    runs: Sequence[ProfilingResults],
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+) -> list[str]:
+    """Regions of any run: the first run's, then those only later runs have."""
+    return list(
+        dict.fromkeys(
+            region.name
+            for run in runs
+            for region in run.get_regions(include=include, exclude=exclude)
+        )
+    )
+
+
 def _speedup_x_value(run: ProfilingResults, x_field: str):
     """Resolve the x-axis value for a single run given ``x_field``."""
     if x_field == "num_ranks":
