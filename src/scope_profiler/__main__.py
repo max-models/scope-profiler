@@ -54,6 +54,9 @@ The subcommands:
   native run post-processes exactly like a Python one. Reads both the ``.spt``
   trace and the ``.h5`` a C build compiled with HDF5 writes directly. See
   ``scope_profiler.native_trace``.
+- ``scope-profiler native-lines profile_rank00000.sps`` - prints the hottest
+  source lines of each C region from a sampled run (``sp_start_sampling()``).
+  See ``scope_profiler.native_samples``.
 """
 
 import argparse
@@ -686,6 +689,56 @@ def _import_fortran(argv):
     return 0
 
 
+def _native_lines(argv):
+    """Handle ``scope-profiler native-lines``: sampled addresses -> source lines."""
+    from scope_profiler.native_samples import (
+        SAMPLES_SUFFIX,
+        find_sample_files,
+        format_line_profile,
+        line_profile,
+        read_samples,
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="scope-profiler native-lines",
+        description=(
+            "Show which source lines of each C region the sampler caught, from "
+            f"the *{SAMPLES_SUFFIX} files written when sampling is on. The "
+            "program must be built with -g."
+        ),
+    )
+    parser.add_argument(
+        "inputs",
+        nargs="+",
+        help=f"*{SAMPLES_SUFFIX} files and/or directories containing them",
+    )
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=10,
+        help="lines to show per region (default: 10)",
+    )
+    parser.add_argument(
+        "--no-source",
+        action="store_true",
+        help="do not print the source text of each line",
+    )
+    args = parser.parse_args(argv)
+
+    for path in find_sample_files(args.inputs):
+        samples = read_samples(path)
+        print(f"{path}  (rank {samples.rank}, {samples.hz} Hz)\n")
+        print(
+            format_line_profile(
+                line_profile(samples),
+                top=args.top,
+                source=not args.no_source,
+            ),
+        )
+        print()
+    return 0
+
+
 _COMMANDS = {
     "run": _run,
     "plot": _plot,
@@ -700,6 +753,7 @@ _COMMANDS = {
     "check": _check,
     "benchmark": _benchmark,
     "import-native": _import_fortran,
+    "native-lines": _native_lines,
 }
 
 
@@ -790,6 +844,12 @@ def main(argv=None):
         add_help=False,
         help="Merge C/Fortran API per-rank output into one HDF5 file "
         "(see `scope-profiler import-native --help`)",
+    )
+    subparsers.add_parser(
+        "native-lines",
+        add_help=False,
+        help="Show the hottest source lines of C regions from sampled output "
+        "(see `scope-profiler native-lines --help`)",
     )
 
     if not argv:

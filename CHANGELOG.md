@@ -4,6 +4,9 @@
 
 ### Added
 
+- C API: line-level sampling of regions (`sp_start_sampling()` or
+  `SCOPE_PROFILER_SAMPLE_HZ`), written to `.sps` files, and
+  `scope-profiler native-lines` to show the hottest source lines per region.
 - `scope-profiler site` writes the pages and chart data of a profiling catalogue
   into an Astro/Starlight project from a YAML manifest listing the runs of each
   case: an index, a page per case (runs, region table, scaling and comparison

@@ -351,6 +351,33 @@ int sp_finalize(void);
  * instead of duplicating that default. */
 sp_profiler *sp_default_profiler(void);
 
+/* Line-level sampling of native code, on top of the regions.
+ *
+ * While sampling, a SIGPROF timer (CPU time) fires `hz` times per second and
+ * records the interrupted instruction address together with the innermost
+ * open region. sp_profiler_finalize() writes them to "<prefix>_rank<NNNNN>.sps"
+ * next to the trace; `scope-profiler native-lines` maps the addresses to
+ * file:line afterwards, which needs the program built with -g.
+ *
+ * It is statistical: a region needs a few hundred samples for stable line
+ * numbers, and time spent outside every region is not recorded. One thread
+ * per process is supported. Available on Linux and macOS (x86-64, arm64);
+ * elsewhere, or with SP_NO_SAMPLING defined, SP_ERR_UNSUPPORTED is returned.
+ * Setting SCOPE_PROFILER_SAMPLE_HZ makes sp_init() start sampling itself.
+ *
+ * Start it once the profiler exists (after sp_init()); stop it, or let
+ * sp_profiler_finalize() do so. Returns SP_OK, SP_ERR_INACTIVE (NULL or
+ * finalized profiler), SP_ERR_UNSUPPORTED or SP_ERR_NO_MEMORY. */
+int sp_profiler_start_sampling(sp_profiler *profiler, int hz);
+
+/* Stop sampling, keeping the samples for the next finalize. A no-op when not
+ * sampling. */
+int sp_profiler_stop_sampling(sp_profiler *profiler);
+
+/* The two above against the default context. */
+int sp_start_sampling(int hz);
+int sp_stop_sampling(void);
+
 #ifdef __cplusplus
 }
 #endif
