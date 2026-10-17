@@ -1995,8 +1995,7 @@ def _chart_description(title: str, payload: dict, comparison: bool = False) -> s
             )
         else:
             text = (
-                f"Grouped bars compare each region's {what} across the "
-                "profiled runs."
+                f"Grouped bars compare each region's {what} across the profiled runs."
             )
     elif title.startswith("Change:"):
         text = (
@@ -3085,7 +3084,7 @@ def _chart_sections(
                     f'<button type="button" class="chart-axis" data-chart="{chart_id}"'
                     f' data-axis="{position}" aria-describedby="{chart_id}-axis"'
                     f' aria-pressed="{str(variant["payload"] is payload).lower()}">'
-                    f'{_text(variant["label"])}</button>'
+                    f"{_text(variant['label'])}</button>"
                     for position, variant in enumerate(variants)
                 )
             )

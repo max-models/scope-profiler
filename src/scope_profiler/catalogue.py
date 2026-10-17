@@ -15,7 +15,7 @@ def _report_title(path: Path) -> str:
         head = path.read_text(encoding="utf-8", errors="replace")[:200_000]
     except OSError:
         return path.stem
-    match = re.search(r"<title>(.*?)</title>", head, re.S | re.I)
+    match = re.search(r"<title>(.*?)</title>", head, re.DOTALL | re.IGNORECASE)
     title = html.unescape(match.group(1)).strip() if match else ""
     return title or path.stem
 
@@ -41,16 +41,14 @@ def create_catalogue(
         path = Path(report)
         if not path.is_file():
             raise FileNotFoundError(f"Report not found: {path}")
-        href = Path(
-            os.path.relpath(path.resolve(), output.parent.resolve())
-        ).as_posix()
+        href = Path(os.path.relpath(path.resolve(), output.parent.resolve())).as_posix()
         items.append(
             f'<li><a href="{html.escape(href, quote=True)}">'
             f"{html.escape(_report_title(path))}</a> "
             f"<small>{html.escape(href)}</small></li>"
         )
     output.write_text(
-        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
+        '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
         f"<title>{html.escape(title)}</title><style>"
         "body{font-family:system-ui,sans-serif;max-width:48rem;margin:2rem auto;"
         "padding:0 1rem}li{margin:.4rem 0}small{color:#666;margin-left:.5rem}"

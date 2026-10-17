@@ -2648,7 +2648,18 @@ def test_catalogue_command_links_reports_relatively(tmp_path, capsys):
     (reports / "b.html").write_text("<html></html>")
     out = tmp_path / "index.html"
 
-    assert cli_main(["catalogue", str(reports / "a.html"), str(reports / "b.html"), "-o", str(out)]) == 0
+    assert (
+        cli_main(
+            [
+                "catalogue",
+                str(reports / "a.html"),
+                str(reports / "b.html"),
+                "-o",
+                str(out),
+            ]
+        )
+        == 0
+    )
 
     text = out.read_text()
     assert 'href="reports/a.html">Run &lt;A&gt;</a>' in text
