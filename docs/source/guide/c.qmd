@@ -538,6 +538,8 @@ trace directory, so a mixed C/Fortran run still merges into one profile.
 
 ## Limitations
 
+- **No line-level profiling.** Regions are timed as a whole; see
+  {doc}`line_profiler` for how to get line-level detail for native code.
 - **Not thread safe.** A region must be entered and left by the same thread.
   OpenMP threads inside a region are fine — wrap the whole parallel construct
   in one `sp_begin`/`sp_end` from the master thread.

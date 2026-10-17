@@ -154,6 +154,19 @@ The filtered command produces:
    :language: text
 ```
 
+## Fortran and C code
+
+Line-level profiling covers Python source only, because it relies on
+`line_profiler`. Native {doc}`Fortran <fortran>` and {doc}`C/C++ <c>` regions
+record region timings and an optional source file and line, but no per-line
+breakdown inside the region.
+
+To get line-level detail for native code, narrow the region to the code you
+care about (a region per loop or statement block), or profile the compiled
+program with a native tool such as `perf annotate`, `gprof -l`, or
+`valgrind --tool=callgrind` (build with `-g`). Use the scope-profiler regions to
+find which region is hot, then use the native tool on that code.
+
 ## Overhead considerations
 
 Line profiling adds ~40 µs per call because `line_profiler` instruments
