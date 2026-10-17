@@ -7,6 +7,12 @@
 - C API: line-level sampling of regions (`sp_start_sampling()` or
   `SCOPE_PROFILER_SAMPLE_HZ`), written to `.sps` files, and
   `scope-profiler native-lines` to show the hottest source lines per region.
+- `scope-profiler site` writes the pages and chart data of a profiling catalogue
+  into an Astro/Starlight project from a YAML manifest listing the runs of each
+  case: an index, a page per case (runs, region table, scaling and comparison
+  charts) and a page per run, linked under the site's `base` path, with the
+  charts as plot-data JSON. It is the engine of the `scope-profiler-catalog` template for catalogue
+  websites. New `site` extra (PyYAML, also part of `pproc`).
 - `scope-profiler catalogue` writes an index page linking several HTML reports.
 - Fortran API: optional `stat`/`errmsg` error outputs, recoverable allocation
   and output failures, `sp_flush` snapshots, handle-preserving `sp_reset`,
@@ -115,6 +121,9 @@
 
 ### Fixed
 
+- Summary: a recursive row's total sums only the outermost calls, so it no longer
+  exceeds the time of its caller, and the regions called from a recursive
+  function are no longer marked with the recursive symbol (#313).
 - HTML report: a single-run report shows the **Region durations** chart
   again, collapsed below the timeline. Each bar splits the region's total into
   its own time and the regions it calls directly; aggregated profiles, which
