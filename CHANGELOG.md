@@ -4,6 +4,12 @@
 
 ### Added
 
+- `scope-profiler site` writes the pages and chart data of a profiling catalogue
+  into an Astro/Starlight project from a YAML manifest listing the runs of each
+  case: an index, a page per case (runs, region table, scaling and comparison
+  charts) and a page per run, linked under the site's `base` path, with the
+  charts as plot-data JSON. It is the engine of the `scope-profiler-catalog` template for catalogue
+  websites. New `site` extra (PyYAML, also part of `pproc`).
 - `scope-profiler catalogue` writes an index page linking several HTML reports.
 - Fortran API: optional `stat`/`errmsg` error outputs, recoverable allocation
   and output failures, `sp_flush` snapshots, handle-preserving `sp_reset`,
