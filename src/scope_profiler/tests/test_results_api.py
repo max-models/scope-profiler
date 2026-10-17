@@ -117,6 +117,41 @@ def test_summary_collapses_self_recursive_paths():
     assert rows[1]["total"] == pytest.approx(rows[1]["coverage"])
 
 
+def test_summary_children_of_a_recursive_region_are_not_marked_recursive(capsys):
+    """A child pooled over the recursion levels is not itself recursive."""
+    results = ProfilingResults(
+        {
+            "outer": MPIRegion("outer", {0: Region(np.array([0]), np.array([100]))}),
+            "fib": MPIRegion(
+                "fib",
+                {0: Region(np.array([10, 20, 30]), np.array([90, 80, 70]))},
+            ),
+            # One call at each level of the recursion, none inside another.
+            "combine": MPIRegion(
+                "combine",
+                {0: Region(np.array([15, 25, 35]), np.array([18, 28, 45]))},
+            ),
+        },
+    )
+
+    from scope_profiler.summary import region_rows
+
+    rows = {row["call_path"]: row for row in region_rows(results)}
+
+    assert rows["outer > fib"]["recursive"] is True
+    combine = rows["outer > fib > combine"]
+    assert combine["recursive"] is False
+    assert combine["calls"] == 3
+    # Its calls never overlap, so they all add up, and they fit in the parent.
+    assert combine["total"] == pytest.approx(16 / NS)
+    assert combine["total"] <= rows["outer > fib"]["total"]
+
+    results.print_summary(suppress_notes=True)
+    lines = capsys.readouterr().out.splitlines()
+    assert any("fib ↻" in line for line in lines)
+    assert not any("combine ↻" in line for line in lines)
+
+
 def test_summary_notes_explain_recursive_rows(capsys):
     results = ProfilingResults(
         {

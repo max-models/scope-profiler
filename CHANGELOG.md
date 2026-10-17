@@ -112,6 +112,9 @@
 
 ### Fixed
 
+- Summary: a recursive row's total sums only the outermost calls, so it no longer
+  exceeds the time of its caller, and the regions called from a recursive
+  function are no longer marked with the recursive symbol (#313).
 - HTML report: a single-run report shows the **Region durations** chart
   again, collapsed below the timeline. Each bar splits the region's total into
   its own time and the regions it calls directly; aggregated profiles, which
