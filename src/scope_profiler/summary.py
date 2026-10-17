@@ -445,7 +445,10 @@ def region_rows(
                 {"calls": [], "recursive": False},
             )
             entry["calls"].append((rank, call))
-            entry["recursive"] |= len(collapsed_path) != len(path)
+            # Only a region that calls itself is recursive: a child of a
+            # recursive function is pooled over the levels, but its own
+            # calls do not nest, so its total needs no correction.
+            entry["recursive"] |= _nested_in_itself(call)
 
     display_rows = []
     path_entries = calls_by_path.items() if call_tree_available else ()

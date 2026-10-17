@@ -14,6 +14,7 @@ repeatable AI optimization workflow.
 - [`ex_line_profiling.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_line_profiling.py) — collect line-by-line timings.
 - [`ex_memory_profiling.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_memory_profiling.py) — capture allocations with Memray alongside region timings.
 - [`ex_recursive_profiling.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_recursive_profiling.py) — profile nested calls.
+- [`ex_recursive_totals.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_recursive_totals.py) — check that a recursive region's total never exceeds its caller's time, and that its children are not marked recursive.
 - [`ex_call_path_summary.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_call_path_summary.py) — show separate summary timings for a same-named region reached through different callers.
 - [`ex_region_source.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_region_source.py) — retain and inspect region source code.
 - [`ex_html_report.py`](https://github.com/max-models/scope-profiler/blob/devel/examples/ex_html_report.py) — profile a baseline and an optimized case into two files and compare them with `scope-profiler report`.
