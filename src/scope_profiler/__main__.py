@@ -28,6 +28,8 @@ The subcommands:
   plots. See ``scope_profiler.inspection``.
 - ``scope-profiler report file.h5 -o report.html`` - writes a standalone HTML
   summary with metadata and per-region timing statistics.
+- ``scope-profiler catalogue a.html b.html -o catalogue.html`` - writes an
+  index page linking several generated HTML reports.
 - ``scope-profiler tui file.h5`` - opens an interactive Textual browser for
   metadata, region statistics, per-rank calls, LIKWID counters and the raw
   HDF5 tree.
@@ -444,6 +446,31 @@ def _report(argv):
     return 0
 
 
+def _catalogue(argv):
+    """Handle ``scope-profiler catalogue``: index several HTML reports."""
+    from scope_profiler.catalogue import create_catalogue
+
+    parser = argparse.ArgumentParser(
+        prog="scope-profiler catalogue",
+        description="Write an HTML index page linking several HTML reports.",
+    )
+    parser.add_argument("reports", nargs="+", help="HTML report files")
+    parser.add_argument(
+        "-o",
+        "--output",
+        default="catalogue.html",
+        help="HTML file to write (default: catalogue.html)",
+    )
+    parser.add_argument("--title", default="Profiling reports", help="Page title")
+    args = parser.parse_args(argv)
+    try:
+        output = create_catalogue(args.reports, args.output, title=args.title)
+    except FileNotFoundError as exc:
+        parser.error(str(exc))
+    print(f"Catalogue written to: {output}")
+    return 0
+
+
 def _tui(argv):
     """Handle ``scope-profiler tui``: open the interactive HDF5 browser."""
     from scope_profiler.tui import main as tui_main
@@ -597,6 +624,7 @@ _COMMANDS = {
     "export": _export,
     "inspect": _inspect,
     "report": _report,
+    "catalogue": _catalogue,
     "tui": _tui,
     "line-profile": _line_profile,
     "diff": _diff,
@@ -647,6 +675,12 @@ def main(argv=None):
         "report",
         add_help=False,
         help="Write a standalone HTML report (see `scope-profiler report --help`)",
+    )
+    subparsers.add_parser(
+        "catalogue",
+        add_help=False,
+        help="Write an index page linking several HTML reports "
+        "(see `scope-profiler catalogue --help`)",
     )
     subparsers.add_parser(
         "tui",

@@ -4,6 +4,7 @@
 
 ### Added
 
+- `scope-profiler catalogue` writes an index page linking several HTML reports.
 - Fortran API: optional `stat`/`errmsg` error outputs, recoverable allocation
   and output failures, `sp_flush` snapshots, handle-preserving `sp_reset`,
   and on-demand completed-call statistics through `sp_get_region_stats`.
