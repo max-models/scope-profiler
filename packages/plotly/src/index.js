@@ -1979,7 +1979,37 @@ export function validatePlotData(payload, options = {}) {
 export function buildFigure(payload, options = {}) {
   const kind = validatePlotData(payload, options);
   const builder = PLOT_BUILDERS[kind];
-  return builder(payload, { plot: kind, ...options });
+  return withScaleMenus(builder(payload, { plot: kind, ...options }));
+}
+
+/** Add linear/log switches for both axes, unless the caller supplied menus. */
+function withScaleMenus(figure) {
+  const layout = figure.layout ?? {};
+  if (layout.updatemenus || layout.xaxis?.visible === false) return figure;
+  const menu = (name, x, active) => ({
+    type: "dropdown",
+    direction: "down",
+    showactive: true,
+    active,
+    x,
+    xanchor: "right",
+    y: 1,
+    yanchor: "top",
+    pad: { t: 4, r: 4 },
+    buttons: ["linear", "log"].map((type) => ({
+      label: `${name}: ${type}`,
+      method: "relayout",
+      args: [{ [`${name}axis.type`]: type }],
+    })),
+  });
+  const active = (name) => (layout[`${name}axis`]?.type === "log" ? 1 : 0);
+  return {
+    ...figure,
+    layout: {
+      ...layout,
+      updatemenus: [menu("x", 0.88, active("x")), menu("y", 1, active("y"))],
+    },
+  };
 }
 
 const RENDER_CONFIG = { responsive: true, displaylogo: false };

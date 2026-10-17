@@ -22,7 +22,7 @@ from scope_profiler.plotting_scripts._utils import (
     _write_parquet,
 )
 from scope_profiler.plotting_scripts.statistics import (
-    _common_region_names,
+    _all_region_names,
     _pooled_first_last_duration,
     _region_duration_values,
     _stats_from_values,
@@ -67,6 +67,10 @@ def _pooled_metric_value(
     the same way it would be if the member regions' calls had all been
     recorded under one region name.
     """
+    # A region another run has but this one never entered has no bar here.
+    member_names = [name for name in member_names if name in run]
+    if not member_names:
+        return float("nan")
     if stat_key in _FIRST_LAST_STATS:
         pair = _pooled_first_last_duration(
             [run.get_region(name) for name in member_names],
@@ -101,6 +105,8 @@ def _duration_bar_hover(
     pooled statistics instead.
     """
     heading = bar_name if run_label is None else f"{bar_name} - {run_label}"
+    if len(members) == 1 and members[0] not in run:
+        return f"<b>{heading}</b><br>not measured in this run"
     if len(members) == 1:
         region, title = _hover_region(run.get_region(members[0]), ranks, run.num_ranks)
         if run_label is not None:
@@ -474,7 +480,7 @@ def plot_durations(
     if len(labels) != len(runs):
         raise ValueError("labels must match the number of profiling files.")
 
-    region_names = _common_region_names(runs, include=include, exclude=exclude)
+    region_names = _all_region_names(runs, include=include, exclude=exclude)
     if not region_names:
         raise ValueError("No regions matched the selected filters.")
     region_names, region_members = _group_regions(region_names, combine_regions)

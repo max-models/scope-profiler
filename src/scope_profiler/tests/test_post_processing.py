@@ -2629,3 +2629,23 @@ def test_plot_speedup_over_nodes_names_a_file_without_a_node_count(tmp_path):
             show=False,
             verbose=False,
         )
+
+
+def test_plot_durations_comparison_includes_regions_missing_from_a_run(tmp_path):
+    base_path = tmp_path / "base.h5"
+    other_path = tmp_path / "other.h5"
+    data_path = tmp_path / "durations.json"
+    _write_sample_h5(base_path, {0: {"setup": ([0], [10]), "old": ([20], [30])}})
+    _write_sample_h5(other_path, {0: {"setup": ([0], [10]), "new": ([20], [40])}})
+
+    plot_durations(
+        [read_h5(base_path), read_h5(other_path)],
+        data_filepath=data_path,
+        data_format="json",
+        backend="data-only",
+        show=False,
+        verbose=False,
+    )
+
+    names = {bar["region"] for bar in json.loads(data_path.read_text())["bars"]}
+    assert names == {"setup", "old", "new"}

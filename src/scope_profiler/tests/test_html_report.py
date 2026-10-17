@@ -2639,3 +2639,30 @@ def test_region_source_snippet_gives_way_to_line_profiles(tmp_path):
     assert "<pre><code>" not in with_lines
     # The call site itself stays.
     assert "<p class='muted'>app.py:3</p>" in with_lines
+
+
+def test_catalogue_command_links_reports_relatively(tmp_path, capsys):
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    (reports / "a.html").write_text("<title>Run &lt;A&gt;</title>")
+    (reports / "b.html").write_text("<html></html>")
+    out = tmp_path / "index.html"
+
+    assert (
+        cli_main(
+            [
+                "catalogue",
+                str(reports / "a.html"),
+                str(reports / "b.html"),
+                "-o",
+                str(out),
+            ]
+        )
+        == 0
+    )
+
+    text = out.read_text()
+    assert 'href="reports/a.html">Run &lt;A&gt;</a>' in text
+    assert 'href="reports/b.html">b</a>' in text
+    with pytest.raises(SystemExit):
+        cli_main(["catalogue", str(tmp_path / "missing.html"), "-o", str(out)])

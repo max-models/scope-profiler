@@ -1053,3 +1053,17 @@ test("one-rank runs leave the rank out of labels", () => {
   assert.equal(rankText({ points: [point], file_ranks: { serial: 1 } }), "");
   assert.equal(rankText({ points: [point] }), " (rank 0)");
 });
+
+test("buildFigure adds linear/log switches for both axes", () => {
+  const figure = buildFigure({
+    plot: "likwid",
+    metric: "DP MFLOP/s",
+    bars: [{ series: "rank 0", region: "solve", value: 900 }],
+  });
+  const menus = figure.layout.updatemenus;
+  assert.equal(menus.length, 2);
+  assert.deepEqual(
+    menus.map((m) => m.buttons[1].args[0]),
+    [{ "xaxis.type": "log" }, { "yaxis.type": "log" }],
+  );
+});
