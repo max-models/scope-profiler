@@ -11,6 +11,9 @@ This script profiles a small workload at two problem sizes, writes a manifest
 for them, builds the catalogue into a temporary Astro project and checks what
 was written.
 
+The pages show everything ``scope-profiler report`` does: headline numbers, hotspots, the
+region table, load balance, line profiles, hardware counters, comparisons and charts.
+
 Run::
 
     python examples/ex_site.py
@@ -22,7 +25,6 @@ Then, for your own runs, write a manifest like the one printed below and run::
 
 import json
 import math
-import re
 import tempfile
 from pathlib import Path
 
@@ -85,16 +87,24 @@ cases:
         case = content / "toy-solver"
         for page in (content / "index.mdx", case / "index.mdx", case / "small.mdx"):
             assert page.is_file(), page
-        # The pages link to each other under the base path, and to charts under /catalogue.
-        assert (
-            "[small](/example/catalogue/toy-solver/small/)"
-            in (case / "index.mdx").read_text()
-        )
-        for url in re.findall(r'src="([^"]+)"', (case / "small.mdx").read_text()):
-            chart = json.loads((docs / "public" / url.lstrip("/")).read_text())
-            assert chart["format"] == "scope-profiler-plot-data", url
+        # A page is components plus a JSON data file with what it shows.
+        small = json.loads((case / "small.data.json").read_text())
+        assert small["report"]["summary"]["kpis"], "headline numbers"
+        assert small["report"]["regions"]["groups"], "the region table"
+        # The case compares the runs, linking each run's page under the base path.
+        compared = json.loads((case / "index.data.json").read_text())
+        assert compared["links"]["runs"][0] == "/example/catalogue/toy-solver/small/"
+        assert len(compared["report"]["candidates"]) == 1
+        # Every chart the pages draw has its data, as plot-data JSON.
+        for data in (small, compared):
+            for panel in data["charts"]["panels"]:
+                chart = json.loads(
+                    (docs / "public" / panel["src"].lstrip("/")).read_text()
+                )
+                assert chart["plot"], panel["src"]
         # Nothing that identifies the machine is published.
-        assert "hostname" not in "".join(p.read_text() for p in content.rglob("*.mdx"))
+        everything = "".join(p.read_text() for p in content.rglob("*") if p.is_file())
+        assert "hostname" not in everything
 
 
 if __name__ == "__main__":

@@ -49,6 +49,7 @@ def _write_profiles(directory, ranks=(1, 2, 4), **metadata):
                     "timestamp": "2026-10-17T10:00:00Z",
                     "scope_profiler_version": "0.7.4",
                     "hostname": "secret-host",
+                    "chip_information": "Test CPU",
                     **metadata,
                 }.items()
                 if value is not None  # None leaves a field out
@@ -213,6 +214,11 @@ def test_build_writes_pages_and_chart_data(tmp_path):
             )
 
 
+def _data(out, *parts):
+    """The JSON data file of a generated page (``parts`` below the catalogue)."""
+    return _strict_json((out / CONTENT).joinpath(*parts).read_text())
+
+
 def _strict_json(text):
     def refuse(constant):
         raise ValueError(f"{constant} is not JSON")
@@ -263,10 +269,17 @@ def test_non_finite_numbers_are_dropped_or_nulled():
         "nested": {"rows": [{"x": float("-inf")}, {"x": 2}]},
     }
 
-    assert _finite(payload) == {
+    # Chart data leaves out the rows that miss a measurement ...
+    assert _finite(payload, drop_rows=True) == {
         "bars": [{"region": "a", "value": 1.0}],
         "ratio": None,
         "nested": {"rows": [{"x": 2}]},
+    }
+    # ... and the page data keeps every row, with null where a number is missing.
+    assert _finite(payload) == {
+        "bars": [{"region": "a", "value": 1.0}, {"region": "b", "value": None}],
+        "ratio": None,
+        "nested": {"rows": [{"x": None}, {"x": 2}]},
     }
 
 
@@ -280,16 +293,27 @@ def test_pages_link_to_each_other_with_the_base_path(tmp_path):
     index = (content / "index.mdx").read_text()
     assert "[Poisson solver](/cat/catalogue/solvers/poisson-solver/)" in index
     assert "[Single run](/cat/catalogue/single-run/)" in index
-    case = (content / "solvers" / "poisson-solver" / "index.mdx").read_text()
-    assert "[np2](/cat/catalogue/solvers/poisson-solver/np2/)" in case
     run = (content / "solvers" / "poisson-solver" / "np2.mdx").read_text()
     assert "[← Poisson solver](/cat/catalogue/solvers/poisson-solver/)" in run
-    # The component import is relative to the page, however deep it is.
-    assert 'from "../../../../../components/ScopeChart.astro"' in run
+    # The components are imported relative to the page, however deep it is.
+    assert (
+        'import Summary from "../../../../../components/report/Summary.astro";' in run
+    )
     single = (content / "single-run" / "only-run.mdx").read_text()
-    assert 'from "../../../../components/ScopeChart.astro"' in single
-    # Chart data is addressed from the site root; the component adds the base.
-    assert 'src="/catalogue/solvers/poisson-solver/np2/' in run
+    assert (
+        'import Summary from "../../../../components/report/Summary.astro";' in single
+    )
+    # The runs table links each run's page; chart data is addressed from the site
+    # root, and the component adds the base path.
+    case = _data(out, "solvers", "poisson-solver", "index.data.json")
+    assert case["links"]["runs"][1] == "/cat/catalogue/solvers/poisson-solver/np2/"
+    panels = _data(out, "solvers", "poisson-solver", "np2.data.json")["charts"][
+        "panels"
+    ]
+    assert panels
+    assert all(
+        p["src"].startswith("/catalogue/solvers/poisson-solver/np2/") for p in panels
+    )
 
 
 def test_the_base_path_is_required_and_checked(tmp_path):
@@ -326,17 +350,24 @@ def test_case_page_compares_the_runs(tmp_path):
     build_site(load_manifest(_manifest(tmp_path, BASIC)), out)
 
     case = (out / CONTENT / "solvers" / "poisson-solver" / "index.mdx").read_text()
-    assert "| Region | np1 | np2 | np4 |" in case
-    assert "Mean time per MPI rank." in case
-    assert 'title="Speedup"' in case
     assert "Tags: `cpu`, `scaling`" in case
+    for section in ("RunsTable", "Changes", "CompareTable", "Charts"):
+        assert f"<{section} data={{data}} />" in case
+    data = _data(out, "solvers", "poisson-solver", "index.data.json")
+    report = data["report"]
+    assert report["labels"] == ["np1", "np2", "np4"]
+    assert [row["label"] for row in report["runs"]["rows"]] == ["np1", "np2", "np4"]
+    assert report["runs"]["rows"][0]["change"] == {"kind": "base"}
+    assert len(report["candidates"]) == 2
+    assert {row["name"] for row in report["table"]["rows"]} >= {"setup", "solve"}
+    assert "Speedup" in [panel["title"] for panel in data["charts"]["panels"]]
     # A single run has nothing to compare.
     single = (out / CONTENT / "single-run" / "index.mdx").read_text()
-    assert "## Comparison" not in single
-    assert "## Regions" not in single
+    assert "CompareTable" not in single
+    assert "- [only run](/cat/catalogue/single-run/only-run/)" in single
 
 
-def test_regions_are_compared_per_rank_and_sums_say_so(tmp_path):
+def test_regions_are_compared_per_rank(tmp_path):
     """Adding up ranks would make a run on more ranks look slower."""
     _write_profiles(tmp_path / "data", ranks=(1, 2))
     out = tmp_path / "docs"
@@ -348,17 +379,11 @@ def test_regions_are_compared_per_rank_and_sums_say_so(tmp_path):
         out,
     )
 
-    case = (out / CONTENT / "a" / "index.mdx").read_text()
+    table = _data(out, "a", "index.data.json")["report"]["table"]
+    assert table["per_rank"] is True
+    solve = next(row for row in table["rows"] if row["name"] == "solve")
     # 'solve' lasts 50 ms on one rank and 25 ms on each of two.
-    assert "| `solve` | 0.05 s | 0.025 s |" in case
-    assert (
-        "| Region | Calls | Total | Own |"
-        in (out / CONTENT / "a" / "np1.mdx").read_text()
-    )
-    assert (
-        "| Region | Calls | Total, all ranks | Own, all ranks |"
-        in (out / CONTENT / "a" / "np2.mdx").read_text()
-    )
+    assert [cell["values"]["total"] for cell in solve["cells"]] == ["50 ms", "25 ms"]
 
 
 def test_overview_pages_lead_their_sidebar_group(tmp_path):
@@ -395,9 +420,42 @@ def test_only_identifying_metadata_is_published(tmp_path):
 
     build_site(load_manifest(_manifest(tmp_path, BASIC)), out)
 
-    text = "".join(path.read_text() for path in (out / CONTENT).rglob("*.mdx"))
-    assert "secret-host" not in text
-    assert "2026-10-17T10:00:00Z" in text
+    everything = "".join(
+        path.read_text() for path in (out / CONTENT).rglob("*") if path.is_file()
+    )
+    assert "secret-host" not in everything
+    report = _data(out, "solvers", "poisson-solver", "np2.data.json")["report"]
+    assert report["meta"]["host"] == ["Test CPU"]
+    assert report["meta"]["file"]["path"] is None
+    keys = [key for key, _ in report["metadata"]]
+    assert "timestamp" in keys and "hostname" not in keys
+    runs = _data(out, "solvers", "poisson-solver", "index.data.json")["report"]["runs"]
+    assert all(row["host"] is None for row in runs["rows"])
+
+
+def test_metadata_all_publishes_everything_the_profile_recorded(tmp_path):
+    _write_profiles(tmp_path / "data", ranks=(2,))
+    out = tmp_path / "docs"
+    manifest = load_manifest(
+        _manifest(tmp_path, "cases: [{title: a, metadata: all, runs: [data/np2.h5]}]\n")
+    )
+
+    build_site(manifest, out)
+
+    report = _data(out, "a", "np2.data.json")["report"]
+    assert ["hostname", "secret-host"] in report["metadata"]
+    assert report["meta"]["host"] == ["secret-host", "Test CPU"]
+
+
+def test_an_unknown_metadata_level_is_refused(tmp_path):
+    _write_profiles(tmp_path / "data")
+
+    with pytest.raises(SiteError, match="metadata must be 'minimal' or 'all'"):
+        load_manifest(
+            _manifest(
+                tmp_path, "cases: [{title: a, metadata: some, runs: [data/np1.h5]}]\n"
+            )
+        )
 
 
 def test_build_is_deterministic(tmp_path):
@@ -421,7 +479,7 @@ def test_no_charts_writes_pages_without_chart_data(tmp_path):
         assert "<ScopeChart" not in page.read_text()
 
 
-def test_single_rank_runs_skip_the_rank_charts(tmp_path):
+def test_single_rank_runs_skip_the_rank_sections(tmp_path):
     _write_profiles(tmp_path / "data", ranks=(1,))
     out = tmp_path / "docs"
 
@@ -432,9 +490,14 @@ def test_single_rank_runs_skip_the_rank_charts(tmp_path):
         out,
     )
 
+    data = _data(out, "a", "np1.data.json")
+    titles = [panel["title"] for panel in data["charts"]["panels"]]
+    assert "Region durations" in titles
+    assert "Rank imbalance" not in titles
+    assert data["report"]["balance"] is None and data["report"]["matrix"] is None
     run = (out / CONTENT / "a" / "np1.mdx").read_text()
-    assert "Region durations" in run
-    assert "Rank imbalance" not in run
+    assert "LoadBalance" not in run and "RankMatrix" not in run
+    assert "<RegionTable data={data} />" in run
 
 
 def test_rebuild_replaces_only_what_a_previous_build_wrote(tmp_path):

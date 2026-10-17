@@ -453,30 +453,46 @@ cases:
 
 `base` is the base path the site is served from (`/` plus the repository name on GitHub Pages,
 `""` at the root of a domain). The pages link to each other with it, because Starlight's link
-check rejects relative links; `--base` overrides it. Quote values YAML would read as something else, such as a commit hash in `info`:
-`commit: "0000000"`, not `commit: 0000000`, which is the number 0. Per case, `include`, `exclude` (region regular expressions), `ranks` and
-`charts: false` select what the pages show; the same keys under `defaults`
-apply to every case. The manifest is checked as a whole before anything is
-written, and an error names the case and the field it comes from.
+check rejects relative links; `--base` overrides it. Quote values YAML would read as something
+else, such as a commit hash in `info`: `commit: "0000000"`, not `commit: 0000000`, which is the
+number 0.
+
+Per case, `include`, `exclude` (region regular expressions), `ranks` and `charts: false` select
+what the pages show, and `metadata: all` publishes every metadata field of the profiles (see
+below); the same keys under `defaults` apply to every case. The manifest is checked as a whole
+before anything is written, and an error names the case and the field it comes from.
 
 The command writes, below the `-o` directory (the Astro project):
 
-- `src/content/docs/catalogue/`: an index of the cases, a page per case (its
-  runs, a region table and, for several runs, the scaling and comparison
-  charts) and a page per run (summary, hotspots, charts and the identifying
-  metadata).
-- `public/catalogue/`: the chart data, as the plot-data JSON that
-  `scope-profiler export plot-data` writes, and an `index.json` of the cases.
+- `src/content/docs/catalogue/`: an index of the cases, a page per case and a page per run. Each
+  page is an MDX file made of components, with a JSON data file next to it that holds what the
+  page shows. A **run page** has everything `scope-profiler report` shows for one run: the
+  headline numbers and findings, the ranked hotspots, the region statistics table (call tree,
+  sortable columns, trend lines, and per region its call site, tags, per-rank breakdown and line
+  profile), load balance and the rank comparison matrix, the line profiles of regions outside
+  the table, hardware counters, the charts, and the metadata. A **case page** has what the
+  report shows for a comparison: the runs table, what changed against the baseline (headline
+  numbers and the largest improvements and regressions of each run), the durations table of
+  every region in every run (switchable between total, own and per-call time and calls, in call
+  tree order or by the size of the change), and the speedup, weak-scaling, change and duration
+  charts.
+- `public/catalogue/`: the chart data, as the plot-data JSON that `scope-profiler export
+  plot-data` writes (a file per x-axis for the scaling charts), and an `index.json` of the cases.
 
-Pages link to each other under `base`, and they draw their charts with a `ScopeChart` component that the Astro
-project provides (`src/components/ScopeChart.astro` in the template) using the
-[`@scope-profiler/plotly`](https://www.npmjs.com/package/@scope-profiler/plotly)
-package. Both generated directories are replaced on every run, but only when
-a previous run wrote them (they hold a `.scope-profiler-site` marker); any
-other content there is never deleted, and `--no-clean` writes into the
-directories as they are. Only metadata that identifies the run is published
-(time, platform, versions, threads, ranks, nodes), never the host, user or
-environment.
+The text of the pages, the findings, the classification of changes and the hotspot ranking come
+from the same code as the HTML report's (`scope_profiler.report_model`), so the two cannot
+drift apart. The Astro project draws the data with the components in
+`src/components/report/` (the template has them) and the charts with
+[`@scope-profiler/plotly`](https://www.npmjs.com/package/@scope-profiler/plotly), in the colours
+of the site's theme. As in the report, the filter bar at the top of a page filters the regions of
+every table and chart, a click on a region highlights it everywhere, and the Regions and Depth
+sliders limit what the charts draw.
+
+Both generated directories are replaced on every run, but only when a previous run wrote them
+(they hold a `.scope-profiler-site` marker); any other content there is never deleted, and
+`--no-clean` writes into the directories as they are. A published page shows only metadata that
+identifies the run (time, platform, chip, versions, threads, ranks, nodes), never the host, user
+or environment, unless the case sets `metadata: all`.
 
 Reading the manifest needs PyYAML and the charts need `scope-profiler[pproc]`;
 `pip install "scope-profiler[site]"` installs just the former and
