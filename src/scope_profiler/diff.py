@@ -10,11 +10,15 @@ configs, two job sizes) shows up as a single table instead of two separate
 import argparse
 import sys
 
-from tabulate import tabulate
-
 from scope_profiler.profile_io import read_profile, read_profile_summary
 from scope_profiler.results import ProfilingResults
-from scope_profiler.summary import gpu_timing_warnings, region_row, region_rows
+from scope_profiler.summary import (
+    _REGION_TABLE_FORMAT,
+    _print_table,
+    gpu_timing_warnings,
+    region_row,
+    region_rows,
+)
 
 METRICS = (
     "gpu_total",
@@ -196,13 +200,12 @@ def print_diff_table(rows, metric: str = "total", title=None, stream=None) -> No
     ]
 
     table_rows = [[row[key] for key, _ in columns] for row in formatted]
-    for line in tabulate(
+    _print_table(
         table_rows,
-        headers=[header for _, header in columns],
-        tablefmt="rounded_outline",
-        disable_numparse=True,
-    ).splitlines():
-        print(f"  {line}", file=stream)
+        [header for _, header in columns],
+        stream,
+        tablefmt=_REGION_TABLE_FORMAT,
+    )
 
     only_a = [row["name"] for row in rows if row["b"] is None]
     only_b = [row["name"] for row in rows if row["a"] is None]

@@ -1995,8 +1995,7 @@ def _chart_description(title: str, payload: dict, comparison: bool = False) -> s
             )
         else:
             text = (
-                f"Grouped bars compare each region's {what} across the "
-                "profiled runs."
+                f"Grouped bars compare each region's {what} across the profiled runs."
             )
     elif title.startswith("Change:"):
         text = (
@@ -2728,8 +2727,7 @@ def _candidate_html(runs, entries, run_index) -> str:
         + "</div><div><h4>Slower</h4>"
         + _change_list_html(regressions, scale, "slower")
         + "</div></div>"
-        '<p class="muted table-note">Changes in own time - time outside nested '
-        "regions - so each change is counted once, where it happened.</p></div>"
+        "</div>"
     )
 
 
@@ -3085,7 +3083,7 @@ def _chart_sections(
                     f'<button type="button" class="chart-axis" data-chart="{chart_id}"'
                     f' data-axis="{position}" aria-describedby="{chart_id}-axis"'
                     f' aria-pressed="{str(variant["payload"] is payload).lower()}">'
-                    f'{_text(variant["label"])}</button>'
+                    f"{_text(variant['label'])}</button>"
                     for position, variant in enumerate(variants)
                 )
             )
@@ -3626,7 +3624,9 @@ def _comparison_body(runs, include, exclude, ranks, sort, charts, links, limits)
         + "".join(
             _candidate_html(runs, entries, index) for index in range(1, len(runs))
         )
-        + "</section>"
+        + '<p class="muted table-note">Changes in own time - time outside nested '
+        "regions - so each change is counted once, where it happened.</p>"
+        "</section>"
         '<section id="compare-durations"><h2>Durations</h2>'
         + _comparison_table_html(runs, entries, per_rank)
         + _BACK_TO_TOP
