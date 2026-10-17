@@ -2728,8 +2728,7 @@ def _candidate_html(runs, entries, run_index) -> str:
         + "</div><div><h4>Slower</h4>"
         + _change_list_html(regressions, scale, "slower")
         + "</div></div>"
-        '<p class="muted table-note">Changes in own time - time outside nested '
-        "regions - so each change is counted once, where it happened.</p></div>"
+        "</div>"
     )
 
 
@@ -3626,7 +3625,9 @@ def _comparison_body(runs, include, exclude, ranks, sort, charts, links, limits)
         + "".join(
             _candidate_html(runs, entries, index) for index in range(1, len(runs))
         )
-        + "</section>"
+        + '<p class="muted table-note">Changes in own time - time outside nested '
+        "regions - so each change is counted once, where it happened.</p>"
+        "</section>"
         '<section id="compare-durations"><h2>Durations</h2>'
         + _comparison_table_html(runs, entries, per_rank)
         + _BACK_TO_TOP
