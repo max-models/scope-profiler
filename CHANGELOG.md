@@ -9,10 +9,16 @@
   `scope-profiler native-lines` to show the hottest source lines per region.
 - `scope-profiler site` writes the pages and chart data of a profiling catalogue
   into an Astro/Starlight project from a YAML manifest listing the runs of each
-  case: an index, a page per case (runs, region table, scaling and comparison
-  charts) and a page per run, linked under the site's `base` path, with the
-  charts as plot-data JSON. It is the engine of the `scope-profiler-catalog` template for catalogue
-  websites. New `site` extra (PyYAML, also part of `pproc`).
+  case. Its run and case pages show everything `scope-profiler report` does
+  (headline numbers and findings, hotspots, the region table with its call tree
+  and per-region detail, load balance and rank matrix, line profiles, hardware
+  counters, comparison tables, and the charts), as MDX pages plus JSON data
+  files drawn by components, linked under the site's `base` path. It is the
+  engine of the `scope-profiler-catalog` template for catalogue websites. New
+  `site` extra (PyYAML, also part of `pproc`).
+- `scope_profiler.report_model`: what a report says (findings, hotspots, tables,
+  comparisons, chart panels) as plain data, shared by the HTML report and the
+  catalogue pages; the HTML report is unchanged.
 - `scope-profiler catalogue` writes an index page linking several HTML reports.
 - Fortran API: optional `stat`/`errmsg` error outputs, recoverable allocation
   and output failures, `sp_flush` snapshots, handle-preserving `sp_reset`,

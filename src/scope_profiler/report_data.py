@@ -7,10 +7,24 @@ comparison scales over; they live here so neither depends on the other.
 
 from __future__ import annotations
 
+import builtins
+import functools
+import html
+import io
 import json
+import keyword
+import os
 import re
+import sys
 import tempfile
+import tokenize
+from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
+
+import numpy as np
+
+from scope_profiler.summary import _session_total
 
 #: Regions drawn in a scaling chart: the ones with the most time on the
 #: smallest run, which is where scaling matters.
@@ -384,3 +398,536 @@ def collect_chart_payloads(
             )
 
     return charts, failures
+
+
+# --- Moved from html_report.py: the data and formatting behind the report. ---
+
+_IMBALANCE_FLAG_PCT = 15.0
+_HOT_CALL_THRESHOLD = 1000
+_HOT_CALL_AVG_SECONDS = 1e-5
+_UNCOVERED_FLAG_PCT = 25.0
+_HOTSPOT_COUNT = 8
+_SESSION = "scope_profiler.session"
+# Past this many regions, the Regions slider opens on only the ones with the
+# most time: more lanes and bars than this cannot be read anyway, and the
+# browser spends seconds drawing them.
+_TIMELINE_REGIONS = 500
+# Which scaling chart(s) a comparison of run sizes shows. Nothing in a profile
+# records the problem size, so the report cannot tell a strong-scaling study
+# (fixed total problem) from a weak-scaling one (fixed problem per rank); the
+# caller says which, and by default both are drawn.
+SCALING_MODES = ("strong", "weak", "both")
+_BALANCE_ROWS = 12
+_MATRIX_REGIONS = 20
+_MATRIX_RANKS = 64
+_MATRIX_TEXT_RANKS = 24
+_CHANGE_COUNT = 5
+# Line profiles: functions listed before "Show all", the share of a function's
+# time that makes a line worth showing, and the fewest lines worth folding.
+_LP_FUNCTIONS = 10
+# Changes smaller than this read as noise rather than as faster or slower.
+_SAME_PCT = 2.0
+# Own-time changes below this share of the baseline are not listed as changes.
+_CHANGE_FLOOR_PCT = 0.5
+# Line profiles of scope-profiler's own frames - the session's __enter__,
+# for one - say nothing about the code being profiled.
+_PACKAGE_DIR = Path(__file__).resolve().parent
+_BUILTIN_NAMES = frozenset(dir(builtins))
+# f-strings (3.12+) and t-strings (3.14+) arrive as several tokens.
+_STRING_TOKENS = frozenset(
+    {tokenize.STRING}
+    | {
+        getattr(tokenize, name)
+        for name in (
+            "FSTRING_START",
+            "FSTRING_MIDDLE",
+            "FSTRING_END",
+            "TSTRING_START",
+            "TSTRING_MIDDLE",
+            "TSTRING_END",
+        )
+        if hasattr(tokenize, name)
+    }
+)
+_LAYOUT_TOKENS = frozenset(
+    {tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT, tokenize.COMMENT}
+)
+_COMPARE_METRICS = (
+    ("total", "total"),
+    ("own", "own"),
+    ("avg", "avg/call"),
+    ("calls", "calls"),
+)
+
+
+def _seconds(value) -> str:
+    return "-" if value is None else f"{value:.6g} s"
+
+
+def _duration_text(seconds) -> str:
+    """A duration in the unit that keeps it short: 51.2 ms, not 0.0512 s."""
+    if seconds is None:
+        return "-"
+    magnitude = abs(seconds)
+    if magnitude == 0:
+        return "0 s"
+    if magnitude < 1e-6:
+        return f"{seconds * 1e9:.3g} ns"
+    if magnitude < 1e-3:
+        return f"{seconds * 1e6:.3g} µs"
+    if magnitude < 1:
+        return f"{seconds * 1e3:.3g} ms"
+    if magnitude < 1000:
+        return f"{seconds:.4g} s"
+    return f"{seconds:,.0f} s"
+
+
+def _signed_pct(value: float) -> str:
+    """A percent change with a real minus sign, so columns of them line up."""
+    return f"{value:+.1f}%".replace("-", "−")
+
+
+def _plural(count, noun: str) -> str:
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+def _hotspot_entries(rows) -> list[dict]:
+    """Where the time goes: the leaves of the call tree, largest first.
+
+    A region's own time - its time outside every nested region - is a leaf
+    of the tree the region table draws: a leaf region's own time is all of
+    its time, and a parent's is its ``(own)`` row. Ranking leaves rather
+    than inclusive totals names the code that costs the time instead of
+    whatever encloses it, and the entries add up to the session.
+    """
+    timed = [row for row in rows if row["total"] is not None]
+    paths = {row["call_path"] for row in timed if "call_path" in row}
+    parents = {path.rsplit(" > ", 1)[0] for path in paths if " > " in path}
+    entries = []
+    for row in timed:
+        if "call_path" in row:
+            path = row["call_path"]
+            if row["name"] == _SESSION:
+                # The session root's own time is the time outside every region.
+                kind = "outside"
+            else:
+                kind = "own" if path in parents else "leaf"
+            context = [part for part in path.split(" > ")[:-1] if part != _SESSION]
+        elif row["name"] == _SESSION:
+            # Without a call tree, the session's time outside every region
+            # is unknown: its fallback "exclusive" time is its whole total.
+            continue
+        else:
+            kind, context = "leaf", []
+        # Legacy profiles whose call tree cannot be rebuilt have no exclusive
+        # figure; inclusive is the only thing left to rank them by.
+        own = row["total"] if row["exclusive"] is None else row["exclusive"]
+        if own <= 0:
+            continue
+        entries.append(
+            {
+                "name": row["name"],
+                "context": context,
+                "kind": kind,
+                "time": own,
+                "calls": row["calls"],
+                # A parent's imbalance is that of its total, not its own time.
+                "imbalance": row["imbalance"] if kind == "leaf" else None,
+            }
+        )
+    entries.sort(key=lambda entry: -entry["time"])
+    return entries
+
+
+def _hotspot_base(rows, entries) -> float:
+    """What a hotspot's share is a share of: the session, when recorded."""
+    session = _session_total(rows)
+    if session and any("call_path" in row for row in rows):
+        return session
+    return sum(entry["time"] for entry in entries)
+
+
+def _format_timestamp(value) -> str:
+    """An ISO timestamp as minutes in UTC, or as recorded when unparseable."""
+    text = str(value)
+    try:
+        moment = datetime.fromisoformat(text)
+    except ValueError:
+        return text
+    if moment.tzinfo is None:
+        return moment.strftime("%Y-%m-%d %H:%M")
+    return moment.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _is_own_frame(filename) -> bool:
+    try:
+        return Path(filename).resolve().is_relative_to(_PACKAGE_DIR)
+    except (OSError, ValueError):
+        return False
+
+
+def _line_profile_functions(results, ranks) -> list[dict]:
+    """Line timings per profiled function, summed over the selected ranks."""
+    available = results.line_profile
+    selected_ranks = sorted(
+        available if ranks is None else [rank for rank in ranks if rank in available],
+    )
+    functions: dict[tuple, dict] = {}
+    for rank in selected_ranks:
+        for record in available.get(rank, []):
+            if _is_own_frame(record["filename"]):
+                continue
+            key = (
+                record["region"],
+                record["filename"],
+                record["function"],
+                int(record["first_lineno"]),
+            )
+            entry = functions.setdefault(
+                key, {"lines": {}, "ranks": set(), "stored": {}}
+            )
+            entry["ranks"].add(rank)
+            if record.get("source") and not entry["stored"]:
+                first = int(record["source_first_lineno"])
+                entry["stored"] = dict(
+                    enumerate(str(record["source"]).split("\n"), start=first)
+                )
+            unit = float(record["unit"])
+            for line, hits, elapsed in zip(
+                record["line_numbers"], record["hits"], record["times"]
+            ):
+                stats = entry["lines"].setdefault(int(line), [0, 0.0])
+                stats[0] += int(hits)
+                stats[1] += float(elapsed) * unit
+    result = []
+    for (region, filename, function, first_lineno), entry in functions.items():
+        result.append(
+            {
+                "region": region,
+                "filename": filename,
+                "function": function,
+                "first_lineno": first_lineno,
+                "lines": entry["lines"],
+                # The source stored with the timings; files recorded before
+                # it was stored are read from the source file instead.
+                "stored": entry["stored"],
+                "ranks": sorted(entry["ranks"]),
+                "total": sum(seconds for _, seconds in entry["lines"].values()),
+            }
+        )
+    result.sort(key=lambda entry: -entry["total"])
+    return result
+
+
+def _dedent_width(lines) -> int:
+    """The indentation every non-blank line shares, to strip from all of them."""
+    widths = [len(line) - len(line.lstrip()) for line in lines if line.strip()]
+    return min(widths, default=0)
+
+
+def _highlight_python(lines: list[str]) -> list[str]:
+    """Python source lines as HTML, with each token in a classed span.
+
+    The standard library's tokenizer rather than a highlighting package: the
+    report takes no dependency for it, and line profiles are always Python.
+    The lines are a slice of a file, so they may end inside a statement or a
+    string; whatever tokenizes before that is highlighted, the rest is plain.
+    """
+    marks: list[list[tuple[int, int, str]]] = [[] for _ in lines]
+    previous = None
+    decorator = False
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO("\n".join(lines) + "\n").readline)
+        for token in tokens:
+            kind = None
+            if token.type == tokenize.COMMENT:
+                kind = "tk-com"
+            elif token.type in _STRING_TOKENS:
+                kind = "tk-str"
+            elif token.type == tokenize.NUMBER:
+                kind = "tk-num"
+            elif token.type == tokenize.OP:
+                if token.string == "@" and (
+                    previous is None or previous.type == tokenize.NEWLINE
+                ):
+                    decorator = True
+                elif token.string != ".":
+                    decorator = False
+                if decorator:
+                    kind = "tk-dec"
+            elif token.type == tokenize.NAME:
+                after_dot = previous is not None and previous.string == "."
+                if decorator:
+                    kind = "tk-dec"
+                elif previous is not None and previous.string in ("def", "class"):
+                    kind = "tk-fn"
+                elif token.string in ("True", "False", "None"):
+                    kind = "tk-const"
+                elif keyword.iskeyword(token.string):
+                    kind = "tk-kw"
+                elif token.string in ("self", "cls"):
+                    kind = "tk-self"
+                elif token.string in _BUILTIN_NAMES and not after_dot:
+                    kind = "tk-bi"
+            if token.type not in _LAYOUT_TOKENS or token.type == tokenize.NEWLINE:
+                previous = token
+            if kind is None:
+                continue
+            (first_row, first_col), (last_row, last_col) = token.start, token.end
+            # A triple-quoted string spans lines: mark its part of each.
+            for row in range(first_row, min(last_row, len(lines)) + 1):
+                start = first_col if row == first_row else 0
+                end = last_col if row == last_row else len(lines[row - 1])
+                if end > start:
+                    marks[row - 1].append((start, end, kind))
+    except (tokenize.TokenError, SyntaxError):
+        pass
+    rendered = []
+    for line, line_marks in zip(lines, marks):
+        parts = []
+        cursor = 0
+        for start, end, kind in sorted(line_marks):
+            if start < cursor:
+                continue
+            parts.append(html.escape(line[cursor:start]))
+            parts.append(f'<span class="{kind}">{html.escape(line[start:end])}</span>')
+            cursor = end
+        parts.append(html.escape(line[cursor:]))
+        rendered.append("".join(parts))
+    return rendered
+
+
+@functools.lru_cache(maxsize=256)
+def _source_path(filename: str) -> str:
+    """Where to read a recorded source file from, here.
+
+    Profiles store paths relative to the working directory or to the
+    ``sys.path`` entry the file was imported from, so a relative path is
+    looked up against both, in that order.
+    """
+    if os.path.isabs(filename) or os.path.isfile(filename):
+        return filename
+    for root in sys.path:
+        candidate = os.path.join(root or os.curdir, filename)
+        if os.path.isfile(candidate):
+            return candidate
+    return filename
+
+
+def _region_index(runs, include, exclude, ranks) -> dict[str, list]:
+    """``{region: [seconds, depth]}`` for the Regions and Depth sliders.
+
+    ``seconds`` is the region's largest total over the runs, summed over the
+    selected ranks, so a region costly in any run ranks high. ``depth`` is the
+    shallowest level its calls reach on the first rank of any run - 0 for a
+    top-level call - or None when that rank's calls do not nest.
+    """
+    from scope_profiler.call_stack import NestingError, build_call_arrays
+
+    index: dict[str, list] = {}
+    for run in runs:
+        for region in run.get_regions(include=include, exclude=exclude):
+            seconds = sum(
+                rank_region.total_duration
+                for rank, rank_region in region.regions.items()
+                if ranks is None or rank in ranks
+            )
+            entry = index.setdefault(region.name, [0.0, None])
+            entry[0] = max(entry[0], seconds)
+        rank = 0 if ranks is None else min(ranks, default=0)
+        try:
+            arrays = build_call_arrays(run.get_regions(), rank)
+        except NestingError:
+            continue
+        shallowest: dict[str, int] = {}
+        for row, depth in zip(arrays.region_index.tolist(), arrays.depth.tolist()):
+            name = arrays.names[row]
+            shallowest[name] = min(depth, shallowest.get(name, depth))
+        for name, depth in shallowest.items():
+            if name in index:
+                known = index[name][1]
+                index[name][1] = depth if known is None else min(known, depth)
+    return index
+
+
+def _rank_balance(results, rows, ranks) -> dict | None:
+    """Per-rank time in each region, for the load-balance views.
+
+    Own time rather than inclusive: a parent's inclusive total repeats every
+    child's imbalance, so ranking it would mostly name the session. Own times
+    are disjoint, so they also add up to each rank's time inside regions.
+    Without a call tree there is no own time, and totals are used instead.
+    """
+    selected = sorted(
+        rank
+        for rank in (range(results.num_ranks) if ranks is None else ranks)
+        if 0 <= rank < results.num_ranks
+    )
+    if len(selected) < 2:
+        return None
+    timed = [
+        row for row in rows if row["total"] is not None and row["name"] != _SESSION
+    ]
+    own = bool(timed) and all("call_path" in row for row in timed)
+    regions = []
+    for name in dict.fromkeys(row["name"] for row in timed):
+        region = results.get_region(name)
+        values = np.asarray(
+            [
+                (
+                    (
+                        region.regions[rank].total_exclusive_duration
+                        if own
+                        else region.regions[rank].total_duration
+                    )
+                    if rank in region.regions
+                    else 0.0
+                )
+                for rank in selected
+            ],
+            dtype=float,
+        )
+        mean = float(values.mean())
+        if mean <= 0:
+            continue
+        peak = int(values.argmax())
+        regions.append(
+            {
+                "name": name,
+                "values": values,
+                "mean": mean,
+                "min": float(values.min()),
+                "max": float(values.max()),
+                "slowest": selected[peak],
+                "imbalance": (float(values.max()) / mean - 1.0) * 100.0,
+                "excess": float(values.max()) - mean,
+            }
+        )
+    if not regions:
+        return None
+    # Largest excess first: the time balancing a region could save.
+    regions.sort(key=lambda entry: -entry["excess"])
+    return {
+        "ranks": selected,
+        "regions": regions,
+        "own": own,
+        "totals": np.sum([entry["values"] for entry in regions], axis=0),
+        "slowest_counts": Counter(
+            entry["slowest"] for entry in regions if entry["excess"] > 0
+        ),
+    }
+
+
+def _comparison_entries(per_run_rows) -> list[dict]:
+    """Align every run's region rows by call path, in call-tree order.
+
+    The baseline's tree sets the order. A path only a later run has is placed
+    after the last row below its parent, so the merged rows still read as one
+    tree; rows without a call path match by name.
+    """
+    entries: list[dict] = []
+    index: dict[str, int] = {}
+
+    def key_of(row) -> str:
+        return (
+            f"path:{row['call_path']}" if "call_path" in row else f"name:{row['name']}"
+        )
+
+    def insert_at(row) -> int:
+        if "call_path" not in row or " > " not in row["call_path"]:
+            return len(entries)
+        parent = "path:" + row["call_path"].rsplit(" > ", 1)[0]
+        if parent not in index:
+            return len(entries)
+        position = index[parent] + 1
+        prefix = parent + " > "
+        while position < len(entries) and entries[position]["key"].startswith(prefix):
+            position += 1
+        return position
+
+    for run_index, rows in enumerate(per_run_rows):
+        for row in rows:
+            key = key_of(row)
+            if key not in index:
+                position = insert_at(row)
+                entries.insert(
+                    position,
+                    {
+                        "key": key,
+                        "name": row["name"],
+                        "depth": row.get("depth", 0),
+                        "context": (
+                            [
+                                part
+                                for part in row["call_path"].split(" > ")[:-1]
+                                if part != _SESSION
+                            ]
+                            if "call_path" in row
+                            else []
+                        ),
+                        "values": [None] * len(per_run_rows),
+                    },
+                )
+                index = {entry["key"]: i for i, entry in enumerate(entries)}
+            entries[index[key]]["values"][run_index] = row
+    return entries
+
+
+def _metric_value(row, metric):
+    if row is None or row["total"] is None:
+        return None
+    if metric == "own":
+        return row["total"] if row["exclusive"] is None else row["exclusive"]
+    if metric == "calls":
+        return row["calls"]
+    return row[metric]
+
+
+def _metric_text(value, metric) -> str:
+    if value is None:
+        return "-"
+    return f"{value:,}" if metric == "calls" else _duration_text(value)
+
+
+def _per_rank_row(row) -> dict:
+    """A row's times per rank: its totals over the ranks that ran it.
+
+    Summed over ranks, a region's time is what it costs; compared across
+    runs of different sizes, that grows with the rank count even as the run
+    gets faster. Per rank, it follows what a reader waits for.
+    """
+    count = row.get("num_ranks") or 1
+    return {
+        **row,
+        "total": None if row["total"] is None else row["total"] / count,
+        "exclusive": None if row["exclusive"] is None else row["exclusive"] / count,
+    }
+
+
+def _change_items(entries, run_index, direction) -> list[dict]:
+    """The largest own-time changes of one run against the baseline.
+
+    Only changes that matter on both scales: at least 2% of the region's own
+    baseline time, so timer jitter on a large region does not count, and at
+    least 0.5% of the baseline's time in regions, so a tiny region doubling
+    does not headline the comparison.
+    """
+    owns = [
+        (
+            _metric_value(entry["values"][0], "own") or 0.0,
+            _metric_value(entry["values"][run_index], "own") or 0.0,
+        )
+        for entry in entries
+    ]
+    floor = _CHANGE_FLOOR_PCT / 100.0 * sum(base for base, _ in owns)
+    changes = []
+    for entry, (base, value) in zip(entries, owns):
+        delta = value - base
+        if (
+            delta * direction > 0
+            and abs(delta) >= floor
+            and (not base or 100.0 * abs(delta) / base >= _SAME_PCT)
+        ):
+            changes.append({**entry, "base": base, "value": value, "delta": delta})
+    changes.sort(key=lambda change: -abs(change["delta"]))
+    return changes[:_CHANGE_COUNT]

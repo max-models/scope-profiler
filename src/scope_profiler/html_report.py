@@ -11,20 +11,10 @@ which links to a full report built for each run alongside it.
 
 from __future__ import annotations
 
-import builtins
-import functools
 import html
-import io
 import json
-import keyword
-import linecache
-import os
 import re
-import sys
-import tokenize
-from collections import Counter
 from collections.abc import Sequence
-from datetime import datetime, timezone
 from importlib.resources import files
 from pathlib import Path
 
@@ -33,29 +23,81 @@ import numpy as np
 from scope_profiler.inspection import _json_safe
 from scope_profiler.profile_io import read_profile
 from scope_profiler.report_data import (  # noqa: F401  (re-exported)
+    _BALANCE_ROWS,
+    _BUILTIN_NAMES,
+    _CHANGE_COUNT,
+    _CHANGE_FLOOR_PCT,
+    _COMPARE_METRICS,
+    _HOT_CALL_AVG_SECONDS,
+    _HOT_CALL_THRESHOLD,
+    _HOTSPOT_COUNT,
+    _IMBALANCE_FLAG_PCT,
+    _LAYOUT_TOKENS,
+    _LP_FUNCTIONS,
+    _MATRIX_RANKS,
+    _MATRIX_REGIONS,
+    _MATRIX_TEXT_RANKS,
+    _PACKAGE_DIR,
+    _SAME_PCT,
+    _SESSION,
     _SPEEDUP_REGIONS,
+    _STRING_TOKENS,
+    _TIMELINE_REGIONS,
+    _UNCOVERED_FLAG_PCT,
+    SCALING_MODES,
     SPEEDUP_X_CHOICES,
     SPEEDUP_X_FIELDS,
     SpeedupAxisError,
+    _change_items,
     _check_speedup_x,
+    _comparison_entries,
+    _dedent_width,
+    _duration_text,
+    _format_timestamp,
     _has_call_timestamps,
+    _highlight_python,
+    _hotspot_base,
+    _hotspot_entries,
+    _is_own_frame,
+    _line_profile_functions,
+    _metric_text,
+    _metric_value,
+    _per_rank_row,
+    _plural,
+    _rank_balance,
+    _region_index,
     _scaling_field,
     _scaling_value,
+    _seconds,
+    _signed_pct,
+    _source_path,
     _speedup_axes,
     _threads,
     collect_chart_payloads,
 )
-from scope_profiler.results import ProfilingResults
-from scope_profiler.summary import (
-    _format_counter,
-    _region_durations,
-    _session_total,
-    format_region_table,
-    gpu_timing_warnings,
-    likwid_tables,
-    perf_event_tables,
-    region_rows,
+from scope_profiler.report_model import (
+    balance_model,
+    candidate_model,
+    change_model,
+    chart_description_text,
+    chart_panels,
+    compare_table_model,
+    deviation,
+    hardware_model,
+    hotspots_model,
+    line_profile_location,
+    line_profile_model,
+    matrix_model,
+    metadata_model,
+    partition_line_profiles,
+    region_table_model,
+    report_rows,
+    run_meta_model,
+    runs_table_model,
+    summary_model,
+    wall_model,
 )
+from scope_profiler.results import ProfilingResults
 
 _MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 
@@ -833,66 +875,6 @@ def _text(value) -> str:
     return html.escape(str(value))
 
 
-def _seconds(value) -> str:
-    return "-" if value is None else f"{value:.6g} s"
-
-
-def _duration_text(seconds) -> str:
-    """A duration in the unit that keeps it short: 51.2 ms, not 0.0512 s."""
-    if seconds is None:
-        return "-"
-    magnitude = abs(seconds)
-    if magnitude == 0:
-        return "0 s"
-    if magnitude < 1e-6:
-        return f"{seconds * 1e9:.3g} ns"
-    if magnitude < 1e-3:
-        return f"{seconds * 1e6:.3g} µs"
-    if magnitude < 1:
-        return f"{seconds * 1e3:.3g} ms"
-    if magnitude < 1000:
-        return f"{seconds:.4g} s"
-    return f"{seconds:,.0f} s"
-
-
-def _signed_pct(value: float) -> str:
-    """A percent change with a real minus sign, so columns of them line up."""
-    return f"{value:+.1f}%".replace("-", "−")
-
-
-_IMBALANCE_FLAG_PCT = 15.0
-_HOT_CALL_THRESHOLD = 1000
-_HOT_CALL_AVG_SECONDS = 1e-5
-_UNCOVERED_FLAG_PCT = 25.0
-_HOTSPOT_COUNT = 8
-_SESSION = "scope_profiler.session"
-# Past this many regions, the Regions slider opens on only the ones with the
-# most time: more lanes and bars than this cannot be read anyway, and the
-# browser spends seconds drawing them.
-_TIMELINE_REGIONS = 500
-# Which scaling chart(s) a comparison of run sizes shows. Nothing in a profile
-# records the problem size, so the report cannot tell a strong-scaling study
-# (fixed total problem) from a weak-scaling one (fixed problem per rank); the
-# caller says which, and by default both are drawn.
-SCALING_MODES = ("strong", "weak", "both")
-_BALANCE_ROWS = 12
-_MATRIX_REGIONS = 20
-_MATRIX_RANKS = 64
-_MATRIX_TEXT_RANKS = 24
-_CHANGE_COUNT = 5
-# Line profiles: functions listed before "Show all", the share of a function's
-# time that makes a line worth showing, and the fewest lines worth folding.
-_LP_FUNCTIONS = 10
-# Changes smaller than this read as noise rather than as faster or slower.
-_SAME_PCT = 2.0
-# Own-time changes below this share of the baseline are not listed as changes.
-_CHANGE_FLOOR_PCT = 0.5
-
-
-def _plural(count, noun: str) -> str:
-    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
-
-
 def _region_linker(region_ids):
     """Render a region name as a link to its row in the region table."""
 
@@ -902,62 +884,6 @@ def _region_linker(region_ids):
         return f'<a href="#{_text(target)}">{label}</a>' if target else label
 
     return region_link
-
-
-def _hotspot_entries(rows) -> list[dict]:
-    """Where the time goes: the leaves of the call tree, largest first.
-
-    A region's own time - its time outside every nested region - is a leaf
-    of the tree the region table draws: a leaf region's own time is all of
-    its time, and a parent's is its ``(own)`` row. Ranking leaves rather
-    than inclusive totals names the code that costs the time instead of
-    whatever encloses it, and the entries add up to the session.
-    """
-    timed = [row for row in rows if row["total"] is not None]
-    paths = {row["call_path"] for row in timed if "call_path" in row}
-    parents = {path.rsplit(" > ", 1)[0] for path in paths if " > " in path}
-    entries = []
-    for row in timed:
-        if "call_path" in row:
-            path = row["call_path"]
-            if row["name"] == _SESSION:
-                # The session root's own time is the time outside every region.
-                kind = "outside"
-            else:
-                kind = "own" if path in parents else "leaf"
-            context = [part for part in path.split(" > ")[:-1] if part != _SESSION]
-        elif row["name"] == _SESSION:
-            # Without a call tree, the session's time outside every region
-            # is unknown: its fallback "exclusive" time is its whole total.
-            continue
-        else:
-            kind, context = "leaf", []
-        # Legacy profiles whose call tree cannot be rebuilt have no exclusive
-        # figure; inclusive is the only thing left to rank them by.
-        own = row["total"] if row["exclusive"] is None else row["exclusive"]
-        if own <= 0:
-            continue
-        entries.append(
-            {
-                "name": row["name"],
-                "context": context,
-                "kind": kind,
-                "time": own,
-                "calls": row["calls"],
-                # A parent's imbalance is that of its total, not its own time.
-                "imbalance": row["imbalance"] if kind == "leaf" else None,
-            }
-        )
-    entries.sort(key=lambda entry: -entry["time"])
-    return entries
-
-
-def _hotspot_base(rows, entries) -> float:
-    """What a hotspot's share is a share of: the session, when recorded."""
-    session = _session_total(rows)
-    if session and any("call_path" in row for row in rows):
-        return session
-    return sum(entry["time"] for entry in entries)
 
 
 def _hotspot_label(entry) -> str:
@@ -978,33 +904,27 @@ def _hotspot_context(entry) -> str:
 
 def _hotspots_html(results, entries, base) -> str:
     """The largest leaves of the call tree, as a ranked bar list."""
+    model = hotspots_model(entries, base)
     # A single entry has nothing to be ranked against.
-    if len(entries) < 2:
+    if not model["items"]:
         return ""
     run = _text(results.display_label)
     items = []
-    for position, entry in enumerate(entries[:_HOTSPOT_COUNT], start=1):
-        name = _text(entry["name"])
-        share = 100.0 * entry["time"] / base if base else 0.0
-        details = [_duration_text(entry["time"])]
-        if entry["kind"] != "outside":
-            details.append(_plural(entry["calls"], "call"))
-            if entry["calls"]:
-                details.append(f"{_duration_text(entry['time'] / entry['calls'])}/call")
-        if entry["imbalance"] is not None and entry["imbalance"] >= _IMBALANCE_FLAG_PCT:
-            details.append(
-                f'<span class="flag">⚠ slowest rank +{entry["imbalance"]:.0f}%</span>'
-            )
-        title = " › ".join([*entry["context"], entry["name"]])
+    for item in model["items"]:
+        name = _text(item["name"])
+        share = item["share"]
+        details = list(item["details"])
+        if item["flag"]:
+            details.append(f'<span class="flag">⚠ {item["flag"]}</span>')
         items.append(
             f'<li data-region="{name}" data-filter-region="{name}">'
             f'<button class="hotspot" type="button" data-region="{name}"'
-            f' data-run="{run}" title="{_text(title)}">'
-            f'<span class="hs-rank">{position}</span>'
-            f'<span class="hs-name">{_hotspot_label(entry)}'
-            f"{_hotspot_context(entry)}</span>"
+            f' data-run="{run}" title="{_text(item["title"])}">'
+            f'<span class="hs-rank">{item["rank"]}</span>'
+            f'<span class="hs-name">{_hotspot_label(item)}'
+            f"{_hotspot_context(item)}</span>"
             '<span class="hs-bar">'
-            f'<span class="hs-track"><span class="hs-fill {entry["kind"]}"'
+            f'<span class="hs-track"><span class="hs-fill {item["kind"]}"'
             f' style="width:{min(share, 100.0):.4g}%"></span></span>'
             f'<span class="hs-detail">{" · ".join(details)}</span></span>'
             f'<span class="hs-share">{share:.1f}%</span>'
@@ -1028,234 +948,99 @@ def _kpi(label: str, value: str, detail: str = "", tone: str = "") -> str:
     )
 
 
+def _parts_html(parts, region_link, section_id) -> str:
+    """Render a model's text parts: escaped strings, region and section links."""
+    rendered = []
+    for part in parts:
+        if isinstance(part, str):
+            rendered.append(_text(part))
+        elif "region" in part:
+            rendered.append(region_link(part["region"]))
+        else:
+            rendered.append(
+                f'<a href="#{section_id}-{part["anchor"]}">{_text(part["text"])}</a>'
+            )
+    return "".join(rendered)
+
+
 def _summary_html(results, rows, entries, base, balance, region_ids, section_id):
     """Headline numbers and a few sentences on what stands out in one run."""
-    region_link = _region_linker(region_ids)
-    timed = [row for row in rows if row["total"] is not None]
-    if not timed:
+    model = summary_model(results, rows, entries, base, balance)
+    if model["empty"]:
         return '<p class="muted">No timed regions to summarize.</p>'
-
-    kpis = []
-    if results.time_span:
-        kpis.append(
-            _kpi(
-                "Wall time",
-                _text(_duration_text(results.time_span)),
-                "setup to finalize",
-            )
+    region_link = _region_linker(region_ids)
+    kpis = [
+        _kpi(
+            kpi["label"],
+            _parts_html(kpi["value"], region_link, section_id),
+            _text(kpi["detail"]) if kpi["detail"] else "",
+            kpi["tone"],
         )
-    kpis.append(_kpi("Ranks", _text(results.num_ranks)))
-    kpis.append(_kpi("Regions", _text(len({row["name"] for row in rows}))))
-    findings: list[tuple[str, str]] = []
-
-    regions_only = [entry for entry in entries if entry["kind"] != "outside"]
-    outside = next((entry for entry in entries if entry["kind"] == "outside"), None)
-    # A lone session root has no regions for the outside time to be outside of.
-    if outside is not None and base and regions_only:
-        uncovered = 100.0 * outside["time"] / base
-        kpis.append(
-            _kpi(
-                "In regions",
-                f"{100.0 - uncovered:.0f}%",
-                "of the session",
-                "warn" if uncovered >= _UNCOVERED_FLAG_PCT else "",
-            )
-        )
-        if uncovered >= _UNCOVERED_FLAG_PCT:
-            findings.append(
-                (
-                    "warn",
-                    (
-                        f"{uncovered:.0f}% of the session ({_duration_text(outside['time'])}) "
-                        "is outside every region; adding regions there would show "
-                        "where that time goes."
-                    ),
-                )
-            )
-
-    if regions_only:
-        top = regions_only[0]
-        share = f"{100.0 * top['time'] / base:.1f}%" if base else ""
-        kpis.append(
-            _kpi(
-                "Top hotspot",
-                region_link(top["name"]),
-                f"{share} of the session" if share else "",
-            )
-        )
-        where = f" (in {_text(' › '.join(top['context']))})" if top["context"] else ""
-        subject = (
-            f"Time spent directly in {region_link(top['name'])}{where}, outside "
-            "its nested regions,"
-            if top["kind"] == "own"
-            else f"{region_link(top['name'])}{where}"
-        )
-        findings.insert(
-            0,
-            (
-                "info",
-                f"{subject} is the largest hotspot: {_duration_text(top['time'])} over "
-                f"{_plural(top['calls'], 'call')}"
-                + (f", {share} of the session." if share else "."),
-            ),
-        )
-        if len(regions_only) >= 3 and base:
-            top_three = sum(entry["time"] for entry in regions_only[:3])
-            findings.insert(
-                1,
-                (
-                    "info",
-                    (
-                        f"The three largest hotspots account for "
-                        f"{100.0 * top_three / base:.0f}% of the session."
-                    ),
-                ),
-            )
-
-    if balance is not None:
-        worst = balance["regions"][0]
-        tone = "warn" if worst["imbalance"] >= _IMBALANCE_FLAG_PCT else ""
-        kpis.append(
-            _kpi(
-                "Load imbalance",
-                f"+{worst['imbalance']:.0f}%",
-                f"{_text(worst['name'])}, slowest on rank {worst['slowest']}",
-                tone,
-            )
-        )
-        if tone:
-            findings.append(
-                (
-                    "warn",
-                    (
-                        f"{region_link(worst['name'])} is unevenly distributed across "
-                        f"ranks: rank {worst['slowest']} spends {worst['imbalance']:.0f}% "
-                        f"more time in it than the per-rank average "
-                        f"({_duration_text(worst['excess'])} more). See "
-                        f'<a href="#{section_id}-balance">load balance</a>.'
-                    ),
-                )
-            )
-        counts = balance["slowest_counts"]
-        if counts:
-            rank, slowest_in = counts.most_common(1)[0]
-            if slowest_in >= 2 and slowest_in * 2 >= len(balance["regions"]):
-                findings.append(
-                    (
-                        "info",
-                        (
-                            f"Rank {rank} is the slowest rank in {slowest_in} of "
-                            f"{len(balance['regions'])} regions."
-                        ),
-                    )
-                )
-
-    chatty = [
-        row
-        for row in timed
-        if row["calls"] >= _HOT_CALL_THRESHOLD
-        and row["avg"] is not None
-        and row["avg"] < _HOT_CALL_AVG_SECONDS
+        for kpi in model["kpis"]
     ]
-    if chatty:
-        worst = max(chatty, key=lambda row: row["calls"])
-        findings.append(
-            (
-                "warn",
-                (
-                    f"{region_link(worst['name'])} was called "
-                    f"{_text(worst['calls'])} times at ~{worst['avg'] * 1e6:.1f} µs on "
-                    "average; frequent short calls like this can make timer overhead "
-                    "itself measurable."
-                ),
-            )
-        )
-
-    untimed = len(rows) - len(timed)
-    if untimed:
-        findings.append(
-            (
-                "info",
-                f"{_text(untimed)} region(s) recorded no calls on the selected ranks.",
-            )
-        )
     findings_html = (
         '<ul class="findings">'
-        + "".join(f'<li class="{tone}">{text}</li>' for tone, text in findings)
+        + "".join(
+            f'<li class="{item["tone"]}">'
+            f"{_parts_html(item['parts'], region_link, section_id)}</li>"
+            for item in model["findings"]
+        )
         + "</ul>"
-        if findings
+        if model["findings"]
         else ""
     )
     return f'<div class="kpis">{"".join(kpis)}</div>{findings_html}'
 
 
-def _format_timestamp(value) -> str:
-    """An ISO timestamp as minutes in UTC, or as recorded when unparseable."""
-    text = str(value)
-    try:
-        moment = datetime.fromisoformat(text)
-    except ValueError:
-        return text
-    if moment.tzinfo is None:
-        return moment.strftime("%Y-%m-%d %H:%M")
-    return moment.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-
-
 def _run_meta_html(results, region_count: int) -> str:
     """One line on where, when and for how long a run was profiled."""
-    metadata = results.metadata or {}
+    model = run_meta_model(results, region_count)
     parts = []
-    if results.file_path and str(results.file_path) != ".":
-        path = Path(results.file_path)
+    if model["file"]:
         parts.append(
-            f'<span title="{_text(path)}"><code>{_text(path.name)}</code></span>'
+            f'<span title="{_text(model["file"]["path"])}">'
+            f'<code>{_text(model["file"]["name"])}</code></span>'
         )
-    if metadata.get("timestamp"):
-        parts.append(f"<span>{_text(_format_timestamp(metadata['timestamp']))}</span>")
-    parts.extend(
-        f"<span>{_text(metadata[key])}</span>"
-        for key in ("hostname", "chip_information")
-        if metadata.get(key)
-    )
-    parts.append(f"<span>{_plural(results.num_ranks, 'rank')}</span>")
-    parts.append(f"<span>{_plural(region_count, 'region')}</span>")
-    if results.time_span is not None:
+    if model["timestamp"]:
+        parts.append(f"<span>{_text(model['timestamp'])}</span>")
+    parts.extend(f"<span>{_text(host)}</span>" for host in model["host"])
+    parts.append(f"<span>{model['ranks']}</span>")
+    parts.append(f"<span>{model['regions']}</span>")
+    if model["profiled"]:
         parts.append(
-            f'<span title="setup to finalize: {_text(_seconds(results.total_time))}">'
-            f"{_text(_seconds(results.time_span))} profiled</span>"
+            f'<span title="{_text(model["profiled"]["title"])}">'
+            f"{_text(model['profiled']['text'])}</span>"
         )
     return f'<p class="run-meta">{"".join(parts)}</p>'
 
 
 def _metadata_table(metadata: dict) -> str:
-    if not metadata:
+    rows = metadata_model(metadata)
+    if not rows:
         return '<p class="muted">No metadata recorded.</p>'
     entries = "".join(
         f"<tr><th>{_text(key)}</th><td><code>{_text(value)}</code></td></tr>"
-        for key, value in sorted(metadata.items())
+        for key, value in rows
     )
     return f'<table class="meta-table"><tbody>{entries}</tbody></table>'
 
 
-def _rank_breakdown_html(region, ranks) -> str:
+def _rank_breakdown_html(rank_rows) -> str:
     """Per-rank calls/total/avg/min/max table for one region's detail row."""
-    selected = sorted(
-        region.ranks if ranks is None else [r for r in ranks if r in region.regions],
-    )
-    if not selected:
+    if not rank_rows:
         return ""
-    rows = []
-    for rank in selected:
-        data = region.regions[rank]
-        rows.append(
-            "<tr>"
-            f"<td>{rank}</td><td>{_text(data.num_calls)}</td>"
-            f"<td>{_text(f'{data.total_duration:.6g}')}</td>"
-            f"<td>{_text(f'{data.average_duration:.6g}') if data.num_calls else '-'}</td>"
-            f"<td>{_text(f'{data.min_duration:.6g}') if data.num_calls else '-'}</td>"
-            f"<td>{_text(f'{data.max_duration:.6g}') if data.num_calls else '-'}</td>"
-            "</tr>",
-        )
+
+    def seconds(value) -> str:
+        return "-" if value is None else _text(f"{value:.6g}")
+
+    rows = [
+        "<tr>"
+        f"<td>{row['rank']}</td><td>{_text(row['calls'])}</td>"
+        f"<td>{seconds(row['total'])}</td><td>{seconds(row['avg'])}</td>"
+        f"<td>{seconds(row['min'])}</td><td>{seconds(row['max'])}</td>"
+        "</tr>"
+        for row in rank_rows
+    ]
     return (
         "<table class='rank-table'><thead><tr>"
         "<th>rank</th><th>calls</th><th>total [s]</th><th>avg [s]</th>"
@@ -1264,42 +1049,42 @@ def _rank_breakdown_html(region, ranks) -> str:
     )
 
 
-def _region_detail_html(results, region, ranks, functions=(), table_id="lp") -> str:
+def _region_detail_html(detail, table_id="lp") -> str:
     """Expandable detail for one region: call site, tags, ranks and line profile."""
     parts = []
-    if region.tags:
+    if detail["tags"]:
         parts.append(
-            "".join(f'<span class="tag">{_text(tag)}</span>' for tag in region.tags),
+            "".join(f'<span class="tag">{_text(tag)}</span>' for tag in detail["tags"]),
         )
-    if region.has_source:
+    source = detail["source"]
+    if source:
         parts.append(
-            f"<p class='muted'>{_text(region.source_file)}:{_text(region.source_lineno)}</p>",
+            f"<p class='muted'>{_text(source['file'])}:{_text(source['line'])}</p>",
         )
-        # A run with line profiles shows the code, with its timings, there;
-        # the captured snippet would only repeat it.
-        if region.source_text and not any(results.line_profile.values()):
-            parts.append(
-                f"<pre><code>{_text(region.source_text.rstrip())}</code></pre>",
-            )
-    if region.has_gpu_timing:
+        if source["snippet"]:
+            parts.append(f"<pre><code>{_text(source['snippet'])}</code></pre>")
+    gpu = detail["gpu"]
+    if gpu:
         parts.append(
-            f"<p>GPU total: {_seconds(region.gpu_total_duration)}, "
-            f"GPU average: {_seconds(region.gpu_average_duration)}</p>",
+            f"<p>GPU total: {_seconds(gpu['total'])}, "
+            f"GPU average: {_seconds(gpu['average'])}</p>",
         )
-    breakdown = _rank_breakdown_html(region, ranks)
+    breakdown = _rank_breakdown_html(detail["ranks"])
     if breakdown:
         parts.append("<p class='muted'>Per rank</p>" + breakdown)
-    if functions:
+    if detail["line_profiles"]:
         parts.append(
             "<p class='muted'>Line profile</p>"
             + "".join(
                 '<div class="lp-block"><p class="lp-head">'
                 f'<span class="lp-func">{_text(entry["function"])}</span>'
-                f"{_lp_location_html(results, entry)}"
+                f"{_lp_location_html(entry['location'])}"
                 f'<span class="lp-total">{_text(_duration_text(entry["total"]))}</span></p>'
-                + _line_profile_table(entry, f"{table_id}-{index}")
+                + _line_profile_table_html(
+                    entry["table"], entry["location"]["title"], f"{table_id}-{index}"
+                )
                 + "</div>"
-                for index, entry in enumerate(functions)
+                for index, entry in enumerate(detail["line_profiles"])
             )
         )
     if not parts:
@@ -1333,16 +1118,12 @@ def _sparkline_svg(durations, width: int = 90, height: int = 22) -> str:
     )
 
 
-# The tree glyphs and column indentation that format_region_table() puts in
-# front of a cell's value. Kept in their own span so that re-sorting the table
-# by a column, which breaks the hierarchy, can hide them.
-_CELL_INDENT = re.compile(r"^[ │└─]*")
-
-
-def _indented_cell(text: str) -> str:
-    indent = _CELL_INDENT.match(text).group()  # type: ignore[union-attr]
-    value = _text(text[len(indent) :])
-    return f'<span class="indent">{_text(indent)}</span>{value}' if indent else value
+def _cell_html(cell) -> str:
+    """A table cell's text, with its tree glyphs in a span of their own."""
+    value = _text(cell["text"])
+    if cell["indent"]:
+        return f'<span class="indent">{_text(cell["indent"])}</span>{value}'
+    return value
 
 
 def _region_table(
@@ -1356,120 +1137,88 @@ def _region_table(
 ) -> str:
     """Region statistics laid out like the terminal summary table.
 
-    Cell text comes from :func:`~scope_profiler.summary.format_region_table`,
-    so the report shows the same tree, call counts and ``(own)`` rows. Each
-    region is one ``<tbody>``, holding its row, its ``(own)`` row when it has
-    children, and its expandable detail row, so sorting, filtering and
+    Each region is one ``<tbody>``, holding its row, its ``(own)`` row when it
+    has children, and its expandable detail row, so sorting, filtering and
     collapsing the tree move them together.
     """
     region_ids = {} if region_ids is None else region_ids
-    line_profiles = {} if line_profiles is None else line_profiles
-    selected_columns, display_rows = format_region_table(rows, columns)
+    model = region_table_model(results, rows, ranks, columns, line_profiles)
+    keys = [column["key"] for column in model["columns"]]
     headers = "".join(
-        f'<th data-key="{key}">{_text(header)}</th>' for key, header in selected_columns
+        f'<th data-key="{column["key"]}">{_text(column["header"])}</th>'
+        for column in model["columns"]
     )
     headers += "<th>trend</th>"
-    keys = [key for key, _ in selected_columns]
-    max_total = max((row["total"] or 0.0 for row in rows), default=0.0)
-    session_total = _session_total(rows)
 
-    # (own) rows follow exactly the regions that have children in the table.
-    parents = {row.get("call_path") for row, _, is_own in display_rows if is_own}
-
-    def cells(display, bar_value, toggle='<span class="tree-toggle"></span>') -> str:
+    def cells(cells_, bar, toggle='<span class="tree-toggle"></span>') -> str:
         rendered = []
         for key in keys:
-            text = _indented_cell(display[key])
+            cell = cells_[key]
+            text = _cell_html(cell)
             if key == "name":
                 rendered.append(f"<td>{toggle}<span>{text}</span></td>")
-            elif key == "total" and max_total and display[key]:
-                width = 100.0 * (bar_value or 0.0) / max_total
+            elif (
+                key == "total" and bar is not None and (cell["indent"] or cell["text"])
+            ):
                 rendered.append(
-                    f'<td class="bar-cell"><span class="bar" style="width:{width:.4g}%">'
+                    f'<td class="bar-cell"><span class="bar" style="width:{bar:.4g}%">'
                     f"</span><span>{text}</span></td>"
                 )
             else:
                 rendered.append(f"<td>{text}</td>")
         return "".join(rendered)
 
-    def sort_value(row, key) -> str:
-        if key == "ranks":
-            value = row["num_ranks"]
-        elif key == "percent":
-            value = (
-                100.0 * row["coverage"] / session_total
-                if row.get("coverage") is not None and session_total
-                else None
-            )
-        elif key == "parent_percent":
-            value = (
-                100.0 * row["coverage"] / row["parent_coverage"]
-                if row.get("coverage") is not None and row.get("parent_coverage")
-                else None
-            )
-        else:
-            value = row[key]
-        return "" if value is None else str(value)
-
-    groups: list[list[str]] = []
+    groups: list[str] = []
     linked: set[str] = set()
-    for row, display, is_own in display_rows:
-        if is_own:
-            # Directly after its parent region's row, ahead of the detail row.
-            groups[-1].insert(
-                -1,
-                f'<tr class="own-row">{cells(display, row["exclusive"])}<td></td></tr>',
-            )
-            continue
-        region = results.get_region(row["name"])
+    for index, group in enumerate(model["groups"]):
         data_attrs = " ".join(
-            f'data-{key}="{_text(sort_value(row, key))}"' for key in keys
+            f'data-{key}="{_text(group["sort"][key])}"' for key in keys
         )
-        # The sort keys follow the chosen columns, so the filter gets a hook of
-        # its own rather than depending on "name" being one of them.
-        region_attr = _text(row["name"])
-        run_attr = _text(results.display_label)
+        region_attr = _text(group["name"])
+        run_attr = _text(group["run"])
         # A region reached along several call paths has one row per path;
         # links from the overview target the first of them.
-        row_id = None if row["name"] in linked else region_ids.get(row["name"])
-        linked.add(row["name"])
+        row_id = None if group["name"] in linked else region_ids.get(group["name"])
+        linked.add(group["name"])
         id_attr = f' id="{_text(row_id)}"' if row_id else ""
         # Rows without a reconstructable call path stay outside the tree.
         tree_attrs = (
-            f' data-path="{_text(row["call_path"])}" data-depth="{row["depth"]}"'
-            if "call_path" in row
+            f' data-path="{_text(group["path"])}" data-depth="{group["depth"]}"'
+            if group["path"] is not None
             else ""
         )
-        functions = line_profiles.get(row["name"], ())
-        if row.get("call_path") in parents:
+        if group["has_children"]:
             toggle = (
                 '<button class="tree-toggle" type="button" aria-expanded="true"'
                 ' title="Collapse or expand the nested regions">▾</button>'
             )
-            row_cells = cells(display, row["total"], toggle)
+            row_cells = cells(group["cells"], group["bar"], toggle)
         else:
-            row_cells = cells(display, row["total"])
+            row_cells = cells(group["cells"], group["bar"])
+        own = (
+            f'<tr class="own-row">{cells(group["own"]["cells"], group["own"]["bar"])}'
+            "<td></td></tr>"
+            if group["own"]
+            else ""
+        )
         head = (
             f'<tbody data-region="{region_attr}" data-run="{run_attr}"'
             f"{tree_attrs} {data_attrs}>"
             f'<tr class="region-row" tabindex="0" aria-expanded="false"{id_attr}>'
             f"{row_cells}"
-            f"<td>{_sparkline_svg(_region_durations(region, ranks))}</td></tr>"
+            f"<td>{_sparkline_svg(group['durations'])}</td></tr>"
         )
         detail = (
             '<tr class="region-detail" hidden>'
             f'<td colspan="{len(keys) + 1}">'
             # A region on several call paths has a detail row per path, so
             # the ids of its line tables carry the row's position.
-            + _region_detail_html(
-                results, region, ranks, functions, f"{table_id}-{len(groups)}-lp"
-            )
+            + _region_detail_html(group["detail"], f"{table_id}-{index}-lp")
             + "</td></tr></tbody>"
         )
-        # (own) rows are inserted between the two as they come.
-        groups.append([head, detail])
-    body = "".join("".join(group) for group in groups)
-    if rows:
+        groups.append(head + own + detail)
+    body = "".join(groups)
+    if not model["empty"]:
         body += (
             '<tbody class="region-empty" hidden><tr>'
             f'<td colspan="{len(keys) + 1}" class="empty-state">'
@@ -1477,26 +1226,13 @@ def _region_table(
         )
     else:
         body = f'<tbody><tr><td colspan="{len(keys) + 1}">No regions recorded.</td></tr></tbody>'
-    notes = ["Durations are in seconds.", *gpu_timing_warnings(rows)]
-    if parents:
-        notes.append("(own) rows show a region's time excluding its children.")
-    if session_total is not None and "percent" in keys:
-        notes.append(
-            "% session uses wall-clock coverage; overlapping recursive calls count once."
-        )
-    if rows:
-        notes.append(
-            "Click a row for its call site, line profile and per-rank breakdown."
-            if line_profiles
-            else "Click a row for its call site and per-rank breakdown."
-        )
     tools = (
         '<div class="table-tools">'
         f'<button type="button" data-tree-action="collapse" data-table="{table_id}">'
         "Collapse all</button>"
         f'<button type="button" data-tree-action="expand" data-table="{table_id}">'
         "Expand all</button></div>"
-        if parents
+        if model["tree"]
         else ""
     )
     # No scrolling wrapper: an overflow container would stop the sticky
@@ -1508,238 +1244,34 @@ def _region_table(
         + "</tr></thead>"
         + body
         + "</table>"
-        + f'<p class="muted table-note">{_text(" ".join(notes))}</p>'
+        + f'<p class="muted table-note">{_text(" ".join(model["notes"]))}</p>'
     )
-
-
-# Line profiles of scope-profiler's own frames - the session's __enter__,
-# for one - say nothing about the code being profiled.
-_PACKAGE_DIR = Path(__file__).resolve().parent
-
-
-def _is_own_frame(filename) -> bool:
-    try:
-        return Path(filename).resolve().is_relative_to(_PACKAGE_DIR)
-    except (OSError, ValueError):
-        return False
-
-
-def _line_profile_functions(results, ranks) -> list[dict]:
-    """Line timings per profiled function, summed over the selected ranks."""
-    available = results.line_profile
-    selected_ranks = sorted(
-        available if ranks is None else [rank for rank in ranks if rank in available],
-    )
-    functions: dict[tuple, dict] = {}
-    for rank in selected_ranks:
-        for record in available.get(rank, []):
-            if _is_own_frame(record["filename"]):
-                continue
-            key = (
-                record["region"],
-                record["filename"],
-                record["function"],
-                int(record["first_lineno"]),
-            )
-            entry = functions.setdefault(
-                key, {"lines": {}, "ranks": set(), "stored": {}}
-            )
-            entry["ranks"].add(rank)
-            if record.get("source") and not entry["stored"]:
-                first = int(record["source_first_lineno"])
-                entry["stored"] = dict(
-                    enumerate(str(record["source"]).split("\n"), start=first)
-                )
-            unit = float(record["unit"])
-            for line, hits, elapsed in zip(
-                record["line_numbers"], record["hits"], record["times"]
-            ):
-                stats = entry["lines"].setdefault(int(line), [0, 0.0])
-                stats[0] += int(hits)
-                stats[1] += float(elapsed) * unit
-    result = []
-    for (region, filename, function, first_lineno), entry in functions.items():
-        result.append(
-            {
-                "region": region,
-                "filename": filename,
-                "function": function,
-                "first_lineno": first_lineno,
-                "lines": entry["lines"],
-                # The source stored with the timings; files recorded before
-                # it was stored are read from the source file instead.
-                "stored": entry["stored"],
-                "ranks": sorted(entry["ranks"]),
-                "total": sum(seconds for _, seconds in entry["lines"].values()),
-            }
-        )
-    result.sort(key=lambda entry: -entry["total"])
-    return result
-
-
-def _dedent_width(lines) -> int:
-    """The indentation every non-blank line shares, to strip from all of them."""
-    widths = [len(line) - len(line.lstrip()) for line in lines if line.strip()]
-    return min(widths, default=0)
-
-
-_BUILTIN_NAMES = frozenset(dir(builtins))
-# f-strings (3.12+) and t-strings (3.14+) arrive as several tokens.
-_STRING_TOKENS = frozenset(
-    {tokenize.STRING}
-    | {
-        getattr(tokenize, name)
-        for name in (
-            "FSTRING_START",
-            "FSTRING_MIDDLE",
-            "FSTRING_END",
-            "TSTRING_START",
-            "TSTRING_MIDDLE",
-            "TSTRING_END",
-        )
-        if hasattr(tokenize, name)
-    }
-)
-_LAYOUT_TOKENS = frozenset(
-    {tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT, tokenize.COMMENT}
-)
-
-
-def _highlight_python(lines: list[str]) -> list[str]:
-    """Python source lines as HTML, with each token in a classed span.
-
-    The standard library's tokenizer rather than a highlighting package: the
-    report takes no dependency for it, and line profiles are always Python.
-    The lines are a slice of a file, so they may end inside a statement or a
-    string; whatever tokenizes before that is highlighted, the rest is plain.
-    """
-    marks: list[list[tuple[int, int, str]]] = [[] for _ in lines]
-    previous = None
-    decorator = False
-    try:
-        tokens = tokenize.generate_tokens(io.StringIO("\n".join(lines) + "\n").readline)
-        for token in tokens:
-            kind = None
-            if token.type == tokenize.COMMENT:
-                kind = "tk-com"
-            elif token.type in _STRING_TOKENS:
-                kind = "tk-str"
-            elif token.type == tokenize.NUMBER:
-                kind = "tk-num"
-            elif token.type == tokenize.OP:
-                if token.string == "@" and (
-                    previous is None or previous.type == tokenize.NEWLINE
-                ):
-                    decorator = True
-                elif token.string != ".":
-                    decorator = False
-                if decorator:
-                    kind = "tk-dec"
-            elif token.type == tokenize.NAME:
-                after_dot = previous is not None and previous.string == "."
-                if decorator:
-                    kind = "tk-dec"
-                elif previous is not None and previous.string in ("def", "class"):
-                    kind = "tk-fn"
-                elif token.string in ("True", "False", "None"):
-                    kind = "tk-const"
-                elif keyword.iskeyword(token.string):
-                    kind = "tk-kw"
-                elif token.string in ("self", "cls"):
-                    kind = "tk-self"
-                elif token.string in _BUILTIN_NAMES and not after_dot:
-                    kind = "tk-bi"
-            if token.type not in _LAYOUT_TOKENS or token.type == tokenize.NEWLINE:
-                previous = token
-            if kind is None:
-                continue
-            (first_row, first_col), (last_row, last_col) = token.start, token.end
-            # A triple-quoted string spans lines: mark its part of each.
-            for row in range(first_row, min(last_row, len(lines)) + 1):
-                start = first_col if row == first_row else 0
-                end = last_col if row == last_row else len(lines[row - 1])
-                if end > start:
-                    marks[row - 1].append((start, end, kind))
-    except (tokenize.TokenError, SyntaxError):
-        pass
-    rendered = []
-    for line, line_marks in zip(lines, marks):
-        parts = []
-        cursor = 0
-        for start, end, kind in sorted(line_marks):
-            if start < cursor:
-                continue
-            parts.append(html.escape(line[cursor:start]))
-            parts.append(f'<span class="{kind}">{html.escape(line[start:end])}</span>')
-            cursor = end
-        parts.append(html.escape(line[cursor:]))
-        rendered.append("".join(parts))
-    return rendered
-
-
-@functools.lru_cache(maxsize=256)
-def _source_path(filename: str) -> str:
-    """Where to read a recorded source file from, here.
-
-    Profiles store paths relative to the working directory or to the
-    ``sys.path`` entry the file was imported from, so a relative path is
-    looked up against both, in that order.
-    """
-    if os.path.isabs(filename) or os.path.isfile(filename):
-        return filename
-    for root in sys.path:
-        candidate = os.path.join(root or os.curdir, filename)
-        if os.path.isfile(candidate):
-            return candidate
-    return filename
 
 
 def _line_profile_table(entry, table_id) -> str:
     """One function's source, each line with the time spent on it."""
-    recorded = entry["lines"]
-    total = entry["total"]
-    first = min(entry["first_lineno"], min(recorded))
-    last = max(recorded)
-    stored = entry.get("stored") or {}
-    path = _source_path(entry["filename"])
-    sources = {
-        number: (
-            stored[number]
-            if number in stored
-            else linecache.getline(path, number).rstrip("\n")
-        ).expandtabs()
-        for number in range(first, last + 1)
-    }
-    # With the source at hand, show the function as it reads, unrecorded
-    # lines (comments, blank lines, the def) included; without it, only
-    # the lines that have timings.
-    numbers = (
-        list(range(first, last + 1)) if any(sources.values()) else sorted(recorded)
+    return _line_profile_table_html(
+        line_profile_model(entry), entry["filename"], table_id
     )
-    strip = _dedent_width(sources[number] for number in numbers)
-    highlighted = dict(
-        zip(numbers, _highlight_python([sources[number][strip:] for number in numbers]))
-    )
-    hottest = max(recorded, key=lambda number: recorded[number][1])
+
+
+def _line_profile_table_html(model, filename, table_id) -> str:
+    """The table of a :func:`line_profile_model`."""
     body = []
-    for number in numbers:
-        source = highlighted[number]
-        if number not in recorded:
+    for row in model["rows"]:
+        if not row["recorded"]:
             body.append(
-                f'<tr class="lp-idle"><td class="lp-lineno">{number}</td>'
-                f'<td></td><td></td><td></td><td></td><td class="lp-src">{source}</td></tr>'
+                f'<tr class="lp-idle"><td class="lp-lineno">{row["number"]}</td>'
+                f'<td></td><td></td><td></td><td></td><td class="lp-src">{row["source"]}</td></tr>'
             )
             continue
-        hits, seconds = recorded[number]
-        percent = 100.0 * seconds / total if total else 0.0
-        per_hit = seconds / hits if hits else 0.0
-        row_class = ' class="lp-hot"' if number == hottest and total else ""
+        row_class = ' class="lp-hot"' if row["hot"] else ""
         body.append(
-            f'<tr{row_class}><td class="lp-lineno">{number}</td>'
-            f"<td>{hits:,}</td><td>{_text(_duration_text(seconds))}</td>"
-            f"<td>{_text(_duration_text(per_hit))}</td>"
-            f'<td class="lp-pct" style="--pct:{min(percent, 100.0):.3g}%">{percent:.2f}%</td>'
-            f'<td class="lp-src">{source}</td></tr>'
+            f'<tr{row_class}><td class="lp-lineno">{row["number"]}</td>'
+            f"<td>{row['hits']:,}</td><td>{_text(_duration_text(row['seconds']))}</td>"
+            f"<td>{_text(_duration_text(row['per_hit']))}</td>"
+            f'<td class="lp-pct" style="--pct:{min(row["percent"], 100.0):.3g}%">{row["percent"]:.2f}%</td>'
+            f'<td class="lp-src">{row["source"]}</td></tr>'
         )
     return (
         f'<div class="lp-scroll"><table class="lp-table" id="{table_id}"><thead><tr>'
@@ -1749,26 +1281,20 @@ def _line_profile_table(entry, table_id) -> str:
         + "</tbody></table></div>"
         + (
             ""
-            if any(sources.values())
+            if model["has_source"]
             else '<p class="muted table-note">No source: this profile does not store '
-            f"it, and <code>{_text(entry['filename'])}</code> could not be read from "
+            f"it, and <code>{_text(filename)}</code> could not be read from "
             "here. Profiles recorded with the current scope-profiler carry the "
             "source with them.</p>"
         )
     )
 
 
-def _lp_location_html(results, entry) -> str:
+def _lp_location_html(location) -> str:
     """Where a profiled function is, and on how many ranks it ran."""
-    location = f"{Path(entry['filename']).name}:{entry['first_lineno']}"
-    ranks_note = (
-        f" · {_plural(len(entry['ranks']), 'rank')}"
-        if len(entry["ranks"]) > 1
-        else f" · rank {entry['ranks'][0]}" if results.num_ranks > 1 else ""
-    )
     return (
-        f'<span class="lp-loc" title="{_text(entry["filename"])}">'
-        f"{_text(location)}{_text(ranks_note)}</span>"
+        f'<span class="lp-loc" title="{_text(location["title"])}">'
+        f"{_text(location['text'])}</span>"
     )
 
 
@@ -1790,7 +1316,7 @@ def _line_profile_html(results, functions, section_id="run-0") -> str:
             f'<details class="lp-function{extra}">'
             f'<summary><span class="lp-func">{_text(entry["function"])}</span>'
             f'<span class="lp-region">{_text(entry["region"])}</span>'
-            f"{_lp_location_html(results, entry)}"
+            f"{_lp_location_html(line_profile_location(results, entry))}"
             f'<span class="lp-bar"><span style="width:{share:.3g}%"></span></span>'
             f'<span class="lp-total">{_text(_duration_text(entry["total"]))}</span>'
             f'<span class="lp-share">{share:.0f}%</span>'
@@ -1819,12 +1345,7 @@ def _counter_table(headers, rows) -> str:
     """Render a horizontally scrollable hardware-counter table."""
     heading = "".join(f"<th>{_text(value)}</th>" for value in headers)
     body = "".join(
-        "<tr>"
-        + "".join(
-            f"<td>{_text(value) if index == 0 else _text(_format_counter(value))}</td>"
-            for index, value in enumerate(row)
-        )
-        + "</tr>"
+        "<tr>" + "".join(f"<td>{_text(value)}</td>" for value in row) + "</tr>"
         for row in rows
     )
     return (
@@ -1839,41 +1360,16 @@ def _counter_table(headers, rows) -> str:
 def _hardware_sections(runs, include, exclude, ranks) -> str:
     """Render counter tables only for runs that recorded hardware metrics."""
     fragments = []
-    for run in runs:
-        for table in likwid_tables(run, include=include, exclude=exclude, ranks=ranks):
-            sections = []
-            for heading, rows in table["sections"]:
-                if not rows:
-                    continue
-                section_heading = f"<h4>{_text(heading)}</h4>" if heading else ""
-                sections.append(
-                    section_heading
-                    + _counter_table(
-                        ("counter", *table["columns"]),
-                        ((name, *values) for name, values in rows),
-                    ),
-                )
-            fragments.append(
-                '<details class="counter-panel">'
-                f"<summary>LIKWID: {_text(run.display_label)}, rank "
-                f"{_text(table['rank'])}, group {_text(table['group'])}</summary>"
-                + "".join(sections)
-                + "</details>",
-            )
-
-        for table in perf_event_tables(
-            run,
-            include=include,
-            exclude=exclude,
-            ranks=ranks,
-        ):
-            fragments.append(
-                '<details class="counter-panel">'
-                f"<summary>Linux perf events: {_text(run.display_label)}, "
-                f"rank {_text(table['rank'])}</summary>"
-                + _counter_table(("region", "calls", *table["events"]), table["rows"])
-                + "</details>",
-            )
+    for panel in hardware_model(runs, include, exclude, ranks):
+        tables = "".join(
+            (f"<h4>{_text(section['heading'])}</h4>" if section["heading"] else "")
+            + _counter_table(section["columns"], section["rows"])
+            for section in panel["sections"]
+        )
+        fragments.append(
+            '<details class="counter-panel">'
+            f"<summary>{_text(panel['title'])}</summary>" + tables + "</details>",
+        )
 
     if not fragments:
         return ""
@@ -1899,42 +1395,6 @@ def _depth_label(value: int, max_depth: int) -> str:
     if value == 0:
         return "top level only"
     return f"{value} level{'s' if value > 1 else ''} of children"
-
-
-def _region_index(runs, include, exclude, ranks) -> dict[str, list]:
-    """``{region: [seconds, depth]}`` for the Regions and Depth sliders.
-
-    ``seconds`` is the region's largest total over the runs, summed over the
-    selected ranks, so a region costly in any run ranks high. ``depth`` is the
-    shallowest level its calls reach on the first rank of any run - 0 for a
-    top-level call - or None when that rank's calls do not nest.
-    """
-    from scope_profiler.call_stack import NestingError, build_call_arrays
-
-    index: dict[str, list] = {}
-    for run in runs:
-        for region in run.get_regions(include=include, exclude=exclude):
-            seconds = sum(
-                rank_region.total_duration
-                for rank, rank_region in region.regions.items()
-                if ranks is None or rank in ranks
-            )
-            entry = index.setdefault(region.name, [0.0, None])
-            entry[0] = max(entry[0], seconds)
-        rank = 0 if ranks is None else min(ranks, default=0)
-        try:
-            arrays = build_call_arrays(run.get_regions(), rank)
-        except NestingError:
-            continue
-        shallowest: dict[str, int] = {}
-        for row, depth in zip(arrays.region_index.tolist(), arrays.depth.tolist()):
-            name = arrays.names[row]
-            shallowest[name] = min(depth, shallowest.get(name, depth))
-        for name, depth in shallowest.items():
-            if name in index:
-                known = index[name][1]
-                index[name][1] = depth if known is None else min(known, depth)
-    return index
 
 
 def _region_limits(controls: dict) -> str:
@@ -1981,209 +1441,59 @@ def _region_limits(controls: dict) -> str:
 
 def _chart_description(title: str, payload: dict, comparison: bool = False) -> str:
     """Explain how to read one chart in the report."""
-    if title.startswith("Timeline:"):
-        text = (
-            "Each bar is one recorded region call on rank 0. Its position and "
-            "width show when the call started and how long it ran; colors "
-            "identify regions."
-        )
-    elif title == "Region durations":
-        what = (
-            "mean call duration"
-            if payload.get("metrics") == ["avg"]
-            else "total recorded duration"
-        )
-        if payload.get("options", {}).get("stack_children"):
-            text = (
-                f"Each bar shows a region's {what}, summed over the selected "
-                "ranks. The stacked segments divide that time between the "
-                "region itself (self) and the regions it calls directly."
-            )
-        elif not comparison:
-            text = (
-                f"Each bar shows a region's {what}, summed over the selected "
-                "ranks, longest first."
-            )
-        else:
-            text = (
-                f"Grouped bars compare each region's {what} across the profiled runs."
-            )
-    elif title.startswith("Change:"):
-        text = (
-            "Percent change in each region's total duration, candidate over "
-            "baseline. Bars above zero got slower; a region measured in only "
-            "one run leaves a gap rather than reading as a 100% change."
-        )
-    elif title == "Speedup":
-        # Marked so the x-axis buttons can rename it along with the chart.
-        field = (
-            "<span data-axis-label>"
-            + _text(payload.get("options", {}).get("x_label", "ranks"))
-            + "</span>"
-        )
-        text = (
-            "Each line is one region's speedup: its mean call duration on the run "
-            f"with the fewest {field} divided by its mean call duration on "
-            "each run. The dashed line is ideal scaling; a region below it gains "
-            f"less than its extra {field} would allow. The "
-            f"{_SPEEDUP_REGIONS} regions with the most time on that first run are "
-            "shown. Valid for a strong-scaling study: the same total problem size "
-            "on every run."
-        )
-    elif title == "Weak scaling":
-        # Marked so the x-axis buttons can rename it along with the chart.
-        field = (
-            "<span data-axis-label>"
-            + _text(payload.get("options", {}).get("x_label", "ranks"))
-            + "</span>"
-        )
-        text = (
-            "Each line is one region's weak-scaling efficiency: its mean call "
-            f"duration on the run with the fewest {field} divided by its "
-            "mean call duration on each run. The dashed line at 1 is ideal: the "
-            "same time per call however large the run; a region below it loses "
-            "time to costs that grow with the run, such as communication or load "
-            f"imbalance. The {_SPEEDUP_REGIONS} regions with the most time on that "
-            "first run are shown. Valid for a weak-scaling study: the problem "
-            "grows with the run, so every run has the same problem size per "
-            "rank or core."
-        )
-    elif title == "Rank heatmap":
-        text = (
-            "This heatmap uses exclusive timings. Exclusive duration is the time "
-            "spent in a region itself, excluding time spent in nested child "
-            "regions; this prevents the enclosing session region from dominating "
-            "the heatmap."
-        )
-    elif title == "Rank imbalance":
-        text = (
-            "Each line compares a region's total duration by rank; its dashed line "
-            "marks the mean across ranks. Points far from the mean identify stragglers."
-        )
-    elif title.startswith("LIKWID:"):
-        text = (
-            "Bars compare the selected LIKWID metric across regions and ranks. "
-            "The hardware-counter tables above retain every recorded event and metric."
-        )
-    else:
+    text = chart_description_text(title, payload, comparison)
+    if not text:
         return ""
+    # Marked so the x-axis buttons can rename it along with the chart.
+    label = _text(payload.get("options", {}).get("x_label", "ranks"))
+    text = text.replace("{axis}", f"<span data-axis-label>{label}</span>")
     return f'<p class="muted">{text}</p>'
-
-
-def _rank_balance(results, rows, ranks) -> dict | None:
-    """Per-rank time in each region, for the load-balance views.
-
-    Own time rather than inclusive: a parent's inclusive total repeats every
-    child's imbalance, so ranking it would mostly name the session. Own times
-    are disjoint, so they also add up to each rank's time inside regions.
-    Without a call tree there is no own time, and totals are used instead.
-    """
-    selected = sorted(
-        rank
-        for rank in (range(results.num_ranks) if ranks is None else ranks)
-        if 0 <= rank < results.num_ranks
-    )
-    if len(selected) < 2:
-        return None
-    timed = [
-        row for row in rows if row["total"] is not None and row["name"] != _SESSION
-    ]
-    own = bool(timed) and all("call_path" in row for row in timed)
-    regions = []
-    for name in dict.fromkeys(row["name"] for row in timed):
-        region = results.get_region(name)
-        values = np.asarray(
-            [
-                (
-                    (
-                        region.regions[rank].total_exclusive_duration
-                        if own
-                        else region.regions[rank].total_duration
-                    )
-                    if rank in region.regions
-                    else 0.0
-                )
-                for rank in selected
-            ],
-            dtype=float,
-        )
-        mean = float(values.mean())
-        if mean <= 0:
-            continue
-        peak = int(values.argmax())
-        regions.append(
-            {
-                "name": name,
-                "values": values,
-                "mean": mean,
-                "min": float(values.min()),
-                "max": float(values.max()),
-                "slowest": selected[peak],
-                "imbalance": (float(values.max()) / mean - 1.0) * 100.0,
-                "excess": float(values.max()) - mean,
-            }
-        )
-    if not regions:
-        return None
-    # Largest excess first: the time balancing a region could save.
-    regions.sort(key=lambda entry: -entry["excess"])
-    return {
-        "ranks": selected,
-        "regions": regions,
-        "own": own,
-        "totals": np.sum([entry["values"] for entry in regions], axis=0),
-        "slowest_counts": Counter(
-            entry["slowest"] for entry in regions if entry["excess"] > 0
-        ),
-    }
 
 
 def _deviation_style(value: float, mean: float) -> str:
     """Background for a matrix cell: blue below the region's mean, red above."""
-    if mean <= 0:
+    return _shade_style(deviation(value, mean))
+
+
+def _shade_style(shade) -> str:
+    if shade is None:
         return ""
-    deviation = (value - mean) / mean
-    if abs(deviation) < _SAME_PCT / 100.0:
-        return ""
-    strength = min(abs(deviation) / 0.5, 1.0)
-    color = "220,38,38" if deviation > 0 else "37,99,235"
-    return f' style="background:rgba({color},{0.08 + 0.47 * strength:.2f})"'
+    color = "220,38,38" if shade["sign"] > 0 else "37,99,235"
+    return f' style="background:rgba({color},{shade["alpha"]:.2f})"'
 
 
 def _load_balance_html(results, balance, region_ids, section_id) -> str:
     """How evenly each region's time is spread over the ranks."""
     run = _text(results.display_label)
-    metric = "own time" if balance["own"] else "total time"
-    scale = max(entry["max"] for entry in balance["regions"]) or 1.0
+    model = balance_model(results, balance)
     table_id = f"{section_id}-balance-table"
     body = []
-    for index, entry in enumerate(balance["regions"]):
+    for index, entry in enumerate(model["rows"]):
         name = _text(entry["name"])
-        low = 100.0 * entry["min"] / scale
-        high = 100.0 * entry["max"] / scale
-        flag = ' class="flag"' if entry["imbalance"] >= _IMBALANCE_FLAG_PCT else ""
-        extra = " extra" if index >= _BALANCE_ROWS else ""
+        low, high = entry["low"], entry["high"]
+        flag = ' class="flag"' if entry["flag"] else ""
+        extra = " extra" if index >= model["limit"] else ""
         body.append(
             f'<tr class="select-row{extra}" data-region="{name}" data-run="{run}"'
             f' data-filter-region="{name}">'
             f'<td title="{name}">{name}</td>'
-            f"<td>{_text(_duration_text(entry['mean']))}</td>"
-            f"<td>{_text(_duration_text(entry['min']))}</td>"
-            f"<td>{_text(_duration_text(entry['max']))}</td>"
+            f"<td>{_text(entry['mean_text'])}</td>"
+            f"<td>{_text(entry['min_text'])}</td>"
+            f"<td>{_text(entry['max_text'])}</td>"
             f"<td>{entry['slowest']}</td>"
             f"<td{flag}>+{entry['imbalance']:.0f}%</td>"
-            f"<td>{_text(_duration_text(entry['excess']))}</td>"
+            f"<td>{_text(entry['excess_text'])}</td>"
             '<td><span class="spread">'
             f'<span class="spread-range" style="left:{low:.3g}%;width:{max(high - low, 0.5):.3g}%"></span>'
-            f'<span class="spread-mean" style="left:{100.0 * entry["mean"] / scale:.3g}%"></span>'
+            f'<span class="spread-mean" style="left:{entry["mean_pos"]:.3g}%"></span>'
             "</span></td></tr>"
         )
-    more = len(balance["regions"]) - _BALANCE_ROWS
+    more = len(model["rows"]) - model["limit"]
     toggle = (
         f'<div class="table-tools"><button type="button" data-show-all="{table_id}"'
-        f' data-more-label="Show all {len(balance["regions"])} regions"'
-        f' data-less-label="Show the top {_BALANCE_ROWS}">'
-        f"Show all {len(balance['regions'])} regions</button></div>"
+        f' data-more-label="Show all {len(model["rows"])} regions"'
+        f' data-less-label="Show the top {model["limit"]}">'
+        f"Show all {len(model['rows'])} regions</button></div>"
         if more > 0
         else ""
     )
@@ -2199,11 +1509,11 @@ def _load_balance_html(results, balance, region_ids, section_id) -> str:
     )
     return (
         f'<div id="{section_id}-balance"><h3>Load balance</h3>'
-        f'<p class="muted">Each region\'s {metric} per rank'
+        f'<p class="muted">Each region\'s {model["metric"]} per rank'
         + (
             ", excluding nested regions, so a parent does not repeat its "
             "children's imbalance"
-            if balance["own"]
+            if model["own"]
             else ""
         )
         + ". <em>Excess</em> is how much longer the slowest rank spends than the "
@@ -2218,76 +1528,43 @@ def _load_balance_html(results, balance, region_ids, section_id) -> str:
 def _rank_matrix_html(results, balance, section_id) -> str:
     """Every rank side by side, region by region, against the region's mean."""
     run = _text(results.display_label)
-    ranks = balance["ranks"][:_MATRIX_RANKS]
-    columns = len(ranks)
-    by_size = sorted(balance["regions"], key=lambda entry: -entry["mean"])
-    shown = by_size[:_MATRIX_REGIONS]
-    totals = balance["totals"][:columns]
-    totals_mean = float(np.mean(totals))
-    # Ranks that wait for each other end up with the same time in regions;
-    # the largest of near-equal totals is noise, not a slowest rank.
-    slowest_rank = (
-        ranks[int(np.argmax(totals))]
-        if totals_mean
-        and (float(np.max(totals)) - totals_mean) / totals_mean >= _SAME_PCT / 100.0
-        else None
-    )
+    model = matrix_model(balance)
+    columns = len(model["ranks"])
     compact = columns > _MATRIX_TEXT_RANKS
 
-    def cells(values, mean) -> str:
-        rendered = []
-        for rank, value in zip(ranks, values[:columns]):
-            deviation = 100.0 * (value - mean) / mean if mean else 0.0
-            text = _signed_pct(deviation) if abs(deviation) >= 0.05 else "0%"
-            rendered.append(
-                f'<td class="heat"{_deviation_style(value, mean)}'
-                f' title="rank {rank}: {_text(_duration_text(value))} ({text} vs mean)">'
-                f"{text}</td>"
-            )
-        return "".join(rendered)
+    def cells(cells_) -> str:
+        return "".join(
+            f'<td class="heat"{_shade_style(cell["shade"])}'
+            f' title="{_text(cell["title"])}">{cell["label"]}</td>'
+            for cell in cells_
+        )
 
     header = "".join(
         (
             f'<th class="slowest" title="slowest rank overall">{rank}</th>'
-            if rank == slowest_rank
+            if rank == model["slowest_rank"]
             else f"<th>{rank}</th>"
         )
-        for rank in ranks
+        for rank in model["ranks"]
     )
     body = "".join(
         f'<tr class="select-row" data-region="{_text(entry["name"])}" data-run="{run}"'
         f' data-filter-region="{_text(entry["name"])}">'
         f'<td title="{_text(entry["name"])}">{_text(entry["name"])}</td>'
-        f"<td>{_text(_duration_text(entry['mean']))}</td>"
-        + cells(entry["values"], entry["mean"])
-        + "</tr>"
-        for entry in shown
+        f"<td>{_text(entry['mean_text'])}</td>" + cells(entry["cells"]) + "</tr>"
+        for entry in model["rows"]
     )
     footer = (
         "<tfoot><tr><td>all regions</td>"
-        f"<td>{_text(_duration_text(totals_mean))}</td>"
-        + cells(totals, totals_mean)
+        f"<td>{_text(model['totals']['mean_text'])}</td>"
+        + cells(model["totals"]["cells"])
         + "</tr></tfoot>"
     )
-    notes = []
-    if len(by_size) > len(shown):
-        notes.append(f"The {len(shown)} regions with the most time per rank are shown.")
-    if len(balance["ranks"]) > columns:
-        notes.append(
-            f"The first {columns} of {len(balance['ranks'])} ranks are shown; the "
-            "rank heatmap chart shows all of them."
-        )
-    overall = (
-        f"Rank {slowest_rank}, in red in the header, spends the most time in "
-        "regions overall."
-        if slowest_rank is not None
-        else "Every rank spends about the same time in regions overall, so the "
-        "differences above are ranks waiting for each other."
-    )
+    notes = model["notes"]
     return (
         f'<h3 id="{section_id}-ranks">Rank comparison</h3>'
         '<p class="muted">Each cell compares one rank\'s time in a region with the '
-        f"region's mean over the ranks. {overall} Hover a cell for its time.</p>"
+        f"region's mean over the ranks. {model['overall']} Hover a cell for its time.</p>"
         '<p class="legend"><span>faster than the mean</span><span class="legend-scale">'
         "</span><span>slower</span></p>"
         f'<div class="table-scroll"><table class="rank-matrix{" compact" if compact else ""}">'
@@ -2302,172 +1579,57 @@ def _rank_matrix_html(results, balance, section_id) -> str:
     )
 
 
-def _comparison_entries(per_run_rows) -> list[dict]:
-    """Align every run's region rows by call path, in call-tree order.
-
-    The baseline's tree sets the order. A path only a later run has is placed
-    after the last row below its parent, so the merged rows still read as one
-    tree; rows without a call path match by name.
-    """
-    entries: list[dict] = []
-    index: dict[str, int] = {}
-
-    def key_of(row) -> str:
-        return (
-            f"path:{row['call_path']}" if "call_path" in row else f"name:{row['name']}"
-        )
-
-    def insert_at(row) -> int:
-        if "call_path" not in row or " > " not in row["call_path"]:
-            return len(entries)
-        parent = "path:" + row["call_path"].rsplit(" > ", 1)[0]
-        if parent not in index:
-            return len(entries)
-        position = index[parent] + 1
-        prefix = parent + " > "
-        while position < len(entries) and entries[position]["key"].startswith(prefix):
-            position += 1
-        return position
-
-    for run_index, rows in enumerate(per_run_rows):
-        for row in rows:
-            key = key_of(row)
-            if key not in index:
-                position = insert_at(row)
-                entries.insert(
-                    position,
-                    {
-                        "key": key,
-                        "name": row["name"],
-                        "depth": row.get("depth", 0),
-                        "context": (
-                            [
-                                part
-                                for part in row["call_path"].split(" > ")[:-1]
-                                if part != _SESSION
-                            ]
-                            if "call_path" in row
-                            else []
-                        ),
-                        "values": [None] * len(per_run_rows),
-                    },
-                )
-                index = {entry["key"]: i for i, entry in enumerate(entries)}
-            entries[index[key]]["values"][run_index] = row
-    return entries
-
-
-def _metric_value(row, metric):
-    if row is None or row["total"] is None:
-        return None
-    if metric == "own":
-        return row["total"] if row["exclusive"] is None else row["exclusive"]
-    if metric == "calls":
-        return row["calls"]
-    return row[metric]
-
-
-def _metric_text(value, metric) -> str:
-    if value is None:
+def _change_content(change) -> str:
+    """A change cell's content, for a :func:`change_model`."""
+    if change["kind"] == "none":
         return "-"
-    return f"{value:,}" if metric == "calls" else _duration_text(value)
-
-
-_COMPARE_METRICS = (
-    ("total", "total"),
-    ("own", "own"),
-    ("avg", "avg/call"),
-    ("calls", "calls"),
-)
+    if change["kind"] in ("new", "gone"):
+        return f'<span class="badge {change["kind"]}">{change["kind"]}</span>'
+    return (
+        f'<span class="delta {change["tone"]}" title="{_text(change["title"])}">'
+        f'<span class="delta-text">{change["label"]}</span></span>'
+    )
 
 
 def _change_html(base, value, metric) -> tuple[str, float | None]:
     """A change cell's content, and the size of the change for sorting."""
-    if base is None and value is None:
-        return "-", None
-    if base is None:
-        return '<span class="badge new">new</span>', abs(value)
-    if value is None:
-        return '<span class="badge gone">gone</span>', abs(base)
-    delta = value - base
-    if not base:
-        return '<span class="badge new">new</span>', abs(delta)
-    pct = 100.0 * delta / base
-    if metric == "calls":
-        tone = "same" if delta == 0 else "neutral down" if delta < 0 else "neutral"
-        title = f"{delta:+,} calls"
-    else:
-        tone = "same" if abs(pct) < _SAME_PCT else "faster" if delta < 0 else "slower"
-        speed = (
-            ""
-            if not value
-            else (
-                f" · {base / value:.2f}× faster"
-                if delta < 0
-                else f" · {value / base:.2f}× slower"
-            )
-        )
-        title = f"{'+' if delta >= 0 else '−'}{_duration_text(abs(delta))}{speed}"
-    content = (
-        f'<span class="delta {tone}" title="{_text(title)}">'
-        f'<span class="delta-text">{_signed_pct(pct)}</span></span>'
-    )
-    return content, abs(delta)
-
-
-def _per_rank_row(row) -> dict:
-    """A row's times per rank: its totals over the ranks that ran it.
-
-    Summed over ranks, a region's time is what it costs; compared across
-    runs of different sizes, that grows with the rank count even as the run
-    gets faster. Per rank, it follows what a reader waits for.
-    """
-    count = row.get("num_ranks") or 1
-    return {
-        **row,
-        "total": None if row["total"] is None else row["total"] / count,
-        "exclusive": None if row["exclusive"] is None else row["exclusive"] / count,
-    }
+    change = change_model(base, value, metric)
+    return _change_content(change), change["size"]
 
 
 def _comparison_table_html(runs, entries, per_rank=False) -> str:
     """Every region's duration in every run, against the baseline."""
-    labels = [_text(run.display_label) for run in runs]
+    model = compare_table_model(runs, entries, per_rank)
+    labels = [_text(label) for label in model["labels"]]
     header = f"<th>region</th><th>{labels[0]}</th>" + "".join(
         f"<th>{label}</th><th>vs {labels[0]}</th>" for label in labels[1:]
     )
+    metrics = [(metric["key"], metric["label"]) for metric in model["metrics"]]
     body = []
-    for order, entry in enumerate(entries):
-        name = _text(entry["name"])
+    for row in model["rows"]:
+        name = _text(row["name"])
         cells = []
-        changes = {}
-        for run_index, row in enumerate(entry["values"]):
-            values = []
-            deltas = []
-            for metric, _ in _COMPARE_METRICS:
-                value = _metric_value(row, metric)
-                values.append(
-                    f'<span data-m="{metric}">{_text(_metric_text(value, metric))}</span>'
-                )
-                if run_index:
-                    base = _metric_value(entry["values"][0], metric)
-                    content, size = _change_html(base, value, metric)
-                    deltas.append(f'<span data-m="{metric}">{content}</span>')
-                    # Sorting by change follows the last run against the baseline.
-                    changes[metric] = size
-            cells.append(f"<td>{''.join(values)}</td>")
+        for run_index, cell in enumerate(row["cells"]):
+            values = "".join(
+                f'<span data-m="{metric}">{_text(cell["values"][metric])}</span>'
+                for metric, _ in metrics
+            )
+            cells.append(f"<td>{values}</td>")
             if run_index:
-                cells.append(f"<td>{''.join(deltas)}</td>")
+                deltas = "".join(
+                    f'<span data-m="{metric}">{_change_content(cell["changes"][metric])}</span>'
+                    for metric, _ in metrics
+                )
+                cells.append(f"<td>{deltas}</td>")
         change_attrs = "".join(
             f' data-change-{metric}="{"" if size is None else f"{size:.9g}"}"'
-            for metric, size in changes.items()
+            for metric, size in row["sizes"].items()
         )
-        title = " › ".join([*entry["context"], entry["name"]])
         body.append(
             f'<tr class="select-row" data-region="{name}" data-filter-region="{name}"'
-            f' data-order="{order}"{change_attrs}>'
-            f'<td title="{_text(title)}"><span class="cmp-cell"><span class="cmp-name"'
-            f' style="padding-left:{1.1 * entry["depth"]:.3g}em">{name}</span></span></td>'
+            f' data-order="{row["order"]}"{change_attrs}>'
+            f'<td title="{_text(row["title"])}"><span class="cmp-cell"><span class="cmp-name"'
+            f' style="padding-left:{1.1 * row["depth"]:.3g}em">{name}</span></span></td>'
             + "".join(cells)
             + "</tr>"
         )
@@ -2475,7 +1637,7 @@ def _comparison_table_html(runs, entries, per_rank=False) -> str:
         f'<button type="button" data-compare-table="compare-table"'
         f' data-compare-metric="{metric}" aria-pressed="{str(metric == "total").lower()}">'
         f"{label}</button>"
-        for metric, label in _COMPARE_METRICS
+        for metric, label in metrics
     )
     tools = (
         '<div class="table-tools"><span class="tools-label">Show</span>'
@@ -2506,35 +1668,6 @@ def _comparison_table_html(runs, entries, per_rank=False) -> str:
     )
 
 
-def _change_items(entries, run_index, direction) -> list[dict]:
-    """The largest own-time changes of one run against the baseline.
-
-    Only changes that matter on both scales: at least 2% of the region's own
-    baseline time, so timer jitter on a large region does not count, and at
-    least 0.5% of the baseline's time in regions, so a tiny region doubling
-    does not headline the comparison.
-    """
-    owns = [
-        (
-            _metric_value(entry["values"][0], "own") or 0.0,
-            _metric_value(entry["values"][run_index], "own") or 0.0,
-        )
-        for entry in entries
-    ]
-    floor = _CHANGE_FLOOR_PCT / 100.0 * sum(base for base, _ in owns)
-    changes = []
-    for entry, (base, value) in zip(entries, owns):
-        delta = value - base
-        if (
-            delta * direction > 0
-            and abs(delta) >= floor
-            and (not base or 100.0 * abs(delta) / base >= _SAME_PCT)
-        ):
-            changes.append({**entry, "base": base, "value": value, "delta": delta})
-    changes.sort(key=lambda change: -abs(change["delta"]))
-    return changes[:_CHANGE_COUNT]
-
-
 def _change_list_html(changes, scale, tone) -> str:
     if not changes:
         return '<p class="muted">None.</p>'
@@ -2543,7 +1676,7 @@ def _change_list_html(changes, scale, tone) -> str:
         name = _text(change["name"])
         label = (
             "<em>outside any region</em>"
-            if change["name"] == _SESSION
+            if change["outside"]
             else f"<strong>{name}</strong>"
         )
         context = (
@@ -2551,77 +1684,56 @@ def _change_list_html(changes, scale, tone) -> str:
             if change["context"]
             else ""
         )
-        pct = (
-            f" ({_signed_pct(100.0 * change['delta'] / change['base'])})"
-            if change["base"]
-            else " (new)"
-        )
-        width = 100.0 * abs(change["delta"]) / scale if scale else 0.0
-        sign = "+" if change["delta"] > 0 else "−"
         items.append(
             f'<li class="change-item" data-filter-region="{name}">'
             f'<span class="hs-name">{label}{context}</span>'
             f'<span class="change-track"><span class="change-fill {tone}"'
-            f' style="width:{width:.3g}%"></span></span>'
-            f'<span class="change-value delta-text {tone}">{sign}'
-            f"{_text(_duration_text(abs(change['delta'])))}"
-            f'<span class="muted">{_text(pct)}</span></span></li>'
+            f' style="width:{change["width"]:.3g}%"></span></span>'
+            f'<span class="change-value delta-text {tone}">{change["sign"]}'
+            f"{_text(change['delta_text'])}"
+            f'<span class="muted">{_text(change["pct_text"])}</span></span></li>'
         )
     return '<ol class="change-list">' + "".join(items) + "</ol>"
 
 
-def _wall_kpi(base_run, run) -> str:
-    before, after = base_run.time_span, run.time_span
-    if not before or not after:
-        return _kpi("Wall time", _text(_duration_text(after)))
-    pct = 100.0 * (after - before) / before
-    tone = "" if abs(pct) < _SAME_PCT else "good" if pct < 0 else "bad"
-    speed = (
-        f"{before / after:.2f}× faster"
-        if after < before
-        else f"{after / before:.2f}× slower"
-    )
+def _wall_kpi_html(wall) -> str:
+    if "before_text" not in wall:
+        return _kpi("Wall time", _text(wall["after_text"]))
     return _kpi(
         "Wall time",
-        f"{_text(_duration_text(before))} → {_text(_duration_text(after))}",
-        f"{_signed_pct(pct)} · {speed}",
-        tone,
+        f"{_text(wall['before_text'])} → {_text(wall['after_text'])}",
+        f"{wall['pct_text']} · {wall['speed']}",
+        wall["tone"],
     )
+
+
+def _wall_kpi(base_run, run) -> str:
+    return _wall_kpi_html(wall_model(base_run, run))
 
 
 def _candidate_html(runs, entries, run_index) -> str:
     """One run against the baseline: headline numbers and what moved."""
-    base_run, run = runs[0], runs[run_index]
-    improvements = _change_items(entries, run_index, -1)
-    regressions = _change_items(entries, run_index, 1)
-    scale = max(
-        (abs(change["delta"]) for change in improvements + regressions), default=0.0
-    )
-    kpis = [_wall_kpi(base_run, run)]
-    for title, changes in (
-        ("Largest improvement", improvements),
-        ("Largest regression", regressions),
-    ):
-        if changes:
-            change = changes[0]
-            sign = "+" if change["delta"] > 0 else "−"
+    model = candidate_model(runs, entries, run_index)
+    kpis = [_wall_kpi_html(model["wall"])]
+    for title, extreme in model["extremes"].items():
+        if extreme:
             kpis.append(
                 _kpi(
                     title,
-                    f"<code>{_text(change['name'])}</code>",
-                    f"{sign}{_text(_duration_text(abs(change['delta'])))} own time",
+                    f"<code>{_text(extreme['name'])}</code>",
+                    f"{extreme['sign']}{_text(extreme['delta_text'])} own time",
                 )
             )
         else:
             kpis.append(_kpi(title, "none"))
     return (
-        f'<div class="compare-candidate"><h3>{_text(run.display_label)} vs '
-        f"{_text(base_run.display_label)}</h3>"
+        f'<div class="compare-candidate"><h3>{_text(model["label"])} vs '
+        f"{_text(model['base_label'])}</h3>"
         f'<div class="kpis">{"".join(kpis)}</div>'
         '<div class="changes"><div><h4>Faster</h4>'
-        + _change_list_html(improvements, scale, "faster")
+        + _change_list_html(model["improvements"], 1.0, "faster")
         + "</div><div><h4>Slower</h4>"
-        + _change_list_html(regressions, scale, "slower")
+        + _change_list_html(model["regressions"], 1.0, "slower")
         + "</div></div>"
         "</div>"
     )
@@ -2629,25 +1741,22 @@ def _candidate_html(runs, entries, run_index) -> str:
 
 def _runs_table_html(runs, links) -> str:
     """One line per compared run, with a link to its full report."""
-    base_span = runs[0].time_span
-    threads = [_threads(run) for run in runs]
-    # Threads are worth a column once they differ, or are more than one.
-    show_threads = len(set(threads)) > 1 or any((count or 1) > 1 for count in threads)
+    model = runs_table_model(runs)
+    show_threads = model["show_threads"]
     body = []
-    for index, run in enumerate(runs):
-        metadata = run.metadata or {}
-        path = (
-            Path(run.file_path) if run.file_path and str(run.file_path) != "." else None
-        )
+    for index, row in enumerate(model["rows"]):
         file_cell = (
-            f'<td class="run-file" title="{_text(path)}"><code>{_text(path.name)}</code></td>'
-            if path
+            f'<td class="run-file" title="{_text(row["file"]["path"])}">'
+            f'<code>{_text(row["file"]["name"])}</code></td>'
+            if row["file"]
             else "<td>-</td>"
         )
-        if index == 0 or not base_span or not run.time_span:
-            change = '<span class="badge base">baseline</span>' if index == 0 else "-"
-        else:
-            change, _ = _change_html(base_span, run.time_span, "total")
+        change = row["change"]
+        content = (
+            '<span class="badge base">baseline</span>'
+            if change["kind"] == "base"
+            else _change_content(change)
+        )
         link = (
             f'<a href="{_text(links[index])}">full report</a>'
             if links
@@ -2655,18 +1764,18 @@ def _runs_table_html(runs, links) -> str:
         )
         body.append(
             "<tr>"
-            f"<td><strong>{_text(run.display_label)}</strong></td>"
+            f"<td><strong>{_text(row['label'])}</strong></td>"
             + file_cell
-            + f"<td>{_text(_format_timestamp(metadata['timestamp'])) if metadata.get('timestamp') else '-'}</td>"
-            f"<td>{_text(metadata.get('hostname') or '-')}</td>"
-            f"<td>{_text(run.num_ranks)}</td>"
+            + f"<td>{_text(row['recorded']) if row['recorded'] else '-'}</td>"
+            f"<td>{_text(row['host'] or '-')}</td>"
+            f"<td>{_text(row['ranks'])}</td>"
             + (
-                f"<td>{_text(threads[index] if threads[index] is not None else '-')}</td>"
+                f"<td>{_text(row['threads'] if row['threads'] is not None else '-')}</td>"
                 if show_threads
                 else ""
             )
-            + f"<td>{_text(_duration_text(run.time_span))}</td>"
-            f"<td>{change}</td><td>{link}</td></tr>"
+            + f"<td>{_text(row['wall_text'])}</td>"
+            f"<td>{content}</td><td>{link}</td></tr>"
         )
     note = (
         "Each run's full report is linked on the right."
@@ -2728,33 +1837,15 @@ def _chart_sections(
         scaling=scaling,
     )
 
-    # Open only the views that orient a reader; the rest wait, collapsed, for
-    # a reader looking for them, rather than all competing for attention.
-    # With both scaling charts, the speedup leads and the weak-scaling chart
-    # waits; asked for on its own, the weak-scaling chart leads instead.
-    lead = "Weak scaling" if scaling == "weak" else "Speedup"
-    kinds = (
-        (lead, "Change:", "Region durations")
-        if comparison
-        else ("Region durations", "Timeline:")
-    )
-    opened = {
-        next(index for index, chart in enumerate(charts) if chart[0].startswith(kind))
-        for kind in kinds
-        if any(chart[0].startswith(kind) for chart in charts)
-    }
-    if not opened and charts:
-        # An aggregated profile has no timeline; never leave every panel shut.
-        opened = {0}
+    panels = chart_panels(charts, comparison, scaling)
     fragments = []
     chart_documents = []
-    for index, (title, payload, chart_options) in enumerate(charts):
-        chart_id = f"scope-profiler-chart-{index}"
-        is_duration_chart = payload.get("plot") == "durations"
-        chart_class = "chart chart-duration" if is_duration_chart else "chart"
-        explanation = _chart_description(title, payload, comparison)
-        chart_options = dict(chart_options)
-        variants = chart_options.pop("variants", None)
+    for panel in panels:
+        chart_id = panel["id"]
+        title = panel["title"]
+        chart_class = "chart chart-duration" if panel["duration"] else "chart"
+        explanation = _chart_description(title, panel["payload"], comparison)
+        variants = panel["variants"]
         axis_buttons = ""
         if variants:
             axis_buttons = (
@@ -2762,13 +1853,13 @@ def _chart_sections(
                 + "".join(
                     f'<button type="button" class="chart-axis" data-chart="{chart_id}"'
                     f' data-axis="{position}" aria-describedby="{chart_id}-axis"'
-                    f' aria-pressed="{str(variant["payload"] is payload).lower()}">'
+                    f' aria-pressed="{str(position == panel["default_variant"]).lower()}">'
                     f"{_text(variant['label'])}</button>"
                     for position, variant in enumerate(variants)
                 )
             )
         fragments.append(
-            f'<details class="chart-panel"{" open" if index in opened else ""}>'
+            f'<details class="chart-panel"{" open" if panel["open"] else ""}>'
             '<summary><span class="chart-heading" role="heading" aria-level="3">'
             f"{_text(title)}</span></summary>{explanation}"
             f'<div class="chart-tools">{axis_buttons}'
@@ -2782,12 +1873,8 @@ def _chart_sections(
             {
                 "id": chart_id,
                 "title": title,
-                "payload": payload,
-                "options": (
-                    {**chart_options, "layout": {"height": 680}}
-                    if is_duration_chart
-                    else chart_options
-                ),
+                "payload": panel["payload"],
+                "options": panel["options"],
                 **(
                     {
                         "variants": [
@@ -3159,17 +2246,7 @@ if (typeof globalThis.scopeProfilerOnRegionFilter !== "function" &&
 
 
 def _report_rows(results, include, exclude, ranks, sort):
-    return region_rows(
-        results,
-        include=include,
-        exclude=exclude,
-        ranks=ranks,
-        sort=sort,
-        # Populates each row's "exclusive" time. The table's own % column
-        # is computed from the inclusive total either way; the hotspots
-        # need exclusive time to name the leaves rather than their parents.
-        percentage_mode="exclusive",
-    )
+    return report_rows(results, include, exclude, ranks, sort)
 
 
 def _navigation(links) -> str:
@@ -3209,14 +2286,7 @@ def _single_run_body(results, include, exclude, ranks, sort, columns, charts, li
         links.append((f"{section_id}-hotspots", "Hotspots"))
         parts.append(f'<div id="{section_id}-hotspots">{hotspots}</div>')
     # Each region's line profile lives in its table row's detail.
-    tabled = {row["name"] for row in rows}
-    line_profiles: dict[str, list[dict]] = {}
-    unmatched = []
-    for entry in _line_profile_functions(results, ranks):
-        if entry["region"] in tabled:
-            line_profiles.setdefault(entry["region"], []).append(entry)
-        else:
-            unmatched.append(entry)
+    line_profiles, unmatched = partition_line_profiles(results, rows, ranks)
     links.append((f"{section_id}-table", "Region statistics"))
     parts.append(
         f'<h3 id="{section_id}-table">Region statistics</h3>'
