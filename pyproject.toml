@@ -68,6 +68,10 @@ optional-dependencies.notebook = [
   "ipython",
 ]
 
+optional-dependencies.site = [
+  "pyyaml",
+]
+
 optional-dependencies.pproc = [
   "flameprof",
   "ipykernel",
@@ -78,6 +82,7 @@ optional-dependencies.pproc = [
   "plotly",
   "pyarrow",
   "pyvis >= 0.3.2",
+  "pyyaml",
   "snakeviz",
   "tabulate",
   "textual>=0.86",
@@ -87,7 +92,7 @@ optional-dependencies.pproc = [
 # stays opt-in because it requires a compatible system-level installation.
 optional-dependencies.extras = [
   "memray",
-  "scope-profiler[compression,fortran,line-profiler,mcp,mpi,notebook,nvtx,perf-events,pproc,tui]",
+  "scope-profiler[compression,fortran,line-profiler,mcp,mpi,notebook,nvtx,perf-events,pproc,site,tui]",
 ]
 
 optional-dependencies.dev = [
@@ -113,7 +118,7 @@ optional-dependencies.docs = [
   "pyproject-fmt",
   "sphinx",
   "sphinx-book-theme",
-  "scope-profiler[line-profiler,mpi,notebook,pproc,tui]",
+  "scope-profiler[line-profiler,mpi,notebook,pproc,site,tui]",
 ]
 optional-dependencies.test = [
   # coverage[toml] so the [tool.coverage.*] tables in this file are read on

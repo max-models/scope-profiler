@@ -30,6 +30,8 @@ The subcommands:
   summary with metadata and per-region timing statistics.
 - ``scope-profiler catalogue a.html b.html -o catalogue.html`` - writes an
   index page linking several generated HTML reports.
+- ``scope-profiler site catalogue.yaml -o docs`` - writes the pages and chart
+  data of a profiling catalogue into an Astro/Starlight project.
 - ``scope-profiler tui file.h5`` - opens an interactive Textual browser for
   metadata, region statistics, per-rank calls, LIKWID counters and the raw
   HDF5 tree.
@@ -471,6 +473,72 @@ def _catalogue(argv):
     return 0
 
 
+def _site(argv):
+    """Handle ``scope-profiler site``: Astro pages for a catalogue of runs."""
+    from scope_profiler.astro_site import SiteError, build_site, load_manifest
+
+    parser = argparse.ArgumentParser(
+        prog="scope-profiler site",
+        description=(
+            "Write the pages and chart data of a profiling catalogue, listed in "
+            "a YAML manifest, into an Astro/Starlight project. Pages go to "
+            "<output>/src/content/docs/catalogue and chart data to "
+            "<output>/public/catalogue; both are replaced on every run."
+        ),
+    )
+    parser.add_argument("manifest", help="YAML manifest listing the cases and runs")
+    parser.add_argument(
+        "-o",
+        "--output",
+        default="docs",
+        help="the Astro project to write into (default: docs)",
+    )
+    parser.add_argument(
+        "--base",
+        help="the site's base path, '/' plus the repository name on GitHub Pages "
+        "(default: 'base' in the manifest)",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="only validate the manifest and the files it lists",
+    )
+    parser.add_argument(
+        "--no-charts",
+        action="store_true",
+        help="write pages and tables only (charts need scope-profiler[pproc])",
+    )
+    parser.add_argument(
+        "--no-clean",
+        action="store_true",
+        help="write into the generated directories as they are, instead of "
+        "replacing them",
+    )
+    args = parser.parse_args(argv)
+    try:
+        manifest = load_manifest(args.manifest)
+        if args.check:
+            runs = sum(len(case.runs) for case in manifest.cases)
+            print(f"{args.manifest}: {len(manifest.cases)} case(s), {runs} run(s), ok")
+            return 0
+        result = build_site(
+            manifest,
+            args.output,
+            base=args.base,
+            charts=not args.no_charts,
+            clean=not args.no_clean,
+        )
+    except SiteError as exc:
+        parser.error(str(exc))
+    for note in result.notes:
+        print(f"note: {note}", file=sys.stderr)
+    print(
+        f"Catalogue written to: {args.output} "
+        f"({result.cases} case(s), {result.runs} run(s), {len(result.files)} files)"
+    )
+    return 0
+
+
 def _tui(argv):
     """Handle ``scope-profiler tui``: open the interactive HDF5 browser."""
     from scope_profiler.tui import main as tui_main
@@ -625,6 +693,7 @@ _COMMANDS = {
     "inspect": _inspect,
     "report": _report,
     "catalogue": _catalogue,
+    "site": _site,
     "tui": _tui,
     "line-profile": _line_profile,
     "diff": _diff,
@@ -681,6 +750,12 @@ def main(argv=None):
         add_help=False,
         help="Write an index page linking several HTML reports "
         "(see `scope-profiler catalogue --help`)",
+    )
+    subparsers.add_parser(
+        "site",
+        add_help=False,
+        help="Write Astro pages for a catalogue of profiling runs "
+        "(see `scope-profiler site --help`)",
     )
     subparsers.add_parser(
         "tui",
