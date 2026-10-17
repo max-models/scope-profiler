@@ -167,11 +167,12 @@ def test_samples_land_in_the_function_that_ran(tmp_path):
         assert top.function == function
         assert top.file.endswith("prog.c")
         assert top.line in line_range(function)
-        # Nothing of one region's samples may be attributed to the other's code.
+        # Whatever else the region touched (sp_now_ns, libc) is not this
+        # program's code; of this program's own, only its function may show.
         assert all(
-            stat.line in line_range(function)
+            stat.function == function
             for stat in profile[region]
-            if stat.function != "??"
+            if stat.file.endswith("prog.c")
         )
 
 

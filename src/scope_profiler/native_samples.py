@@ -198,11 +198,16 @@ def symbolize(module: str, base: int, addresses: list) -> list:
 
     Needs the program built with ``-g``; without debug info the line is 0.
     """
-    if not addresses:
-        return []
-    if platform.system() == "Darwin" and shutil.which("atos"):
-        return _symbolize_atos(module, base, addresses)
-    return _symbolize_addr2line(module, base, addresses)
+    unknown = [("??", "??", 0)] * len(addresses)
+    # Pseudo-modules such as linux-vdso.so.1 have no file to read debug info from.
+    if not addresses or not Path(module).exists():
+        return unknown
+    try:
+        if platform.system() == "Darwin" and shutil.which("atos"):
+            return _symbolize_atos(module, base, addresses)
+        return _symbolize_addr2line(module, base, addresses)
+    except subprocess.CalledProcessError:
+        return unknown
 
 
 def line_profile(samples: SampleFile) -> dict:
@@ -218,7 +223,9 @@ def line_profile(samples: SampleFile) -> dict:
     """
     by_module: dict = {}
     for module_index, (path, base) in enumerate(samples.modules):
-        ips = np.unique(samples.samples["ip"][samples.samples["module"] == module_index])
+        ips = np.unique(
+            samples.samples["ip"][samples.samples["module"] == module_index]
+        )
         if ips.size:
             addresses = [int(ip) for ip in ips]
             by_module[module_index] = dict(
