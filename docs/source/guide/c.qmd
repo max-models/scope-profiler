@@ -536,6 +536,44 @@ when a region was registered with `sp_region()` rather than
 traces have no source fields. Both versions remain readable from the same
 trace directory, so a mixed C/Fortran run still merges into one profile.
 
+## Line-level sampling
+
+Regions give timings per named block; sampling shows which *lines* of C code
+inside a region are hot. While it is on, a CPU-time timer fires `hz` times per
+second and records the interrupted instruction address together with the
+innermost open region. Nothing slow runs in your program: the addresses are
+turned into `file:line` afterwards.
+
+```c
+sp_init("profile", 0);
+sp_start_sampling(1000);   // or: SCOPE_PROFILER_SAMPLE_HZ=1000 ./program
+// ... regions as usual ...
+sp_finalize();             // also writes profile_rank00000.sps
+```
+
+Build the program with `-g` and look at the result:
+
+```bash
+cc -g -O2 program.c scope_profiler.c -lm -o program
+./program
+scope-profiler native-lines .
+```
+
+For each region this prints the hottest lines with their source text and share
+of the region's samples. Lines in code without debug info (libm, say) are
+grouped as `??:0`. Mapping addresses needs `atos` (macOS) or `llvm-symbolizer`
+or `addr2line` (Linux).
+
+It is statistical, so a region needs a few hundred samples for stable numbers,
+and the timer's effective rate can be below the one requested (macOS delivers
+fewer ticks than asked for), which is why shares are shown rather than
+seconds. With optimisation, inlined and reordered code can make lines look
+surprising; `-O0 -g` gives the most literal picture.
+Only one thread per process is sampled, and time outside every region is not
+recorded. Available on Linux and macOS (x86-64 and arm64); with
+`SP_NO_SAMPLING` defined, or elsewhere, `sp_start_sampling()` returns
+`SP_ERR_UNSUPPORTED`.
+
 ## Limitations
 
 - **No line-level profiling.** Regions are timed as a whole; see

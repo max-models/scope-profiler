@@ -4,6 +4,9 @@
 
 ### Added
 
+- C API: line-level sampling of regions (`sp_start_sampling()` or
+  `SCOPE_PROFILER_SAMPLE_HZ`), written to `.sps` files, and
+  `scope-profiler native-lines` to show the hottest source lines per region.
 - `scope-profiler catalogue` writes an index page linking several HTML reports.
 - Fortran API: optional `stat`/`errmsg` error outputs, recoverable allocation
   and output failures, `sp_flush` snapshots, handle-preserving `sp_reset`,
