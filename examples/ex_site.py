@@ -85,14 +85,18 @@ cases:
 
         content = docs / "src/content/docs/catalogue"
         case = content / "toy-solver"
-        for page in (content / "index.mdx", case / "index.mdx", case / "small.mdx"):
+        for page in (
+            content / "index.mdx",
+            content / "toy-solver.mdx",
+            case / "small.mdx",
+        ):
             assert page.is_file(), page
         # A page is components plus a JSON data file with what it shows.
         small = json.loads((case / "small.data.json").read_text())
         assert small["report"]["summary"]["kpis"], "headline numbers"
         assert small["report"]["regions"]["groups"], "the region table"
         # The case compares the runs, linking each run's page under the base path.
-        compared = json.loads((case / "index.data.json").read_text())
+        compared = json.loads((content / "toy-solver.data.json").read_text())
         assert compared["links"]["runs"][0] == "/example/catalogue/toy-solver/small/"
         assert len(compared["report"]["candidates"]) == 1
         # Every chart the pages draw has its data, as plot-data JSON.

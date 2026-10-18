@@ -471,17 +471,23 @@ The command writes, below the `-o` directory (the Astro project):
   sortable columns, trend lines, and per region its call site, tags, per-rank breakdown and line
   profile), load balance and the rank comparison matrix, the line profiles of regions outside
   the table, hardware counters, the charts, and the metadata. A **case page** has what the
-  report shows for a comparison: the runs table, what changed against the baseline (headline
-  numbers and the largest improvements and regressions of each run), the durations table of
-  every region in every run (switchable between total, own and per-call time and calls, in call
-  tree order or by the size of the change), and the speedup, weak-scaling, change and duration
-  charts.
+  report shows for a comparison: the runs table (folded after the first twelve runs), what changed
+  between two runs (headline numbers and the largest improvements and regressions), the durations
+  table of every region in them (switchable between total, own and per-call time and calls, in
+  call tree order or by the size of the change), and the speedup, weak-scaling, change and
+  duration charts. A study can have hundreds of runs, so the reader **picks the two runs** to
+  compare, a baseline and a candidate (kept in the URL, so a comparison can be shared); a study of
+  up to twelve runs can also show every run against the baseline. The pair is computed in the
+  browser from a compact dataset on the page, and the duration chart follows the choice.
 - `public/catalogue/`: the chart data, as the plot-data JSON that `scope-profiler export
   plot-data` writes (a file per x-axis for the scaling charts), and an `index.json` of the cases.
 
 The text of the pages, the findings, the classification of changes and the hotspot ranking come
 from the same code as the HTML report's (`scope_profiler.report_model`), so the two cannot
-drift apart. The Astro project draws the data with the components in
+drift apart. A study's runs are not listed in the sidebar, which has one entry per case; the case page lists them, and each run
+page links the runs either side. Every chart has linear, log2 and log10 scales for its numeric axes.
+
+The Astro project draws the data with the components in
 `src/components/report/` (the template has them) and the charts with
 [`@scope-profiler/plotly`](https://www.npmjs.com/package/@scope-profiler/plotly), in the colours
 of the site's theme. As in the report, the filter bar at the top of a page filters the regions of
