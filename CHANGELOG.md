@@ -19,10 +19,20 @@
 - Catalogue pages: a case page lets the reader pick the two runs to compare (a
   scaling study can have hundreds), with the comparison computed in the browser from a
   compact dataset; the sidebar lists a case once instead of every run; charts have linear,
-  log2 and log10 axis scales.
+  log2 and log10 axis scales, a "stack children" checkbox on a run's durations chart, and
+  the rank imbalance and rank heatmap charts over the compared runs; "every run against
+  the baseline" is off by default.
+- Catalogue pages: scripts and parameter files can be attached to a run (`files`, under a run or
+  a case), shown with syntax highlighting and offered for download; a case's `info` is shown as
+  metadata instead of a table of its own; the axis scales sit at their axes.
 - `scope_profiler.report_model`: what a report says (findings, hotspots, tables,
   comparisons, chart panels) as plain data, shared by the HTML report and the
   catalogue pages; the HTML report is unchanged.
+- `scope-profiler site`: a case can list `executions` (a nightly job's runs); the case page is the
+  latest one, with a table of the executions and a trend chart of each run's wall time.
+- `scope-profiler site`: `executions` can be found by a pattern (`path: data/{execution}/np*.h5`,
+  with an optional `meta.yml` per execution); runs and cases take `images` (shown as a gallery
+  with a lightbox) and cases take `code` (files and links shown at the bottom of the page).
 - `scope-profiler catalogue` writes an index page linking several HTML reports.
 - Fortran API: optional `stat`/`errmsg` error outputs, recoverable allocation
   and output failures, `sp_flush` snapshots, handle-preserving `sp_reset`,

@@ -290,3 +290,62 @@ def test_comparison_page_model_compares_against_the_baseline(tmp_path):
     assert names["fresh"]["cells"][1]["changes"]["total"]["kind"] == "new"
     assert names["old"]["cells"][1]["changes"]["total"]["kind"] == "gone"
     assert names["kernel"]["cells"][1]["changes"]["total"]["tone"] == "faster"
+
+
+def test_a_comparison_leaves_the_rank_charts_out_unless_asked():
+    from scope_profiler.report_data import collect_chart_payloads
+
+    runs = [_ranked_results([2, 8, 5, 9], file_path=f"run{n}.h5") for n in (1, 2)]
+
+    default, _ = collect_chart_payloads(runs, None, None, None, comparison=True)
+    asked, _ = collect_chart_payloads(
+        runs, None, None, None, comparison=True, rank_charts=True
+    )
+
+    assert "Rank imbalance" not in [chart[0] for chart in default]
+    titles = [chart[0] for chart in asked]
+    assert "Rank imbalance" in titles and "Rank heatmap" in titles
+    heatmap = next(chart for chart in asked if chart[0] == "Rank heatmap")
+    # Every point says which run it is of, so a page can show only the runs it compares.
+    assert {point["file"] for point in heatmap[1]["points"]} == {"run1", "run2"}
+
+
+def test_a_single_runs_durations_chart_can_also_be_drawn_the_other_way(tmp_path):
+    from scope_profiler.report_data import collect_chart_payloads
+    from scope_profiler.report_model import chart_panels
+
+    results = _nested_results()
+
+    plain, _ = collect_chart_payloads([results], None, None, None)
+    toggled, _ = collect_chart_payloads([results], None, None, None, stack_toggle=True)
+
+    durations = next(chart for chart in toggled if chart[0] == "Region durations")
+    assert durations[2]["stacked"] is True
+    segments = {bar.get("segment") for bar in durations[1]["bars"]}
+    flat = {bar.get("segment") for bar in durations[2]["alternate"]["bars"]}
+    assert "self" in segments and flat == {None}
+    # Without the option the chart has no alternative, and the panel says so.
+    assert "alternate" not in next(c for c in plain if c[0] == "Region durations")[2]
+    panel = next(p for p in chart_panels(toggled) if p["title"] == "Region durations")
+    assert panel["stack"]["stacked"] is True and panel["stack"]["alternate"]
+    assert "alternate" not in panel["options"]
+    assert (
+        next(p for p in chart_panels(plain) if p["title"] == "Region durations")[
+            "stack"
+        ]
+        is None
+    )
+
+
+def test_several_runs_durations_have_no_stack_alternative():
+    """The browser's chart builder cannot stack the segments of several runs."""
+    from scope_profiler.report_data import collect_chart_payloads
+
+    runs = [_ranked_results([2, 8, 5, 9], file_path=f"run{n}.h5") for n in (1, 2)]
+
+    charts, _ = collect_chart_payloads(
+        runs, None, None, None, comparison=True, stack_toggle=True
+    )
+
+    durations = next(chart for chart in charts if chart[0] == "Region durations")
+    assert "alternate" not in durations[2]
