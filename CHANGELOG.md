@@ -16,6 +16,10 @@
   files drawn by components, linked under the site's `base` path. It is the
   engine of the `scope-profiler-catalog` template for catalogue websites. New
   `site` extra (PyYAML, also part of `pproc`).
+- Catalogue pages: a case page lets the reader pick the two runs to compare (a
+  scaling study can have hundreds), with the comparison computed in the browser from a
+  compact dataset; the sidebar lists a case once instead of every run; charts have linear,
+  log2 and log10 axis scales.
 - `scope_profiler.report_model`: what a report says (findings, hotspots, tables,
   comparisons, chart panels) as plain data, shared by the HTML report and the
   catalogue pages; the HTML report is unchanged.

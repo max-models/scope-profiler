@@ -196,7 +196,8 @@ def test_build_writes_pages_and_chart_data(tmp_path):
     assert (result.cases, result.runs) == (2, 4)
     content = out / CONTENT
     case_dir = content / "solvers" / "poisson-solver"
-    for page in ("index.mdx", "np1.mdx", "np2.mdx", "np4.mdx"):
+    assert (content / "solvers" / "poisson-solver.mdx").is_file()
+    for page in ("np1.mdx", "np2.mdx", "np4.mdx"):
         assert (case_dir / page).is_file()
     assert (content / "single-run" / "only-run.mdx").is_file()
     assert (content / "index.mdx").is_file()
@@ -305,7 +306,7 @@ def test_pages_link_to_each_other_with_the_base_path(tmp_path):
     )
     # The runs table links each run's page; chart data is addressed from the site
     # root, and the component adds the base path.
-    case = _data(out, "solvers", "poisson-solver", "index.data.json")
+    case = _data(out, "solvers", "poisson-solver.data.json")
     assert case["links"]["runs"][1] == "/cat/catalogue/solvers/poisson-solver/np2/"
     panels = _data(out, "solvers", "poisson-solver", "np2.data.json")["charts"][
         "panels"
@@ -349,11 +350,11 @@ def test_case_page_compares_the_runs(tmp_path):
 
     build_site(load_manifest(_manifest(tmp_path, BASIC)), out)
 
-    case = (out / CONTENT / "solvers" / "poisson-solver" / "index.mdx").read_text()
+    case = (out / CONTENT / "solvers" / "poisson-solver.mdx").read_text()
     assert "Tags: `cpu`, `scaling`" in case
-    for section in ("RunsTable", "Changes", "CompareTable", "Charts"):
+    for section in ("RunsTable", "CompareControls", "CompareTable", "Charts"):
         assert f"<{section} data={{data}} />" in case
-    data = _data(out, "solvers", "poisson-solver", "index.data.json")
+    data = _data(out, "solvers", "poisson-solver.data.json")
     report = data["report"]
     assert report["labels"] == ["np1", "np2", "np4"]
     assert [row["label"] for row in report["runs"]["rows"]] == ["np1", "np2", "np4"]
@@ -362,8 +363,8 @@ def test_case_page_compares_the_runs(tmp_path):
     assert {row["name"] for row in report["table"]["rows"]} >= {"setup", "solve"}
     assert "Speedup" in [panel["title"] for panel in data["charts"]["panels"]]
     # A single run has nothing to compare.
-    single = (out / CONTENT / "single-run" / "index.mdx").read_text()
-    assert "CompareTable" not in single
+    single = (out / CONTENT / "single-run.mdx").read_text()
+    assert "CompareTable" not in single and "CompareControls" not in single
     assert "- [only run](/cat/catalogue/single-run/only-run/)" in single
 
 
@@ -379,25 +380,78 @@ def test_regions_are_compared_per_rank(tmp_path):
         out,
     )
 
-    table = _data(out, "a", "index.data.json")["report"]["table"]
+    table = _data(out, "a.data.json")["report"]["table"]
     assert table["per_rank"] is True
     solve = next(row for row in table["rows"] if row["name"] == "solve")
     # 'solve' lasts 50 ms on one rank and 25 ms on each of two.
     assert [cell["values"]["total"] for cell in solve["cells"]] == ["50 ms", "25 ms"]
 
 
-def test_overview_pages_lead_their_sidebar_group(tmp_path):
+def test_the_sidebar_lists_each_case_once_and_not_its_runs(tmp_path):
+    """A study can have hundreds of runs: the case page lists them, the sidebar does not."""
     _write_profiles(tmp_path / "data")
     out = tmp_path / "docs"
 
     build_site(load_manifest(_manifest(tmp_path, BASIC)), out)
 
-    head = 'sidebar:\n  label: "Overview"\n  order: 0\n'
-    assert head in (out / CONTENT / "index.mdx").read_text()
-    assert head in (out / CONTENT / "single-run" / "index.mdx").read_text()
-    run = (out / CONTENT / "single-run" / "only-run.mdx").read_text()
-    assert 'label: "only run"' in run
-    assert "order: 1" in run
+    case = (out / CONTENT / "solvers" / "poisson-solver.mdx").read_text()
+    assert 'sidebar:\n  label: "Poisson solver"\n  order: 1\n' in case
+    single = (out / CONTENT / "single-run.mdx").read_text()
+    assert 'label: "Single run"\n  order: 2\n' in single
+    for run in ("np1", "np2", "np4"):
+        text = (out / CONTENT / "solvers" / "poisson-solver" / f"{run}.mdx").read_text()
+        assert "sidebar:\n  hidden: true\n" in text or "  hidden: true" in text
+    assert "hidden" not in case
+    # The catalogue's own page leads the catalogue's sidebar group.
+    assert (
+        'sidebar:\n  label: "Overview"\n  order: 0\n'
+        in (out / CONTENT / "index.mdx").read_text()
+    )
+
+
+def test_run_pages_link_to_the_runs_either_side(tmp_path):
+    _write_profiles(tmp_path / "data")
+    out = tmp_path / "docs"
+
+    build_site(load_manifest(_manifest(tmp_path, BASIC)), out)
+
+    folder = out / CONTENT / "solvers" / "poisson-solver"
+    first = (folder / "np1.mdx").read_text()
+    middle = (folder / "np2.mdx").read_text()
+    last = (folder / "np4.mdx").read_text()
+    base = "/cat/catalogue/solvers/poisson-solver"
+    assert f"[np2 ›]({base}/np2/)" in first and "‹" not in first
+    assert f"[‹ np1]({base}/np1/)" in middle and f"[np4 ›]({base}/np4/)" in middle
+    assert f"[‹ np2]({base}/np2/)" in last and "›]" not in last
+
+
+def test_the_comparison_data_lets_the_browser_pick_any_pair(tmp_path):
+    _write_profiles(tmp_path / "data", ranks=(1, 2, 4, 8, 16, 32))
+    out = tmp_path / "docs"
+
+    build_site(
+        load_manifest(
+            _manifest(tmp_path, "cases: [{title: a, runs: ['data/np*.h5']}]\n")
+        ),
+        out,
+    )
+
+    report = _data(out, "a.data.json")["report"]
+    dataset = report["dataset"]
+    assert [run["label"] for run in dataset["runs"]] == [
+        f"np{n}" for n in (1, 2, 4, 8, 16, 32)
+    ]
+    assert dataset["per_rank"] is True
+    assert set(dataset["regions"]) >= {"path:setup", "path:solve"}
+    run = dataset["runs"][5]
+    assert run["wall"] > 0 and run["order"]
+    key = next(iter(run["values"]))
+    total, own, _avg, calls = run["values"][key]
+    assert total >= own >= 0 and calls >= 1
+    # The report's own comparison covers only the first few runs, as the reference the
+    # page's computation is checked against.
+    assert len(report["candidates"]) == 4
+    assert len(report["table"]["labels"]) == 5
 
 
 def test_user_text_cannot_break_the_mdx(tmp_path):
@@ -408,7 +462,7 @@ def test_user_text_cannot_break_the_mdx(tmp_path):
 
     index = (out / CONTENT / "index.mdx").read_text()
     assert r"A \{tricky\} \<description\> with \$math." in index
-    case = (out / CONTENT / "solvers" / "poisson-solver" / "index.mdx").read_text()
+    case = (out / CONTENT / "solvers" / "poisson-solver.mdx").read_text()
     assert r"uses \{braces\} and \<tags\>" in case
     # In the frontmatter the text is a quoted YAML string, so it stays literal.
     assert 'description: "A {tricky} <description> with $math."' in index
@@ -429,7 +483,7 @@ def test_only_identifying_metadata_is_published(tmp_path):
     assert report["meta"]["file"]["path"] is None
     keys = [key for key, _ in report["metadata"]]
     assert "timestamp" in keys and "hostname" not in keys
-    runs = _data(out, "solvers", "poisson-solver", "index.data.json")["report"]["runs"]
+    runs = _data(out, "solvers", "poisson-solver.data.json")["report"]["runs"]
     assert all(row["host"] is None for row in runs["rows"])
 
 

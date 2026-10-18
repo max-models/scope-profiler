@@ -1179,15 +1179,78 @@ def run_page_model(
     }
 
 
+def compare_dataset(runs, per_run_rows, per_rank: bool) -> dict:
+    """Everything needed to compare any two of the runs, compactly, for a browser.
+
+    A comparison of 100 runs has 9,900 ordered pairs, too many to compute in
+    advance, so a page that lets the reader pick the two runs computes the pair in
+    the browser from this: ``regions`` (``{key: {name, depth, context}}``, a key
+    being the region's call path) and, per run, its wall time, the ``order`` of
+    its rows (the call tree) and ``values``, ``{key: [total, own, avg, calls]}``
+    with ``None`` where the run did not time the region. ``per_rank`` says that
+    the runs differ in rank counts, so totals and own times are per rank.
+    """
+    regions: dict[str, dict] = {}
+    run_data = []
+    for run, rows in zip(runs, per_run_rows):
+        order = []
+        values = {}
+        for row in rows:
+            key = (
+                f"path:{row['call_path']}"
+                if "call_path" in row
+                else f"name:{row['name']}"
+            )
+            order.append(key)
+            regions.setdefault(
+                key,
+                {
+                    "name": row["name"],
+                    "depth": row.get("depth", 0),
+                    "context": (
+                        [
+                            part
+                            for part in row["call_path"].split(" > ")[:-1]
+                            if part != _SESSION
+                        ]
+                        if "call_path" in row
+                        else []
+                    ),
+                },
+            )
+            values[key] = [_metric_value(row, metric) for metric, _ in _COMPARE_METRICS]
+        run_data.append(
+            {
+                "label": run.display_label,
+                "wall": run.time_span,
+                "order": order,
+                "values": values,
+            }
+        )
+    return {
+        "per_rank": per_rank,
+        "metrics": [{"key": key, "label": label} for key, label in _COMPARE_METRICS],
+        "regions": regions,
+        "runs": run_data,
+    }
+
+
 def comparison_page_model(
-    runs, include=None, exclude=None, ranks=None, sort="start"
+    runs, include=None, exclude=None, ranks=None, sort="start", reference=None
 ) -> dict:
-    """Everything the report shows about a comparison of runs, except its charts."""
+    """Everything the report shows about a comparison of runs, except its charts.
+
+    ``dataset`` (see :func:`compare_dataset`) holds what a page needs to compare any
+    two runs. ``candidates`` and ``table`` are the report's comparison of the runs
+    against the first; with ``reference`` they cover only that many runs after the
+    first, as the reference a page's own computation is checked against.
+    """
     per_run_rows = [report_rows(run, include, exclude, ranks, sort) for run in runs]
     per_rank = len({run.num_ranks for run in runs}) > 1
     if per_rank:
         per_run_rows = [[_per_rank_row(row) for row in rows] for rows in per_run_rows]
-    entries = _comparison_entries(per_run_rows)
+    count = len(runs) if reference is None else min(len(runs), reference + 1)
+    entries = _comparison_entries(per_run_rows[:count])
     labels = [run.display_label for run in runs]
     return {
         "kind": "comparison",
@@ -1196,7 +1259,8 @@ def comparison_page_model(
         "per_rank": per_rank,
         "runs": runs_table_model(runs),
         "candidates": [
-            candidate_model(runs, entries, index) for index in range(1, len(runs))
+            candidate_model(runs[:count], entries, index) for index in range(1, count)
         ],
-        "table": compare_table_model(runs, entries, per_rank),
+        "table": compare_table_model(runs[:count], entries, per_rank),
+        "dataset": compare_dataset(runs, per_run_rows, per_rank),
     }

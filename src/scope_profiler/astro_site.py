@@ -75,6 +75,10 @@ METADATA_KEYS = (
     "num_nodes",
 )
 
+#: A case page's comparison of runs is computed in the browser; the report's own is shipped for this
+#: many runs after the first, as the reference that computation is checked against.
+REFERENCE_RUNS = 4
+
 #: A chart whose data is larger than this is left out, with a note.
 MAX_CHART_BYTES = 8_000_000
 #: Rows of the hotspot tables.
@@ -406,16 +410,18 @@ def _table(headers: list[str], rows: list[list[str]]) -> str:
     return "\n".join(lines)
 
 
-def _frontmatter(title, description="", label=None, order=None) -> str:
+def _frontmatter(title, description="", label=None, order=None, hidden=False) -> str:
     lines = ["---", f"title: {_yaml_string(title)}"]
     if description:
         lines.append(f"description: {_yaml_string(description)}")
-    if label is not None or order is not None:
+    if label is not None or order is not None or hidden:
         lines.append("sidebar:")
         if label is not None:
             lines.append(f"  label: {_yaml_string(label)}")
         if order is not None:
             lines.append(f"  order: {order}")
+        if hidden:
+            lines.append("  hidden: true")
     lines.append("---")
     return "\n".join(lines)
 
@@ -632,13 +638,20 @@ def _section(heading: str, component: str, level: int = 2) -> str:
     return f"{'#' * level} {heading}\n\n<{component} data={{data}} />"
 
 
-def _run_mdx(case, run, order, page_dir, components, case_link, report, charts) -> str:
+def _run_mdx(
+    case, run, neighbours, page_dir, components, case_link, report, charts
+) -> str:
     """A run's page: the report's sections, each drawn by a component."""
-    sections = [("RunMeta", None)]
+    previous, following = neighbours
+    trail = [f"[← {_mdx(case.title)}]({case_link})"]
+    if previous:
+        trail.append(f"[‹ {_mdx(previous.label)}]({case_link}{previous.slug}/)")
+    if following:
+        trail.append(f"[{_mdx(following.label)} ›]({case_link}{following.slug}/)")
     body = [
         "<ReportFilter data={data} />",
         "<RunMeta data={data} />",
-        f"[← {_mdx(case.title)}]({case_link})",
+        " · ".join(trail),
     ]
     names = ["ReportFilter", "RunMeta"]
 
@@ -662,9 +675,10 @@ def _run_mdx(case, run, order, page_dir, components, case_link, report, charts) 
         add("Charts", "Charts")
     if report["metadata"]:
         add("Metadata", "Metadata")
-    del sections
     return (
-        _frontmatter(f"{case.title}: {run.label}", label=run.label, order=order)
+        # The runs of a study can be hundreds: the sidebar lists the case, and the case
+        # page lists its runs.
+        _frontmatter(f"{case.title}: {run.label}", label=run.label, hidden=True)
         + "\n\n"
         + f'import data from "./{run.slug}.data.json";\n'
         + _import_lines(page_dir, components, names)
@@ -674,7 +688,9 @@ def _run_mdx(case, run, order, page_dir, components, case_link, report, charts) 
     )
 
 
-def _case_mdx(case, runs, page_dir, components, report, charts, case_link) -> str:
+def _case_mdx(
+    case, runs, order, page_dir, components, report, charts, case_link, data_name
+) -> str:
     """A case's page: what it is, its runs, what changed and the comparison charts."""
     names: list[str] = []
     body = []
@@ -705,13 +721,13 @@ def _case_mdx(case, runs, page_dir, components, report, charts, case_link) -> st
             body.append(_section(heading, component))
 
         add("Runs", "RunsTable")
-        add("What changed", "Changes")
+        add("What changed", "CompareControls")
         add("Durations", "CompareTable")
         if charts is not None and (charts["panels"] or charts["notes"]):
             add("Charts", "Charts")
-        data_import = 'import data from "./index.data.json";\n'
+        data_import = f'import data from "./{data_name}";\n'
     return (
-        _frontmatter(case.title, case.description, label="Overview", order=0)
+        _frontmatter(case.title, case.description, label=case.title, order=order)
         + "\n\n"
         + data_import
         + _import_lines(page_dir, components, names)
@@ -813,7 +829,7 @@ def build_site(
     summaries: list[dict] = []
     run_count = 0
 
-    for case in manifest.cases:
+    for case_order, case in enumerate(manifest.cases, start=1):
         runs = _load_runs(case)
         run_count += len(runs)
         group = slugify(case.group) if case.group else None
@@ -831,10 +847,17 @@ def build_site(
         metadata_keys = METADATA_KEYS if private else None
         with_charts = charts and case.charts
 
+        # The case is one page beside its runs' folder, so the sidebar lists it once.
+        case_page = case_dir.parent / f"{case.id}.mdx"
+        data_name = f"{case.id}.data.json"
         report = chart_data = None
         if len(runs) > 1:
             report = comparison_page_model(
-                [run.results for run in runs], include, exclude, ranks
+                [run.results for run in runs],
+                include,
+                exclude,
+                ranks,
+                reference=REFERENCE_RUNS,
             )
             if private:
                 for row in report["runs"]["rows"]:
@@ -868,7 +891,7 @@ def build_site(
                     files=files,
                 )
             _write(
-                case_dir / "index.data.json",
+                case_page.with_name(data_name),
                 _dump_json(
                     {
                         "report": report,
@@ -881,8 +904,18 @@ def build_site(
             if chart_data:
                 notes.extend(f"{case.id}: {note}" for note in chart_data["notes"])
         _write(
-            case_dir / "index.mdx",
-            _case_mdx(case, runs, case_dir, components, report, chart_data, case_link),
+            case_page,
+            _case_mdx(
+                case,
+                runs,
+                case_order,
+                case_page.parent,
+                components,
+                report,
+                chart_data,
+                case_link,
+                data_name,
+            ),
             files,
         )
 
@@ -921,7 +954,10 @@ def build_site(
                 _run_mdx(
                     case,
                     run,
-                    position,
+                    (
+                        runs[position - 2] if position > 1 else None,
+                        runs[position] if position < len(runs) else None,
+                    ),
                     case_dir,
                     components,
                     case_link,
