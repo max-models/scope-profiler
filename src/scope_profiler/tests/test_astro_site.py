@@ -462,8 +462,11 @@ def test_user_text_cannot_break_the_mdx(tmp_path):
 
     index = (out / CONTENT / "index.mdx").read_text()
     assert r"A \{tricky\} \<description\> with \$math." in index
+    # What the manifest says about the case is data, which the page draws as text.
     case = (out / CONTENT / "solvers" / "poisson-solver.mdx").read_text()
-    assert r"uses \{braces\} and \<tags\>" in case
+    assert "{braces}" not in case and "<tags>" not in case
+    info = _data(out, "solvers", "poisson-solver.data.json")["info"]
+    assert ["note", "uses {braces} and <tags>"] in info
     # In the frontmatter the text is a quoted YAML string, so it stays literal.
     assert 'description: "A {tricky} <description> with $math."' in index
 
@@ -671,3 +674,438 @@ def test_site_command_reports_a_bad_manifest_as_a_usage_error(tmp_path, capsys):
 
     assert exc_info.value.code == 2
     assert "scope-profiler site: error:" in capsys.readouterr().err
+
+
+def test_a_case_page_draws_the_rank_charts_over_its_runs(tmp_path):
+    _write_profiles(tmp_path / "data")
+    out = tmp_path / "docs"
+
+    build_site(
+        load_manifest(
+            _manifest(tmp_path, "cases: [{title: a, runs: ['data/np*.h5']}]\n")
+        ),
+        out,
+    )
+
+    panels = _data(out, "a.data.json")["charts"]["panels"]
+    titles = [panel["title"] for panel in panels]
+    assert "Rank imbalance" in titles and "Rank heatmap" in titles
+    # The durations of several runs are grouped; there is nothing to stack.
+    durations = next(p for p in panels if p["title"] == "Region durations")
+    assert durations["stack"] is None
+
+
+def test_a_runs_durations_chart_is_written_both_stacked_and_grouped(tmp_path):
+    _write_profiles(tmp_path / "data", ranks=(2,))
+    out = tmp_path / "docs"
+
+    build_site(
+        load_manifest(
+            _manifest(tmp_path, "cases: [{title: a, runs: [data/np2.h5]}]\n")
+        ),
+        out,
+    )
+
+    panels = _data(out, "a", "np2.data.json")["charts"]["panels"]
+    durations = next(p for p in panels if p["title"] == "Region durations")
+    stack = durations["stack"]
+    assert stack["stacked"] is True
+    assert durations["src"] == stack["stacked_src"]
+    segments = {}
+    for kind in ("stacked_src", "flat_src"):
+        data = _strict_json((out / "public" / stack[kind].lstrip("/")).read_text())
+        segments[kind] = {bar.get("segment") for bar in data["bars"]}
+    assert "self" in segments["stacked_src"] and segments["flat_src"] == {None}
+
+
+def test_the_case_info_is_metadata_not_a_table_of_its_own(tmp_path):
+    _write_profiles(tmp_path / "data")
+    out = tmp_path / "docs"
+
+    build_site(load_manifest(_manifest(tmp_path, BASIC)), out)
+
+    case = (out / CONTENT / "solvers" / "poisson-solver.mdx").read_text()
+    assert "## Information" not in case
+    assert "## Metadata\n\n<Metadata data={data} rows={data.info} />" in case
+    info = _data(out, "solvers", "poisson-solver.data.json")["info"]
+    assert info[0] == ["commit", "843a82cd"]
+    # Each run's own metadata begins with it.
+    run = _data(out, "solvers", "poisson-solver", "np2.data.json")["report"]["metadata"]
+    assert run[: len(info)] == info
+    assert ["timestamp", "2026-10-17T10:00:00Z"] in run
+    # A case with no info has no section for it.
+    single = (out / CONTENT / "single-run.mdx").read_text()
+    assert "Metadata" not in single
+
+
+def _attach(tmp_path, runs_yaml):
+    _write_profiles(tmp_path / "data")
+    (tmp_path / "params").mkdir(exist_ok=True)
+    (tmp_path / "params" / "np1.yml").write_text("steps: 10\n")
+    (tmp_path / "params" / "np2.yml").write_text("steps: 20\n")
+    (tmp_path / "run.py").write_text("print('hello')\n")
+    manifest = load_manifest(_manifest(tmp_path, runs_yaml))
+    out = tmp_path / "docs"
+    build_site(manifest, out)
+    return out
+
+
+def test_files_are_attached_to_runs_and_shown_on_their_pages(tmp_path):
+    out = _attach(
+        tmp_path,
+        """
+cases:
+  - title: a
+    files: [run.py]
+    runs:
+      - {path: data/np1.h5, files: ["params/{stem}.yml"]}
+      - {path: data/np2.h5, files: ["params/{stem}.yml"]}
+""",
+    )
+
+    first = _data(out, "a", "np1.data.json")["files"]
+    second = _data(out, "a", "np2.data.json")["files"]
+    # The case's file goes with every run, then the run's own (here by its name).
+    assert [f["name"] for f in first] == ["run.py", "np1.yml"]
+    assert [f["name"] for f in second] == ["run.py", "np2.yml"]
+    parameters = second[1]
+    assert parameters["text"] == "steps: 20\n"
+    assert parameters["language"] == "yaml" and first[0]["language"] == "python"
+    assert parameters["url"] == "/catalogue/a/np2/files/np2.yml"
+    # The file itself is there to download.
+    assert (
+        out / "public" / "catalogue" / "a" / "np2" / "files" / "np2.yml"
+    ).read_text() == ("steps: 20\n")
+    page = (out / CONTENT / "a" / "np2.mdx").read_text()
+    assert "## Files\n\n<Files data={data} />" in page
+    counts = _data(out, "a.data.json")["links"]["files"]
+    assert counts == [2, 2]
+
+
+def test_a_run_without_files_has_no_files_section(tmp_path):
+    out = _attach(tmp_path, "cases: [{title: a, runs: [data/np1.h5]}]\n")
+
+    assert _data(out, "a", "np1.data.json")["files"] == []
+    assert "Files" not in (out / CONTENT / "a" / "np1.mdx").read_text()
+
+
+def test_a_large_or_binary_file_is_offered_for_download_only(tmp_path):
+    from scope_profiler.astro_site import MAX_SHOWN_FILE_BYTES
+
+    _write_profiles(tmp_path / "data")
+    (tmp_path / "big.txt").write_text("x" * (MAX_SHOWN_FILE_BYTES + 1))
+    (tmp_path / "blob.bin").write_bytes(bytes(range(256)))
+    out = tmp_path / "docs"
+
+    build_site(
+        load_manifest(
+            _manifest(
+                tmp_path,
+                "cases: [{title: a, runs: [{path: data/np1.h5, files: [big.txt, blob.bin]}]}]\n",
+            )
+        ),
+        out,
+    )
+
+    big, blob = _data(out, "a", "np1.data.json")["files"]
+    assert big["text"] is None and big["reason"] == "too large to show"
+    assert blob["text"] is None and blob["reason"] == "not a text file"
+    assert (
+        out / "public" / "catalogue" / "a" / "np1" / "files" / "big.txt"
+    ).stat().st_size == (MAX_SHOWN_FILE_BYTES + 1)
+
+
+@pytest.mark.parametrize(
+    ("entry", "message"),
+    [
+        ("files: [missing.py]", "is not a file"),
+        ("files: ['nothing*.py']", "no file matches"),
+        ("files: 3", "must be a path or a list of paths"),
+    ],
+)
+def test_attached_files_are_checked(tmp_path, entry, message):
+    _write_profiles(tmp_path / "data")
+
+    with pytest.raises(SiteError, match=message):
+        load_manifest(
+            _manifest(
+                tmp_path,
+                f"cases: [{{title: a, runs: [{{path: data/np1.h5, {entry}}}]}}]\n",
+            )
+        )
+
+
+def test_two_attached_files_with_one_name_are_refused(tmp_path):
+    _write_profiles(tmp_path / "data")
+    (tmp_path / "one").mkdir()
+    (tmp_path / "two").mkdir()
+    (tmp_path / "one" / "params.yml").write_text("a: 1\n")
+    (tmp_path / "two" / "params.yml").write_text("a: 2\n")
+    manifest = load_manifest(
+        _manifest(
+            tmp_path,
+            "cases: [{title: a, runs: [{path: data/np1.h5, files: [one/params.yml, two/params.yml]}]}]\n",
+        )
+    )
+
+    with pytest.raises(SiteError, match="two attached files are called 'params.yml'"):
+        build_site(manifest, tmp_path / "docs")
+
+
+NIGHTLY = """
+cases:
+  - title: Nightly solve
+    group: Solvers
+    executions:
+      - {id: night-2, date: "2026-10-02", info: {commit: bbb}, runs: [{path: "data/two/np*.h5"}]}
+      - {id: night-1, date: "2026-10-01", info: {commit: aaa}, runs: [{path: "data/one/np*.h5"}]}
+"""
+
+
+def _nightly(tmp_path, text=NIGHTLY):
+    _write_profiles(tmp_path / "data" / "one")
+    _write_profiles(tmp_path / "data" / "two")
+    out = tmp_path / "docs"
+    result = build_site(load_manifest(_manifest(tmp_path, text)), out)
+    return out, result
+
+
+def test_executions_of_a_case_share_a_page_and_sidebar_entry(tmp_path):
+    out, result = _nightly(tmp_path)
+
+    content = out / CONTENT / "solvers"
+    # The latest execution (by date, not by listing) is the case's own page.
+    latest = _data(out, "solvers", "nightly-solve.data.json")
+    assert [row["id"] for row in latest["executions"]] == ["night-2", "night-1"]
+    assert [row["current"] for row in latest["executions"]] == [True, False]
+    assert latest["executions"][0]["link"] == "/cat/catalogue/solvers/nightly-solve/"
+    assert (content / "nightly-solve" / "night-2" / "np1.mdx").is_file()
+    # An earlier execution has a page of its own, out of the sidebar.
+    earlier = (content / "nightly-solve" / "night-1.mdx").read_text()
+    assert "hidden: true" in earlier
+    assert "hidden" not in (content / "nightly-solve.mdx").read_text()
+    assert (content / "nightly-solve" / "night-1" / "np4.mdx").is_file()
+    assert result.runs == 6
+    # The page of an execution says which one it is.
+    rows = dict(_data(out, "solvers", "nightly-solve", "night-1.data.json")["info"])
+    assert rows["commit"] == "aaa" and rows["execution"] == "night-1"
+    # Back from a run of the latest execution goes to the case's page.
+    run_page = (content / "nightly-solve" / "night-2" / "np1.mdx").read_text()
+    assert "(/cat/catalogue/solvers/nightly-solve/)" in run_page
+
+
+def test_executions_are_charted_over_time(tmp_path):
+    out, _ = _nightly(tmp_path)
+
+    charts = _data(out, "solvers", "nightly-solve.data.json")["charts"]
+    trend = charts["panels"][-1]
+    assert trend["title"] == "Executions over time"
+    plot = json.loads((out / "public" / trend["src"].lstrip("/")).read_text())
+    assert plot["plot"] == "trend"
+    assert [e["id"] for e in plot["executions"]] == ["night-1", "night-2"]
+    assert [s["label"] for s in plot["series"]] == ["np1", "np2", "np4"]
+    assert all(len(s["values"]) == 2 for s in plot["series"])
+
+
+def test_index_counts_the_executions(tmp_path):
+    out, _ = _nightly(tmp_path)
+
+    index = json.loads((out / PUBLIC / "index.json").read_text())
+    assert index["cases"][0]["executions"] == 2
+    assert "Executions" in (out / CONTENT / "index.mdx").read_text()
+
+
+@pytest.mark.parametrize(
+    "text, message",
+    [
+        (
+            "cases:\n  - {title: A, runs: [{path: x.h5}], executions: [{id: a}]}\n",
+            "either 'runs' or 'executions'",
+        ),
+        ("cases:\n  - {title: A, executions: []}\n", "non-empty list"),
+        (
+            "cases:\n  - {title: A, executions: [{runs: []}]}\n",
+            "'id', 'label' or 'date'",
+        ),
+        (
+            "cases:\n  - {title: A, executions: [{id: a, runs: [x], bogus: 1}]}\n",
+            "bogus",
+        ),
+    ],
+)
+def test_invalid_executions_are_refused(tmp_path, text, message):
+    with pytest.raises(SiteError, match=message):
+        load_manifest(_manifest(tmp_path, text))
+
+
+def test_duplicate_execution_ids_are_refused(tmp_path):
+    _write_profiles(tmp_path / "data")
+    text = (
+        "cases:\n  - title: A\n    executions:\n"
+        "      - {id: a, runs: [{path: data/np1.h5}]}\n"
+        "      - {id: a, runs: [{path: data/np2.h5}]}\n"
+    )
+    with pytest.raises(SiteError, match="used by another execution"):
+        load_manifest(_manifest(tmp_path, text))
+
+
+def _discovered(tmp_path, meta=True):
+    for night, date in (("n1", "2026-10-01"), ("n2", "2026-10-02")):
+        _write_profiles(tmp_path / "data" / night)
+        if meta:
+            (tmp_path / "data" / night / "meta.yml").write_text(
+                f"date: {date}\ninfo: {{commit: c-{night}}}\nlabel: Night {night[1]}\n"
+            )
+    return (
+        "cases:\n  - title: Found\n    executions:\n"
+        '      path: "data/{execution}/np*.h5"\n'
+    )
+
+
+def test_executions_are_found_by_a_pattern_with_their_meta_file(tmp_path):
+    text = _discovered(tmp_path)
+
+    manifest = load_manifest(_manifest(tmp_path, text))
+
+    executions = manifest.cases[0].executions
+    assert [(e.id, e.label, e.date, e.info) for e in executions] == [
+        ("n1", "Night 1", "2026-10-01", {"commit": "c-n1"}),
+        ("n2", "Night 2", "2026-10-02", {"commit": "c-n2"}),
+    ]
+    assert [len(e.runs) for e in executions] == [3, 3]
+    build_site(manifest, tmp_path / "docs")
+    assert (tmp_path / "docs" / CONTENT / "found.mdx").is_file()
+
+
+def test_found_executions_need_no_meta_file(tmp_path):
+    text = _discovered(tmp_path, meta=False)
+
+    executions = load_manifest(_manifest(tmp_path, text)).cases[0].executions
+
+    assert [(e.id, e.label, e.date) for e in executions] == [
+        ("n1", "n1", None),
+        ("n2", "n2", None),
+    ]
+
+
+@pytest.mark.parametrize(
+    "path, message",
+    [
+        ("data/np*.h5", "must contain {execution} once"),
+        ("data/{execution}x/np*.h5", "whole directory name"),
+        ("nothing/{execution}/np*.h5", "no directory matches"),
+    ],
+)
+def test_a_bad_execution_pattern_is_refused(tmp_path, path, message):
+    _discovered(tmp_path)
+    text = f"cases:\n  - title: Found\n    executions:\n      path: {path!r}\n"
+    with pytest.raises(SiteError, match=re.escape(message)):
+        load_manifest(_manifest(tmp_path, text))
+
+
+def test_a_meta_file_with_unknown_keys_is_refused(tmp_path):
+    text = _discovered(tmp_path)
+    (tmp_path / "data" / "n1" / "meta.yml").write_text("colour: red\n")
+    with pytest.raises(SiteError, match="colour"):
+        load_manifest(_manifest(tmp_path, text))
+
+
+FIGURES = """
+cases:
+  - title: With extras
+    images: [figs/case.png]
+    code:
+      - {path: src/solver.py, url: "https://example.org/solver.py"}
+      - https://example.org/repo
+      - {url: "https://example.org/other", label: Other code}
+    runs:
+      - {path: data/np1.h5, images: ["figs/run-{stem}.svg", figs/doc.pdf]}
+      - path: data/np2.h5
+"""
+
+
+def _with_extras(tmp_path):
+    _write_profiles(tmp_path / "data")
+    (tmp_path / "figs").mkdir()
+    for name in ("case.png", "run-np1.svg", "doc.pdf"):
+        (tmp_path / "figs" / name).write_bytes(b"x")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "solver.py").write_text("print('hi')\n")
+    out = tmp_path / "docs"
+    build_site(load_manifest(_manifest(tmp_path, FIGURES)), out)
+    return out
+
+
+def test_runs_and_cases_show_images_and_pdfs(tmp_path):
+    out = _with_extras(tmp_path)
+
+    run = _data(out, "with-extras", "np1.data.json")
+    assert [(f["name"], f["pdf"]) for f in run["images"]] == [
+        ("run-np1.svg", False),
+        ("doc.pdf", True),
+    ]
+    for figure in run["images"]:
+        assert (out / "public" / figure["url"].lstrip("/")).is_file()
+    assert "<Gallery" in (out / CONTENT / "with-extras" / "np1.mdx").read_text()
+    # A run without figures has no section.
+    assert _data(out, "with-extras", "np2.data.json")["images"] == []
+    assert "Gallery" not in (out / CONTENT / "with-extras" / "np2.mdx").read_text()
+    case = _data(out, "with-extras.data.json")
+    assert [f["name"] for f in case["images"]] == ["case.png"]
+
+
+def test_a_case_ends_with_its_code_and_links(tmp_path):
+    out = _with_extras(tmp_path)
+
+    code = _data(out, "with-extras.data.json")["code"]
+    assert [(c["name"], c["link"], c["url"] is not None) for c in code] == [
+        ("solver.py", "https://example.org/solver.py", True),
+        ("https://example.org/repo", "https://example.org/repo", False),
+        ("Other code", "https://example.org/other", False),
+    ]
+    assert code[0]["text"] == "print('hi')\n"
+    page = (out / CONTENT / "with-extras.mdx").read_text()
+    assert page.rstrip().endswith("<Files data={data} files={data.code} />")
+
+
+@pytest.mark.parametrize(
+    "entry, message",
+    [
+        ("images: [notes.txt]", "not an image or PDF"),
+        ("code: [{label: x}]", "'path' or 'url' is required"),
+        ("code: [{url: ftp://x}]", "must start with http"),
+        ("code: [{path: nothing.py}]", "is not a file"),
+    ],
+)
+def test_invalid_figures_and_code_are_refused(tmp_path, entry, message):
+    _write_profiles(tmp_path / "data")
+    (tmp_path / "notes.txt").write_text("x")
+    text = f"cases:\n  - title: A\n    {entry}\n    runs: [data/np1.h5]\n"
+    with pytest.raises(SiteError, match=re.escape(message)):
+        load_manifest(_manifest(tmp_path, text))
+
+
+def test_the_trend_follows_a_run_by_its_size_when_labels_drift(tmp_path):
+    _write_profiles(tmp_path / "data" / "one")
+    _write_profiles(tmp_path / "data" / "two")
+    text = (
+        "cases:\n  - title: Drift\n    executions:\n"
+        "      - id: a\n        date: '2026-10-01'\n        runs:\n"
+        + "".join(
+            f"          - {{path: data/one/np{n}.h5, label: run{i}}}\n"
+            for i, n in enumerate((1, 2, 4), start=1)
+        )
+        + "      - id: b\n        date: '2026-10-02'\n        runs:\n"
+        + "".join(
+            f"          - {{path: data/two/np{n}.h5, label: '{n} ranks'}}\n"
+            for n in (1, 2, 4)
+        )
+    )
+    out = tmp_path / "docs"
+    build_site(load_manifest(_manifest(tmp_path, text)), out)
+
+    panel = _data(out, "drift.data.json")["charts"]["panels"][-1]
+    plot = json.loads((out / "public" / panel["src"].lstrip("/")).read_text())
+    # One line per size, named after the newest execution, with a point in each.
+    assert [s["label"] for s in plot["series"]] == ["1 ranks", "2 ranks", "4 ranks"]
+    assert all(None not in s["values"] for s in plot["series"])

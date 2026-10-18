@@ -1033,6 +1033,8 @@ def chart_panels(charts, comparison: bool = False, scaling: str = "both") -> lis
     for index, (title, payload, chart_options) in enumerate(charts):
         options = dict(chart_options)
         variants = options.pop("variants", None)
+        alternate = options.pop("alternate", None)
+        stacked = options.pop("stacked", None)
         is_duration_chart = payload.get("plot") == "durations"
         panels.append(
             {
@@ -1062,6 +1064,13 @@ def chart_panels(charts, comparison: bool = False, scaling: str = "both") -> lis
                         0,
                     )
                     if variants
+                    else None
+                ),
+                # The durations chart drawn the other way, to switch to (the page's own
+                # "stack children" checkbox); the HTML report does not use it.
+                "stack": (
+                    {"alternate": alternate, "stacked": stacked}
+                    if alternate is not None
                     else None
                 ),
                 "description": chart_description_text(title, payload, comparison),

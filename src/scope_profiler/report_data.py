@@ -154,6 +154,8 @@ def collect_chart_payloads(
     comparison: bool = False,
     scaling_field: str | None = None,
     scaling: str = "both",
+    rank_charts: bool | None = None,
+    stack_toggle: bool = False,
 ) -> tuple[list[tuple[str, dict, dict]], list[str]]:
     """Build the chart payloads of one run or of a comparison of runs.
 
@@ -168,6 +170,11 @@ def collect_chart_payloads(
     and rank charts belong to its own page. ``scaling`` picks the chart(s) for
     runs of different sizes: "strong" the speedup, "weak" the weak-scaling
     efficiency, "both" the two of them.
+
+    ``rank_charts`` draws the rank imbalance and heatmap charts over the runs
+    (default: for a single run's report only). ``stack_toggle`` gives a single
+    run's durations chart the other way of drawing it, as an ``alternate``
+    payload, for a page whose reader can switch.
     """
     from scope_profiler.plotting_scripts import (
         available_likwid_metrics,
@@ -336,32 +343,63 @@ def collect_chart_payloads(
                         {"comparison": "percent"},
                     ),
                 )
+        # One run's bars split into the region's own time and its direct
+        # children, which the ranked table cannot show at a glance. Runs
+        # compare as grouped bars instead: stacking both ways on one axis
+        # would merge equal segment names across runs. The split needs
+        # call timestamps, which aggregated profiles do not store.
+        stacked = len(runs) == 1 and _has_call_timestamps(runs[0])
+        durations = {
+            "include": include,
+            "exclude": exclude,
+            "ranks": ranks,
+            # Totals summed over ranks grow with the rank count; across
+            # run sizes, the mean call reads like the speedup chart.
+            "metric": "total" if len({run.num_ranks for run in runs}) == 1 else "avg",
+            "sort_by": "total",
+        }
         collect(
             "Region durations",
             plot_durations,
             payload_dir / "durations.json",
             runs,
-            include=include,
-            exclude=exclude,
-            ranks=ranks,
-            # Totals summed over ranks grow with the rank count; across
-            # run sizes, the mean call reads like the speedup chart.
-            metric="total" if len({run.num_ranks for run in runs}) == 1 else "avg",
-            sort_by="total",
-            # One run's bars split into the region's own time and its direct
-            # children, which the ranked table cannot show at a glance. Runs
-            # compare as grouped bars instead: stacking both ways on one axis
-            # would merge equal segment names across runs. The split needs
-            # call timestamps, which aggregated profiles do not store.
-            stack_children=len(runs) == 1 and _has_call_timestamps(runs[0]),
+            stack_children=stacked,
+            **durations,
         )
+        # The other way of drawing it, for a page that lets the reader switch. It needs the
+        # calls' timestamps, and is for one run: the browser's chart builder cannot stack
+        # the segments of several runs side by side (``plot_durations`` can, in matplotlib).
+        if (
+            stack_toggle
+            and len(runs) == 1
+            and charts
+            and charts[-1][0] == "Region durations"
+            and _has_call_timestamps(runs[0])
+        ):
+            alternate = payload_of(
+                "Region durations",
+                plot_durations,
+                payload_dir / "durations-alternate.json",
+                runs,
+                stack_children=not stacked,
+                **durations,
+            )
+            if alternate is not None:
+                title, payload, options = charts[-1]
+                charts[-1] = (
+                    title,
+                    payload,
+                    {**options, "alternate": alternate, "stacked": stacked},
+                )
         if not comparison and charts and charts[-1][0] == "Region durations":
             # Where the time went is the first question about one run, so its
             # durations lead, above the timeline.
             charts.insert(0, charts.pop())
 
-        # Both rank views are empty or trivial with a single rank.
-        if not comparison and any(len(selected) > 1 for selected in selected_ranks):
+        # Both rank views are empty or trivial with a single rank. A comparison leaves
+        # them to each run's own page, unless asked to draw them over the runs.
+        draw_rank_charts = (not comparison) if rank_charts is None else rank_charts
+        if draw_rank_charts and any(len(selected) > 1 for selected in selected_ranks):
             collect(
                 "Rank imbalance",
                 plot_imbalance,

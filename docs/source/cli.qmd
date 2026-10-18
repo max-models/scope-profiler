@@ -433,7 +433,7 @@ scope-profiler site catalogue.yaml --check   # only validate the manifest
 The manifest lists *cases*, each a set of runs shown together:
 
 ```yaml
-title: Struphy profiling
+title: Profiling runs of my code
 description: Profiling runs of the Poisson solver.
 base: /my-catalogue             # the site's base path: "/" plus the repo name
 defaults: {scaling: strong, speedup_x: auto}
@@ -446,9 +446,10 @@ cases:
     scaling: strong             # strong, weak, both or none
     speedup_x: auto             # auto, ranks, nodes, threads or cores
     info: {commit: 843a82cd, date: 2026-10-16}
+    files: [scripts/run.py]     # attached to every run of the case
     runs:
-      - {path: data/np1.h5, label: 1 rank}
-      - {path: "data/np*.h5"}   # globs, relative to the manifest
+      - {path: data/np1.h5, label: 1 rank, files: [params/np1.yml]}
+      - {path: "data/np*.h5", files: ["params/{stem}.yml"]}   # globs, relative to the manifest
 ```
 
 `base` is the base path the site is served from (`/` plus the repository name on GitHub Pages,
@@ -461,6 +462,53 @@ Per case, `include`, `exclude` (region regular expressions), `ranks` and `charts
 what the pages show, and `metadata: all` publishes every metadata field of the profiles (see
 below); the same keys under `defaults` apply to every case. The manifest is checked as a whole
 before anything is written, and an error names the case and the field it comes from.
+
+`files` attaches scripts and parameter files to a run (under the run, or under the case for every
+run of it); each is copied into the site, shown on the run's page with syntax highlighting and a
+copy button, and offered for download. In a glob of runs, `{stem}` stands for the run file's name
+without its extension, so `params/{stem}.yml` names each run's own file. Text files up to 200 kB
+are shown; larger or binary ones are only offered for download. What `info` says about a case (a
+commit, a system) is shown as metadata, at the end of the case page and ahead of each run's own
+metadata.
+
+A case that is run again and again, such as a nightly job, lists `executions` instead of `runs`:
+
+```yaml
+  - title: Poisson cube, nightly
+    executions:
+      - {id: "2026-10-16", date: "2026-10-16", info: {commit: d4e5f6a}, runs: [{path: "data/2026-10-16/np*.h5"}]}
+      - {id: "2026-10-17", date: "2026-10-17", info: {commit: e5f6a7b}, runs: [{path: "data/2026-10-17/np*.h5"}]}
+```
+
+Instead of listing them, a pattern can find the executions: `path` has `{execution}` where each
+one's directory name goes, and every directory holding runs is an execution.
+
+```yaml
+    executions:
+      path: "data/poisson-nightly/{execution}/np*.h5"
+```
+
+A `meta.yml` in an execution's directory (the `meta` key names another file) may give its `label`,
+`date` and `info`, so a nightly job only has to drop its files, and a `meta.yml`, into a new
+directory.
+
+Each execution has an `id` (default: its `label` or `date`), an optional `label`, `date` and
+`info`, and its own `runs`. The case keeps one sidebar entry; its page is the latest execution
+(by `date` when every execution has one, else the last listed), with a table of all executions and
+a chart of each run's wall time over them. Every earlier execution has a page of its own, with the
+same comparison and charts, linked from that table. A run is followed over the executions by the MPI ranks it ran on (ranks and
+OpenMP threads, or else its label, when an execution has two runs on as many ranks).
+
+`images` puts images (png, jpg, gif, webp, svg) and PDFs on a page, as a grid of captioned
+previews that open in a lightbox (a PDF opens in a new tab): under a run for its page (`{stem}` works
+as for `files`), under the case for the case page. `code` shows code at the bottom of the case page,
+each entry a path (shown with syntax highlighting), a link, or both:
+
+```yaml
+    code:
+      - {path: scripts/run.py, url: "https://github.com/me/code/blob/main/run.py"}
+      - {url: "https://github.com/me/code", label: The code}
+```
 
 The command writes, below the `-o` directory (the Astro project):
 
@@ -475,10 +523,15 @@ The command writes, below the `-o` directory (the Astro project):
   between two runs (headline numbers and the largest improvements and regressions), the durations
   table of every region in them (switchable between total, own and per-call time and calls, in
   call tree order or by the size of the change), and the speedup, weak-scaling, change and
-  duration charts. A study can have hundreds of runs, so the reader **picks the two runs** to
-  compare, a baseline and a candidate (kept in the URL, so a comparison can be shared); a study of
-  up to twelve runs can also show every run against the baseline. The pair is computed in the
-  browser from a compact dataset on the page, and the duration chart follows the choice.
+  duration charts, and the rank imbalance and rank heatmap charts over the compared runs. A study
+  can have hundreds of runs, so the reader **picks the two runs** to compare, a baseline and a
+  candidate (kept in the URL, so a comparison can be shared); a study of up to twelve runs can
+  also show every run against the baseline, which is off by default. The pair is computed in the
+  browser from a compact dataset on the page, and the charts of several runs draw only the
+  compared ones. The scaling charts' x-axis can be MPI ranks, nodes, OpenMP threads or their
+  product, for the axes the runs differ in (`speedup_x` in the manifest picks the one a case
+  opens on), and the durations chart of a run has a "stack children" checkbox, as in
+  `scope-profiler plot durations --stack-children`.
 - `public/catalogue/`: the chart data, as the plot-data JSON that `scope-profiler export
   plot-data` writes (a file per x-axis for the scaling charts), and an `index.json` of the cases.
 
