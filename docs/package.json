@@ -1,0 +1,23 @@
+{
+  "name": "scope-profiler-docs",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "starlight-notebooks convert && DOCS_VALIDATE_LINKS=false astro dev",
+    "build": "starlight-notebooks convert && starlight-check-mdx && astro build",
+    "preview": "astro preview",
+    "check:mdx": "starlight-check-mdx",
+    "notebooks": "starlight-notebooks",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.42.6",
+    "@max-models/starlight-theme": "github:max-models/starlight-theme#v0.4.0",
+    "astro": "^7.3.8",
+    "sharp": "^0.35.3"
+  }
+}

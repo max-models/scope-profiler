@@ -87,6 +87,14 @@
 
 ### Changed
 
+- The documentation site moved from Sphinx to Astro + Starlight with the shared
+  [starlight-theme](https://github.com/max-models/starlight-theme): the pages
+  are Markdown/MDX in `docs/src/content/docs/`, the tutorials Jupyter
+  notebooks (`tutorials/*.ipynb`, formerly `.qmd`) executed at build time, and
+  the API reference generated from the docstrings. Page URLs drop `.html`
+  (`guide/plot_cli.html` is now `guide/plot-cli/`); the old URLs redirect.
+  `make docs-build` builds it, and `docs/Makefile` is gone.
+
 - Report generation benchmark (`benchmarks/report.toml`, five synthetic
   profile shapes up to 1550 nested regions and a two-run comparison) and
   `slow` tests holding each shape to a time and size limit, plus a check that

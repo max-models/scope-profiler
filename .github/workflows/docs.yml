@@ -1,38 +1,46 @@
-name: Deploy Docs
+name: Docs
+
+# The Astro + Starlight site in docs/: hand-written pages, the executed tutorial notebooks, the
+# generated command output and the API reference. Built on every push and pull request with the
+# shared workflow of max-models/starlight-theme; deployed to GitHub Pages from devel.
+# docs/generate_docs_outputs.py runs the MPI examples under mpirun, hence Open MPI.
 
 on:
   push:
-    branches: [devel]
+    branches: ["main", "devel"]
+  pull_request:
+    branches: ["main", "devel"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-docs:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build documentation from devel
-        uses: ./.github/actions/build-docs
-        with:
-          python-version: "3.10"
-          treat-warnings-as-errors: "false"
-          use-released-packages: "false"
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs/build/html/
-
-  deploy-docs:
-    needs: build-docs
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/deploy-pages@v4
-        id: deployment
+  docs:
+    uses: max-models/starlight-theme/.github/workflows/docs.yml@v0.4.0
+    with:
+      apt-packages: "libopenmpi-dev openmpi-bin"
+      pre-build: |
+        "$DOCS_PYTHON" docs/generate_docs_outputs.py
+      smoke-paths: |
+        getting-started/installation/index.html
+        getting-started/quickstart/index.html
+        guide/plot-cli/index.html
+        guide/plotly-package/index.html
+        reference/api/index.html
+        reference/cli/index.html
+        tutorials/index.html
+        tutorials/01-getting-started/index.html
+        tutorials/03-visualization/index.html
+        tutorials/03-visualization/1.png
+        api/scope_profiler/index.html
+        api/scope_profiler/profile_manager/index.html
+        figures/cli/gantt_plot.png
+        plotly/index.js
+        installation.html/index.html

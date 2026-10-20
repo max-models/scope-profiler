@@ -109,15 +109,15 @@ optional-dependencies.dev = [
   "ruff >= 0.16, < 0.17",
   "scope-profiler[docs,fortran,line-profiler,mcp,mpi,notebook,nvtx,pproc,test,tui]",
 ]
-# https://medium.com/@pratikdomadiya123/build-project-documentation-quickly-with-the-sphinx-python-2a9732b66594
+# The docs site (docs/, @max-models/starlight-theme): griffe reads the API reference, and
+# nbclient/nbformat/ipykernel run the tutorials, which use the extras below.
 optional-dependencies.docs = [
-  "myst-parser",
-  "nbconvert",
-  "nbsphinx",
+  "griffe",
+  "ipykernel",
+  "nbclient",
+  "nbformat",
   "pre-commit",
   "pyproject-fmt",
-  "sphinx",
-  "sphinx-book-theme",
   "scope-profiler[line-profiler,mpi,notebook,pproc,site,tui]",
 ]
 optional-dependencies.test = [
@@ -141,6 +141,12 @@ scripts.scope-profiler-mcp = "scope_profiler.mcp_server.server:main"
 
 [project.entry-points.pytest11]
 scope_profiler = "scope_profiler.pytest_plugin"
+
+# pylikwid is an sdist whose build needs a LIKWID installation; `uv sync` resolves every extra,
+# so it gets the metadata from here instead of building pylikwid (the docs CI has no LIKWID)
+[[tool.uv.dependency-metadata]]
+name = "pylikwid"
+requires-dist = []
 
 [tool.setuptools.packages.find]
 where = [ "src" ]

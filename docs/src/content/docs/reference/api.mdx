@@ -1,0 +1,310 @@
+---
+title: API reference
+---
+
+import { Autodoc } from 'starlight-pydocs/components';
+
+> **Install for this page:** `pip install "scope-profiler[pproc]"` covers the
+> complete reference. The core profiling and file APIs need only
+> `pip install scope-profiler`; plotting/DataFrames need `pproc`, and LIKWID
+> collection needs `scope-profiler[likwid]` plus a system LIKWID installation.
+
+This page walks through the public API by task. Every module, with all its members, is
+documented in the [API reference](/scope-profiler/api/scope_profiler/).
+
+## Module-level shortcuts
+
+The everyday lifecycle, instrumentation, and state-query calls are importable
+from the package root, so the common case needs no class name:
+
+```python
+import scope_profiler as sp
+
+with sp.session(file_path="run.h5", return_results=True) as run:
+    with sp.region("solve"):
+        solve()
+
+results = run.results
+```
+
+`sp.setup`, `sp.finalize`, `sp.session`, `sp.region`, `sp.profile`,
+`sp.is_active`, `sp.is_configured`, `sp.registered_regions`, and
+`sp.recorded_regions` *are* the corresponding `ProfileManager` class methods
+rather than wrappers around them, and act on the same process-wide default
+manager. Use `ProfileManager` directly for independent manager instances.
+
+## ProfileManager
+
+The main entry point for all profiling operations. Class methods provide the
+process-wide default manager, so the common case does not require an instance.
+Create `ProfileManager()` instances when independent profiling sessions need
+to coexist; each instance owns its configuration, regions, decorators, and
+output.
+
+<Autodoc name="scope_profiler.profile_manager.ProfileManager" headingLevel={3} />
+
+## ProfilingOptions
+
+The settings `setup()` and `session()` accept, as an object that can be built
+away from the call site and reused across runs. It is also where each setting
+is declared once: the keyword arguments of `setup()` are its fields.
+
+Settings that share a prefix can be given as groups instead, which spell the
+same thing without the prefix:
+
+```python
+from scope_profiler import HDF5Options, ProfilingOptions
+
+options = ProfilingOptions(
+    file_path="run.h5",
+    hdf5=HDF5Options(compression="gzip", compression_level=4),
+)
+```
+
+<Autodoc name="scope_profiler.profile_config.ProfilingOptions" headingLevel={3} />
+<Autodoc name="scope_profiler.profile_config.MemrayOptions" headingLevel={3} />
+<Autodoc name="scope_profiler.profile_config.GPUOptions" headingLevel={3} />
+<Autodoc name="scope_profiler.profile_config.HDF5Options" headingLevel={3} />
+<Autodoc name="scope_profiler.profile_config.load_profiling_config" headingLevel={3} />
+
+## ProfilingConfig
+
+Holds one manager's profiling configuration. Normally you interact with it
+through `ProfileManager.setup()`, but you can also construct one directly for
+advanced use cases.
+
+<Autodoc name="scope_profiler.profile_config.ProfilingConfig" headingLevel={3} />
+
+## Region classes
+
+### BaseProfileRegion
+
+<Autodoc name="scope_profiler.region_profiler.BaseProfileRegion" headingLevel={4} />
+
+### DisabledProfileRegion
+
+<Autodoc name="scope_profiler.region_profiler.DisabledProfileRegion" headingLevel={4} />
+
+### TimeOnlyProfileRegion
+
+<Autodoc name="scope_profiler.region_profiler.TimeOnlyProfileRegion" headingLevel={4} />
+
+### FullProfileRegion
+
+<Autodoc name="scope_profiler.region_profiler.FullProfileRegion" headingLevel={4} />
+
+### LineProfilerRegion
+
+<Autodoc name="scope_profiler.region_profiler.LineProfilerRegion" headingLevel={4} />
+
+### ThreadedProfileRegion
+
+Selected by `track_threads=True`; see [Threads, tasks and
+coroutines](/scope-profiler/guide/concurrency/).
+
+<Autodoc name="scope_profiler.region_profiler.ThreadedProfileRegion" headingLevel={4} />
+
+## Threads, tasks and coroutines
+
+A run profiled with `track_threads` describes the lanes its calls ran on. The
+records below are what `ProfilingResults.threads` and `ProfilingResults.tasks`
+hand back.
+
+<Autodoc name="scope_profiler.concurrency.ThreadInfo" headingLevel={3} />
+<Autodoc name="scope_profiler.concurrency.TaskInfo" headingLevel={3} />
+<Autodoc name="scope_profiler.concurrency.ConcurrencyTracker" headingLevel={3} />
+<Autodoc name="scope_profiler.concurrency.lane_ids" headingLevel={3} />
+
+## Post-processing
+
+Everything in this section is importable from the package root:
+
+```python
+from scope_profiler import (
+    build_call_arrays,
+    build_call_stack,
+    load,
+    read_h5,
+    read_h5_summary,
+    read_json,
+    read_profile,
+    plot_flame_chart,
+    plot_gantt,
+    write_region_statistics_json,
+)
+```
+
+All durations and timestamps exposed here are in **seconds**; the HDF5 file
+stores nanoseconds.
+
+### ProfilingResults
+
+The post-processing API itself, and the only type the analysis layer has.
+`ProfilingResults.from_h5()` builds one from a merged file, and
+`ProfileManager.finalize(return_results=True)` builds the same thing straight
+from memory.
+
+<Autodoc name="scope_profiler.results.ProfilingResults" headingLevel={4} />
+
+### load
+
+One entry point for reading a run back, whatever format it is in. The format
+comes from the file's contents rather than its name, so a caller that just
+has a path does not have to know which reader it wanted.
+
+<Autodoc name="scope_profiler.profile_io.load" headingLevel={4} />
+<Autodoc name="scope_profiler.profile_io.sniff_profile_format" headingLevel={4} />
+
+### read_h5
+
+The module-level spelling of `ProfilingResults.from_h5()`; the two are
+interchangeable.
+
+<Autodoc name="scope_profiler.h5reader.read_h5" headingLevel={4} />
+
+### read_h5_summary
+
+Load fixed-size scalar statistics without reading per-call event columns.
+
+<Autodoc name="scope_profiler.h5reader.read_h5_summary" headingLevel={4} />
+
+### read_json and write_json
+
+The same run as a JSON document: `write_json()` writes one, `read_json()`
+reads it back into the very same `ProfilingResults`, and `read_profile()` /
+`write_profile()` pick between JSON and HDF5 by the file name — the rule
+`scope-profiler run -o` follows. See [CLI reference](/scope-profiler/reference/cli/) for when to prefer which.
+
+<Autodoc name="scope_profiler.json_export.read_json" headingLevel={4} />
+<Autodoc name="scope_profiler.json_export.write_json" headingLevel={4} />
+<Autodoc name="scope_profiler.json_export.export_json" headingLevel={4} />
+<Autodoc name="scope_profiler.profile_io.read_profile" headingLevel={4} />
+<Autodoc name="scope_profiler.profile_io.write_profile" headingLevel={4} />
+
+### Native (C and Fortran) traces
+
+Reading what the C and Fortran region APIs write - they share one format; see
+[Profiling C and C++ code](/scope-profiler/guide/c/) and [Profiling Fortran code](/scope-profiler/guide/fortran/).
+
+<Autodoc name="scope_profiler.native_trace.load_traces" headingLevel={4} />
+<Autodoc name="scope_profiler.native_trace.convert_traces" headingLevel={4} />
+<Autodoc name="scope_profiler.native_trace.read_trace" headingLevel={4} />
+<Autodoc name="scope_profiler.native_trace.find_traces" headingLevel={4} />
+<Autodoc name="scope_profiler.native_trace.write_results" headingLevel={4} />
+<Autodoc name="scope_profiler.native_trace.fortran_source_path" headingLevel={4} />
+<Autodoc name="scope_profiler.native_trace.c_source_path" headingLevel={4} />
+<Autodoc name="scope_profiler.native_trace.c_include_dir" headingLevel={4} />
+
+### Combining runs
+
+<Autodoc name="scope_profiler.results.merge_results" headingLevel={4} />
+
+### Region
+
+<Autodoc name="scope_profiler.region.Region" headingLevel={4} />
+
+### MPIRegion
+
+<Autodoc name="scope_profiler.mpi_region.MPIRegion" headingLevel={4} />
+
+### MPI call wrappers
+
+<Autodoc name="scope_profiler.mpi_wrappers" headingLevel={4} />
+
+### Call stack reconstruction
+
+Regions record no call graph, so nesting is recovered from timestamp
+containment. `ProfilingResults.call_stack()` is the usual entry point; the
+functions below operate on its result and let you walk the reconstructed tree
+when building your own nested visualisation.
+
+<Autodoc name="scope_profiler.call_stack.build_call_stack" headingLevel={4} />
+<Autodoc name="scope_profiler.call_stack.call_stack_roots" headingLevel={4} />
+<Autodoc name="scope_profiler.call_stack.call_stack_children" headingLevel={4} />
+
+#### Intervals must be properly nested, within a lane
+
+Two calls recorded on one *lane* — one thread, or one asyncio task or greenlet
+running on it — either nest completely or do not overlap at all. A call that
+starts inside another on the same lane and ends after it raises `NestingError`
+rather than being reconstructed under a guessed parent — there is no call
+stack that describes it, and every consumer (flame chart, `.prof`, speedscope,
+exclusive time) would otherwise have to invent one.
+
+Calls on different lanes overlap freely and are reconstructed as separate
+stacks. A run profiled with `track_threads` records a lane per call, which is
+what makes that possible; without it a whole rank is one lane, so profiling
+concurrent threads raises here instead. See [Threads, tasks and
+coroutines](/scope-profiler/guide/concurrency/).
+
+A stack of `with` blocks or decorated functions on one lane always satisfies
+this. The other realistic way to violate it is a mismatched `sp_begin`/`sp_end`
+pair in C or Fortran; see the [C](/scope-profiler/guide/c/) and
+[Fortran](/scope-profiler/guide/fortran/) guides.
+
+`finalize()` is deliberately more forgiving than the readers: a rank whose
+intervals do not nest keeps its timings and loses only the call graph, with a
+warning, rather than throwing away a run that has already finished computing.
+
+<Autodoc name="scope_profiler.call_stack.NestingError" headingLevel={5} />
+
+#### Reconstruction at scale
+
+`build_call_stack` allocates a dict per call (~700 bytes), which is fine for
+inspecting a run and not fine for a long one. `build_call_arrays` returns the
+same reconstruction as numpy columns and is what the exporters and
+`finalize()` use — a run with ten million events per rank reconstructs in a
+couple of seconds instead of a couple of minutes.
+
+<Autodoc name="scope_profiler.call_stack.build_call_arrays" headingLevel={5} />
+<Autodoc name="scope_profiler.call_stack.CallArrays" headingLevel={5} />
+
+### Plotting
+
+<Autodoc name="scope_profiler.plotting_scripts.plot_gantt" headingLevel={4} />
+<Autodoc name="scope_profiler.plotting_scripts.plot_flame_chart" headingLevel={4} />
+<Autodoc name="scope_profiler.plotting_scripts.plot_flame_graph" headingLevel={4} />
+<Autodoc name="scope_profiler.plotting_scripts.plot_durations" headingLevel={4} />
+<Autodoc name="scope_profiler.plotting_scripts.plot_duration_timeseries" headingLevel={4} />
+<Autodoc name="scope_profiler.plotting_scripts.plot_speedup" headingLevel={4} />
+
+### Statistics export
+
+<Autodoc name="scope_profiler.plotting_scripts.collect_region_statistics" headingLevel={4} />
+<Autodoc name="scope_profiler.plotting_scripts.write_region_statistics_json" headingLevel={4} />
+
+### Exporting to other tools
+
+<Autodoc name="scope_profiler.speedscope_export.export_speedscope" headingLevel={4} />
+<Autodoc name="scope_profiler.chrome_trace_export.export_chrome_trace" headingLevel={4} />
+<Autodoc name="scope_profiler.prof_export.export_prof" headingLevel={4} />
+<Autodoc name="scope_profiler.prof_export.to_pstats" headingLevel={4} />
+<Autodoc name="scope_profiler.prof_export.build_pstats" headingLevel={4} />
+<Autodoc name="scope_profiler.prof_export.load_prof" headingLevel={4} />
+<Autodoc name="scope_profiler.prof_export.ScopeProfile" headingLevel={4} />
+<Autodoc name="scope_profiler.json_export.export_json" headingLevel={4} />
+
+## LIKWID
+
+See [LIKWID hardware counters](/scope-profiler/guide/likwid/) for the workflow and the HDF5 layout.
+
+### LikwidRegionResult
+
+<Autodoc name="scope_profiler.likwid_data.LikwidRegionResult" headingLevel={4} />
+
+### Summary tables
+
+<Autodoc name="scope_profiler.summary.likwid_tables" headingLevel={4} />
+<Autodoc name="scope_profiler.summary.print_likwid_table" headingLevel={4} />
+<Autodoc name="scope_profiler.summary.print_likwid_tables" headingLevel={4} />
+
+### Collection and storage
+
+<Autodoc name="scope_profiler.likwid_data.collect_marker_results_isolated" headingLevel={4} />
+<Autodoc name="scope_profiler.likwid_data.parse_marker_file" headingLevel={4} />
+<Autodoc name="scope_profiler.likwid_data.collect_marker_results" headingLevel={4} />
+<Autodoc name="scope_profiler.likwid_data.collect_region_snapshots" headingLevel={4} />
+<Autodoc name="scope_profiler.likwid_data.snapshots_to_results" headingLevel={4} />
+<Autodoc name="scope_profiler.likwid_data.write_likwid_results" headingLevel={4} />
+<Autodoc name="scope_profiler.likwid_data.markers_available" headingLevel={4} />
+<Autodoc name="scope_profiler.likwid_data.likwid_environment" headingLevel={4} />
