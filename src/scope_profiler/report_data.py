@@ -156,6 +156,7 @@ def collect_chart_payloads(
     scaling: str = "both",
     rank_charts: bool | None = None,
     stack_toggle: bool = False,
+    stack_default: bool = True,
 ) -> tuple[list[tuple[str, dict, dict]], list[str]]:
     """Build the chart payloads of one run or of a comparison of runs.
 
@@ -174,7 +175,8 @@ def collect_chart_payloads(
     ``rank_charts`` draws the rank imbalance and heatmap charts over the runs
     (default: for a single run's report only). ``stack_toggle`` gives a single
     run's durations chart the other way of drawing it, as an ``alternate``
-    payload, for a page whose reader can switch.
+    payload, for a page whose reader can switch; ``stack_default=False`` draws the single run's
+    durations unstacked, in one colour, and leaves the stacked bars to that switch.
     """
     from scope_profiler.plotting_scripts import (
         available_likwid_metrics,
@@ -348,7 +350,7 @@ def collect_chart_payloads(
         # compare as grouped bars instead: stacking both ways on one axis
         # would merge equal segment names across runs. The split needs
         # call timestamps, which aggregated profiles do not store.
-        stacked = len(runs) == 1 and _has_call_timestamps(runs[0])
+        stacked = stack_default and len(runs) == 1 and _has_call_timestamps(runs[0])
         durations = {
             "include": include,
             "exclude": exclude,

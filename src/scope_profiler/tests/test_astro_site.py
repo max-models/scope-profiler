@@ -709,8 +709,9 @@ def test_a_runs_durations_chart_is_written_both_stacked_and_grouped(tmp_path):
     panels = _data(out, "a", "np2.data.json")["charts"]["panels"]
     durations = next(p for p in panels if p["title"] == "Region durations")
     stack = durations["stack"]
-    assert stack["stacked"] is True
-    assert durations["src"] == stack["stacked_src"]
+    # One colour to start with; the checkbox stacks the bars.
+    assert stack["stacked"] is False
+    assert durations["src"] == stack["flat_src"]
     segments = {}
     for kind in ("stacked_src", "flat_src"):
         data = _strict_json((out / "public" / stack[kind].lstrip("/")).read_text())
@@ -1109,3 +1110,51 @@ def test_the_trend_follows_a_run_by_its_size_when_labels_drift(tmp_path):
     # One line per size, named after the newest execution, with a point in each.
     assert [s["label"] for s in plot["series"]] == ["1 ranks", "2 ranks", "4 ranks"]
     assert all(None not in s["values"] for s in plot["series"])
+
+
+def test_executions_can_be_compared_with_each_other(tmp_path):
+    out, _ = _nightly(tmp_path)
+
+    link = _data(out, "solvers", "nightly-solve.data.json")["compare"]
+    assert link == "/cat/catalogue/solvers/nightly-solve/compare/"
+    page = (out / CONTENT / "solvers" / "nightly-solve" / "compare.mdx").read_text()
+    assert "hidden: true" in page and "<CompareControls" in page
+    data = _data(out, "solvers", "nightly-solve", "compare.data.json")
+    runs = data["report"]["dataset"]["runs"]
+    # Every run of every execution, named after its execution, under it.
+    assert len(runs) == 6
+    assert {run["group"] for run in runs} == {"night-1", "night-2"}
+    assert runs[0]["label"] == "night-1 · np1"
+    # It opens on the biggest run both of the newest executions have.
+    assert data["report"]["dataset"]["default"] == {
+        "base": "night-1 · np4",
+        "cand": "night-2 · np4",
+    }
+    assert (
+        "scaling"
+        not in json.dumps([p["title"] for p in data["charts"]["panels"]]).lower()
+    )
+
+
+def test_a_single_execution_has_nothing_to_compare(tmp_path):
+    _write_profiles(tmp_path / "data")
+    text = (
+        "cases:\n  - title: One\n    executions:\n"
+        "      - {id: a, runs: [{path: data/np*.h5}]}\n"
+    )
+    out = tmp_path / "docs"
+    build_site(load_manifest(_manifest(tmp_path, text)), out)
+
+    assert _data(out, "one.data.json")["compare"] is None
+    assert not (out / CONTENT / "one" / "compare.mdx").exists()
+
+
+def test_an_execution_cannot_be_called_compare(tmp_path):
+    _write_profiles(tmp_path / "data")
+    text = (
+        "cases:\n  - title: One\n    executions:\n"
+        "      - {id: compare, runs: [{path: data/np1.h5}]}\n"
+        "      - {id: b, runs: [{path: data/np2.h5}]}\n"
+    )
+    with pytest.raises(SiteError, match="cannot be called 'compare'"):
+        build_site(load_manifest(_manifest(tmp_path, text)), tmp_path / "docs")

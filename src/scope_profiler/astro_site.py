@@ -1022,6 +1022,8 @@ def _chart_data(
             # and grouped, for the page's own checkbox.
             rank_charts=True,
             stack_toggle=True,
+            # One colour to start with; the page's checkbox splits the bars into segments.
+            stack_default=False,
         )
     except ImportError as exc:
         raise SiteError(
@@ -1544,6 +1546,7 @@ def build_site(
                     "charts": chart_data,
                     "info": info_rows,
                     "executions": history and history["table"],
+                    "compare": history and history.get("compare"),
                     "images": case_figures,
                     "code": case_code,
                     "links": {
@@ -1643,6 +1646,86 @@ def build_site(
             for run in runs
         ]
 
+    def build_compare_page(case, units, relative, back):
+        """A page that compares runs of any two executions of a case."""
+        import copy
+
+        runs, groups = [], []
+        for execution, _, loaded in units:
+            for run in loaded:
+                # One list of runs, each named after its execution as well.
+                results = copy.copy(run.results)
+                results.label = f"{execution.label} · {run.label}"
+                runs.append(results)
+                groups.append(execution.label)
+        include = list(case.include) if case.include else None
+        exclude = list(case.exclude) if case.exclude else None
+        ranks = list(case.ranks) if case.ranks else None
+        report = comparison_page_model(
+            runs, include, exclude, ranks, reference=REFERENCE_RUNS
+        )
+        for row in report["runs"]["rows"]:
+            row["host"] = None
+            if row["file"]:
+                row["file"] = {"name": row["file"]["name"], "path": None}
+        dataset = report["dataset"]
+        for entry, group_name in zip(dataset["runs"], groups):
+            entry["group"] = group_name
+        # Open on the same run in the newest execution and the one before it: the biggest
+        # run both have.
+        (_, _, before), (_, _, after) = units[-2:]
+        shared = {r.results.num_ranks for r in before} & {
+            r.results.num_ranks for r in after
+        }
+        if shared:
+            size = max(shared)
+            pick = lambda loaded: next(r for r in loaded if r.results.num_ranks == size)
+            dataset["default"] = {
+                "base": f"{units[-2][0].label} · {pick(before).label}",
+                "cand": f"{units[-1][0].label} · {pick(after).label}",
+            }
+        page_url = f"/{PUBLIC_DIR.name}/{relative.as_posix()}/_compare"
+        chart_data = None
+        if charts and case.charts:
+            chart_data = _chart_data(
+                replace(case, scaling="none"),
+                runs,
+                comparison=True,
+                scaling_field=None,
+                directory=public / relative / "_compare",
+                url_base=page_url,
+                files=files,
+            )
+            notes.extend(f"{case.id}/compare: {note}" for note in chart_data["notes"])
+        page = content / relative / "compare.mdx"
+        _write(
+            page.with_name("compare.data.json"),
+            _dump_json({"report": report, "charts": chart_data}),
+            files,
+        )
+        names = ["ReportFilter", "CompareControls", "CompareTable"]
+        body = [
+            "<ReportFilter data={data} />",
+            f"[← {_mdx(case.title)}]({back})",
+            "Compare any two runs, of the same execution or of different ones.",
+            "## What changed\n\n<CompareControls data={data} />",
+            "## Durations\n\n<CompareTable data={data} />",
+        ]
+        if chart_data is not None and (chart_data["panels"] or chart_data["notes"]):
+            names.append("Charts")
+            body.append("## Charts\n\n<Charts data={data} />")
+        _write(
+            page,
+            _frontmatter(f"{case.title}: compare executions", hidden=True)
+            + "\n\n"
+            + 'import data from "./compare.data.json";\n'
+            + _import_lines(page.parent, components, names)
+            + "\n\n"
+            + "\n\n".join(body)
+            + "\n",
+            files,
+        )
+
     for case_order, case in enumerate(manifest.cases, start=1):
         group = slugify(case.group) if case.group else None
         relative = Path(group, case.id) if group else Path(case.id)
@@ -1685,13 +1768,24 @@ def build_site(
         }
         # Pages of the case; the latest one stands for the case itself.
         link_of[latest] = f"{catalogue_link}{(group + '/') if group else ''}{case.id}/"
+        if any(execution.id == "compare" for execution in case.executions):
+            raise SiteError(
+                f"case {case.id!r}: an execution cannot be called 'compare', "
+                "that is the page that compares them"
+            )
         trend = _trend_payload(case, units)
+        compare_link = (
+            f"{catalogue_link}{relative.as_posix()}/compare/"
+            if len(units) > 1
+            else None
+        )
         summary = None
         for execution, unit, runs in units:
             is_latest = execution.id == latest
             history = {
                 "trend": trend,
                 "table": _executions_table(units, link_of, execution.id),
+                "compare": compare_link,
             }
             runs_summary = build_unit(
                 unit,
@@ -1713,6 +1807,8 @@ def build_site(
                     "runs": runs_summary,
                     "executions": len(units),
                 }
+        if compare_link:
+            build_compare_page(case, units, relative, link_of[latest])
         summaries.append(summary)
 
     _write(
