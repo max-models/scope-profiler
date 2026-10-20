@@ -109,15 +109,15 @@ optional-dependencies.dev = [
   "ruff >= 0.16, < 0.17",
   "scope-profiler[docs,fortran,line-profiler,mcp,mpi,notebook,nvtx,pproc,test,tui]",
 ]
-# https://medium.com/@pratikdomadiya123/build-project-documentation-quickly-with-the-sphinx-python-2a9732b66594
+# The docs site (docs/, @max-models/starlight-theme): griffe reads the API reference, and
+# nbclient/nbformat/ipykernel run the tutorials, which use the extras below.
 optional-dependencies.docs = [
-  "myst-parser",
-  "nbconvert",
-  "nbsphinx",
+  "griffe",
+  "ipykernel",
+  "nbclient",
+  "nbformat",
   "pre-commit",
   "pyproject-fmt",
-  "sphinx",
-  "sphinx-book-theme",
   "scope-profiler[line-profiler,mpi,notebook,pproc,site,tui]",
 ]
 optional-dependencies.test = [

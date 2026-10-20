@@ -14,7 +14,7 @@ from scope_profiler.plotting_scripts._utils import (
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-FORMAT_GUIDE = REPOSITORY_ROOT / "docs/source/guide/hdf5_and_python_api.qmd"
+FORMAT_GUIDE = REPOSITORY_ROOT / "docs/src/content/docs/guide/hdf5-and-python-api.md"
 PLOTLY_PACKAGE = REPOSITORY_ROOT / "packages/plotly/src/index.js"
 
 

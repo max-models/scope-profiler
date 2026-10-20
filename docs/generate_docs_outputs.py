@@ -1,8 +1,9 @@
 """Generate the command output embedded in the documentation.
 
 The examples deliberately run the public API and CLI instead of duplicating
-their output in a Markdown fence. Every ``make -C docs html`` refreshes these
-build artefacts before Sphinx reads the sources.
+their output in a Markdown fence. ``make docs-build`` (and the docs workflow)
+refreshes these build artefacts in ``docs/src/generated/``, which the MDX pages
+import, before Astro builds the site.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-OUTPUT_DIR = ROOT / "docs" / "source" / "_generated"
+OUTPUT_DIR = ROOT / "docs" / "src" / "generated"
 
 
 def write_output(name: str, content: str) -> None:

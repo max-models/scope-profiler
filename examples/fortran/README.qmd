@@ -63,7 +63,7 @@ errors. Check them immediately after each operation. If flush/finalize fails
 to write, fix the output path's permissions or available space and retry;
 reinitializing the profiler would discard the recording.
 
-The [Fortran guide](../../docs/source/guide/fortran.md) contains a complete
+The [Fortran guide](https://max-models.github.io/scope-profiler/guide/fortran/) contains a complete
 warm-up/production example, compilation commands, error-code explanations,
 and instructions for retaining separate measurement windows.
 

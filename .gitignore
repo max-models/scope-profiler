@@ -70,10 +70,6 @@ instance/
 # Scrapy stuff:
 .scrapy
 
-# Sphinx documentation
-docs/_build/
-docs/source/tutorials/
-
 # PyBuilder
 .pybuilder/
 target/
@@ -202,14 +198,12 @@ package-lock.json
 package.json
 # The npm package is source, not an application-local manifest.
 !packages/plotly/package.json
-docs/source/_static/figures/
+# The docs site (docs/, Astro + Starlight) and its lockfile; docs/.gitignore covers its build output.
+!docs/package.json
+!docs/package-lock.json
 
-# Quarto-generated documentation Markdown. Edit the corresponding .qmd file
-# and run `make -C docs html` to regenerate these files.
-docs/source/*.md
-docs/source/guide/*.md
-tutorials/*.md
-tutorials/*_files/
+# Quarto-generated example READMEs. Edit the corresponding .qmd file and run
+# `make markdown` to regenerate these files.
 examples/agent_workflow/README.md
 examples/c/README.md
 examples/fortran/README.md
