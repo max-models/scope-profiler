@@ -317,7 +317,7 @@ ignore = [
 "src/scope_profiler/tests/pylikwid_readme.py" = [ "PERF402" ]
 # Tutorials, examples and doc generators nest profiling regions for the same
 # reason the tests do: the indentation shows the region hierarchy.
-"tutorials/*" = [ "SIM117" ]
+"notebooks/**" = [ "SIM117" ]
 "examples/*" = [ "SIM117" ]
 "docs/*" = [ "SIM117" ]
 # PYI034: ProfilingWriter.__enter__ returns the concrete class rather than

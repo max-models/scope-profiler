@@ -31,6 +31,7 @@ const tutorials = [
 	'05_custom_analysis',
 	'06_custom_plots',
 	'07_notebook_magics',
+	'08_reports_and_comparison',
 ];
 const dashed = (name) => name.replaceAll('_', '-');
 
@@ -54,6 +55,7 @@ export default defineDocs({
 				{ label: 'Installation', slug: 'getting-started/installation' },
 				{ label: 'Quickstart', slug: 'getting-started/quickstart' },
 				{ slug: 'guide/modes' },
+				{ label: 'Try it: drag and drop a profile', slug: 'getting-started/try-it' },
 			],
 		},
 		{
@@ -66,7 +68,6 @@ export default defineDocs({
 				'plot-cli',
 				'plotly-package',
 				'dashboard',
-				'try-it',
 				'mcp',
 				'notebook-magics',
 				'mpi',
@@ -77,7 +78,14 @@ export default defineDocs({
 				'overhead',
 			].map((page) => ({ slug: `guide/${page}` })),
 		},
-		{ label: 'Interactive Jupyter tutorials', items: [{ autogenerate: { directory: 'tutorials' } }] },
+		{
+			label: 'Interactive Jupyter tutorials',
+			// the tutorials are notebooks in notebooks/tutorials/, built into the guide section with the guides
+			items: [
+				{ label: 'Overview', slug: 'tutorials' },
+				...tutorials.map((page) => ({ slug: `guide/${dashed(page)}` })),
+			],
+		},
 		{
 			label: 'Reference',
 			items: [
@@ -98,8 +106,17 @@ export default defineDocs({
 			'/cli.html': '/reference/cli/',
 			'/examples.html': '/examples/',
 			'/tutorials.html': '/tutorials/',
-			...Object.fromEntries(guides.map((page) => [`/guide/${page}.html`, `/guide/${dashed(page)}/`])),
-			...Object.fromEntries(tutorials.map((page) => [`/tutorials/${page}.html`, `/tutorials/${dashed(page)}/`])),
+			...Object.fromEntries(
+				guides.map((page) => [`/guide/${page}.html`, page === 'try_it' ? '/getting-started/try-it/' : `/guide/${dashed(page)}/`]),
+			),
+			'/guide/try-it/': '/getting-started/try-it/',
+			// the tutorials moved into the guide section, next to the notebooks of the guide
+			...Object.fromEntries(
+				tutorials.flatMap((page) => [
+					[`/tutorials/${page}.html`, `/guide/${dashed(page)}/`],
+					[`/tutorials/${dashed(page)}/`, `/guide/${dashed(page)}/`],
+				]),
+			),
 		},
 	},
 });

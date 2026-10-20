@@ -6,7 +6,7 @@
 #   make check-version           Verify every file agrees on it.
 #
 # The documentation site uses @max-models/starlight-theme (docs/node_modules): the notebook
-# tool runs tutorials/*.ipynb, docs/generate_docs_outputs.py the command output the pages import.
+# tool runs notebooks/**/*.ipynb (the tutorials and the guides), docs/generate_docs_outputs.py the command output the pages import.
 PYTHON ?= .venv/bin/python
 DOCS_ENV = DOCS_PYTHON=$(abspath $(PYTHON))
 NOTEBOOKS = cd docs && $(DOCS_ENV) npx starlight-notebooks
@@ -45,7 +45,7 @@ docs-install:  ## Python docs extra and the npm packages
 	$(PYTHON) -m pip install -e ".[docs]"
 	cd docs && npm ci
 
-docs-notebooks:  ## execute the changed tutorials and convert all of them (FORCE=1 reruns all)
+docs-notebooks:  ## execute the changed notebooks and convert all of them (FORCE=1 reruns all)
 	$(NOTEBOOKS) execute $(if $(FORCE),--force,)
 	$(NOTEBOOKS) convert
 
