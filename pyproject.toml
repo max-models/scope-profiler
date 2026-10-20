@@ -142,6 +142,12 @@ scripts.scope-profiler-mcp = "scope_profiler.mcp_server.server:main"
 [project.entry-points.pytest11]
 scope_profiler = "scope_profiler.pytest_plugin"
 
+# pylikwid is an sdist whose build needs a LIKWID installation; `uv sync` resolves every extra,
+# so it gets the metadata from here instead of building pylikwid (the docs CI has no LIKWID)
+[[tool.uv.dependency-metadata]]
+name = "pylikwid"
+requires-dist = []
+
 [tool.setuptools.packages.find]
 where = [ "src" ]
 
