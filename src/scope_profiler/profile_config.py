@@ -293,6 +293,13 @@ class ProfilingOptions:
     hdf5_chunk_size : int or None
         Maximum events per dataset chunk (default: None). Enables chunked
         partial reads even without compression.
+    enable_tags : sequence of str or None
+        Opt-in region tags to record (default: None). Regions carrying a tag
+        registered with :meth:`ProfileManager.register_opt_in_tag` - typically
+        a library's own instrumentation - stay disabled unless one of their
+        opt-in tags is listed here, in ``region_tags``, or in the
+        comma-separated ``SCOPE_PROFILER_ENABLE_TAGS`` environment variable.
+        ``"*"`` enables every opt-in tag.
     memray : MemrayOptions or None
         The ``use_memray``/``memory_profile_path``/``memray_*`` settings as
         one group.
@@ -330,6 +337,7 @@ class ProfilingOptions:
     hdf5_compression: str | None = None
     hdf5_compression_level: int | None = None
     hdf5_chunk_size: int | None = None
+    enable_tags: list[str] | tuple[str, ...] | None = None
 
     # Grouped spellings of the settings above; see :class:`MemrayOptions`,
     # :class:`GPUOptions` and :class:`HDF5Options`.
@@ -410,6 +418,7 @@ class SetupOptions(TypedDict, total=False):
     hdf5_compression: str
     hdf5_compression_level: int
     hdf5_chunk_size: int
+    enable_tags: list[str] | tuple[str, ...]
 
 
 def _unknown_setting_error(names) -> str:
@@ -673,6 +682,7 @@ class ProfilingConfig:
         hdf5_compression_level: int | None = None,
         hdf5_chunk_size: int | None = None,
         gpu_sync_on_exit: bool = False,
+        enable_tags: list[str] | tuple[str, ...] | str | None = None,
     ):
         """Initialize the profiling configuration.
 
@@ -772,6 +782,10 @@ class ProfilingConfig:
         hdf5_chunk_size : int or None
             Maximum number of events per HDF5 chunk. ``None`` leaves datasets
             contiguous unless compression requires h5py to choose chunks.
+        enable_tags : sequence of str or None
+            Opt-in region tags (see
+            :meth:`ProfileManager.register_opt_in_tag`) whose regions are
+            recorded in this run; ``"*"`` enables all of them.
 
         Notes
         -----
@@ -799,6 +813,9 @@ class ProfilingConfig:
         self._perf_events = (
             validate_events(perf_events) if perf_events is not None else ()
         )
+        if isinstance(enable_tags, str):
+            enable_tags = (enable_tags,)
+        self._enable_tags = tuple(enable_tags) if enable_tags is not None else ()
         self._use_line_profiler = use_line_profiler
         self._use_memray = use_memray
         self._memray_tracker = None
@@ -1094,6 +1111,11 @@ class ProfilingConfig:
     def perf_events(self) -> tuple[str, ...]:
         """Requested Linux perf event names, or an empty tuple when disabled."""
         return self._perf_events
+
+    @property
+    def enable_tags(self) -> tuple[str, ...]:
+        """Opt-in region tags this run records, or an empty tuple."""
+        return self._enable_tags
 
     @property
     def use_line_profiler(self) -> bool:

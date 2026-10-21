@@ -171,6 +171,17 @@ def _parse_run_args(argv):
         help="Record only explicitly defined regions carrying this tag (repeatable)",
     )
     parser.add_argument(
+        "--enable-tag",
+        dest="enable_tags",
+        action="append",
+        default=None,
+        metavar="TAG",
+        help=(
+            "Record the regions behind this opt-in tag, such as a library's own "
+            "instrumentation; '*' enables every opt-in tag (repeatable)"
+        ),
+    )
+    parser.add_argument(
         "--entrypoint",
         metavar="NAME",
         help="Name the recursively traced entrypoint region",
@@ -275,6 +286,7 @@ def _run(argv):
         "profile_mpi_calls": args.mpi_calls,
         "label": args.label,
         "region_tags": args.region_tags,
+        "enable_tags": args.enable_tags,
         "config_path": args.config,
     }
     if args.no_output:
