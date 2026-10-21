@@ -10,7 +10,7 @@ This is a thin adapter over the same API the rest of scope-profiler uses --
 Nothing about timing, aggregation, or comparing runs is reimplemented here.
 
 Importing this module requires IPython. It is not a dependency of the base
-package (``pip install scope-profiler`` alone does not pull it in) -- install
+package (``pip install scope-profiler`` alone does not pull it in) - install
 it with the ``notebook`` extra: ``pip install "scope-profiler[notebook]"``.
 
 Eleven magics are registered:
@@ -22,17 +22,17 @@ Eleven magics are registered:
 ``%scope_timeit [-n N] [-q] statement``
     Line magic. Runs ``statement`` ``N`` times (default 7) inside a
     profiling region named ``"timeit"`` and prints per-call timing
-    statistics -- like ``%timeit``, but backed by scope-profiler's region
+    statistics - like ``%timeit``, but backed by scope-profiler's region
     timer and table instead of the ``timeit`` module.
 ``%%scope_line [name] [-q] [-Q]``
     Cell magic. Runs the cell with ``use_line_profiler=True`` and prints
-    per-line timing for whatever the cell itself profiles -- a
+    per-line timing for whatever the cell itself profiles - a
     ``@ProfileManager.profile``-decorated function or a
     ``with ProfileManager.profile_region(...):`` block written in the cell,
     exactly as in a script.
 ``%%scope_recursive [name] [-q] [--include PATTERN]``
     Cell magic. Records every Python call the cell makes as its own region,
-    with no decorators or ``profile_region`` blocks -- ``recursive_profile
+    with no decorators or ``profile_region`` blocks - ``recursive_profile
     =True``, as ``scope-profiler run`` applies it to a script.
 ``%%scope_agg [name] [-q] [--include PATTERN]``
     Cell magic. Runs the cell with ``aggregation_mode=True``: counts,
@@ -215,7 +215,7 @@ class ScopeMagics(Magics):
         """Profile a cell with line_profiler enabled and print per-line stats.
 
         Only what the cell itself hands to line_profiler gets a line-by-line
-        breakdown -- exactly as in a script (see
+        breakdown - exactly as in a script (see
         ``examples/ex_line_profiling.py``). A cell with neither still gets
         the usual region summary table.
 
@@ -224,7 +224,7 @@ class ScopeMagics(Magics):
         where it is called from. A bare ``with ProfileManager.profile_region
         (...):`` at the cell's top level also works, but line_profiler's own
         handling of a module-level code object containing a nested ``def``
-        can cut the printed table off at that ``def`` -- the same limitation
+        can cut the printed table off at that ``def`` - the same limitation
         a plain script hits, not something specific to the magic.
         """
         args = parse_argstring(self.scope_line_cell, line)
@@ -268,7 +268,7 @@ class ScopeMagics(Magics):
 
         The cell needs no decorators and no ``profile_region`` blocks: each
         function called while it runs becomes its own region, named
-        ``<module>.<qualname>`` -- what ``recursive_profile=True`` does for a
+        ``<module>.<qualname>`` - what ``recursive_profile=True`` does for a
         decorated function, and what ``scope-profiler run`` does for a
         script. Use it to find *where* a cell's time goes before deciding
         what to instrument properly.
@@ -303,7 +303,7 @@ class ScopeMagics(Magics):
             # Install the tracer directly, as run_script() does for a script,
             # rather than calling a ``@ProfileManager.profile(recursive=True)``
             # helper: a decorated function stays registered for the life of
-            # the kernel, so every later session would rebind it -- and a
+            # the kernel, so every later session would rebind it - and a
             # %%scope_line session would hand it to line_profiler and print a
             # table for this module's own code.
             region = ProfileManager.profile_region(name)
@@ -563,8 +563,8 @@ class ScopeMagics(Magics):
     def scope_load(self, line):
         """Load a profiling file into the notebook's recorded runs.
 
-        Puts a run produced outside this notebook -- an MPI job, a
-        ``scope-profiler run``, a colleague's file -- under the same name
+        Puts a run produced outside this notebook - an MPI job, a
+        ``scope-profiler run``, a colleague's file - under the same name
         registry as ``%%scope``, so ``%scope_last``, ``%scope_compare``,
         ``%scope_df`` and ``%scope_export`` treat it like any cell's run.
         That makes "is my notebook version faster than the cluster run?" a
@@ -611,7 +611,7 @@ class ScopeMagics(Magics):
 
         Needs pandas (the ``pproc`` extra). ``--events`` needs per-call event
         data, which an aggregation-mode run (``%%scope_agg``) does not record
-        -- that comes back as an empty frame, with a note saying why.
+        - that comes back as an empty frame, with a note saying why.
         """
         args = parse_argstring(self.scope_df, line)
         _, results = self._lookup(args.name)

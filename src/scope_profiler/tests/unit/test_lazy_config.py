@@ -2,8 +2,8 @@
 
 Resolving the communicator imports mpi4py, which calls ``MPI_Init``. If that
 happened at import time, ``import scope_profiler`` inside any process the
-launcher marked as a rank -- including one forked from a rank, as the LIKWID
-counter read-back does -- would silently enter MPI and corrupt the parent's
+launcher marked as a rank - including one forked from a rank, as the LIKWID
+counter read-back does - would silently enter MPI and corrupt the parent's
 shared-memory transport. So the configuration is built on first use, not at
 import.
 """

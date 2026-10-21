@@ -1,14 +1,14 @@
 """Importing the per-rank HDF5 files an ``SP_USE_HDF5`` C build writes.
 
-A C build compiled with HDF5 writes ``<prefix>_rank<NNNNN>.h5`` -- already a
-profile, one rank per file -- instead of a ``.spt`` trace, so ``import-native``
+A C build compiled with HDF5 writes ``<prefix>_rank<NNNNN>.h5`` - already a
+profile, one rank per file - instead of a ``.spt`` trace, so ``import-native``
 is a *merge* for that output rather than a conversion. What has to hold is
 that the ranks of one run come back together, that the two formats mix in one
 import, and that a merged profile lying in the same directory is not swallowed
 as an input to the next import.
 
 The files are written here with the Python writer rather than by compiling C,
-so these run everywhere -- the compiled counterparts are in
+so these run everywhere - the compiled counterparts are in
 ``tests/test_c_hdf5_output.py``.
 """
 
@@ -121,7 +121,7 @@ def test_an_imported_profile_reconstructs_its_call_graph(tmp_path):
     The regression this pins: an import that wrote all-(-1) ``call_ids``
     instead of omitting the column made ``call_graph`` take the "ids are
     explicit" path, where every call collided on id -1 and the whole rank
-    collapsed to a single node -- while ``call_stack``, which always derives,
+    collapsed to a single node - while ``call_stack``, which always derives,
     stayed correct. The two must agree.
     """
     from scope_profiler.native_trace import convert_traces

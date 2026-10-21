@@ -4,6 +4,46 @@
 
 ### Added
 
+- Opt-in region tags, so a library can ship its own instrumentation switched off by default:
+  it calls `sp.register_opt_in_tag("mylib")` and tags its regions (`region`, `profile`,
+  `define_region` and `instrument` take `tags=`). A run records them only when it enables the
+  tag, with `enable_tags` (a `setup()`/`session()` setting, `ProfilingOptions` field and TOML
+  key), the `SCOPE_PROFILER_ENABLE_TAGS` environment variable or `scope-profiler run
+  --enable-tag`; `"*"` enables every opt-in tag.
+- The user guide pages that run in Python or the CLI are Jupyter notebooks
+  (`notebooks/guides/`), executed on every docs build like the tutorials, which moved to
+  `notebooks/tutorials/`. All of them are served under `/guide/`; the old `/tutorials/<name>/`
+  addresses redirect. A new tutorial covers reports, comparisons and regression gates.
+- C API: line-level sampling of regions (`sp_start_sampling()` or
+  `SCOPE_PROFILER_SAMPLE_HZ`), written to `.sps` files, and
+  `scope-profiler native-lines` to show the hottest source lines per region.
+- `scope-profiler site` writes the pages and chart data of a profiling catalogue
+  into an Astro/Starlight project from a YAML manifest listing the runs of each
+  case. Its run and case pages show everything `scope-profiler report` does
+  (headline numbers and findings, hotspots, the region table with its call tree
+  and per-region detail, load balance and rank matrix, line profiles, hardware
+  counters, comparison tables, and the charts), as MDX pages plus JSON data
+  files drawn by components, linked under the site's `base` path. It is the
+  engine of the `scope-profiler-catalog` template for catalogue websites. New
+  `site` extra (PyYAML, also part of `pproc`).
+- Catalogue pages: a case page lets the reader pick the two runs to compare (a
+  scaling study can have hundreds), with the comparison computed in the browser from a
+  compact dataset; the sidebar lists a case once instead of every run; charts have linear,
+  log2 and log10 axis scales, a "stack children" checkbox on a run's durations chart, and
+  the rank imbalance and rank heatmap charts over the compared runs; "every run against
+  the baseline" is off by default.
+- Catalogue pages: scripts and parameter files can be attached to a run (`files`, under a run or
+  a case), shown with syntax highlighting and offered for download; a case's `info` is shown as
+  metadata instead of a table of its own; the axis scales sit at their axes.
+- `scope_profiler.report_model`: what a report says (findings, hotspots, tables,
+  comparisons, chart panels) as plain data, shared by the HTML report and the
+  catalogue pages; the HTML report is unchanged.
+- `scope-profiler site`: a case can list `executions` (a nightly job's runs); the case page is the
+  latest one, with a table of the executions and a trend chart of each run's wall time.
+- `scope-profiler site`: `executions` can be found by a pattern (`path: data/{execution}/np*.h5`,
+  with an optional `meta.yml` per execution); runs and cases take `images` (shown as a gallery
+  with a lightbox) and cases take `code` (files and links shown at the bottom of the page).
+- `scope-profiler catalogue` writes an index page linking several HTML reports.
 - Fortran API: optional `stat`/`errmsg` error outputs, recoverable allocation
   and output failures, `sp_flush` snapshots, handle-preserving `sp_reset`,
   and on-demand completed-call statistics through `sp_get_region_stats`.
@@ -28,19 +68,82 @@
   **Open in new tab** button.
 - `scope-profiler report` with several files writes a comparison report --
   runs, the largest own-time improvements and regressions, and a durations
-  table matched by call path -- plus a full report per run, linked from it.
+  table matched by call path - plus a full report per run, linked from it.
   `--no-individual-reports` (`individual_reports=False`) skips those.
+- HTML report: a comparison of runs that differ in ranks or threads gets a
+  **Weak scaling** chart next to **Speedup** - each region's weak-scaling
+  efficiency, the smallest run's mean call duration over each run's, against
+  an ideal of 1. A profile does not record the problem size, so
+  `scope-profiler report --scaling {strong,weak,both}`
+  (`create_html_report(..., scaling=...)`) says which study the runs are:
+  `strong` (same total problem size) keeps the speedup, `weak` (same problem
+  size per rank or core) the weak-scaling chart, and `both`, the default,
+  shows the speedup open and the weak-scaling chart collapsed.
+- Speedup x-axis choice (#301): `scope-profiler report --speedup-x
+  {auto,ranks,nodes,threads,cores}` (`create_html_report(speedup_x=...)`) picks
+  the comparison report's speedup axis - MPI ranks, nodes, OpenMP threads or
+  ranks × threads. `auto`, the default, uses MPI ranks whenever they change
+  (previously ranks × threads when threads changed too), and threads when only
+  they change. A named axis that
+  some run did not record is an error naming those runs. Buttons on the chart
+  switch it to every other axis the runs differ in. `plot_speedup`,
+  `scope-profiler plot --x` and the MCP `plot_profile` tool (new `x_field`)
+  accept `num_nodes`.
+- Run metadata records `num_nodes`, the number of distinct hosts the ranks ran
+  on, at the minimal detail level: 1 without MPI, and under MPI one
+  `allgather` of host names in `finalize()`. `ProfilingResults.num_nodes`
+  reads it, answering 1 for single-rank files written before it existed and
+  None for older multi-rank ones.
 
 ### Changed
 
+- The documentation site moved from Sphinx to Astro + Starlight with the shared
+  [starlight-theme](https://github.com/max-models/starlight-theme): the pages
+  are Markdown/MDX in `docs/src/content/docs/`, the tutorials Jupyter
+  notebooks (`tutorials/*.ipynb`, formerly `.qmd`) executed at build time, and
+  the API reference generated from the docstrings. Page URLs drop `.html`
+  (`guide/plot_cli.html` is now `guide/plot-cli/`); the old URLs redirect.
+  `make docs-build` builds it, and `docs/Makefile` is gone.
+
+- Report generation benchmark (`benchmarks/report.toml`, five synthetic
+  profile shapes up to 1550 nested regions and a two-run comparison) and
+  `slow` tests holding each shape to a time and size limit, plus a check that
+  ten times the regions costs about ten times the time. Stacked region
+  durations fill in only the segments each bar has: a 1550-region report is
+  about 40% faster.
+- HTML report rendering: the timeline draws its lanes on a categorical axis
+  (1000 regions: 3.6 s to 0.6 s in Chrome), each chart is drawn once on load
+  instead of twice, and a chart in a collapsed panel is drawn when the panel
+  opens.
+- HTML report styling: a flat theme with each section, the header and every
+  chart in an outlined white box on a grey page, the headline numbers as small
+  cards and the contents as link buttons.
+- HTML report: a single run's region durations chart comes first and starts
+  unfolded, above the timeline.
+- HTML report: the region filter bar leads the page and stays at the top
+  while scrolling, in single-run and comparison reports. It adds a **Regions**
+  slider, keeping the N regions with the most time (opening on 500 when there
+  are more), and a **Depth** slider, hiding regions nested deeper than the
+  chosen number of levels; both limit every chart and table to the same
+  regions, and the timeline also hides the deeper calls. Gantt JSON data
+  gives each interval its call `depth` (when the rank's calls nest), and the
+  Gantt data export no longer fails for a region missing from a selected rank.
+- Stacked region durations export a child segment only under the bars it
+  belongs to: a profile of 1550 nested regions wrote 2.3 million rows, and its
+  report shrank from 313 MB to 7.2 MB.
 - HTML report: the summary at the top is now a row of headline numbers and a
-  findings list, and **Hot spots** became **Bottlenecks**: the leaves of the
-  call tree, per call path, with the path each sits on. Line profiles moved
+  findings list, and **Hotspots** (formerly **Hot spots**) now ranks the
+  leaves of the call tree, per call path, with the path each sits on. Line profiles moved
   into the region table: clicking a region's row shows its functions' source,
   syntax-highlighted and summed over ranks, with the hottest line highlighted, in a scrolling box that opens at that
   line. Clicking a chart no longer scrolls the page
   to the table; it offers a **Show in table** jump instead.
 - `scope-profiler report -o/--output` defaults to `report.html`.
+- HTML report: the ranked list of the most expensive regions, briefly called
+  **Bottlenecks** during development, is named **Hotspots** throughout - its
+  heading, the "Top hotspot" headline and "largest hotspot" finding, section
+  anchors (`#<run>-hotspots`) and CSS classes (`.hotspots`, `.hotspot`,
+  `.hs-*`).
 - Plots of a single-rank run no longer label regions and titles with
   `(rank 0)`: Gantt lanes, flame, call-graph, heatmap, imbalance, roofline,
   LIKWID and perf-event labels and hovers, and the report's timeline. Gantt,
@@ -56,6 +159,13 @@
 
 ### Fixed
 
+- Summary: a recursive row's total sums only the outermost calls, so it no longer
+  exceeds the time of its caller, and the regions called from a recursive
+  function are no longer marked with the recursive symbol (#313).
+- HTML report: a single-run report shows the **Region durations** chart
+  again, collapsed below the timeline. Each bar splits the region's total into
+  its own time and the regions it calls directly; aggregated profiles, which
+  record no call nesting, get plain bars, open since they have no timeline.
 - Fortran recursion-limit overflow no longer writes uninitialized records or
   closes outer invocations. Long names now resolve consistently after
   truncation, and finalization retains completed recursive children when an
@@ -89,8 +199,8 @@
   links, but the writer stored a full `call_ids`/`parent_ids` column of `-1`
   rather than omitting it; the reader took that at face value, every call
   collided on id `-1`, and the graph degenerated. Those columns are now
-  written only by a run that actually numbered its calls -- as
-  `gpu_durations` and the thread/task lanes already were -- so the reader
+  written only by a run that actually numbered its calls - as
+  `gpu_durations` and the thread/task lanes already were - so the reader
   falls back to reconstructing the nesting from the timestamps, which
   `call_stack()` was doing correctly all along. Native profiles also halve in
   size, having stored two int64 columns per event that carried nothing.
@@ -104,7 +214,7 @@
   call and the duration of each call, rather than two absolute nanosecond
   timestamps: `events/start_deltas` and `events/durations` replace
   `events/start_times` and `events/end_times`. The information is identical
-  and the round trip is exact -- the first value of each run is absolute --
+  and the round trip is exact - the first value of each run is absolute --
   but the magnitudes drop from ~60 bits to ~15, which is most of what makes
   compression effective: 290 KiB to 74 KiB on a 100,000-event profile at the
   same gzip level. Each run is encoded independently, so a rank still writes
@@ -145,7 +255,7 @@
   signed bar per region, the percent change in total duration from the first
   run to the second, for the regions both recorded. `plot_durations()`'s
   grouped bars already answer "where did each run spend its time?"; this
-  answers "what changed?" without a viewer subtracting two bars by eye -- the
+  answers "what changed?" without a viewer subtracting two bars by eye - the
   reading the optimization workflow in `AGENTS.md` needs to tell a real
   speedup from noise.
 - **`export plot-data --format parquet`.** Every tabular exporter (`gantt`,
@@ -171,7 +281,7 @@
   it: that one divides by an ideal speedup proportional to the rank count,
   which is right for a fixed problem size and reports a near-zero efficiency
   that means nothing when the problem grows with the machine. Pass
-  `work_per_rank` -- one value per file, in any unit -- to have the runs
+  `work_per_rank` - one value per file, in any unit - to have the runs
   checked for the constant work per rank the plot assumes, rather than
   silently comparing runs that did different amounts of it. The npm package
   builds it as `buildWeakScalingEfficiencyFigure`.
@@ -181,22 +291,22 @@
   viewer switches.
 - `first` and `last` join `avg`/`min`/`max`/`total` as duration metrics, in
   `plot_durations()` and `--metrics`: the chronologically first and last
-  call's duration, which separate one-off warmup -- JIT, allocation, the first
-  device transfer -- from steady state. `write_region_statistics_json` already
+  call's duration, which separate one-off warmup - JIT, allocation, the first
+  device transfer - from steady state. `write_region_statistics_json` already
   reported both; now they can be plotted.
 - `export_flamegraph_svg()` and `scope-profiler export flamegraph` render the
   reconstructed call tree to a standalone SVG through
   [flameprof](https://pypi.org/project/flameprof/) (added to the `pproc`
   extra): the aggregated flame graph as a self-contained document with no
   JavaScript, for a static site or a report. It carries a `viewBox` rather
-  than flameprof's fixed pixel width, so a page can inline it -- which is also
-  the only way the per-frame tooltips survive -- and scale it; `--fixed-width`
+  than flameprof's fixed pixel width, so a page can inline it - which is also
+  the only way the per-frame tooltips survive - and scale it; `--fixed-width`
   keeps the standalone form.
 - The npm package takes a `theme`: `"light"`, `"dark"`, or your own tokens,
   per build call or once through `setTheme()`. It colours text, gridlines, the
   hover surface and the dashed ideal lines. The default `auto` is what every
-  figure did before -- no text colour, a grey grid that reads on any
-  background -- so nothing changes for a page that does not ask.
+  figure did before - no text colour, a grey grid that reads on any
+  background - so nothing changes for a page that does not ask.
 - `buildComparisonFigure` puts two runs of a `region_statistics` document side
   by side over the regions both recorded, vertically and without a top-N cap:
   the "what changed between these two runs?" reading of
@@ -337,12 +447,12 @@
   the Fortran API) keeps reading exactly as before, so a mixed C/Fortran run
   still merges into one profile. A name first registered without a location
   (via `sp_region()`) can pick one up on a later `sp_region_at()` call for the
-  same name -- the location backfills onto the existing handle rather than
-  being dropped -- and `SP_REGION_AT()`/`SP_PROFILER_REGION_AT()` macros fill
+  same name - the location backfills onto the existing handle rather than
+  being dropped - and `SP_REGION_AT()`/`SP_PROFILER_REGION_AT()` macros fill
   in `__FILE__`/`__LINE__` automatically.
 - `scope_profiler.hpp`, a header-only C++11 addition next to the C API, wraps
   the checked scope token in a move-only RAII class (`sp::Scope`) so a region
-  is left however its scope exits -- return, break, or an exception -- via
+  is left however its scope exits - return, break, or an exception - via
   `sp_profiler_scope_begin()`/`sp_scope_end()` under the hood, against either
   an explicit `sp_profiler *` or (via `sp_default_profiler()`, also new) the
   default context.
@@ -356,8 +466,8 @@
   them. The Plotly runtime remains embedded too, so reports share the web
   package's figure definitions without requiring a CDN or network access.
 - Every `export plot-data --format json` document now carries the same
-  envelope -- `format`, `format_version` and the `plot` kind that produced it
-  -- instead of only four of the kinds carrying it. It is stamped centrally
+  envelope - `format`, `format_version` and the `plot` kind that produced it
+  - instead of only four of the kinds carrying it. It is stamped centrally
   when the file is written, so a new plot kind cannot ship without it, and
   `region_statistics.json` carries it too.
 - `@scope-profiler/plotly` gained `buildFigure(payload)`, which dispatches on
@@ -394,7 +504,7 @@
 - The HTML report has a region search box, filtering the statistics tables and
   every embedded chart from one control. Terms are comma-separated and matched
   case-insensitively anywhere in a region name, `^` anchors a term to the start
-  of it, and an empty box shows everything -- the syntax the profiling-data
+  of it, and an empty box shows everything - the syntax the profiling-data
   site already uses. The charts are redrawn through the builders' own
   `filterRegion` option and `Plotly.react`, so filtering never introduces a
   second notion of what a region match is.
@@ -434,8 +544,8 @@
   stack, so regions entered concurrently no longer reserve and close each
   other's slots, and every recorded call carries the thread it ran on.
   Nesting, exclusive time and the call graph are reconstructed per thread.
-  The run also describes each thread -- name, OS ids, exact start and end
-  times, and CPU time -- through `ProfilingResults.threads` and
+  The run also describes each thread - name, OS ids, exact start and end
+  times, and CPU time - through `ProfilingResults.threads` and
   `ProfilingResults.thread_summary()`, and `Region.for_thread()` slices a
   region down to one thread.
 - Added `track_async=True` (which implies `track_threads`), following every
@@ -459,10 +569,10 @@
   finalize that run. Without it a forked worker running an event loop
   accumulated a task record per task for its whole life. The child tracks
   again as soon as it opens a session of its own, which is how a
-  multiprocessing worker is meant to be profiled -- one run, one file, per
+  multiprocessing worker is meant to be profiled - one run, one file, per
   process.
-- `export_speedscope` writes one profile per lane -- named after its thread or
-  task -- rather than one per rank, and `call_stack.split_by_lane()` exposes
+- `export_speedscope` writes one profile per lane - named after its thread or
+  task - rather than one per rank, and `call_stack.split_by_lane()` exposes
   the same split. An evented speedscope profile's timestamps must not go
   backwards, which two interleaved lanes walked as one call tree produce.
 - `ProfileManager.session()` now removes the thread, asyncio and greenlet
@@ -482,7 +592,7 @@
   than dropped, so the icicle stays one tree.
 - `@scope-profiler/plotly` no longer merges two runs into one series. The rank
   heatmap keyed its cells by rank alone, so a second file's values silently
-  overwrote the first's -- a 30-row, two-run export drew 15 cells and showed
+  overwrote the first's - a 30-row, two-run export drew 15 cells and showed
   one run's numbers under both. Imbalance, the duration time series and the
   histogram likewise pooled runs into a single trace, which for imbalance drew
   a line that revisited every rank. All four now key their series by file as
@@ -494,15 +604,15 @@
 - The HTML report's "Timeline" chart is a Gantt chart again. The browser
   builder gave each rank one lane and drew every region of that rank onto it,
   so a nested profile collapsed into a single striped row in which the
-  outermost region covered everything inside it -- for a single-rank run, one
+  outermost region covered everything inside it - for a single-rank run, one
   bar. It now draws a lane per region and rank, bottom-up so the enclosing
-  region is the bottom lane -- the same layout `scope-profiler plot gantt` has
-  always drawn -- with `{ laneBy: "rank" }` for the old one-row-per-rank view
+  region is the bottom lane - the same layout `scope-profiler plot gantt` has
+  always drawn - with `{ laneBy: "rank" }` for the old one-row-per-rank view
   of a flat profile.
 - `%%scope_recursive` reports a failing cell with its source again, on every
   IPython version. The magic sliced its own frame off the traceback and then
   left the renderer's `tb_offset` at its default, which on some versions
-  drops an outermost frame too -- between them they removed the cell's only
+  drops an outermost frame too - between them they removed the cell's only
   frame, leaving the exception with no code shown at all, while on versions
   that drop nothing the magic's own frame appeared beside the cell. The
   slice is now the only one that happens: `tb_offset=0` is passed

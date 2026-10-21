@@ -29,7 +29,7 @@
  *
  * sp::Scope is move-only, matching the token it wraps: a moved-from Scope
  * ends nothing at its own destruction, and ending the same call twice
- * (through two different Scope objects, say) is harmless -- the second finds
+ * (through two different Scope objects, say) is harmless - the second finds
  * nothing left to end.
  */
 #ifndef SCOPE_PROFILER_HPP
@@ -70,7 +70,7 @@ public:
         counter_start();
     }
 
-    /* Enter `region` on the default context -- the one sp_init()/sp_region()/
+    /* Enter `region` on the default context - the one sp_init()/sp_region()/
      * sp_begin()/sp_end() operate on. */
     explicit Scope(int region) noexcept
         : scope_(sp_profiler_scope_begin(sp_default_profiler(), region))

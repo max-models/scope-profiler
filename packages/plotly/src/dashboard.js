@@ -6,7 +6,7 @@
  * scratch by each deployment:
  *
  * * **Somewhere to keep the figures.** Plotly bakes colours into the layout,
- *   so a theme toggle means rebuilding every figure on the page -- which means
+ *   so a theme toggle means rebuilding every figure on the page - which means
  *   remembering which containers hold one and what each was built from.
  * * **A filter syntax.** `filterRegion` takes a predicate, and should: a
  *   library has no business deciding how a user spells a filter. But every
@@ -21,8 +21,8 @@ import { buildFigure, renderFigure, setTheme, updateFigure } from "./index.js";
 /** Split a filter box's contents into terms.
  *
  * A filter is a comma-separated list, each term matched case-insensitively as
- * a substring of the region name. Empty terms -- a trailing comma while
- * someone is still typing -- are dropped.
+ * a substring of the region name. Empty terms - a trailing comma while
+ * someone is still typing - are dropped.
  */
 export function parseRegionFilter(text) {
   return String(text ?? "")
@@ -103,7 +103,7 @@ export function createFigureRegistry(plotly, options = {}) {
 
   // A container that has left the document is dead weight: the page swapped
   // it out, and redrawing into it paints nothing. Anything without the DOM
-  // property -- a test double, a server-side stub -- counts as live.
+  // property - a test double, a server-side stub - counts as live.
   const isLive = (container) => container?.isConnected !== false;
 
   async function draw(container, spec) {

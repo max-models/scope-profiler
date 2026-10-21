@@ -68,9 +68,9 @@ creates no output file. Existing `session()`, `setup()`, and
 direct lifecycle control.
 
 See the
-[quickstart](https://max-models.github.io/scope-profiler/quickstart.html)
+[quickstart](https://max-models.github.io/scope-profiler/getting-started/quickstart/)
 and [profiling modes
-guide](https://max-models.github.io/scope-profiler/guide/modes.html) for
+guide](https://max-models.github.io/scope-profiler/guide/modes/) for
 recursive tracing, tags, concurrency, output formats, and advanced APIs.
 
 ## Profile a pytest suite
@@ -103,14 +103,14 @@ plugin cannot yet be used: its workers must not write the same HDF5
 file.
 
 See the [profiling modes
-guide](https://max-models.github.io/scope-profiler/guide/modes.html) for
+guide](https://max-models.github.io/scope-profiler/guide/modes/) for
 output formats, filtering, concurrency, aggregation, pause/resume, and
 sampling.
 
 ## In a notebook
 
 Install the notebook extra and see the [notebook magics
-guide](https://max-models.github.io/scope-profiler/guide/notebook_magics.html)
+guide](https://max-models.github.io/scope-profiler/guide/notebook-magics/)
 for cell profiling, recursive tracing, comparisons, and exports:
 
 ```bash
@@ -119,48 +119,51 @@ pip install "scope-profiler[notebook]"
 
 ## Documentation
 
-- [Installation](https://max-models.github.io/scope-profiler/installation.html)
+- [Installation](https://max-models.github.io/scope-profiler/getting-started/installation/)
 - [Quick
-  start](https://max-models.github.io/scope-profiler/quickstart.html)
+  start](https://max-models.github.io/scope-profiler/getting-started/quickstart/)
 - [Python API and
-  post-processing](https://max-models.github.io/scope-profiler/guide/hdf5_and_python_api.html)
-- [CLI reference](https://max-models.github.io/scope-profiler/cli.html)
+  post-processing](https://max-models.github.io/scope-profiler/guide/hdf5-and-python-api/)
+- [CLI reference](https://max-models.github.io/scope-profiler/reference/cli/)
 - [Plotly figures for the
-  web](https://max-models.github.io/scope-profiler/guide/plotly_package.html)
+  web](https://max-models.github.io/scope-profiler/guide/plotly-package/)
 - [Configuration and profiling
-  regions](https://max-models.github.io/scope-profiler/guide/configuration.html)
-- [MPI](https://max-models.github.io/scope-profiler/guide/mpi.html),
-  [C](https://max-models.github.io/scope-profiler/guide/c.html), and
-  [Fortran](https://max-models.github.io/scope-profiler/guide/fortran.html)
-- [LIKWID](https://max-models.github.io/scope-profiler/guide/likwid.html),
+  regions](https://max-models.github.io/scope-profiler/guide/configuration/)
+- [MPI](https://max-models.github.io/scope-profiler/guide/mpi/),
+  [C](https://max-models.github.io/scope-profiler/guide/c/), and
+  [Fortran](https://max-models.github.io/scope-profiler/guide/fortran/)
+- [LIKWID](https://max-models.github.io/scope-profiler/guide/likwid/),
   [line
-  profiling](https://max-models.github.io/scope-profiler/guide/line_profiler.html),
-  and [MCP](https://max-models.github.io/scope-profiler/guide/mcp.html)
+  profiling](https://max-models.github.io/scope-profiler/guide/line-profiler/),
+  and [MCP](https://max-models.github.io/scope-profiler/guide/mcp/)
 - [Jupyter/IPython
-  magics](https://max-models.github.io/scope-profiler/guide/notebook_magics.html)
+  magics](https://max-models.github.io/scope-profiler/guide/notebook-magics/)
 - [Tutorial
-  notebooks](https://max-models.github.io/scope-profiler/tutorials.html)
+  notebooks](https://max-models.github.io/scope-profiler/tutorials/)
 - [Examples](https://github.com/max-models/scope-profiler/tree/devel/examples)
 
 ### Build the documentation locally
 
-The hosted documentation is built with Sphinx from the `.qmd` sources.
-Install [Quarto](https://quarto.org/docs/get-started/) and Pandoc first,
-then create a development environment and run the docs target from the
-repository root:
+The hosted documentation is an [Astro](https://astro.build/) +
+[Starlight](https://starlight.astro.build/) site in `docs/`, set up with
+the shared [starlight-theme](https://github.com/max-models/starlight-theme).
+It needs Node 22 or newer, an MPI implementation (`mpirun`) for the MPI
+examples, and the `docs` extra:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-pip install -e ".[docs]"
-make -C docs html
+make docs-install
+make docs-build
 ```
 
-This refreshes the generated command output and Markdown sources before
-building the HTML site. Open `docs/build/html/index.html` locally, or
-serve that directory with any static-file server. The GitHub Pages
-workflow uses the same `make -C docs html` command.
+This executes the tutorial notebooks, refreshes the generated command
+output and builds the site into `docs/dist`; `make docs-dev` serves a live
+preview at <http://localhost:4321/scope-profiler/>. The GitHub Pages
+workflow runs the same steps. See the [docs page on building the
+docs](https://max-models.github.io/scope-profiler/development/docs/) for
+the details.
 
 ## Development
 

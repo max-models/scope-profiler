@@ -8,7 +8,7 @@
  *
  * Built with HDF5 (-DSP_USE_HDF5 ... -lhdf5, or -DSCOPE_PROFILER_ENABLE_HDF5=ON
  * under CMake) it writes profile_rank00000.h5 instead, which
- * `scope-profiler inspect` opens directly -- no import step.
+ * `scope-profiler inspect` opens directly - no import step.
  */
 #include "scope_profiler.h"
 

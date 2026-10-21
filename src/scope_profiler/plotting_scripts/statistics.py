@@ -63,7 +63,7 @@ def _pooled_first_last_duration(
     """Duration of the chronologically first and last call, over several regions.
 
     Pooling durations loses call order, so first/last are found from each
-    rank's own first/last call instead -- the earliest-starting rank of any
+    rank's own first/last call instead - the earliest-starting rank of any
     of the regions supplies "first", the latest-ending one supplies "last".
     Several regions are pooled the same way a ``combine_regions`` bar pools
     its members: the group's first call is whichever member started first.
@@ -101,7 +101,7 @@ def _stats_from_values(
 
     ``first``/``last`` (the chronologically first/last call's duration) can't
     be derived from ``values`` alone once several ranks have been pooled into
-    one array, since that loses call order -- callers that can determine them
+    one array, since that loses call order - callers that can determine them
     (e.g. a single rank's own, order-preserving array) pass them in.
     """
     if values.size == 0:
@@ -149,10 +149,35 @@ def _common_region_names(
     ]
 
 
+def _all_region_names(
+    runs: Sequence[ProfilingResults],
+    include: list[str] | str | None = None,
+    exclude: list[str] | str | None = None,
+) -> list[str]:
+    """Regions of any run: the first run's, then those only later runs have."""
+    return list(
+        dict.fromkeys(
+            region.name
+            for run in runs
+            for region in run.get_regions(include=include, exclude=exclude)
+        )
+    )
+
+
 def _speedup_x_value(run: ProfilingResults, x_field: str):
     """Resolve the x-axis value for a single run given ``x_field``."""
     if x_field == "num_ranks":
         return run.num_ranks
+
+    if x_field == "num_nodes":
+        nodes = run.num_nodes
+        if nodes is None:
+            raise ValueError(
+                f"'num_nodes' not found in metadata for {run.file_path}: older "
+                "scope-profiler versions did not record the node count of a "
+                "multi-rank run",
+            )
+        return nodes
 
     if x_field == "omp_num_threads":
         value = run.metadata.get("omp_num_threads")

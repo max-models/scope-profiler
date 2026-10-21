@@ -220,7 +220,7 @@ def _validate_event_index(offsets, counts, num_events: int, file_path: str) -> N
 
     The writer appends each rank's regions back to back, so the rows are a
     contiguous, non-overlapping cover of the event columns. A file where that
-    no longer holds has been damaged -- most plausibly truncated -- and
+    no longer holds has been damaged - most plausibly truncated - and
     reading it anyway would hand a region another region's calls, or slice
     past the end and silently return fewer calls than the run recorded.
     Neither failure is visible in the numbers that come out, so it is checked
@@ -505,7 +505,7 @@ def load_h5(file_path: str | Path, verbose: bool = False) -> dict:
 
         # Schema 2 introduced the shared event columns and schema 3 changed how
         # those columns are encoded, not where they live, so both are read by
-        # the same path -- a version check that is not >= silently reads a
+        # the same path - a version check that is not >= silently reads a
         # newer file as the pre-columnar layout and finds no regions at all.
         if schema_version >= 2:
             reader = (
@@ -655,7 +655,7 @@ def load_h5_summary(
         # Summary-only reads need the fixed-size rank_region_index, which
         # arrived in schema 2 and is unchanged since. They never touch the
         # event columns, so schema 3's re-encoding of those does not matter
-        # here -- but an exact ``!= 2`` would refuse every future schema.
+        # here - but an exact ``!= 2`` would refuse every future schema.
         if schema_version < 2:
             raise SummaryDataUnavailable(
                 "summary-only reads require a schema-2 or newer profiling file",

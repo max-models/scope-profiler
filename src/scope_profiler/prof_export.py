@@ -306,7 +306,7 @@ class ScopeProfile(cProfile.Profile):
 
     ``pstats.Stats`` only accepts a filename or an object with a
     ``create_stats()`` method that leaves the finished pstats dict in
-    ``.stats`` (see ``pstats.Stats.load_stats``) -- ``cProfile.Profile`` is
+    ``.stats`` (see ``pstats.Stats.load_stats``) - ``cProfile.Profile`` is
     the real class satisfying that contract. Subclassing it, instead of
     merely duck-typing it, lets :func:`build_pstats` hand ``pstats.Stats`` a
     type it actually declares support for, and skips ``Profile.__init__``
@@ -448,8 +448,8 @@ def _scalable_svg(svg: str) -> str:
     1200px-wide graph whatever the space it has. Trading the width/height
     attributes for the equivalent ``viewBox`` lets CSS scale it. The XML
     prolog and DOCTYPE go too: the point of scaling one of these is to inline
-    it in a page -- which is also the only way flameprof's per-frame hover
-    tooltips survive -- and there only the ``<svg>`` element is meaningful.
+    it in a page - which is also the only way flameprof's per-frame hover
+    tooltips survive - and there only the ``<svg>`` element is meaningful.
     """
     match = _SVG_HEADER.match(svg)
     if match is None:

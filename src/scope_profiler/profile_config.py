@@ -163,7 +163,7 @@ class ProfilingOptions:
     """A bag of :meth:`ProfileManager.setup` settings, to reuse or pass around.
 
     Every field mirrors a ``setup()``/``session()`` keyword argument and
-    defaults to ``None``, meaning "unset -- let ``setup()``'s own default, or
+    defaults to ``None``, meaning "unset - let ``setup()``'s own default, or
     its ``config_path`` file, decide". Pass one to ``setup()`` or
     ``session()`` instead of repeating the same handful of keyword arguments
     at every call site::
@@ -201,7 +201,7 @@ class ProfilingOptions:
         Short name for this run (default: None, i.e. the output file's
         stem). Post-processing uses it wherever a run has to be named --
         chart legends, the summary heading, ``scope-profiler inspect``, the
-        JSON statistics -- and it is stored in the output file as the
+        JSON statistics - and it is stored in the output file as the
         ``label`` metadata field, so it survives into every later
         post-processing step.
     use_likwid : bool or None
@@ -256,8 +256,8 @@ class ProfilingOptions:
         much of the call was spent awaiting (default: False). Implies
         ``track_threads``.
     capture_region_source : bool or None
-        Record where each region is defined -- the ``with`` block or the
-        decorated function -- once per distinct source file, the first time
+        Record where each region is defined - the ``with`` block or the
+        decorated function - once per distinct source file, the first time
         any of its regions is created (default: False). See
         :attr:`~scope_profiler.region.Region.source_text`. Off by default:
         the cost tracks that file's total size (one ``ast.parse`` + tree
@@ -293,6 +293,13 @@ class ProfilingOptions:
     hdf5_chunk_size : int or None
         Maximum events per dataset chunk (default: None). Enables chunked
         partial reads even without compression.
+    enable_tags : sequence of str or None
+        Opt-in region tags to record (default: None). Regions carrying a tag
+        registered with :meth:`ProfileManager.register_opt_in_tag` - typically
+        a library's own instrumentation - stay disabled unless one of their
+        opt-in tags is listed here, in ``region_tags``, or in the
+        comma-separated ``SCOPE_PROFILER_ENABLE_TAGS`` environment variable.
+        ``"*"`` enables every opt-in tag.
     memray : MemrayOptions or None
         The ``use_memray``/``memory_profile_path``/``memray_*`` settings as
         one group.
@@ -330,6 +337,7 @@ class ProfilingOptions:
     hdf5_compression: str | None = None
     hdf5_compression_level: int | None = None
     hdf5_chunk_size: int | None = None
+    enable_tags: list[str] | tuple[str, ...] | None = None
 
     # Grouped spellings of the settings above; see :class:`MemrayOptions`,
     # :class:`GPUOptions` and :class:`HDF5Options`.
@@ -378,7 +386,7 @@ class SetupOptions(TypedDict, total=False):
     ``setup()`` and ``session()`` take their settings as ``**overrides``
     rather than restating 28 keyword parameters, so this is what gives type
     checkers and editors the names and types of those keywords. It mirrors
-    :class:`ProfilingOptions` exactly -- ``test_setup_options_match_fields``
+    :class:`ProfilingOptions` exactly - ``test_setup_options_match_fields``
     fails the build if the two ever drift.
     """
 
@@ -410,6 +418,7 @@ class SetupOptions(TypedDict, total=False):
     hdf5_compression: str
     hdf5_compression_level: int
     hdf5_chunk_size: int
+    enable_tags: list[str] | tuple[str, ...]
 
 
 def _unknown_setting_error(names) -> str:
@@ -673,6 +682,7 @@ class ProfilingConfig:
         hdf5_compression_level: int | None = None,
         hdf5_chunk_size: int | None = None,
         gpu_sync_on_exit: bool = False,
+        enable_tags: list[str] | tuple[str, ...] | str | None = None,
     ):
         """Initialize the profiling configuration.
 
@@ -738,7 +748,7 @@ class ProfilingConfig:
             created. Off by default: measured cost is driven almost entirely
             by that file's total size (an ``ast.parse`` + one tree walk), not
             by the number or size of the regions in it, and every rank pays
-            it independently and concurrently -- under a millisecond for a
+            it independently and concurrently - under a millisecond for a
             typical file of a few hundred lines regardless of MPI rank count,
             but tenths of a second *per rank* for a single ~10,000-line file
             with many regions, compounding into whole seconds under
@@ -772,6 +782,10 @@ class ProfilingConfig:
         hdf5_chunk_size : int or None
             Maximum number of events per HDF5 chunk. ``None`` leaves datasets
             contiguous unless compression requires h5py to choose chunks.
+        enable_tags : sequence of str or None
+            Opt-in region tags (see
+            :meth:`ProfileManager.register_opt_in_tag`) whose regions are
+            recorded in this run; ``"*"`` enables all of them.
 
         Notes
         -----
@@ -799,6 +813,9 @@ class ProfilingConfig:
         self._perf_events = (
             validate_events(perf_events) if perf_events is not None else ()
         )
+        if isinstance(enable_tags, str):
+            enable_tags = (enable_tags,)
+        self._enable_tags = tuple(enable_tags) if enable_tags is not None else ()
         self._use_line_profiler = use_line_profiler
         self._use_memray = use_memray
         self._memray_tracker = None
@@ -1025,7 +1042,7 @@ class ProfilingConfig:
 
         if not markers_available():
             # markerinit() degrades to a no-op outside likwid-perfctr, so there
-            # are no counters to read -- not an error, just nothing to report.
+            # are no counters to read - not an error, just nothing to report.
             self.pylikwid_markerclose()
             return []
 
@@ -1094,6 +1111,11 @@ class ProfilingConfig:
     def perf_events(self) -> tuple[str, ...]:
         """Requested Linux perf event names, or an empty tuple when disabled."""
         return self._perf_events
+
+    @property
+    def enable_tags(self) -> tuple[str, ...]:
+        """Opt-in region tags this run records, or an empty tuple."""
+        return self._enable_tags
 
     @property
     def use_line_profiler(self) -> bool:

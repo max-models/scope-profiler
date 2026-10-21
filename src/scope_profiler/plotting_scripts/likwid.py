@@ -27,7 +27,7 @@ def available_likwid_metrics(
     """List the LIKWID metric/event names available for :func:`plot_likwid`.
 
     Union over every run, rank and region, in the order LIKWID reported them
-    (derived metrics first, then raw events) -- so a caller who does not know
+    (derived metrics first, then raw events) - so a caller who does not know
     what a run measured can list the valid ``metric`` values before plotting.
     """
     runs = _as_runs(profiling_data)

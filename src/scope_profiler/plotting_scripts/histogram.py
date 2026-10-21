@@ -41,7 +41,7 @@ def plot_duration_histogram(
     """Plot each region's call-duration distribution as a frequency line.
 
     One panel per file, one line per region, giving the count of calls
-    falling in each duration bin -- so a region whose calls are mostly fast
+    falling in each duration bin - so a region whose calls are mostly fast
     with an occasional slow outlier shows up as a peak with a long tail,
     something the mean/min/max in :func:`plot_durations` cannot distinguish
     from a uniformly slower region.

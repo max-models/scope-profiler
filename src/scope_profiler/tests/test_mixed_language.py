@@ -91,7 +91,7 @@ def kernels(tmp_path_factory):
     # points. Without it, f2py also tries to wrap the scope_profiler module's
     # public functions, and the Fortran wrapper it generates for the ones
     # returning `integer(int64)` declares that kind without importing
-    # iso_fortran_env -- so gfortran rejects it with "Parameter 'int64' has
+    # iso_fortran_env - so gfortran rejects it with "Parameter 'int64' has
     # not been declared". Newer f2py happens not to wrap them, which is why
     # this only failed on the oldest supported Python. Nothing in Python calls
     # into the profiler module directly anyway: the kernels do, in Fortran.

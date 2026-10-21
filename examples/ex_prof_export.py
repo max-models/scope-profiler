@@ -81,7 +81,7 @@ def main():
     stats.sort_stats("cumulative").print_stats(6)
 
     # 'reduce' is called from both phases, so with the default call_paths it
-    # is two entries -- one per calling context -- rather than one merged bar.
+    # is two entries - one per calling context - rather than one merged bar.
     contexts = sorted(key[2] for key in stats.stats if key[2].endswith("reduce"))
     print("Separate entries for the two calling contexts:")
     for name in contexts:
@@ -95,7 +95,7 @@ def main():
     print("\nWith call_paths=False, the same calls merge into:", merged[0])
 
     # 2. Write the files. One per exported rank, since .prof has no notion of
-    # ranks -- pass ranks=[...] for an MPI run.
+    # ranks - pass ranks=[...] for an MPI run.
     written = export_prof(results, OUTPUT_DIR / "prof_example.prof", verbose=False)
 
     # 3. Read one back. `load_prof` is just pstats.Stats(path), and gives the

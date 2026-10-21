@@ -193,8 +193,8 @@ with the machine, where the ideal is constant runtime.
 Plotly-compatible bundle. `updateFigure(...)` takes the same arguments but
 redraws into an element that already holds a plot, using Plotly's `react`, so
 the viewer's zoom and pan survive. Use it for anything that rebuilds a figure
-the viewer is already looking at -- a theme toggle, a changed filter, a new
-metric -- and keep `renderFigure` for the first draw.
+the viewer is already looking at - a theme toggle, a changed filter, a new
+metric - and keep `renderFigure` for the first draw.
 
 ```js
 setTheme(darkMode ? "dark" : "light");
@@ -203,7 +203,7 @@ await updateFigure(Plotly, element, buildFigure(payload));
 
 ## Themes
 
-Chrome -- text, gridlines, hover surface, the dashed ideal lines -- comes from
+Chrome - text, gridlines, hover surface, the dashed ideal lines - comes from
 a theme. The default `auto` sets no text colour and uses a half-transparent
 grey grid that reads on any background, so a figure inherits the host page.
 Pass `theme: "light" | "dark"`, or your own token object, to a builder, or call
@@ -218,5 +218,5 @@ carries a `file` column. Builders keep those runs apart: the gantt, density and
 rank heatmap give each run its own lanes, and the histogram, imbalance and
 duration time series give each run its own trace, labelled `run / region`. The
 region keeps its colour across runs, so a run is told apart by marker symbol
-(lines) or bar pattern (bars). A single-run payload is unchanged -- series are
+(lines) or bar pattern (bars). A single-run payload is unchanged - series are
 named by region alone.

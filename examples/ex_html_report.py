@@ -6,15 +6,15 @@ This example profiles the same toy solver twice and writes one profiling file
 per case, ready for ``scope-profiler report``:
 
 ``baseline``
-    A pure-Python kernel, a preconditioner rebuilt every step, and -- under
-    MPI -- work split unevenly, so higher ranks do more of it.
+    A pure-Python kernel, a preconditioner rebuilt every step, and - under
+    MPI - work split unevenly, so higher ranks do more of it.
 
 ``optimized``
     A NumPy kernel, a preconditioner built once and reused (a new region,
     while the old one is gone), balanced work, and an extra checksum in the
     output step: a small regression, so the comparison has one to show.
 
-Each case alone gets a full report (bottlenecks, region table,
+Each case alone gets a full report (hotspots, region table,
 charts, and load balance across ranks under MPI); both together get a
 comparison report, which also builds and links the two full reports. The
 commands are printed at the end.

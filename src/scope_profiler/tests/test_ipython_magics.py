@@ -260,7 +260,7 @@ def test_scope_recursive_registers_nothing_globally(shell):
     """The magic must not leave a decorated function behind.
 
     A ``@ProfileManager.profile`` helper would stay registered for the life
-    of the kernel, so every later session would rebind it -- and hand it to
+    of the kernel, so every later session would rebind it - and hand it to
     line_profiler in a %%scope_line session.
     """
     from scope_profiler.profile_manager import ProfileManager

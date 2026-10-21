@@ -1,6 +1,6 @@
 """Profiling across processes: one run per process, and what a fork inherits.
 
-There is no cross-process merge -- that is what the MPI path is for -- so a
+There is no cross-process merge - that is what the MPI path is for - so a
 multiprocessing worker profiles itself, into a file of its own. What needs
 pinning is the boundary: a child forked out of a parent's *active* session
 inherits that session's hooks along with everything else, and must not go on
@@ -55,7 +55,7 @@ def test_a_forked_child_stops_tracking_the_parents_session(tmp_path):
     """A child inherits the hooks but not the session that opened them.
 
     Left installed, they would append a record per thread and per task to a
-    table nothing in the child ever reads -- unbounded, for a long-lived
+    table nothing in the child ever reads - unbounded, for a long-lived
     forked worker running an event loop.
     """
     manager = ProfileManager()
@@ -136,7 +136,7 @@ def test_a_forked_child_profiles_itself_with_its_own_session(tmp_path):
 
     stored = read_h5(child_path)
     assert stored["child_work"][0].num_calls == 2
-    # Only the child's own threads, numbered from zero -- the parent's table
+    # Only the child's own threads, numbered from zero - the parent's table
     # did not survive into it.
     assert [thread.name for thread in stored.threads[0]] == [
         "MainThread",

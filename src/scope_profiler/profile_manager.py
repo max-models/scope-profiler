@@ -64,6 +64,13 @@ _PAYLOAD_TAG = 0x5C09
 _WRITE_TOKEN_TAG = 0x5C0A
 _UNSET = object()
 
+# Tags registered with register_opt_in_tag(). Libraries register them at
+# import time, so this outlives every setup() and reset, and is shared by all
+# managers. Regions carrying one stay disabled unless the run enables it.
+_OPT_IN_TAGS: set[str] = set()
+#: Comma-separated opt-in tags to enable, read by every setup().
+_ENABLE_TAGS_ENV = "SCOPE_PROFILER_ENABLE_TAGS"
+
 
 # HDF5 attributes cannot exceed 64 KB; a function longer than this keeps its
 # timings but not its source.
@@ -131,7 +138,7 @@ class RankPayload(NamedTuple):
     """Everything one rank has to hand to rank 0 at ``finalize()``.
 
     This is what crosses the wire under MPI, and it is also what rank 0 writes
-    into the output file and folds into the returned results -- one transport
+    into the output file and folds into the returned results - one transport
     feeding both, so they cannot disagree. A NamedTuple because it pickles as a
     plain tuple, which is what mpi4py's ``send``/``recv`` use.
     """
@@ -482,12 +489,13 @@ class ProfileManager:
 
     _regions: ClassVar[dict] = {}
     _region_tag_filter: frozenset[str] | None = None
+    _enabled_tags: frozenset[str] = frozenset()
     # Next call id to hand out, so ids stay unique across the repeated
     # finalize() calls of one run. Reset by setup(), which starts a new run.
     _next_call_id = 0
     # Resolved on first use, never at import. Building a ProfilingConfig reads
     # the communicator, which imports mpi4py (i.e. calls MPI_Init) whenever the
-    # process looks like an MPI rank -- so constructing one here would mean
+    # process looks like an MPI rank - so constructing one here would mean
     # that merely importing scope_profiler joins the MPI job. That bites any
     # child process of a rank that happens to import the library, including
     # the one LIKWID's counter read-back forks. See get_config().
@@ -501,7 +509,7 @@ class ProfileManager:
     _metadata_scopes: ClassVar[list] = []
     _mpi_profile_context = None
     _region_cls = DisabledProfileRegion
-    _decorators: ClassVar[dict[str, list]] = {}  # name -> [(func, _bound), ...]
+    _decorators: ClassVar[dict[str, list]] = {}  # name -> [(func, _bound, tags), ...]
     _region_definitions: ClassVar[dict[str, tuple]] = {}
     _decorated_codes: ClassVar[set] = set()
     _recursive_state = threading.local()
@@ -609,7 +617,9 @@ class ProfileManager:
 
         tags : iterable of str, optional
             User-defined labels persisted with the region. Reusing a region
-            name with a different non-None tag set raises ``ValueError``.
+            name with a different non-None tag set raises ``ValueError``. A
+            region carrying a tag registered with :meth:`register_opt_in_tag`
+            is disabled unless the run enables that tag.
 
         Returns
         -------
@@ -635,6 +645,8 @@ class ProfileManager:
                 normalized_tags
             ).intersection(cls._region_tag_filter):
                 region_cls = DisabledProfileRegion
+            if normalized_tags and not cls._opt_in_enabled(normalized_tags):
+                region_cls = DisabledProfileRegion
             region = region_cls(
                 region_name,
                 config=cls.get_config(),
@@ -653,6 +665,45 @@ class ProfileManager:
             for func in functions:
                 region.add_function(func)
         return region
+
+    @classmethod
+    def _opt_in_enabled(cls, tags) -> bool:
+        """Whether ``tags`` carry no opt-in tag, or one this run enables."""
+        opt_in = _OPT_IN_TAGS.intersection(tags)
+        if not opt_in or "*" in cls._enabled_tags:
+            return True
+        return not opt_in.isdisjoint(cls._enabled_tags)
+
+    @classmethod
+    def register_opt_in_tag(cls, *tags: str) -> None:
+        """Mark ``tags`` as opt-in: their regions are off unless enabled.
+
+        Meant for libraries that ship their own instrumentation. Register the
+        tag once, at import time, and tag the library's regions with it::
+
+            # mylib/__init__.py
+            import scope_profiler as sp
+
+            sp.register_opt_in_tag("mylib")
+
+            @sp.profile("mylib.solve", tags=("mylib",))
+            def solve(): ...
+
+        Applications that profile themselves then don't record ``mylib``'s
+        regions until they ask for them, without editing ``mylib``: with
+        ``setup(enable_tags=["mylib"])`` (also a ``ProfilingOptions`` field
+        and a TOML setting), the ``SCOPE_PROFILER_ENABLE_TAGS=mylib``
+        environment variable, or ``scope-profiler run --enable-tag mylib``.
+        ``"*"`` enables every opt-in tag. Listing the tag in ``region_tags``
+        enables it too.
+
+        A disabled decorated function is left unwrapped, so instrumentation
+        that is off costs nothing per call.
+        """
+        for tag in tags:
+            if not isinstance(tag, str) or not tag:
+                raise TypeError(f"opt-in tags must be non-empty strings, got {tag!r}")
+        _OPT_IN_TAGS.update(tags)
 
     #: Original name for :meth:`region`, kept so existing instrumentation
     #: keeps working unchanged. Same object, not a forwarding wrapper: this
@@ -677,6 +728,7 @@ class ProfileManager:
                 "_next_call_id": 0,
                 "_config": None,
                 "_region_tag_filter": None,
+                "_enabled_tags": frozenset(),
                 "_configured": False,
                 "_lifecycle_state": _LifecycleState.INACTIVE,
                 "_auto_finalize_callback": None,
@@ -825,7 +877,7 @@ class ProfileManager:
 
         Every active region records timestamps; the remaining options decide
         what it records *on top* of them. ``deactivate_file_output`` does not
-        affect the choice -- recording is identical either way, it only
+        affect the choice - recording is identical either way, it only
         decides whether finalize() writes the data out.
         """
         cfg = cls._config
@@ -851,15 +903,21 @@ class ProfileManager:
             cls._region_cls = TimeOnlyProfileRegion
 
     @classmethod
-    def _bind_decorated_region(cls, name: str, func, _bound: list) -> BaseProfileRegion:
+    def _bind_decorated_region(
+        cls,
+        name: str,
+        func,
+        _bound: list,
+        tags=None,
+    ) -> BaseProfileRegion:
         """Resolve ``name``'s region, capture ``func``'s source, and bind it into ``_bound``.
 
         Shared between the initial ``@ProfileManager.profile`` decoration and
         ``set_config()``'s rebind, since a config change replaces every region
         object (see ``set_config``) and the new one starts with no source of
-        its own -- skipping this on rebind would silently drop it.
+        its own - skipping this on rebind would silently drop it.
         """
-        region = cls.profile_region(name)
+        region = cls.profile_region(name, tags=tags)
         if not isinstance(region, DisabledProfileRegion):
             if cls._config.capture_region_source:
                 source = function_source(func)
@@ -885,6 +943,7 @@ class ProfileManager:
         recursive: bool | None = None,
         metadata=None,
         record_outcome: bool = False,
+        tags=None,
     ) -> Callable:
         """
         Decorator factory for profiling a function.
@@ -904,6 +963,10 @@ class ProfileManager:
         record_outcome : bool, optional
             Add ``status`` and, for failures, ``exception`` metadata to each
             decorated call (default: False).
+        tags : iterable of str, optional
+            Labels persisted with the region, as for :meth:`region`. An
+            opt-in tag (see :meth:`register_opt_in_tag`) leaves the function
+            unprofiled unless the run enables it.
 
         Returns
         -------
@@ -918,6 +981,8 @@ class ProfileManager:
         ``@ProfileManager.profile`` can be applied at class-definition time
         even when ``setup()`` is called later.
         """
+
+        region_tags = None if tags is None else tuple(tags)
 
         def decorator(func):
             name = region_name or func.__name__
@@ -956,11 +1021,11 @@ class ProfileManager:
                 with cls.metadata(**values):
                     return _bound[1](*args, **kwargs)
 
-            cls._bind_decorated_region(name, func, _bound)
+            cls._bind_decorated_region(name, func, _bound, region_tags)
             cls._decorated_codes.add(func.__code__)
 
             # Register so set_config() can rebind without a per-call check.
-            cls._decorators.setdefault(name, []).append((func, _bound))
+            cls._decorators.setdefault(name, []).append((func, _bound, region_tags))
 
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
@@ -1086,8 +1151,21 @@ class ProfileManager:
         return completed
 
     @classmethod
-    def instrument(cls, module, *, include=("*",), exclude=(), prefix=None):
-        """Decorate matching module-level functions without editing source."""
+    def instrument(
+        cls,
+        module,
+        *,
+        include=("*",),
+        exclude=(),
+        prefix=None,
+        tags=None,
+    ):
+        """Decorate matching module-level functions without editing source.
+
+        ``tags`` is passed to every :meth:`profile` decorator, so a library
+        can put a whole module behind one opt-in tag (see
+        :meth:`register_opt_in_tag`).
+        """
         changed = {}
         module_name = getattr(module, "__name__", "module")
         for name, function in list(vars(module).items()):
@@ -1098,7 +1176,7 @@ class ProfileManager:
             if any(fnmatch.fnmatch(name, pattern) for pattern in exclude):
                 continue
             region_name = f"{prefix}.{name}" if prefix else f"{module_name}.{name}"
-            wrapped = cls.profile(region_name)(function)
+            wrapped = cls.profile(region_name, tags=tags)(function)
             setattr(module, name, wrapped)
             changed[name] = wrapped
         return changed
@@ -1258,8 +1336,8 @@ class ProfileManager:
 
         A region that is still open has a slot reserved but no end timestamp
         written yet, so that call is left out entirely rather than snapshotted
-        half-finished. It stays in the buffer -- ``mark_written()`` refuses to
-        rewind under an open scope -- and is picked up whole by the next
+        half-finished. It stays in the buffer - ``mark_written()`` refuses to
+        rewind under an open scope - and is picked up whole by the next
         finalize().
 
         Returns
@@ -1268,7 +1346,7 @@ class ProfileManager:
             Region name -> a tuple of nanosecond arrays, positionally
             ``(start_times, end_times, gpu_durations, call_ids, parent_ids,
             thread_ids, task_ids, await_ns)``. It is truncated after the last
-            column the run actually has, and any column may be None -- a
+            column the run actually has, and any column may be None - a
             reader must check both. The call graph columns are filled in
             afterwards by :meth:`_snapshot_call_graph`.
         """
@@ -1439,8 +1517,8 @@ class ProfileManager:
 
         Only the file whose rank matches this one is taken, so under MPI every
         rank folds in its own and the merge downstream is unchanged. Either
-        native format is accepted -- a ``.spt`` trace, or the ``.h5`` an
-        ``SP_USE_HDF5`` C build writes -- so a mixed-language run still comes
+        native format is accepted - a ``.spt`` trace, or the ``.h5`` an
+        ``SP_USE_HDF5`` C build writes - so a mixed-language run still comes
         out as one file however its C side was compiled.
 
         Raises
@@ -1493,8 +1571,8 @@ class ProfileManager:
     def _collect_payloads(cls, payload, write_file: bool, need_results: bool):
         """Move every rank's payload to rank 0 and consume it there.
 
-        Rank 0 takes one payload at a time -- its own first, then one per
-        remaining rank -- writes it into the output file, folds it into the
+        Rank 0 takes one payload at a time - its own first, then one per
+        remaining rank - writes it into the output file, folds it into the
         results, and drops it before taking the next. Peak memory on rank 0 is
         therefore one rank's data plus the open file, not the whole job's,
         which is what makes this scale to thousands of ranks. (With
@@ -1531,8 +1609,8 @@ class ProfileManager:
 
         The messages go over the run's own communicator, tagged with
         ``_PAYLOAD_TAG``, rather than over a private duplicate of it. A
-        duplicate would be tidier -- it could not be intercepted by an
-        application posting ``recv(ANY_SOURCE, ANY_TAG)`` -- but ``MPI_Comm_dup``
+        duplicate would be tidier - it could not be intercepted by an
+        application posting ``recv(ANY_SOURCE, ANY_TAG)`` - but ``MPI_Comm_dup``
         is a collective that allocates a new context id, and by this point
         every rank may have forked a child process: ``use_likwid=True`` reads
         the counters back in a subprocess (see
@@ -1602,8 +1680,8 @@ class ProfileManager:
         rank reports completion.
 
         The token carries the file's :class:`~scope_profiler.h5writer.ColumnarIndex`
-        state -- the region names already assigned an id, and the ranks already
-        written -- so each rank appends without first reading back index
+        state - the region names already assigned an id, and the ranks already
+        written - so each rank appends without first reading back index
         columns that grow with every rank before it. That read made the whole
         relay quadratic in the rank count; the state itself is a few ints and
         the region names, which do not grow with the job.
@@ -1802,8 +1880,8 @@ class ProfileManager:
     def _snapshot_line_profile(cls) -> list:
         """Copy line-profiler timings into MPI/HDF5-safe plain records.
 
-        scope-profiler's own frames -- the session's ``__enter__``, for one
-        -- are dropped: they say nothing about the code being profiled.
+        scope-profiler's own frames - the session's ``__enter__``, for one
+        - are dropped: they say nothing about the code being profiled.
         """
         records = []
         for region_name, region in cls.get_all_regions().items():
@@ -1868,7 +1946,7 @@ class ProfileManager:
         prints profiling statistics for each region.
 
         Under MPI this is **collective**: every rank must call it, with the
-        same arguments, or the job hangs -- rank 0 waits for a payload from
+        same arguments, or the job hangs - rank 0 waits for a payload from
         every other rank. A rank that dies before reaching it therefore leaves
         the job waiting rather than silently dropping that rank's data.
 
@@ -1902,7 +1980,7 @@ class ProfileManager:
 
         native_traces : path or sequence of paths, optional
             Files (or directories of them) written by the C or Fortran region
-            API in this same process, to fold into this run's output -- either
+            API in this same process, to fold into this run's output - either
             native format, a ``.spt`` trace or the ``.h5`` an ``SP_USE_HDF5``
             C build writes. Each rank picks up the file matching its own rank,
             so a mixed-language MPI run still produces one file::
@@ -1969,6 +2047,16 @@ class ProfileManager:
         need_results = return_results or (verbose and not write_file)
         need_payload = write_file or need_results
 
+        # The node count needs every rank's host name, so it is the one
+        # metadata field gathered here rather than at setup(), which issues no
+        # collective. It runs before the LIKWID read-back below: that forks,
+        # and Open MPI does not support collectives on a forked rank. Every
+        # rank ends up with the same value, as the parallel HDF5 writer needs.
+        if need_payload and config.comm is not None:
+            from scope_profiler.metadata import count_nodes
+
+            config.metadata["num_nodes"] = count_nodes(config.comm)
+
         # 1. Copy this run's timestamps out of the live buffers. The copy is
         # both what gets written and what gets returned, so the file and the
         # in-memory results are assembled from the same bytes.
@@ -2004,7 +2092,7 @@ class ProfileManager:
 
         # The data is safely copied, so the run boundary can be marked now: a
         # second finalize() in this process then reports only its own events.
-        # Not when nothing is written, though -- there the buffers are the only
+        # Not when nothing is written, though - there the buffers are the only
         # copy the caller has left.
         if write_file:
             for region in cls.get_all_regions().values():
@@ -2437,7 +2525,7 @@ class ProfileManager:
             :class:`~scope_profiler.profile_config.ProfilingOptions`, which
             is where they are declared once and typed; an unrecognised name
             raises ``TypeError`` naming the closest match. Prefixed settings
-            can also be given as groups on ``options`` -- see
+            can also be given as groups on ``options`` - see
             :class:`~scope_profiler.profile_config.MemrayOptions`,
             :class:`~scope_profiler.profile_config.GPUOptions` and
             :class:`~scope_profiler.profile_config.HDF5Options`.
@@ -2447,7 +2535,7 @@ class ProfileManager:
             Short name for this run (default: None, i.e. the output file's
             stem). Post-processing uses it wherever a run has to be named --
             chart legends, the summary heading, ``scope-profiler inspect``,
-            the JSON statistics -- which is what makes several runs
+            the JSON statistics - which is what makes several runs
             distinguishable when they are compared::
 
                 ProfileManager.setup(file_path="run_a.h5", label="128 ranks")
@@ -2516,7 +2604,7 @@ class ProfileManager:
             buffers and scope stack, so regions entered concurrently no
             longer overwrite one another, and every recorded call carries the
             thread it ran on. The run also reports each thread's name, OS
-            ids, lifetime and CPU time -- see
+            ids, lifetime and CPU time - see
             :attr:`~scope_profiler.results.ProfilingResults.threads`::
 
                 with ProfileManager.session(track_threads=True):
@@ -2541,14 +2629,14 @@ class ProfileManager:
             and absolute source paths. Region source *text* is controlled
             separately by ``capture_region_source``.
         capture_region_source : bool, optional
-            Record where each region is defined -- the ``with`` block or the
-            decorated function -- once per distinct source file, the first
+            Record where each region is defined - the ``with`` block or the
+            decorated function - once per distinct source file, the first
             time any of its regions is created (default: False). See
             :attr:`~scope_profiler.region.Region.source_text`. Off by
             default because the cost, while cheap for a typical file, is not
             always: it is one ``ast.parse`` + tree walk of that file, so it
             tracks the file's total size, not the size or number of the
-            regions in it -- under a millisecond for a typical few-hundred-
+            regions in it - under a millisecond for a typical few-hundred-
             line file, but tenths of a second per rank for one containing
             thousands of lines across many regions. Every rank pays that
             independently, so it can compound to whole seconds under
@@ -2574,6 +2662,11 @@ class ProfileManager:
         hdf5_chunk_size : int or None, optional
             Maximum events per dataset chunk. Enables chunked partial reads
             even without compression.
+        enable_tags : iterable of str, optional
+            Opt-in tags (see :meth:`register_opt_in_tag`) whose regions this
+            run records; ``"*"`` enables all of them. The comma-separated
+            ``SCOPE_PROFILER_ENABLE_TAGS`` environment variable adds to this
+            list, as do the tags in ``region_tags``.
 
         Notes
         -----
@@ -2646,6 +2739,12 @@ class ProfileManager:
             **settings,
         )
         cls._region_tag_filter = None if region_tags is None else frozenset(region_tags)
+        env_tags = os.environ.get(_ENABLE_TAGS_ENV, "")
+        cls._enabled_tags = (
+            frozenset(config.enable_tags)
+            .union(tag.strip() for tag in env_tags.split(",") if tag.strip())
+            .union(cls._region_tag_filter or ())
+        )
         cls.set_config(config=config)
         cls._requested_output = requested_output
         if auto_finalize:
@@ -2670,7 +2769,7 @@ class ProfileManager:
 
         Every argument other than ``verbose``, ``verbose_line_profiler``,
         ``return_results`` and ``native_traces`` is passed to :meth:`setup`,
-        with the same meaning and precedence there -- ``options`` (a
+        with the same meaning and precedence there - ``options`` (a
         :class:`~scope_profiler.profile_config.ProfilingOptions`),
         ``config_path``, and any setting as a keyword::
 
@@ -2685,7 +2784,7 @@ class ProfileManager:
 
         ``native_traces`` is handed to :meth:`finalize`, which folds the
         output of a C or Fortran library profiled in this same process into
-        this run's file -- in either native format. See its documentation for
+        this run's file - in either native format. See its documentation for
         the two rules that mixing languages imposes.
 
         When ``return_results=True``, the context object exposes the finalized
@@ -2758,8 +2857,8 @@ class ProfileManager:
         # Rebind all registered decorator wrappers to the new region class.
         # This is the only place rebinding happens — there is no per-call check.
         for name, entries in cls._decorators.items():
-            for func, _bound in entries:
-                cls._bind_decorated_region(name, func, _bound)
+            for func, _bound, tags in entries:
+                cls._bind_decorated_region(name, func, _bound, tags)
         for name, (functions, tags) in cls._region_definitions.items():
             cls.region(name, functions=functions, tags=tags)
 
@@ -2774,7 +2873,7 @@ class ProfileManager:
         MPI communicator, which imports mpi4py and therefore calls
         ``MPI_Init`` in any process the launcher marked as a rank. Doing that
         at import time would mean ``import scope_profiler`` silently joins the
-        MPI job -- fatal in a process forked from a rank, which is exactly
+        MPI job - fatal in a process forked from a rank, which is exactly
         what the LIKWID counter read-back does.
 
         Resolving defaults is not itself setup. Regions remain disabled until
@@ -2818,6 +2917,7 @@ class ProfileManager:
         cls._requested_output = None
         cls._metadata_scopes = []
         cls._region_tag_filter = None
+        cls._enabled_tags = frozenset()
         cls._configured = False
         cls._lifecycle_state = _LifecycleState.INACTIVE
 

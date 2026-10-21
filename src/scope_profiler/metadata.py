@@ -158,6 +158,16 @@ def _truncate(value: MetadataValue) -> MetadataValue:
     return value
 
 
+def count_nodes(comm) -> int:
+    """Number of distinct hosts the ranks of ``comm`` run on.
+
+    Collective: every rank of ``comm`` must call it, and every rank gets the
+    same count back. One small ``allgather`` of host names, run once per
+    run, never per event.
+    """
+    return len(set(comm.allgather(socket.gethostname())))
+
+
 def check_metadata_detail(detail: str) -> str:
     """Return ``detail`` if it is a known level, else raise ``ValueError``."""
     if detail not in METADATA_DETAILS:
@@ -182,7 +192,8 @@ def collect_metadata(
     detail : {"minimal", "full"}, optional
         ``"minimal"`` (default) records only ``timestamp``, ``platform``,
         ``chip_information``, ``python_version``, ``scope_profiler_version``,
-        ``omp_num_threads``, ``mpi_size`` and ``total_cores``: no user name,
+        ``omp_num_threads``, ``mpi_size``, ``total_cores`` and, for a
+        single-process run, ``num_nodes`` (1): no user name,
         host name (also part of ``uname``), working directory, loaded
         modules, environment variables or ``SLURM_*`` variables. ``"full"``
         records everything below.
@@ -218,6 +229,12 @@ def collect_metadata(
         "mpi_size": mpi_size,
         "total_cores": mpi_size * omp_num_threads,
     }
+    if mpi_size == 1:
+        # One process runs on one node. Under MPI the count needs every
+        # rank's host name, so ProfileManager.finalize() adds it with one
+        # collective (see count_nodes); a count names no machine, so it is
+        # part of the minimal level either way.
+        metadata["num_nodes"] = 1
     if detail == "full":
         metadata.update(
             {

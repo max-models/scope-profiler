@@ -90,6 +90,9 @@ the write CPU. \| \| `hdf5_compression_level` \| `int` or `None` \|
 `None` \| GZIP level 0–9 or Zstandard level 1–22. LZF has no level. \|
 \| `hdf5_chunk_size` \| `int` or `None` \| `None` \| Maximum events per
 HDF5 chunk; enables chunked partial reads even without compression. \|
+\| `enable_tags` \| `list[str]` or `None` \| `None` \| Opt-in region
+tags to record, such as a library's own instrumentation; `"*"` enables
+all of them. See below. \|
 \| `label` \| `str` \| `None` \| Short name for the run, used by
 post-processing wherever a run has to be named. See below. \| \|
 `capture_region_source`\| `bool` \| `False` \| Record where each region
@@ -396,6 +399,44 @@ ProfileManager.setup(
     deactivate_profiling=os.environ.get("DISABLE_PROFILING", "0") == "1",
 )
 ```
+
+## Library regions that are off by default
+
+A library can ship its own regions without them showing up in every
+profile of the code that uses it. It registers an *opt-in tag* once, at
+import time, and tags its regions with it:
+
+```python
+# mylib/__init__.py
+import scope_profiler as sp
+
+sp.register_opt_in_tag("mylib")
+
+# mylib/linalg.py
+@sp.profile("mylib.matmul", tags=("mylib",))
+def matmul(a, b): ...
+
+def fft(x):
+    with sp.region("mylib.fft", tags=("mylib",)):
+        ...
+```
+
+`sp.instrument(module, tags=("mylib",))` tags every function it wraps.
+These regions stay disabled, and a decorated function stays unwrapped, until
+the run enables the tag. Untagged regions and regions with other tags are
+unaffected. The application enables it without editing the library, in any
+of these ways (they add up):
+
+- `setup(enable_tags=["mylib"])` or `session(enable_tags=["mylib"])`, or
+  `ProfilingOptions(enable_tags=["mylib"])`
+- `enable_tags = ["mylib"]` under `[profiling]` in a TOML settings file
+- the environment variable `SCOPE_PROFILER_ENABLE_TAGS=mylib`
+  (comma-separated), read by every `setup()`
+- `scope-profiler run --enable-tag mylib`
+
+`"*"` enables every opt-in tag. A region carrying several opt-in tags
+records when any of them is enabled. Naming an opt-in tag in
+`region_tags` (`--tag`) enables it too.
 
 ## Recursive profiling of decorated entrypoints
 

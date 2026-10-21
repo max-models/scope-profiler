@@ -1,0 +1,70 @@
+---
+title: Interactive Jupyter tutorials
+sidebar:
+  label: Overview
+  order: 0
+---
+
+> **Install for all tutorials:**
+> `pip install "scope-profiler[notebook,pproc,line-profiler]"`. Tutorials 1
+> and 4 use only the base install; tutorial 2 also needs pandas (`pproc`),
+> tutorials 3, 6 and 8 need `pproc`, and tutorial 7 needs all three extras.
+
+These notebooks are the fastest way to learn `scope-profiler`. They are listed
+individually in the documentation navigation so you can jump directly to the
+topic you need.
+
+## Choose a tutorial
+
+Eight notebooks that build on each other. Each one is self-contained — it
+generates its own profiling data in a temporary directory, so they can be run
+in any order and in any environment.
+
+1. [Getting started](/scope-profiler/guide/01-getting-started/) — configure the
+   profiler, mark regions, finalize, and inspect the first output file.
+2. [Post-processing profiling data](/scope-profiler/guide/02-postprocessing/) — use
+   `ProfilingResults`, summaries, DataFrames, filtering, metadata, and JSON.
+3. [Visualizing results](/scope-profiler/guide/03-visualization/) — create Gantt,
+   flame, duration, and speedup charts.
+4. [Profiling modes and configuration](/scope-profiler/guide/04-profiling-modes/) —
+   recursive, line-by-line, CLI, MPI, and LIKWID profiling.
+5. [Custom analysis with the Python API](/scope-profiler/guide/05-custom-analysis/) —
+   inspect individual calls, timelines, call stacks, and self-time.
+6. [Building your own plots](/scope-profiler/guide/06-custom-plots/) — draw custom
+   visualizations from events and call-stack data.
+7. [Notebook magics](/scope-profiler/guide/07-notebook-magics/) — profile a cell
+   with `%%scope`, `%%scope_line` and `%%scope_recursive`, then compare,
+   analyse and export runs with `%scope_compare`, `%scope_df`,
+   `%scope_load` and `%scope_export`.
+8. [Reports and comparison](/scope-profiler/guide/08-reports-and-comparison/) — summarize
+   runs with `inspect`, compare them with `diff`, write HTML reports, gate
+   regressions with `check` and publish a catalogue with `site`.
+
+The single command above installs everything. For a smaller environment, use
+only the extras named beside the tutorials you plan to run.
+
+```bash
+pip install "scope-profiler[notebook,pproc,line-profiler]"
+```
+
+## Example scripts
+
+The `examples/` directory in the repository contains ready-to-run
+scripts:
+
+- **`ex_line_profiling.py`** — demonstrates line-by-line profiling
+  with `use_line_profiler=True`.
+- **`ex_recursive_profiling.py`** — profiles nested function calls from
+  one decorated entrypoint using `recursive_profile=True`.
+- **`ex_cli_profiling.py`** — an uninstrumented script, profiled with
+  `scope-profiler run` (no decorators or setup calls needed).
+- **`ex_region_source.py`** — reads back the source code a region was
+  defined with, both from Python and via `scope-profiler inspect --source`.
+- **`benchmark_overhead.py`** — measures per-call overhead of every
+  profiling mode and produces a bar chart.
+
+Run any example with:
+
+```bash
+python examples/<script>.py
+```

@@ -137,11 +137,11 @@ test("the gantt gives every run, rank and region its own lane", () => {
   // One lane per rank would stack a nested profile onto a single row, where
   // the outermost region hides everything inside it.
   assert.equal(
-    new Set(figure.layout.yaxis.ticktext).size,
+    new Set(figure.layout.yaxis.categoryarray).size,
     new Set(
       payload.intervals.map((row) => `${row.file}/${row.rank}/${row.region}`),
     ).size,
   );
-  for (const lane of figure.layout.yaxis.ticktext)
+  for (const lane of figure.layout.yaxis.categoryarray)
     assert.match(lane, /\(rank \d+\)$/);
 });

@@ -7,7 +7,11 @@ from pathlib import Path
 import numpy as np
 
 from scope_profiler import plotting_scripts as _ps
-from scope_profiler.call_stack import build_call_stack
+from scope_profiler.call_stack import (
+    NestingError,
+    build_call_arrays,
+    build_call_stack,
+)
 from scope_profiler.plotting_scripts._utils import (
     DEFAULT_CMAP,
     _as_runs,
@@ -121,6 +125,26 @@ def _prepare_gantt_data(
     return regions, normalized_ranks, profiling_data.minimum_start_time
 
 
+def _call_depths(run: ProfilingResults, rank: int) -> dict[str, np.ndarray] | None:
+    """Each region's call depths on one rank, by call number; None if unnested.
+
+    The nesting is taken from every region of the run, not only the plotted
+    ones, so a call's depth does not change with the include/exclude filters.
+    Depth 0 is a top-level call.
+    """
+    try:
+        arrays = build_call_arrays(run.get_regions(), rank)
+    except NestingError:
+        return None
+    depths: dict[str, np.ndarray] = {}
+    for row, name in enumerate(arrays.names):
+        mine = arrays.region_index == row
+        region_depths = np.zeros(int(mine.sum()), dtype=np.int64)
+        region_depths[arrays.call_index[mine]] = arrays.depth[mine]
+        depths[name] = region_depths
+    return depths
+
+
 def _aggregate_gantt_intervals(
     intervals: Sequence[tuple[float, float]],
     *,
@@ -227,27 +251,34 @@ def plot_gantt(
         if data_format == "json":
             intervals = []
             colors = {}
-            for label, (_, regions, selected_ranks, first_start_time) in zip(
+            for label, (run, regions, selected_ranks, first_start_time) in zip(
                 labels,
                 prepared,
             ):
+                # A depth per call lets a viewer hide nested calls; left out
+                # when the rank's calls do not nest.
+                depths = {rank: _call_depths(run, rank) for rank in selected_ranks}
                 for region in regions:
                     colors[region.name] = _to_hex(region.color)
                     for rank in selected_ranks:
+                        # A region need not have been entered on every rank.
+                        if rank not in region:
+                            continue
                         region_data = region[rank]
-                        for start, end in zip(
-                            region_data.start_times,
-                            region_data.end_times,
+                        region_depths = (depths[rank] or {}).get(region.name)
+                        for call, (start, end) in enumerate(
+                            zip(region_data.start_times, region_data.end_times),
                         ):
-                            intervals.append(
-                                {
-                                    "file": label,
-                                    "rank": rank,
-                                    "region": region.name,
-                                    "start_seconds": start - first_start_time,
-                                    "end_seconds": end - first_start_time,
-                                },
-                            )
+                            interval = {
+                                "file": label,
+                                "rank": rank,
+                                "region": region.name,
+                                "start_seconds": start - first_start_time,
+                                "end_seconds": end - first_start_time,
+                            }
+                            if region_depths is not None:
+                                interval["depth"] = int(region_depths[call])
+                            intervals.append(interval)
             _write_json(
                 data_filepath,
                 {
@@ -269,6 +300,9 @@ def plot_gantt(
             ):
                 for region in regions:
                     for rank in selected_ranks:
+                        # A region need not have been entered on every rank.
+                        if rank not in region:
+                            continue
                         region_data = region[rank]
                         for start, end in zip(
                             region_data.start_times,

@@ -5,7 +5,7 @@ Inspecting a region's source code
 Every region can remember where it was defined in your code: the ``with``
 block for the context-manager form, or the whole function body for the
 decorator form. It is captured once, when the region is first created, so it
-costs nothing on the hot path -- see ``region.source_file``,
+costs nothing on the hot path - see ``region.source_file``,
 ``region.source_lineno`` and ``region.source_text`` below.
 
 It is off by default (``capture_region_source=False``): capturing it means

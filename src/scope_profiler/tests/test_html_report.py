@@ -85,7 +85,7 @@ def test_report_overview_flags_hot_spot_and_imbalance(tmp_path):
 
     document = report.read_text(encoding="utf-8")
     assert '<ul class="findings">' in document
-    assert "<code>solve</code></a> is the largest bottleneck" in document
+    assert "<code>solve</code></a> is the largest hotspot" in document
     assert 'href="#run-0-region-0"' in document
     assert "unevenly distributed across" in document
     # The callout points at the load-balance section, which only MPI runs get.
@@ -173,7 +173,7 @@ def test_report_handles_an_out_of_range_rank_selection(tmp_path):
 
     document = report.read_text(encoding="utf-8")
     assert "No timed regions to summarize" in document
-    assert '<div class="bottlenecks">' not in document
+    assert '<div class="hotspots">' not in document
 
 
 def test_report_rejects_an_empty_run_list(tmp_path):
@@ -343,10 +343,10 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
     # The flame views are left out of reports for now.
     assert "Flame chart" not in document
     assert "Flame graph" not in document
-    # One run on one rank, each region entered once: the durations bars would
-    # repeat the table, the rank views have one rank to show and there are no
-    # repeated calls to follow over time. The call graph repeats the tree.
-    assert "Region durations" not in document
+    # One run on one rank, each region entered once: the rank views have one
+    # rank to show and there are no repeated calls to follow over time. The
+    # call graph repeats the tree.
+    assert "Region durations" in document
     assert "Rank heatmap" not in document
     assert "Rank imbalance" not in document
     assert "Duration over time" not in document
@@ -360,18 +360,15 @@ def test_report_embeds_plotly_chart_fragments(tmp_path, monkeypatch):
     # The timeline labels every row with its region; its legend is redundant.
     assert '"options": {"layout": {"showlegend": false}}' in document
     assert "Each bar is one recorded region call on rank 0." in document
-    # The timeline starts open.
+    # The durations bars lead, and they and the timeline start open.
     panels = re.findall(
         r'<details class="chart-panel"( open)?>.*?aria-level="3">([^<]*)', document
     )
-    assert [title for is_open, title in panels if is_open] == [
-        "Timeline: profile",
-    ]
-    assert [title for is_open, title in panels if not is_open] == []
+    assert panels == [(" open", "Region durations"), (" open", "Timeline: profile")]
     assert 'data-chart-action="expand"' in document
     assert 'data-chart-action="collapse"' in document
     # Every chart can be opened on a page of its own.
-    assert document.count('class="chart-open" data-chart="scope-profiler-chart-') == 1
+    assert document.count('class="chart-open" data-chart="scope-profiler-chart-') == 2
     assert "const openInNewTab = (chart) =>" in document
     assert '<script id="scope-profiler-plotly-runtime">' in document
     assert "plotly.js" in document
@@ -421,29 +418,86 @@ def test_report_limits_gantt_and_uses_exclusive_rank_heatmap(tmp_path, monkeypat
     assert "exclusive timings" in report.read_text(encoding="utf-8")
 
 
-def test_single_run_report_leaves_region_durations_to_the_table(tmp_path, monkeypatch):
+def test_single_run_report_stacks_region_durations(tmp_path, monkeypatch):
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
-    _write_sample_h5(profile, _sample_file_data(1, 10, 20))
+    _write_sample_h5(profile, _sample_file_data(2, 10, 20))
 
     from scope_profiler import plotting_scripts
 
+    captured = {}
+
     def fake_plot(*args, data_filepath, **kwargs):
+        is_durations = "durations" in Path(data_filepath).name
+        if is_durations:
+            captured.update(kwargs)
         Path(data_filepath).write_text(
-            json.dumps({"plot": "gantt", "intervals": []}),
+            json.dumps(
+                {
+                    "plot": "durations" if is_durations else "gantt",
+                    "bars" if is_durations else "intervals": [],
+                    **(
+                        {"options": {"stack_children": kwargs.get("stack_children")}}
+                        if is_durations
+                        else {}
+                    ),
+                },
+            ),
             encoding="utf-8",
         )
 
-    def unexpected(*args, **kwargs):
-        raise AssertionError("one run needs no durations comparison")
-
-    for name in ("plot_gantt", "plot_flame", "plot_flame_graph"):
+    for name in (
+        "plot_gantt",
+        "plot_durations",
+        "plot_imbalance",
+        "plot_rank_heatmap",
+    ):
         monkeypatch.setattr(plotting_scripts, name, fake_plot)
-    monkeypatch.setattr(plotting_scripts, "plot_durations", unexpected)
 
-    cli_main(["report", str(profile), "-o", str(report)])
+    create_html_report(profile, report)
 
-    assert "Region durations" not in report.read_text(encoding="utf-8")
+    document = report.read_text(encoding="utf-8")
+    # One run's bars show where each region's time went, summed over ranks.
+    assert captured["stack_children"] is True
+    assert captured["metric"] == "total"
+    assert captured["sort_by"] == "total"
+    assert "The stacked segments divide that time" in document
+    panels = re.findall(
+        r'<details class="chart-panel"( open)?>.*?aria-level="3">([^<]*)', document
+    )
+    assert panels[0] == (" open", "Region durations")
+    assert [title for is_open, title in panels if is_open] == [
+        "Region durations",
+        "Timeline: profile (rank 0)",
+    ]
+
+
+def test_aggregated_report_draws_unstacked_region_durations(tmp_path):
+    pytest.importorskip("plotly")
+    from scope_profiler import ProfileManager
+
+    with ProfileManager.session(
+        file_path=str(tmp_path / "aggregate.h5"),
+        aggregation_mode=True,
+        return_results=True,
+        verbose=False,
+    ) as run:
+        with ProfileManager.profile_region("outer"):
+            with ProfileManager.profile_region("inner"):
+                pass
+
+    report = create_html_report(run.results, tmp_path / "report.html")
+
+    document = report.read_text(encoding="utf-8")
+    # No call timestamps: nothing to nest the bars by, and no timeline.
+    assert '"stack_children": false' in document
+    assert "summed over the selected ranks, longest first." in document
+    assert "The stacked segments" not in document
+    # The durations bars are the only chart, so they are not left shut.
+    panels = re.findall(
+        r'<details class="chart-panel"( open)?>.*?aria-level="3">([^<]*)', document
+    )
+    assert [title for is_open, title in panels if is_open] == ["Region durations"]
 
 
 def test_reports_leave_out_duration_over_time(tmp_path, monkeypatch):
@@ -466,19 +520,21 @@ def test_reports_leave_out_duration_over_time(tmp_path, monkeypatch):
         assert "Duration over time" not in report.read_text(encoding="utf-8")
 
 
-def _scaling_profiles(tmp_path, rank_counts, threads=None):
+def _scaling_profiles(tmp_path, rank_counts, threads=None, nodes=None):
     """One profile per rank count: solve's work split over the ranks."""
     paths = []
     for index, count in enumerate(rank_counts):
         path = tmp_path / f"r{index}.h5"
-        metadata = {"omp_num_threads": threads[index]} if threads else None
+        metadata = {"omp_num_threads": threads[index]} if threads else {}
+        if nodes:
+            metadata["num_nodes"] = nodes[index]
         _write_sample_h5(
             path,
             {
                 rank: {"setup": ([0], [10]), "solve": ([20], [20 + 80 // count])}
                 for rank in range(count)
             },
-            metadata=metadata,
+            metadata=metadata or None,
         )
         paths.append(path)
     return paths
@@ -506,12 +562,132 @@ def test_comparison_of_run_sizes_shows_a_speedup_chart(tmp_path):
         ' role="heading" aria-level="3">Speedup' in document
     )
     assert '"plot": "speedup"' in document and '"x_field": "num_ranks"' in document
-    assert "the run with the fewest MPI ranks" in document
+    assert "the run with the fewest <span data-axis-label>MPI ranks</span>" in document
+    # Only ranks differ (one thread each makes cores a copy of ranks), so there
+    # is nothing to switch to.
+    assert 'class="chart-axis"' not in document
+    assert '"variants"' not in document
     # Across run sizes, the durations bars show a call, not a sum over ranks.
     assert "each region&#x27;s mean call duration" in document or (
         "each region's mean call duration" in document
     )
     assert '"metrics": ["avg"]' in document
+
+
+def _open_chart_titles(document):
+    return re.findall(
+        r'<details class="chart-panel" open>.*?aria-level="3">([^<]*)', document
+    )
+
+
+def test_comparison_of_run_sizes_shows_both_scaling_charts_by_default(tmp_path):
+    pytest.importorskip("plotly")
+    paths = _scaling_profiles(tmp_path, [1, 2, 4])
+
+    document = create_html_report(
+        paths, tmp_path / "scaling.html", individual_reports=False
+    ).read_text(encoding="utf-8")
+
+    titles = _chart_titles(document)
+    assert titles[:2] == ["Speedup", "Weak scaling"]
+    # The speedup leads; the weak-scaling chart waits, collapsed.
+    open_titles = _open_chart_titles(document)
+    assert "Speedup" in open_titles and "Weak scaling" not in open_titles
+    # Weak-scaling efficiency is the baseline's mean call over each run's.
+    # These runs split a fixed problem, so solve's 80, 40 and 20 read as an
+    # efficiency above 1: the chart says so rather than guessing the study.
+    assert '"plot": "weak_scaling_efficiency"' in document
+    for count, efficiency in ((1, 1.0), (2, 2.0), (4, 4.0)):
+        assert (
+            f'"region": "solve", "num_ranks": {count}, "efficiency": {efficiency}'
+            in document
+        )
+    # Each chart says which kind of study it is valid for.
+    assert "strong-scaling study: the same total problem size" in document
+    assert "weak-scaling study: the problem grows with the run" in document
+    assert "same problem size per rank or core" in document
+    assert "The dashed line at 1 is ideal" in document
+
+
+def test_weak_scaling_chart_reads_a_weak_scaling_study(tmp_path):
+    pytest.importorskip("plotly")
+    # The same work per rank, slowed by costs that grow with the run: solve
+    # takes 40, 50 and 80 on 1, 2 and 4 ranks.
+    paths = []
+    for count, duration in ((1, 40), (2, 50), (4, 80)):
+        path = tmp_path / f"weak{count}.h5"
+        _write_sample_h5(
+            path,
+            {rank: {"solve": ([0], [duration])} for rank in range(count)},
+        )
+        paths.append(path)
+
+    document = create_html_report(
+        paths, tmp_path / "weak.html", individual_reports=False, scaling="weak"
+    ).read_text(encoding="utf-8")
+
+    assert _chart_titles(document)[0] == "Weak scaling"
+    for count, efficiency in ((1, 1.0), (2, 0.8), (4, 0.5)):
+        assert (
+            f'"region": "solve", "num_ranks": {count}, "efficiency": {efficiency}'
+            in document
+        )
+
+
+@pytest.mark.parametrize(
+    ("scaling", "expected", "missing"),
+    [("strong", "Speedup", "Weak scaling"), ("weak", "Weak scaling", "Speedup")],
+)
+def test_report_scaling_option_selects_one_scaling_chart(
+    tmp_path, scaling, expected, missing
+):
+    pytest.importorskip("plotly")
+    paths = _scaling_profiles(tmp_path, [1, 4])
+    report = tmp_path / f"{scaling}.html"
+
+    assert (
+        cli_main(
+            [
+                "report",
+                *map(str, paths),
+                "-o",
+                str(report),
+                "--no-individual-reports",
+                "--scaling",
+                scaling,
+            ]
+        )
+        == 0
+    )
+    document = report.read_text(encoding="utf-8")
+
+    titles = _chart_titles(document)
+    assert titles[0] == expected and missing not in titles
+    # Alone, either scaling chart is the one opened.
+    assert _open_chart_titles(document)[0] == expected
+
+
+def test_report_scaling_cli_defaults_to_both(tmp_path):
+    pytest.importorskip("plotly")
+    paths = _scaling_profiles(tmp_path, [1, 2])
+    report = tmp_path / "both.html"
+
+    cli_main(["report", *map(str, paths), "-o", str(report), "--no-individual-reports"])
+
+    titles = _chart_titles(report.read_text(encoding="utf-8"))
+    assert {"Speedup", "Weak scaling"} <= set(titles)
+
+
+def test_report_scaling_option_rejects_unknown_modes(tmp_path, capsys):
+    paths = _scaling_profiles(tmp_path, [1, 2])
+
+    with pytest.raises(ValueError, match="scaling must be one of"):
+        create_html_report(paths, tmp_path / "bad.html", scaling="linear")
+    assert not (tmp_path / "bad.html").exists()
+
+    with pytest.raises(SystemExit):
+        cli_main(["report", *map(str, paths), "--scaling", "linear"])
+    assert "invalid choice" in capsys.readouterr().err
 
 
 def test_comparison_of_run_sizes_compares_time_per_rank(tmp_path):
@@ -523,7 +699,7 @@ def test_comparison_of_run_sizes_compares_time_per_rank(tmp_path):
     document = report.read_text(encoding="utf-8")
     table = document[document.index('<table class="compare-table metric-total"') :]
     table = table[: table.index("</table>")]
-    # solve: 80 on one rank, 20 on each of four -- per rank, 4x faster; summed
+    # solve: 80 on one rank, 20 on each of four - per rank, 4x faster; summed
     # over the ranks it would read as unchanged.
     solve = table[table.index('data-region="solve"') :]
     solve = solve[: solve.index("</tr>")]
@@ -544,7 +720,13 @@ def test_comparison_of_thread_counts_scales_over_threads(tmp_path):
     document = create_html_report(
         both, tmp_path / "both.html", individual_reports=False
     ).read_text(encoding="utf-8")
-    assert '"x_field": "total_cores"' in document
+    # MPI ranks open by default on both charts; cores is a button away.
+    for title in ("Speedup", "Weak scaling"):
+        chart = _speedup_document(document, title)
+        assert chart["payload"]["options"]["x_field"] == "num_ranks"
+        assert [
+            variant["payload"]["options"]["x_field"] for variant in chart["variants"]
+        ] == ["num_ranks", "omp_num_threads", "total_cores"]
 
 
 def test_comparison_of_equal_sizes_has_no_speedup_chart(tmp_path):
@@ -567,7 +749,175 @@ def test_comparison_of_equal_sizes_has_no_speedup_chart(tmp_path):
     assert _threads(_Run(1, {"omp_num_threads": "x"})) is None
     assert _scaling_field([_Run(1, {}), _Run(1, {"omp_num_threads": 4})]) is None
     assert _scaling_value(_Run(2, {"omp_num_threads": 3}), "total_cores") == 6
-    assert _scaling_value(_Run(2, {}), "omp_num_threads") == 1
+    assert _scaling_value(_Run(2, {}), "omp_num_threads") is None
+    assert _scaling_value(_Run(2, {}), "total_cores") is None
+
+
+def _speedup_document(document, title="Speedup"):
+    """A scaling chart's embedded chart document (the speedup by default)."""
+    documents = json.loads(
+        re.search(r"const scopeProfilerCharts = (.*?);\n", document).group(1)
+    )
+    return next(item for item in documents if item["title"] == title)
+
+
+def test_speedup_x_selects_the_axis_and_offers_the_others(tmp_path):
+    pytest.importorskip("plotly")
+    paths = _scaling_profiles(tmp_path, [1, 2, 4], threads=[2, 2, 2], nodes=[1, 1, 2])
+
+    document = create_html_report(
+        paths, tmp_path / "nodes.html", individual_reports=False, speedup_x="nodes"
+    ).read_text(encoding="utf-8")
+
+    chart = _speedup_document(document)
+    assert chart["payload"]["options"]["x_field"] == "num_nodes"
+    assert "the run with the fewest <span data-axis-label>nodes</span>" in document
+    # One payload per axis the runs differ in; threads do not, so no button.
+    assert [variant["label"] for variant in chart["variants"]] == [
+        "MPI ranks",
+        "nodes",
+        "MPI ranks × OpenMP threads",
+    ]
+    assert [
+        variant["payload"]["options"]["x_field"] for variant in chart["variants"]
+    ] == ["num_ranks", "num_nodes", "total_cores"]
+    # The weak-scaling chart gets the same axes, buttons and axis label.
+    weak = _speedup_document(document, "Weak scaling")
+    assert weak["payload"]["options"]["x_field"] == "num_nodes"
+    assert [
+        variant["payload"]["options"]["x_field"] for variant in weak["variants"]
+    ] == ["num_ranks", "num_nodes", "total_cores"]
+    assert document.count("the run with the fewest <span data-axis-label>") == 2
+    for chart_document in (chart, weak):
+        buttons = re.findall(
+            r'<button type="button" class="chart-axis" '
+            rf'data-chart="{chart_document["id"]}"[^>]*>',
+            document,
+        )
+        assert ['aria-pressed="true"' in button for button in buttons] == [
+            False,
+            True,
+            False,
+        ]
+    # The bundled script wires the buttons up.
+    assert 'querySelectorAll(".chart-axis")' in document
+
+    # "auto" keeps its old choice - ranks here - and still offers nodes.
+    document = create_html_report(
+        paths, tmp_path / "auto.html", individual_reports=False
+    ).read_text(encoding="utf-8")
+    chart = _speedup_document(document)
+    assert chart["payload"]["options"]["x_field"] == "num_ranks"
+    assert len(chart["variants"]) == 3
+
+
+@pytest.mark.parametrize(
+    ("speedup_x", "kwargs", "message"),
+    [
+        # Multi-rank files written before the node count was recorded.
+        ("nodes", {}, "older scope-profiler versions"),
+        ("threads", {}, "'omp_num_threads'"),
+        ("cores", {"threads": [1, None]}, "r1"),
+        ("sideways", {}, "must be one of"),
+    ],
+)
+def test_speedup_x_that_a_run_did_not_record_is_an_error(
+    tmp_path, speedup_x, kwargs, message
+):
+    from scope_profiler.html_report import SpeedupAxisError
+
+    threads = kwargs.get("threads")
+    paths = _scaling_profiles(tmp_path, [2, 4], threads=threads and [1, 1])
+    if threads:
+        # Drop the second run's thread count.
+        import h5py
+
+        with h5py.File(paths[1], "a") as handle:
+            del handle["metadata"].attrs["omp_num_threads"]
+    report = tmp_path / "missing.html"
+
+    with pytest.raises(SpeedupAxisError, match=message):
+        create_html_report(paths, report, speedup_x=speedup_x, include_charts=False)
+    # Checked before anything is written.
+    assert not report.exists()
+
+
+def test_speedup_x_is_ignored_for_a_single_run(tmp_path):
+    paths = _scaling_profiles(tmp_path, [2])
+    report = create_html_report(
+        paths, tmp_path / "one.html", speedup_x="nodes", include_charts=False
+    )
+    assert report.exists()
+
+
+def test_speedup_x_the_runs_share_draws_no_chart_and_says_why(tmp_path):
+    pytest.importorskip("plotly")
+    paths = _scaling_profiles(tmp_path, [1, 2], nodes=[1, 1])
+
+    document = create_html_report(
+        paths, tmp_path / "same.html", individual_reports=False, speedup_x="nodes"
+    ).read_text(encoding="utf-8")
+
+    assert "Speedup" not in _chart_titles(document)
+    assert "every run has the same num_nodes (1)" in document
+
+
+def test_speedup_axis_that_fails_to_plot_is_left_out(tmp_path, monkeypatch):
+    pytest.importorskip("plotly")
+    from scope_profiler import plotting_scripts
+
+    real = plotting_scripts.plot_speedup
+
+    def fail_on_nodes(*args, x_field, **kwargs):
+        if x_field == "num_nodes":
+            raise ValueError("no nodes today")
+        return real(*args, x_field=x_field, **kwargs)
+
+    monkeypatch.setattr(plotting_scripts, "plot_speedup", fail_on_nodes)
+    paths = _scaling_profiles(tmp_path, [1, 4], nodes=[1, 2])
+
+    document = create_html_report(
+        paths, tmp_path / "partial.html", individual_reports=False
+    ).read_text(encoding="utf-8")
+    chart = _speedup_document(document)
+    assert chart["payload"]["options"]["x_field"] == "num_ranks"
+    # The axis that failed is gone, leaving nothing to switch to.
+    assert "variants" not in chart
+    assert "Speedup over num_nodes: no nodes today" in document
+
+    # When the chosen axis itself fails, there is no chart at all.
+    document = create_html_report(
+        paths, tmp_path / "none.html", individual_reports=False, speedup_x="nodes"
+    ).read_text(encoding="utf-8")
+    assert "Speedup" not in _chart_titles(document)
+    assert "Speedup: no nodes today" in document
+
+
+def test_report_cli_speedup_x(tmp_path, capsys):
+    pytest.importorskip("plotly")
+    paths = [str(path) for path in _scaling_profiles(tmp_path, [1, 2], nodes=[1, 2])]
+    report = tmp_path / "cli.html"
+
+    assert (
+        cli_main(
+            ["report", *paths, "-o", str(report), "--speedup-x", "nodes"]
+            + ["--no-individual-reports"]
+        )
+        == 0
+    )
+    chart = _speedup_document(report.read_text(encoding="utf-8"))
+    assert chart["payload"]["options"]["x_field"] == "num_nodes"
+
+    # A run without the requested axis: a usage error naming it, no traceback.
+    with pytest.raises(SystemExit) as excinfo:
+        cli_main(["report", *paths, "-o", str(report), "--speedup-x", "threads"])
+    assert excinfo.value.code == 2
+    error = capsys.readouterr().err
+    assert "--speedup-x threads:" in error and "'omp_num_threads'" in error
+
+    with pytest.raises(SystemExit):
+        cli_main(["report", *paths, "--speedup-x", "sideways"])
+    assert "invalid choice" in capsys.readouterr().err
 
 
 def test_region_durations_compare_multiple_runs_without_stacking(tmp_path, monkeypatch):
@@ -607,7 +957,8 @@ def test_region_durations_compare_multiple_runs_without_stacking(tmp_path, monke
     monkeypatch.setattr(plotting_scripts, "plot_flame", fake_plot)
     monkeypatch.setattr(plotting_scripts, "plot_flame_graph", fake_plot)
 
-    create_html_report(profiles, report)
+    # The individual reports each stack their own run's bars.
+    create_html_report(profiles, report, individual_reports=False)
 
     assert captured["stack_children"] is False
     assert "Grouped bars compare each region's total recorded duration" in (
@@ -750,12 +1101,12 @@ def test_report_region_table_headers_are_sortable_and_show_a_trend_column(tmp_pa
     assert '<svg class="spark"' in document
 
 
-def test_report_summary_names_the_bottleneck_not_its_enclosing_region(tmp_path):
-    """Rank bottlenecks by exclusive time.
+def test_report_summary_names_the_hotspot_not_its_enclosing_region(tmp_path):
+    """Rank hotspots by exclusive time.
 
     An enclosing region's total is mostly its children's, so ranking by the
     inclusive total just names whatever sits nearest the top of the call tree
-    -- a wrapper that does no work of its own.
+    - a wrapper that does no work of its own.
     """
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
@@ -774,19 +1125,19 @@ def test_report_summary_names_the_bottleneck_not_its_enclosing_region(tmp_path):
     cli_main(["report", str(profile), "-o", str(report), "--no-charts"])
 
     document = report.read_text(encoding="utf-8")
-    assert "<code>kernel</code></a> (in wrapper) is the largest bottleneck" in document
-    assert "<code>wrapper</code></a> is the largest bottleneck" not in document
+    assert "<code>kernel</code></a> (in wrapper) is the largest hotspot" in document
+    assert "<code>wrapper</code></a> is the largest hotspot" not in document
     # The wrapper's own 20 ms is a leaf of the tree too, and says so.
-    bottlenecks = document[document.index('<div class="bottlenecks">') :]
-    assert re.findall(r'<li data-region="([^"]*)"', bottlenecks) == [
+    hotspots = document[document.index('<div class="hotspots">') :]
+    assert re.findall(r'<li data-region="([^"]*)"', hotspots) == [
         "kernel",
         "wrapper",
     ]
-    assert '<strong>wrapper</strong><span class="bn-tag"' in bottlenecks
+    assert '<strong>wrapper</strong><span class="hs-tag"' in hotspots
 
 
 def test_report_summary_of_a_single_region_profile(tmp_path):
-    """One region is the bottleneck, with nothing to rank it against."""
+    """One region is the hotspot, with nothing to rank it against."""
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
     _write_sample_h5(profile, {0: {"solve": ([0], [10_000_000])}})
@@ -794,9 +1145,9 @@ def test_report_summary_of_a_single_region_profile(tmp_path):
     cli_main(["report", str(profile), "-o", str(report), "--no-charts"])
 
     document = report.read_text(encoding="utf-8")
-    assert "<code>solve</code></a> is the largest bottleneck" in document
-    assert "three largest bottlenecks" not in document
-    assert '<div class="bottlenecks">' not in document
+    assert "<code>solve</code></a> is the largest hotspot" in document
+    assert "three largest hotspots" not in document
+    assert '<div class="hotspots">' not in document
 
 
 def test_report_charts_cdn_links_the_runtime_instead_of_embedding_it(tmp_path):
@@ -884,6 +1235,164 @@ def test_report_region_filter_drives_the_charts_too(tmp_path):
     assert "filterRegion:" in document
     # react(), not newPlot(): typing must not tear every chart down.
     assert "Plotly.react(" in document
+    # Both hooks fire on registration; the charts are drawn once, not twice.
+    assert "activeTerms = terms; scheduleRedraw(); });" in document
+    assert "selectedRegion = region; scheduleRedraw(); });" in document
+    # A collapsed panel's chart waits for the panel to open.
+    assert "if (panel.open && chart.stale) draw(chart);" in document
+
+
+def _region_index(document):
+    return json.loads(
+        re.search(r"const scopeProfilerRegionIndex = (.*?);\n", document).group(1)
+    )
+
+
+def test_filter_bar_sliders_limit_every_chart(tmp_path, monkeypatch):
+    pytest.importorskip("plotly")
+    from scope_profiler import html_report
+
+    monkeypatch.setattr(html_report, "_TIMELINE_REGIONS", 2)
+    profile = tmp_path / "profile.h5"
+    # outer > mid > leaf, then aside on its own.
+    _write_sample_h5(
+        profile,
+        {
+            0: {
+                "outer": ([0], [100]),
+                "mid": ([10], [90]),
+                "leaf": ([20, 50], [30, 60]),
+                "aside": ([100], [105]),
+            },
+        },
+    )
+    document = create_html_report(profile, tmp_path / "report.html").read_text(
+        encoding="utf-8"
+    )
+    timeline = _speedup_document(document, "Timeline: profile")
+    # The whole profile is embedded, with each call's depth; the sliders, not
+    # the payload, limit what is drawn.
+    assert sorted(
+        (row["region"], row["depth"]) for row in timeline["payload"]["intervals"]
+    ) == [("aside", 0), ("leaf", 2), ("leaf", 2), ("mid", 1), ("outer", 0)]
+    assert "topN" not in timeline["options"]
+    # Each region's time and shallowest depth, which the sliders rank and cut.
+    assert _region_index(document) == {
+        "outer": [pytest.approx(100e-9), 0],
+        "mid": [pytest.approx(80e-9), 1],
+        "leaf": [pytest.approx(20e-9), 2],
+        "aside": [pytest.approx(5e-9), 0],
+    }
+    # Both sliders sit in the sticky filter bar, after the search box; past
+    # the limit, Regions opens on it. At its maximum a slider means all.
+    bar = document[document.index('<div class="filter-bar">') :]
+    bar = bar[: bar.index("</div>")]
+    assert bar.index('id="region-filter"') < bar.index('class="region-limits"')
+    assert re.search(
+        r'<label for="region-top" title="[^"]+">Regions</label><input type="range"'
+        r' class="region-top" id="region-top" title="[^"]+" min="1" max="4"'
+        r' step="1" value="2"><output for="region-top">top 2 of 4</output>',
+        bar,
+    )
+    assert re.search(
+        r'<label for="region-depth" title="[^"]+">Depth</label><input'
+        r' type="range" class="region-depth" id="region-depth" title="[^"]+"'
+        r' min="0" max="2" step="1" value="2"><output for="region-depth">all'
+        r" levels</output>",
+        bar,
+    )
+    assert "position: sticky" in document
+    # The bar leads the page, above the title and the contents.
+    body = document[document.index("<body>") :]
+    assert body.index('<div class="filter-bar">') < body.index('<h1 id="top">')
+    assert body.index('<div class="filter-bar">') < body.index('<nav class="toc"')
+    # Table headers stick below the bar rather than behind it.
+    assert "top: var(--filter-bar-height, 0px)" in document
+    assert '"--filter-bar-height", bar.offsetHeight + "px"' in document
+    assert ".table-scroll th { top: 0; }" in document
+    # Every chart is filtered to the same regions; the timeline also hides
+    # the deeper calls of the regions it keeps.
+    assert 'const key = isTop ? "topN" : "maxDepth";' in document
+    assert "filterRegion: chartFilter" in document
+    assert "maxDepth: regionLimits.maxDepth" in document
+    # ...and the tables keep to the same regions as the charts.
+    assert "globalThis.scopeProfilerSetRegionLimit?.(limitedRegions);" in document
+    assert "window.scopeProfilerSetRegionLimit = function (regions) {" in document
+    assert "(!limit || limit.has(region))" in document
+
+    # Within the limit, Regions opens on all of them.
+    monkeypatch.setattr(html_report, "_TIMELINE_REGIONS", 4)
+    document = create_html_report(profile, tmp_path / "all.html").read_text(
+        encoding="utf-8"
+    )
+    assert 'min="1" max="4" step="1" value="4">' in document
+    assert ">all 4</output>" in document
+
+
+def test_comparison_filter_bar_has_the_region_sliders_too(tmp_path):
+    pytest.importorskip("plotly")
+    paths = _scaling_profiles(tmp_path, [1, 2])
+    document = create_html_report(
+        paths, tmp_path / "compare.html", individual_reports=False
+    ).read_text(encoding="utf-8")
+    body = document[document.index("<body>") :]
+    assert body.index('<div class="filter-bar">') < body.index('<h1 id="top">')
+    # setup and solve, flat: Regions, but no depth to cut.
+    assert 'id="region-top"' in document
+    assert 'id="region-depth"' not in document
+    # A region ranks by its larger total over the runs: solve takes 80 ns
+    # on the one-rank run and 2 x 40 ns on the two-rank run.
+    index = _region_index(document)
+    assert index["solve"] == [pytest.approx(80e-9), 0]
+    assert index["setup"] == [pytest.approx(20e-9), 0]
+
+
+def test_region_index_ranks_selected_ranks_and_skips_unnested_depths(tmp_path):
+    from scope_profiler.html_report import _region_index
+
+    profile = tmp_path / "profile.h5"
+    # Rank 1's calls overlap without nesting: no depth can be read from it.
+    _write_sample_h5(
+        profile,
+        {
+            0: {"outer": ([0], [100]), "inner": ([10], [20])},
+            1: {"outer": ([0], [50]), "inner": ([25], [75])},
+        },
+    )
+    run = read_h5(profile)
+    assert _region_index([run], None, None, [1]) == {
+        "outer": [pytest.approx(50e-9), None],
+        "inner": [pytest.approx(50e-9), None],
+    }
+    # Totals sum the selected ranks; depths come from the first of them.
+    assert _region_index([run], None, None, None) == {
+        "outer": [pytest.approx(150e-9), 0],
+        "inner": [pytest.approx(60e-9), 1],
+    }
+
+
+def test_timeline_slider_labels():
+    from scope_profiler.html_report import _depth_label, _top_label
+
+    assert _top_label(3, 40) == "top 3 of 40"
+    assert _top_label(40, 40) == "all 40"
+    assert [_depth_label(depth, 3) for depth in range(4)] == [
+        "top level only",
+        "1 level of children",
+        "2 levels of children",
+        "all levels",
+    ]
+
+
+def test_filter_bar_without_choices_has_no_sliders(tmp_path):
+    pytest.importorskip("plotly")
+    profile = tmp_path / "profile.h5"
+    # One region: nothing for either slider to change.
+    _write_sample_h5(profile, {0: {"solve": ([2], [5])}})
+    document = create_html_report(profile, tmp_path / "report.html").read_text(
+        encoding="utf-8"
+    )
+    assert 'class="region-limits"' not in document
 
 
 def test_report_escapes_a_region_name_in_the_filter_hook(tmp_path):
@@ -1106,38 +1615,38 @@ def test_report_region_table_explicit_columns_match_the_terminal(tmp_path):
     assert 'data-parent_percent="79.0"' in loop_body
 
 
-def test_report_bottlenecks_are_the_leaves_of_the_call_tree(tmp_path):
+def test_report_hotspots_are_the_leaves_of_the_call_tree(tmp_path):
     report = create_html_report(
         _nested_results(), tmp_path / "report.html", include_charts=False
     )
     document = report.read_text(encoding="utf-8")
-    bottlenecks = document[document.index('<div class="bottlenecks">') :]
-    bottlenecks = bottlenecks[: bottlenecks.index("</ol>")]
-    names = re.findall(r'<li data-region="([^"]*)"', bottlenecks)
+    hotspots = document[document.index('<div class="hotspots">') :]
+    hotspots = hotspots[: hotspots.index("</ol>")]
+    names = re.findall(r'<li data-region="([^"]*)"', hotspots)
     # One entry per call path: solve is 3.4 s under loop and 0.6 s under
     # final. loop's 4.5 s and final's 0.2 s outside solve are their own time.
     assert names == ["loop", "solve", "scope_profiler.session", "solve", "final"]
-    assert '<span class="bn-share">45.0%</span>' in bottlenecks
-    assert '<span class="bn-share">34.0%</span>' in bottlenecks
-    assert '<span class="bn-path">in loop</span>' in bottlenecks
-    assert '<span class="bn-path">in final</span>' in bottlenecks
-    assert "3.4 s · 3 calls · 1.133 s/call" in bottlenecks
+    assert '<span class="hs-share">45.0%</span>' in hotspots
+    assert '<span class="hs-share">34.0%</span>' in hotspots
+    assert '<span class="hs-path">in loop</span>' in hotspots
+    assert '<span class="hs-path">in final</span>' in hotspots
+    assert "3.4 s · 3 calls · 1.133 s/call" in hotspots
     # The session root's own time is the time no other region covers.
-    assert "<em>outside any region</em>" in bottlenecks
-    assert 'class="bottleneck" type="button"' in bottlenecks
-    # The filter hides bottlenecks too, and the whole list once none match.
-    assert 'document.querySelectorAll(".bottlenecks")' in document
+    assert "<em>outside any region</em>" in hotspots
+    assert 'class="hotspot" type="button"' in hotspots
+    # The filter hides hotspots too, and the whole list once none match.
+    assert 'document.querySelectorAll(".hotspots")' in document
     assert 'block.querySelector("li[data-filter-region]:not([hidden])")' in document
 
 
-def test_report_bottlenecks_need_two_entries(tmp_path):
+def test_report_hotspots_need_two_entries(tmp_path):
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
     _write_sample_h5(profile, {0: {"solve": ([0], [10])}})
 
     create_html_report(profile, report, include_charts=False)
 
-    assert '<div class="bottlenecks">' not in report.read_text(encoding="utf-8")
+    assert '<div class="hotspots">' not in report.read_text(encoding="utf-8")
 
 
 def test_report_run_header_names_file_time_host_and_scale(tmp_path):
@@ -1185,8 +1694,8 @@ def test_report_flags_time_outside_every_region(tmp_path):
     assert "70% of the session" in document
     assert "is outside every region" in document
     assert '<span class="kpi-value">30%</span>' in document
-    # The session root is not a bottleneck to name.
-    assert "<code>solve</code></a> is the largest bottleneck" in document
+    # The session root is not a hotspot to name.
+    assert "<code>solve</code></a> is the largest hotspot" in document
 
 
 def test_report_does_not_guess_outside_time_without_a_call_tree(tmp_path):
@@ -1251,7 +1760,7 @@ def test_report_total_bars_are_drawn(tmp_path):
 
 
 def test_report_omits_empty_findings(tmp_path):
-    """A lone session root has no bottleneck or flag to report."""
+    """A lone session root has no hotspot or flag to report."""
     profile = tmp_path / "profile.h5"
     report = tmp_path / "report.html"
     _write_sample_h5(profile, {0: {"scope_profiler.session": ([0], [10])}})
@@ -1260,7 +1769,7 @@ def test_report_omits_empty_findings(tmp_path):
 
     document = report.read_text(encoding="utf-8")
     assert '<ul class="findings">' not in document
-    assert '<div class="bottlenecks">' not in document
+    assert '<div class="hotspots">' not in document
     assert "In regions" not in document
     assert "scope_profiler.session" in document
 
@@ -1269,7 +1778,7 @@ def _ranked_results(rank_work, file_path="run.h5", extra_regions=0, num_ranks=No
     """A session per rank: ``work`` for a rank-dependent time, then ``wait``.
 
     Every rank finishes at 100, so whatever ``work`` does not take, ``wait``
-    does -- the shape of ranks meeting at a barrier.
+    does - the shape of ranks meeting at a barrier.
     """
     from scope_profiler import MPIRegion, Region
 
@@ -1587,7 +2096,7 @@ def test_comparison_report_links_individual_reports(tmp_path):
     assert '<h1 id="top">base vs cand</h1>' in document
     # No per-run detail: that is what the individual reports are for.
     assert 'class="region-stats"' not in document
-    assert '<div class="bottlenecks">' not in document
+    assert '<div class="hotspots">' not in document
     individual = (tmp_path / "out" / "compare-1-cand.html").read_text(encoding="utf-8")
     assert 'class="region-stats"' in individual
     assert "scope-profiler comparison" not in individual
@@ -1633,6 +2142,15 @@ def test_comparison_table_aligns_call_paths(tmp_path):
         "old",
     ]
     assert 'style="padding-left:2.2em">kernel</span>' in table
+    # The name sits in a grid cell with no minimum width, so a long name is
+    # elided instead of pushing the change columns out of view.
+    assert (
+        'title="solve › kernel"><span class="cmp-cell"><span class="cmp-name"' in table
+    )
+    assert (
+        ".cmp-cell { display: grid; grid-template-columns: minmax(0, max-content);"
+        in document
+    )
     assert '<span class="badge new">new</span>' in table
     assert '<span class="badge gone">gone</span>' in table
     # kernel: 400 ms -> 200 ms in total, faster; io: 100 ms -> 300 ms, slower.
@@ -1785,7 +2303,7 @@ def test_report_chart_clicks_highlight_without_scrolling(tmp_path):
     )
     assert 'region, runFromPoint(chart, point, region), "toast");' in document
     assert 'else if (mode === "toast") showToast(selectedRegion, target);' in document
-    # Bottlenecks still jump to the table row: finding it is their purpose.
+    # Hotspots still jump to the table row: finding it is their purpose.
     assert 'select(button.dataset.region, button.dataset.run, "scroll");' in document
 
 
@@ -2121,3 +2639,30 @@ def test_region_source_snippet_gives_way_to_line_profiles(tmp_path):
     assert "<pre><code>" not in with_lines
     # The call site itself stays.
     assert "<p class='muted'>app.py:3</p>" in with_lines
+
+
+def test_catalogue_command_links_reports_relatively(tmp_path, capsys):
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    (reports / "a.html").write_text("<title>Run &lt;A&gt;</title>")
+    (reports / "b.html").write_text("<html></html>")
+    out = tmp_path / "index.html"
+
+    assert (
+        cli_main(
+            [
+                "catalogue",
+                str(reports / "a.html"),
+                str(reports / "b.html"),
+                "-o",
+                str(out),
+            ]
+        )
+        == 0
+    )
+
+    text = out.read_text()
+    assert 'href="reports/a.html">Run &lt;A&gt;</a>' in text
+    assert 'href="reports/b.html">b</a>' in text
+    with pytest.raises(SystemExit):
+        cli_main(["catalogue", str(tmp_path / "missing.html"), "-o", str(out)])

@@ -18,11 +18,11 @@
  *     per region:
  *         int32     length of the name in bytes
  *         char[]    name
- *         -- version 2 only --
+ *         - version 2 only --
  *         int32     length of the source file path in bytes (0 if unknown)
  *         char[]    source file path
  *         int32     source line (-1 if unknown)
- *         -- end version 2 only --
+ *         - end version 2 only --
  *         int64     number of calls
  *         int64[]   start timestamps, nanoseconds
  *         int64[]   end timestamps, nanoseconds
@@ -62,6 +62,10 @@
 #  ifndef _POSIX_C_SOURCE
 #    define _POSIX_C_SOURCE 200809L
 #  endif
+/* The line sampler needs dladdr() and the register names in ucontext_t. */
+#  ifndef _GNU_SOURCE
+#    define _GNU_SOURCE
+#  endif
 #endif
 
 #include "scope_profiler.h"
@@ -70,6 +74,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+/* The line sampler is POSIX-only; elsewhere sp_start_sampling() reports
+ * SP_ERR_UNSUPPORTED and everything else is unaffected. */
+#if !defined(_WIN32) && !defined(SP_NO_SAMPLING)
+#  define SP_HAVE_SAMPLING 1
+#  include <dlfcn.h>
+#  include <signal.h>
+#  include <stdint.h>
+#  include <sys/time.h>
+#  include <sys/ucontext.h>
+#endif
 
 static const char SP_MAGIC[8] = {'S', 'C', 'O', 'P', 'E', 'P', 'R', 'F'};
 
@@ -131,6 +146,29 @@ struct sp_profiler {
  * C regions and Python regions on one timeline. */
 SP_IMPL_GLOBAL clockid_t clock_id = (clockid_t)-1;
 SP_IMPL_GLOBAL int clock_resolved = 0;
+
+#ifdef SP_HAVE_SAMPLING
+#define SP_SAMPLE_MAGIC "SCOPESMP"
+#define SP_SAMPLE_VERSION 1
+
+/* 2^20 samples is 16 MB, about 17 minutes at 1 kHz. Later ones are dropped. */
+#define SP_SAMPLE_CAPACITY (1 << 20)
+
+typedef struct {
+    int32_t region;
+    uint64_t ip;
+} sp_sample_t;
+
+/* Written by the signal handler, so no allocation or locking there: the
+ * buffer is allocated up front and the handler only fills in slots. */
+SP_IMPL_GLOBAL sp_sample_t *g_samples = NULL;
+SP_IMPL_GLOBAL volatile size_t g_sample_count = 0;
+SP_IMPL_GLOBAL volatile size_t g_tick_count = 0;
+SP_IMPL_GLOBAL sp_profiler *g_sampled = NULL;
+SP_IMPL_GLOBAL int g_sample_hz = 0;      /* non-zero while the timer runs */
+SP_IMPL_GLOBAL int g_sample_hz_used = 0; /* rate of the last run, kept for the file */
+SP_IMPL_GLOBAL struct sigaction g_old_action;
+#endif
 
 /* The profiler behind sp_init()/sp_region()/sp_begin()/sp_end()/sp_finalize(). */
 SP_IMPL_GLOBAL sp_profiler *g_default = NULL;
@@ -269,6 +307,12 @@ SP_IMPL_API void sp_destroy(sp_profiler *profiler)
     if (profiler == NULL) {
         return;
     }
+#ifdef SP_HAVE_SAMPLING
+    if (g_sampled == profiler) {
+        sp_profiler_stop_sampling(profiler);
+        g_sampled = NULL;
+    }
+#endif
     for (i = 0; i < profiler->n_regions; ++i) {
         free(profiler->regions[i].name);
         free(profiler->regions[i].source_file);
@@ -303,7 +347,7 @@ static int sp_profiler_region_impl(
         if (strcmp(profiler->regions[i].name, name) == 0) {
             /* Backfill: a name first seen via plain sp_region() may be
              * re-registered later with a source location (or vice versa,
-             * which is a no-op here) -- take it if this handle does not have
+             * which is a no-op here) - take it if this handle does not have
              * one yet. Never overwrites a location it already has. */
             if (source_file != NULL && profiler->regions[i].source_file == NULL) {
                 profiler->regions[i].source_file = strdup(source_file);
@@ -540,7 +584,7 @@ SP_IMPL_API int sp_scope_end(sp_scope *scope)
     r = &profiler->regions[scope->region];
 
     if (r->depth <= 0 || r->open_slots[r->depth - 1] != scope->slot) {
-        /* Something else is on top -- ending this token now would mistime
+        /* Something else is on top - ending this token now would mistime
          * whichever call actually is. The call this token names is still
          * open; leave the token valid so it can be ended once it is on top
          * (e.g. an inner scope, opened after this one, ends first). */
@@ -693,7 +737,7 @@ static int64_t written_count(const sp_region_t *region)
 }
 
 /* Shared by sp_profiler_flush() and sp_profiler_finalize(). Does not modify
- * `profiler` -- flush must be safe to call while profiling continues. */
+ * `profiler` - flush must be safe to call while profiling continues. */
 static int write_trace(sp_profiler *profiler)
 {
     const char *path;
@@ -781,6 +825,248 @@ static int write_output(sp_profiler *profiler)
     return write_trace(profiler);
 }
 
+/* ---------------------------------------------------------------------- */
+/* Line sampler.                                                           */
+/* ---------------------------------------------------------------------- */
+
+#ifdef SP_HAVE_SAMPLING
+
+static uint64_t interrupted_ip(void *context)
+{
+    ucontext_t *uc = (ucontext_t *)context;
+
+#if defined(__APPLE__) && defined(__aarch64__)
+    return (uint64_t)uc->uc_mcontext->__ss.__pc;
+#elif defined(__APPLE__) && defined(__x86_64__)
+    return (uint64_t)uc->uc_mcontext->__ss.__rip;
+#elif defined(__linux__) && defined(__x86_64__)
+    return (uint64_t)uc->uc_mcontext.gregs[REG_RIP];
+#elif defined(__linux__) && defined(__aarch64__)
+    return (uint64_t)uc->uc_mcontext.pc;
+#else
+    (void)uc;
+    return 0;
+#endif
+}
+
+static void sample_handler(int signal_number, siginfo_t *info, void *context)
+{
+    sp_profiler *profiler = g_sampled;
+    size_t slot;
+    int depth;
+    uint64_t ip;
+
+    (void)signal_number;
+    (void)info;
+    g_tick_count += 1;
+    if (profiler == NULL || g_samples == NULL) {
+        return;
+    }
+    depth = profiler->open_depth;
+    slot = g_sample_count;
+    if (depth <= 0 || depth > SP_MAX_OPEN || slot >= SP_SAMPLE_CAPACITY) {
+        return;
+    }
+    ip = interrupted_ip(context);
+    if (ip == 0) {
+        return;
+    }
+    g_samples[slot].region = profiler->open_stack[depth - 1];
+    g_samples[slot].ip = ip;
+    g_sample_count = slot + 1;
+}
+
+SP_IMPL_API int sp_profiler_stop_sampling(sp_profiler *profiler)
+{
+    struct itimerval off;
+
+    (void)profiler;
+    if (g_sample_hz == 0) {
+        return SP_OK;
+    }
+    memset(&off, 0, sizeof(off));
+    setitimer(ITIMER_PROF, &off, NULL);
+    sigaction(SIGPROF, &g_old_action, NULL);
+    g_sample_hz = 0;
+    return SP_OK;
+}
+
+SP_IMPL_API int sp_profiler_start_sampling(sp_profiler *profiler, int hz)
+{
+    struct sigaction action;
+    struct itimerval timer;
+
+    if (profiler == NULL || !profiler->active) {
+        return SP_ERR_INACTIVE;
+    }
+    if (hz <= 0 || hz > 1000000) {
+        return SP_ERR_UNSUPPORTED;
+    }
+    if (g_sample_hz != 0) {
+        sp_profiler_stop_sampling(profiler);
+    }
+    if (g_samples == NULL) {
+        g_samples = (sp_sample_t *)malloc(sizeof(sp_sample_t) * SP_SAMPLE_CAPACITY);
+        if (g_samples == NULL) {
+            return SP_ERR_NO_MEMORY;
+        }
+    }
+    g_sample_count = 0;
+    g_tick_count = 0;
+    g_sampled = profiler;
+
+    memset(&action, 0, sizeof(action));
+    action.sa_sigaction = sample_handler;
+    action.sa_flags = SA_SIGINFO | SA_RESTART;
+    sigemptyset(&action.sa_mask);
+    if (sigaction(SIGPROF, &action, &g_old_action) != 0) {
+        return SP_ERR_UNSUPPORTED;
+    }
+
+    timer.it_interval.tv_sec = hz == 1 ? 1 : 0;
+    timer.it_interval.tv_usec = hz == 1 ? 0 : (suseconds_t)(1000000 / hz);
+    timer.it_value = timer.it_interval;
+    if (setitimer(ITIMER_PROF, &timer, NULL) != 0) {
+        sigaction(SIGPROF, &g_old_action, NULL);
+        return SP_ERR_UNSUPPORTED;
+    }
+    g_sample_hz = hz;
+    g_sample_hz_used = hz;
+    return SP_OK;
+}
+
+static int write_str(FILE *out, const char *text)
+{
+    int32_t length = (int32_t)strlen(text);
+
+    return fwrite(&length, sizeof(length), 1, out) != 1 ||
+           fwrite(text, 1, (size_t)length, out) != (size_t)length;
+}
+
+/* "<prefix>_rank<NNNNN>.sps": region names, the modules the samples fell in,
+ * and the raw samples. Addresses are turned into lines afterwards, by
+ * scope_profiler.native_samples, so nothing slow runs in the profiled
+ * program. */
+static int write_samples(sp_profiler *profiler)
+{
+    const char *prefix = profiler->output_prefix != NULL ? profiler->output_prefix
+                                                         : "scope_profile";
+    size_t path_len = strlen(prefix) + 32;
+    char *path = (char *)malloc(path_len);
+    FILE *out;
+    int32_t version = SP_SAMPLE_VERSION;
+    int32_t rank = (int32_t)profiler->rank_id;
+    int32_t hz = (int32_t)g_sample_hz_used;
+    int64_t ticks = (int64_t)g_tick_count;
+    int32_t n_regions = (int32_t)profiler->n_regions;
+    int32_t n_modules = 0;
+    int32_t *module_of;
+    const char **module_path = NULL;
+    uint64_t *module_base = NULL;
+    int64_t n_samples = (int64_t)g_sample_count;
+    int64_t i;
+    int32_t m;
+    int failed = 0;
+
+    if (path == NULL) {
+        return 1;
+    }
+    snprintf(path, path_len, "%s_rank%05d.sps", prefix, profiler->rank_id);
+
+    /* Resolve each sample's module with dladdr(), remembering the modules in
+     * order of first appearance. */
+    module_of = (int32_t *)malloc(sizeof(int32_t) * (size_t)(n_samples > 0 ? n_samples : 1));
+    module_path = (const char **)malloc(sizeof(char *) * 256);
+    module_base = (uint64_t *)malloc(sizeof(uint64_t) * 256);
+    if (module_of == NULL || module_path == NULL || module_base == NULL) {
+        free(module_of);
+        free(module_path);
+        free(module_base);
+        free(path);
+        return 1;
+    }
+    for (i = 0; i < n_samples; ++i) {
+        Dl_info info;
+
+        module_of[i] = -1;
+        if (dladdr((void *)(uintptr_t)g_samples[i].ip, &info) == 0 || info.dli_fname == NULL) {
+            continue;
+        }
+        for (m = 0; m < n_modules; ++m) {
+            if (module_base[m] == (uint64_t)(uintptr_t)info.dli_fbase) {
+                break;
+            }
+        }
+        if (m == n_modules) {
+            if (n_modules == 256) {
+                continue;
+            }
+            module_path[m] = info.dli_fname;
+            module_base[m] = (uint64_t)(uintptr_t)info.dli_fbase;
+            n_modules += 1;
+        }
+        module_of[i] = m;
+    }
+
+    out = fopen(path, "wb");
+    if (out == NULL) {
+        fprintf(stderr, "scope_profiler: cannot write %s\n", path);
+        free(module_of);
+        free(module_path);
+        free(module_base);
+        free(path);
+        return 1;
+    }
+    failed |= fwrite(SP_SAMPLE_MAGIC, 8, 1, out) != 1;
+    failed |= fwrite(&version, sizeof(version), 1, out) != 1;
+    failed |= fwrite(&rank, sizeof(rank), 1, out) != 1;
+    failed |= fwrite(&hz, sizeof(hz), 1, out) != 1;
+    failed |= fwrite(&ticks, sizeof(ticks), 1, out) != 1;
+    failed |= fwrite(&n_regions, sizeof(n_regions), 1, out) != 1;
+    for (m = 0; m < n_regions && !failed; ++m) {
+        failed |= write_str(out, profiler->regions[m].name);
+    }
+    failed |= fwrite(&n_modules, sizeof(n_modules), 1, out) != 1;
+    for (m = 0; m < n_modules && !failed; ++m) {
+        failed |= write_str(out, module_path[m]);
+        failed |= fwrite(&module_base[m], sizeof(uint64_t), 1, out) != 1;
+    }
+    failed |= fwrite(&n_samples, sizeof(n_samples), 1, out) != 1;
+    for (i = 0; i < n_samples && !failed; ++i) {
+        failed |= fwrite(&g_samples[i].region, sizeof(int32_t), 1, out) != 1;
+        failed |= fwrite(&module_of[i], sizeof(int32_t), 1, out) != 1;
+        failed |= fwrite(&g_samples[i].ip, sizeof(uint64_t), 1, out) != 1;
+    }
+    if (fclose(out) != 0) {
+        failed = 1;
+    }
+    if (failed) {
+        fprintf(stderr, "scope_profiler: failed to write %s\n", path);
+    }
+    free(module_of);
+    free(module_path);
+    free(module_base);
+    free(path);
+    return failed;
+}
+
+#else /* !SP_HAVE_SAMPLING */
+
+SP_IMPL_API int sp_profiler_stop_sampling(sp_profiler *profiler)
+{
+    (void)profiler;
+    return SP_OK;
+}
+
+SP_IMPL_API int sp_profiler_start_sampling(sp_profiler *profiler, int hz)
+{
+    (void)profiler;
+    (void)hz;
+    return SP_ERR_UNSUPPORTED;
+}
+
+#endif /* SP_HAVE_SAMPLING */
+
 SP_IMPL_API int sp_profiler_flush(sp_profiler *profiler)
 {
     if (profiler == NULL || !profiler->active) {
@@ -810,6 +1096,18 @@ SP_IMPL_API int sp_profiler_finalize(sp_profiler *profiler)
 
     failed = write_output(profiler);
 
+#ifdef SP_HAVE_SAMPLING
+    if (g_sampled == profiler) {
+        sp_profiler_stop_sampling(profiler);
+        if (g_sample_hz_used != 0) {
+            failed |= write_samples(profiler);
+        }
+        g_sampled = NULL;
+        g_sample_count = 0;
+        g_sample_hz_used = 0;
+    }
+#endif
+
     profiler->active = 0;
     release_buffers(profiler);
     return failed;
@@ -827,6 +1125,15 @@ SP_IMPL_API int sp_init(const char *prefix, int rank)
         fprintf(stderr, "scope_profiler: out of memory in sp_init\n");
         return 1;
     }
+#ifdef SP_HAVE_SAMPLING
+    if (g_default->active && getenv("SCOPE_PROFILER_SAMPLE_HZ") != NULL) {
+        int hz = atoi(getenv("SCOPE_PROFILER_SAMPLE_HZ"));
+
+        if (hz > 0 && sp_profiler_start_sampling(g_default, hz) != SP_OK) {
+            fprintf(stderr, "scope_profiler: could not start line sampling\n");
+        }
+    }
+#endif
     return g_default->active ? 0 : 1;
 }
 
@@ -883,6 +1190,16 @@ SP_IMPL_API const char *sp_output_path(void)
 SP_IMPL_API int sp_finalize(void)
 {
     return sp_profiler_finalize(g_default);
+}
+
+SP_IMPL_API int sp_start_sampling(int hz)
+{
+    return sp_profiler_start_sampling(g_default, hz);
+}
+
+SP_IMPL_API int sp_stop_sampling(void)
+{
+    return sp_profiler_stop_sampling(g_default);
 }
 
 SP_IMPL_API sp_profiler *sp_default_profiler(void)

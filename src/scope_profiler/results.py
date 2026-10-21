@@ -166,7 +166,7 @@ class ProfilingResults:
         # nesting, and the first one asked for exclusive time does it for all
         # of them. Building the call stack up front costs more than the whole
         # rest of the load (4.4s of a 6.4s read on a 2.6M-event file), and
-        # only some callers need it -- see _populate_exclusive_durations.
+        # only some callers need it - see _populate_exclusive_durations.
         self._exclusive_populated = False
         totals = exclusive_totals or {}
         for name, region in self._region_dict.items():
@@ -927,6 +927,22 @@ class ProfilingResults:
         return self._num_ranks
 
     @property
+    def num_nodes(self) -> int | None:
+        """Number of distinct hosts the run's ranks ran on, or None if unknown.
+
+        Read from the ``num_nodes`` metadata field. Files written before it
+        was recorded still answer for a single-rank run, which can only have
+        used one node; a multi-rank run without the field returns None.
+        """
+        value = self.metadata.get("num_nodes")
+        if value is not None:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+        return 1 if self._num_ranks == 1 else None
+
+    @property
     def has_likwid(self) -> bool:
         """Whether the run recorded LIKWID hardware counter results."""
         return any(self._likwid.values())
@@ -1215,7 +1231,7 @@ class ProfilingResults:
         When ``finalize()`` was called, in seconds on the recording clock.
 
         This is the ``finalize_time_ns`` metadata field, read as the first
-        thing ``ProfileManager.finalize()`` does -- before it spends any time
+        thing ``ProfileManager.finalize()`` does - before it spends any time
         collecting or writing the run's data, so it marks the moment
         finalize() was reached rather than the moment it returned.
 
@@ -1235,14 +1251,14 @@ class ProfilingResults:
         Unlike :attr:`time_span` (first region entry to last exit), this
         covers the whole instrumented program: startup work before the first
         region, gaps between regions, and any teardown after the last one but
-        before ``finalize()`` is called -- the number to report as "how long
+        before ``finalize()`` is called - the number to report as "how long
         did the run take" alongside the region breakdown.
 
         Returns
         -------
         float or None
             :attr:`finalize_time` minus :attr:`run_start_time`, or None if
-            either is missing -- an older file, or a run that set up
+            either is missing - an older file, or a run that set up
             profiling (or called finalize) some other way than
             ``ProfileManager.setup()``/``finalize()``.
         """
@@ -1354,7 +1370,7 @@ def merge_results(*result_sets, label: str | None = None, file_path=None):
         If no result sets were given, or if a region name appears in more than
         one of them. Merging same-named regions would silently double-count a
         Python wrapper and the native region inside it, so the collision has to
-        be resolved by the caller -- name the regions apart, for instance with
+        be resolved by the caller - name the regions apart, for instance with
         a ``"fortran:"`` prefix.
     """
     if not result_sets:

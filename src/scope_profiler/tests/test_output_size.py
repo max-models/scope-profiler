@@ -46,7 +46,7 @@ def test_start_deltas_round_trip_exactly():
 
     encoded = encode_start_deltas(starts)
 
-    # First value absolute, the rest gaps -- which is the whole point: the
+    # First value absolute, the rest gaps - which is the whole point: the
     # gaps are three orders of magnitude smaller than the timestamps.
     assert encoded.tolist() == [1_700_000_000_000, 417, 605]
     assert decode_start_deltas(encoded).tolist() == starts.tolist()

@@ -22,7 +22,7 @@ from scope_profiler.plotting_scripts._utils import (
     _write_parquet,
 )
 from scope_profiler.plotting_scripts.statistics import (
-    _common_region_names,
+    _all_region_names,
     _pooled_first_last_duration,
     _region_duration_values,
     _stats_from_values,
@@ -67,6 +67,10 @@ def _pooled_metric_value(
     the same way it would be if the member regions' calls had all been
     recorded under one region name.
     """
+    # A region another run has but this one never entered has no bar here.
+    member_names = [name for name in member_names if name in run]
+    if not member_names:
+        return float("nan")
     if stat_key in _FIRST_LAST_STATS:
         pair = _pooled_first_last_duration(
             [run.get_region(name) for name in member_names],
@@ -97,10 +101,12 @@ def _duration_bar_hover(
 
     An ordinary bar is one region, so it describes itself with its own
     ``get_summary()``. A ``combine_regions`` bar has no region object behind
-    it -- it is several regions pooled -- so it names its members and the
+    it - it is several regions pooled - so it names its members and the
     pooled statistics instead.
     """
     heading = bar_name if run_label is None else f"{bar_name} - {run_label}"
+    if len(members) == 1 and members[0] not in run:
+        return f"<b>{heading}</b><br>not measured in this run"
     if len(members) == 1:
         region, title = _hover_region(run.get_region(members[0]), ranks, run.num_ranks)
         if run_label is not None:
@@ -246,7 +252,7 @@ def _stacked_segments(
 
     Regions record no call graph, so the nesting is reconstructed from
     timestamp containment (:func:`~scope_profiler.call_stack.build_call_arrays`)
-    -- the same call graph the flame chart draws, over *all* the run's
+    - the same call graph the flame chart draws, over *all* the run's
     regions, not just the plotted ones, since a region filtered out of the
     bars is still somebody's parent.
 
@@ -258,7 +264,7 @@ def _stacked_segments(
 
     Returns ``{bar name: {segment label: total nanoseconds}}``, where the
     ``"self"`` segment is exclusive time and every other key is a child
-    region's name -- its bar name when that child is itself a plotted bar.
+    region's name - its bar name when that child is itself a plotted bar.
     """
     from scope_profiler.call_stack import build_call_arrays
 
@@ -352,19 +358,20 @@ def _stacked_bar_values(
             ]
         else:
             scales = [1.0] * len(region_names)
-        run_values: dict[str, np.ndarray] = {}
-        for label in segment_labels:
-            heights = np.array(
-                [
-                    (
-                        segments.get(name, {}).get(label, 0.0) / NS_PER_SECOND / scale
-                        if scale
-                        else float("nan")
-                    )
-                    for name, scale in zip(region_names, scales)
-                ],
-            )
-            run_values[label] = heights
+        # A child is a segment under few of the bars: fill in the segments
+        # each bar has rather than looking every bar up for every segment,
+        # which is regions x children lookups -- millions for a thousand
+        # nested regions.
+        run_values = {label: np.zeros(len(region_names)) for label in segment_labels}
+        for index, name in enumerate(region_names):
+            for label, value in segments.get(name, {}).items():
+                run_values[label][index] = value / NS_PER_SECOND
+        scale_array = np.asarray(scales, dtype=float)
+        unscaled = scale_array == 0
+        divisor = np.where(unscaled, 1.0, scale_array)
+        for label, heights in run_values.items():
+            heights /= divisor
+            heights[unscaled] = np.nan
         values.append(run_values)
     return segment_labels, values
 
@@ -410,7 +417,7 @@ def plot_durations(
     metrics : Sequence[str], optional
         Render several metrics instead of one. Each gets its own figure --
         ``filepath`` is suffixed with the metric name, as it always was for
-        multiple metrics -- but a single ``data_filepath`` holds them all,
+        multiple metrics - but a single ``data_filepath`` holds them all,
         with the metric named per row, so one export can back a chart whose
         metric the viewer switches. Overrides ``metric`` when given.
     stack_children : bool
@@ -473,7 +480,7 @@ def plot_durations(
     if len(labels) != len(runs):
         raise ValueError("labels must match the number of profiling files.")
 
-    region_names = _common_region_names(runs, include=include, exclude=exclude)
+    region_names = _all_region_names(runs, include=include, exclude=exclude)
     if not region_names:
         raise ValueError("No regions matched the selected filters.")
     region_names, region_members = _group_regions(region_names, combine_regions)
@@ -536,10 +543,9 @@ def plot_durations(
                 zip(segment_labels, _get_cmap_colors(cmap, len(segment_labels))),
             )
             values = [
-                [
-                    float(sum(run_values[segment][index] for segment in segment_labels))
-                    for index in range(len(region_names))
-                ]
+                np.vstack([run_values[segment] for segment in segment_labels])
+                .sum(axis=0)
+                .tolist()
                 for run_values in stacked_values
             ]
         else:
@@ -564,6 +570,11 @@ def plot_durations(
                             region_names,
                             run_values[segment],
                         ):
+                            # A child segment sits under few of the bars; a
+                            # row for every bar would be regions x children
+                            # rows. Every bar keeps its own-time row.
+                            if segment != _SELF_SEGMENT and not value:
+                                continue
                             data_rows.append(
                                 [label, region_name, metric_key, segment, float(value)],
                             )
@@ -616,7 +627,7 @@ def plot_durations(
 
             # Stack by drawing each segment's cumulative top as an opaque bar
             # from zero, tallest first, so the next one paints over it. That
-            # needs nothing from the backend beyond a plain bar -- maxplotlib
+            # needs nothing from the backend beyond a plain bar - maxplotlib
             # forwards neither Matplotlib's ``bottom`` nor Plotly's ``base``.
             heights = np.vstack([run_values[segment] for segment in segment_labels])
             cumulative = np.cumsum(np.nan_to_num(heights), axis=0)

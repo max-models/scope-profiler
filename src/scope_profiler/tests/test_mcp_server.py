@@ -2,7 +2,7 @@
 
 Exercises the actual MCP server object (tool registration, JSON schemas,
 argument validation, dispatch and error handling) without spawning a real
-transport (stdio/SSE) or talking to an external LLM/Claude Code -- FastMCP's
+transport (stdio/SSE) or talking to an external LLM/Claude Code - FastMCP's
 ``list_tools()``/``call_tool()`` run the same code path in-process.
 
 Skipped entirely if the optional ``mcp`` extra is not installed, since it is

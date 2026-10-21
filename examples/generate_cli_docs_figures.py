@@ -7,8 +7,8 @@ Runs a small mock solver (setup + a timestep loop with nested regions) at
 1, 2 and 4 MPI ranks, then post-processes the resulting HDF5 files with
 ``scope-profiler plot`` --- exactly the commands quoted on the docs page ---
 and copies the generated figures into ``figures/cli`` at the repo root. The
-docs build copies that directory into ``docs/source/_static/figures``, where
-the page references it as ``/_static/figures/cli/...``.
+docs site serves that directory as it is (``docs/public/figures`` links to
+``figures/``), and the page references it as ``/scope-profiler/figures/cli/...``.
 
 Run::
 
@@ -28,8 +28,8 @@ import tempfile
 import time
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# The docs build (docs/source/conf.py) copies figures/ into the Sphinx
-# _static directory, so figures live here rather than under docs/.
+# The docs site serves figures/ through the docs/public/figures link, so the
+# figures live here rather than under docs/.
 DOCS_FIGURES = os.path.join(REPO_ROOT, "figures", "cli")
 
 RANK_COUNTS = (1, 2, 4)

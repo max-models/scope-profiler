@@ -17,7 +17,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # libhdf5-openmpi-dev is what the parallel h5py builds further down link
 # against, and libhdf5-dev is the serial library the C API's own HDF5 backend
 # (-DSP_USE_HDF5) is compiled against by the `c` job and by
-# tests/test_c_hdf5_output.py -- which skips itself wherever a C compiler
+# tests/test_c_hdf5_output.py - which skips itself wherever a C compiler
 # cannot find libhdf5, so leaving it out would take the backend out of CI
 # without failing anything.
 RUN apt-get update && apt-get install -y --no-install-recommends \

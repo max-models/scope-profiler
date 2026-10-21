@@ -109,6 +109,97 @@ def test_summary_collapses_self_recursive_paths():
     assert [row["name"] for row in rows] == ["outer", "fib"]
     assert rows[1]["recursive"] is True
     assert rows[1]["calls"] == 3
+    # Each level's duration contains the levels below it, so only the
+    # outermost call counts towards the total: 80, not 80 + 60 + 40, which
+    # would exceed the 100 of its parent.
+    assert rows[1]["total"] == pytest.approx(80e-9)
+    assert rows[1]["total"] <= rows[0]["total"]
+    assert rows[1]["total"] == pytest.approx(rows[1]["coverage"])
+
+
+def test_summary_children_of_a_recursive_region_are_not_marked_recursive(capsys):
+    """A child pooled over the recursion levels is not itself recursive."""
+    results = ProfilingResults(
+        {
+            "outer": MPIRegion("outer", {0: Region(np.array([0]), np.array([100]))}),
+            "fib": MPIRegion(
+                "fib",
+                {0: Region(np.array([10, 20, 30]), np.array([90, 80, 70]))},
+            ),
+            # One call at each level of the recursion, none inside another.
+            "combine": MPIRegion(
+                "combine",
+                {0: Region(np.array([15, 25, 35]), np.array([18, 28, 45]))},
+            ),
+        },
+    )
+
+    from scope_profiler.summary import region_rows
+
+    rows = {row["call_path"]: row for row in region_rows(results)}
+
+    assert rows["outer > fib"]["recursive"] is True
+    combine = rows["outer > fib > combine"]
+    assert combine["recursive"] is False
+    assert combine["calls"] == 3
+    # Its calls never overlap, so they all add up, and they fit in the parent.
+    assert combine["total"] == pytest.approx(16 / NS)
+    assert combine["total"] <= rows["outer > fib"]["total"]
+
+    results.print_summary(suppress_notes=True)
+    lines = capsys.readouterr().out.splitlines()
+    assert any("fib ↻" in line for line in lines)
+    assert not any("combine ↻" in line for line in lines)
+
+
+def test_summary_notes_explain_recursive_rows(capsys):
+    results = ProfilingResults(
+        {
+            "fib": MPIRegion(
+                "fib", {0: Region(np.array([10, 20]), np.array([90, 80]))}
+            ),
+        },
+    )
+
+    results.print_summary()
+
+    output = capsys.readouterr().out
+    assert "fib ↻" in output
+    assert "the call count includes nested calls, the total only the outermost" in (
+        output
+    )
+
+
+def test_summary_recursive_total_sums_outermost_calls_per_rank():
+    """Separate recursive chains, and ranks, each add their outermost call."""
+    results = ProfilingResults(
+        {
+            "outer": MPIRegion(
+                "outer",
+                {
+                    0: Region(np.array([0]), np.array([100])),
+                    1: Region(np.array([0]), np.array([100])),
+                },
+            ),
+            "fib": MPIRegion(
+                "fib",
+                {
+                    # Two chains on rank 0: 10-40 (with 20-30 inside) and 50-60.
+                    0: Region(np.array([10, 20, 50]), np.array([40, 30, 60])),
+                    1: Region(np.array([10, 20]), np.array([90, 30])),
+                },
+            ),
+        },
+    )
+
+    from scope_profiler.summary import region_rows
+
+    fib = region_rows(results)[1]
+
+    assert fib["calls"] == 5
+    assert fib["total"] == pytest.approx((30 + 10 + 80) * 1e-9)
+    # Rank totals are 40 and 80 around a mean of 60.
+    assert fib["imbalance"] == pytest.approx(100.0 / 3)
 
 
 def test_summary_pools_same_named_regions_by_call_path(capsys):
@@ -963,3 +1054,27 @@ def test_merging_discards_the_exclusive_totals_stored_in_each_file(tmp_path):
     merged = merge_results(driver, read_h5(kernels_path))
     assert merged["outer"].exclusive_duration == pytest.approx(80e-9)
     assert merged["native:inner"].exclusive_duration == pytest.approx(20e-9)
+
+
+@pytest.mark.parametrize(
+    ("ranks", "metadata", "expected"),
+    [
+        # Recorded: read as written, whatever the rank count.
+        (2, {"num_nodes": 2}, 2),
+        (1, {"num_nodes": 1}, 1),
+        # Written before the node count was recorded: one rank is one node...
+        (1, None, 1),
+        # ...but nothing says how many hosts a multi-rank run spread over.
+        (3, {"mpi_size": 3}, None),
+        # An unreadable value is unknown rather than an error.
+        (2, {"num_nodes": "many"}, None),
+    ],
+)
+def test_num_nodes_falls_back_for_files_without_it(tmp_path, ranks, metadata, expected):
+    path = tmp_path / "nodes.h5"
+    _write_sample_h5(
+        path,
+        {rank: {"solve": ([0], [NS])} for rank in range(ranks)},
+        metadata=metadata,
+    )
+    assert read_h5(path).num_nodes == expected

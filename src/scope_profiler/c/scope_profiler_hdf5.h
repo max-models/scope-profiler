@@ -4,7 +4,7 @@
  * scope_profiler_impl.h so a build without it keeps its "libc and nothing
  * else" dependency set. When it is in, sp_profiler_finalize() writes
  * "<prefix>_rank<NNNNN>.h5" directly, in the same schema-2 layout
- * scope_profiler/h5writer.py produces -- so `scope-profiler inspect`, `plot`
+ * scope_profiler/h5writer.py produces - so `scope-profiler inspect`, `plot`
  * and read_h5() open a C run's output with no import step.
  *
  * The layout written here is the one-rank case of that schema, and the two
@@ -22,8 +22,8 @@
  *         source_lines        int64    -1 where unknown
  *         exclusive_totals    int64    -1: "not computed", as for an import
  *         source_files        vlen str "" where unknown
- *         source_texts        vlen str always "" -- no source is read here
- *         tags                vlen str always "[]" -- the C API has no tags
+ *         source_texts        vlen str always "" - no source is read here
+ *         tags                vlen str always "[]" - the C API has no tags
  *         summary_statistics  compound fixed-size stats, for summary readers
  *     /events/                [N] every event of every region, back to back
  *         start_times         int64    nanoseconds
@@ -31,7 +31,7 @@
  *
  * The optional per-call columns of that schema (call_ids, parent_ids,
  * gpu_durations, the thread/task lanes) are *absent*, which is how the reader
- * is told this run did not record them -- it then reconstructs the nesting
+ * is told this run did not record them - it then reconstructs the nesting
  * from the timestamps. Writing them filled with a "missing" value instead
  * would be read as data: every call would share one id and the call graph
  * would collapse to a single node.
@@ -80,7 +80,7 @@ typedef struct {
 #define SP_H5_NOT_RECORDED (-1)
 
 /* Every handle a write needs, so one cleanup path can close whatever was
- * opened -- including on the first failure, halfway through. */
+ * opened - including on the first failure, halfway through. */
 typedef struct {
     hid_t file;
     hid_t string_type;
@@ -493,8 +493,8 @@ static int sp_h5_write_profile(
     }
 
     /* Only the two columns this API records. Everything else the schema
-     * allows per call -- call/parent ids, GPU durations, thread and task
-     * lanes -- is left out, which is what tells the reader to derive the
+     * allows per call - call/parent ids, GPU durations, thread and task
+     * lanes - is left out, which is what tells the reader to derive the
      * nesting from these timestamps instead of trusting ids that were never
      * assigned. */
     {

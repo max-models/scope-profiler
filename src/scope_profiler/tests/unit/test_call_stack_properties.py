@@ -1,7 +1,7 @@
 """Property-based checks on the nesting reconstruction.
 
 :func:`~scope_profiler.call_stack.build_call_arrays` infers the call tree from
-timestamps alone -- no stack is recorded at run time -- using a sort, a
+timestamps alone - no stack is recorded at run time - using a sort, a
 ``searchsorted`` and a per-level pass. The example-based tests next door pin
 the cases that were reasoned about; these generate call trees instead, and
 check the properties the vectorized reconstruction is supposed to guarantee

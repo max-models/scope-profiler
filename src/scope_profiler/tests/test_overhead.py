@@ -41,13 +41,13 @@ pytestmark = pytest.mark.overhead
 # Per-call budgets in nanoseconds, by profiling mode. Measured on an idle
 # laptop (2026): ~100 ns disabled, ~310 ns with timestamps. Of that, ~109 ns
 # is the `with` protocol on Python methods and ~66 ns is the two
-# perf_counter_ns() reads -- half the cost is out of this code's reach, which
+# perf_counter_ns() reads - half the cost is out of this code's reach, which
 # is why the remaining budget is spent carefully (see BaseProfileRegion).
 #
 # The budgets sit ~10x above that, which is what a heavily contended machine
 # needs: under eight competing CPU-bound processes the same measurement rises
 # to ~900 ns. They therefore catch structural regressions (an allocation, a
-# lock, a filesystem touch per call), not a 2x slowdown -- no absolute budget
+# lock, a filesystem touch per call), not a 2x slowdown - no absolute budget
 # can do the latter without going flaky. The printed numbers are what make a
 # 2x change visible; see the module docstring for reading them.
 BUDGET_NS = {
@@ -66,7 +66,7 @@ BUDGET_NS = {
 LOOKUP_BUDGET_NS = 2_000
 
 # Capturing a region's call-site source (issue #161) happens once per region
-# name, at creation, never per call -- so it gets its own, much looser budget
+# name, at creation, never per call - so it gets its own, much looser budget
 # than the per-call ones above. Measured: ~6 us/region for a small file (one
 # ast.parse the first time a file is seen, plus one AST walk per new name
 # after that). This is generous enough to absorb a much bigger file, while
@@ -74,7 +74,7 @@ LOOKUP_BUDGET_NS = 2_000
 # instead of the number of distinct region names.
 SOURCE_CAPTURE_BUDGET_NS = 200_000
 
-# Buffer growth is measured in a single pass -- once the buffers have doubled
+# Buffer growth is measured in a single pass - once the buffers have doubled
 # their way up they stay grown, so it cannot take the minimum over repeats and
 # is the noisiest number here. It also carries the reallocation copies.
 GROWTH_BUDGET_NS = 6_000

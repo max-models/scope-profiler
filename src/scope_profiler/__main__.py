@@ -8,48 +8,55 @@ the file name.
 
 The subcommands:
 
-- ``scope-profiler run script.py [args...]`` -- activates explicit
+- ``scope-profiler run script.py [args...]`` - activates explicit
   ``scope_profiler.profile`` and ``scope_profiler.region`` instrumentation in
   a script without requiring an in-source session. Pass ``--recursive`` for
   function-call tracing similar to ``python -m cProfile``; add ``--all`` to
   include standard-library and installed-package calls. The
   extension of ``-o`` picks the output format: HDF5 by default, a JSON
   profile for ``.json``/``.json.gz``, a rendered report for ``.html``.
-- ``scope-profiler plot <kind> file.h5 [...]`` -- reads merged HDF5 profiling
+- ``scope-profiler plot <kind> file.h5 [...]`` - reads merged HDF5 profiling
   output and renders Gantt/flame/duration/speedup charts. See
   ``scope_profiler.post_processing`` for its full set of options.
-- ``scope-profiler export <kind> file.h5 [...]`` -- writes plot data,
+- ``scope-profiler export <kind> file.h5 [...]`` - writes plot data,
   cProfile/pstats files, speedscope or Chrome Trace JSON, or the whole run as
   a JSON profile,
   without rendering charts.
-- ``scope-profiler inspect file.h5 [...]`` -- prints the run metadata and a
+- ``scope-profiler inspect file.h5 [...]`` - prints the run metadata and a
   per-region statistics table (including LIKWID hardware counters, when the
   run recorded any) for merged HDF5 profiling output, without producing any
   plots. See ``scope_profiler.inspection``.
-- ``scope-profiler report file.h5 -o report.html`` -- writes a standalone HTML
+- ``scope-profiler report file.h5 -o report.html`` - writes a standalone HTML
   summary with metadata and per-region timing statistics.
-- ``scope-profiler tui file.h5`` -- opens an interactive Textual browser for
+- ``scope-profiler catalogue a.html b.html -o catalogue.html`` - writes an
+  index page linking several generated HTML reports.
+- ``scope-profiler site catalogue.yaml -o docs`` - writes the pages and chart
+  data of a profiling catalogue into an Astro/Starlight project.
+- ``scope-profiler tui file.h5`` - opens an interactive Textual browser for
   metadata, region statistics, per-rank calls, LIKWID counters and the raw
   HDF5 tree.
-- ``scope-profiler line-profile file.h5 [...]`` -- prints persisted
+- ``scope-profiler line-profile file.h5 [...]`` - prints persisted
   line-profiler timings from an HDF5 profile.
-- ``scope-profiler diff a.h5 b.h5`` -- compares region statistics between two
+- ``scope-profiler diff a.h5 b.h5`` - compares region statistics between two
   merged HDF5 profiling files, region by region, so a regression (or
   improvement) between two runs shows up in one table. See
   ``scope_profiler.diff``.
-- ``scope-profiler check a.h5 b.h5`` -- applies a regression budget and
+- ``scope-profiler check a.h5 b.h5`` - applies a regression budget and
   returns a CI-friendly exit code.
-- ``scope-profiler benchmark run config.toml`` -- runs a repeatable benchmark
+- ``scope-profiler benchmark run config.toml`` - runs a repeatable benchmark
   with a correctness gate and writes a JSON manifest.
-- ``scope-profiler benchmark compare baseline.json candidate.json`` -- makes a
+- ``scope-profiler benchmark compare baseline.json candidate.json`` - makes a
   median-based keep/reject decision for an AI agent or CI.
-- ``scope-profiler import-native traces/ -o out.h5`` -- merges the per-rank
+- ``scope-profiler import-native traces/ -o out.h5`` - merges the per-rank
   files written by the C and Fortran region APIs
   (``scope_profiler/c/scope_profiler.c``,
   ``scope_profiler/fortran/scope_profiler.f90``) into one HDF5 file, so a
   native run post-processes exactly like a Python one. Reads both the ``.spt``
   trace and the ``.h5`` a C build compiled with HDF5 writes directly. See
   ``scope_profiler.native_trace``.
+- ``scope-profiler native-lines profile_rank00000.sps`` - prints the hottest
+  source lines of each C region from a sampled run (``sp_start_sampling()``).
+  See ``scope_profiler.native_samples``.
 """
 
 import argparse
@@ -164,6 +171,17 @@ def _parse_run_args(argv):
         help="Record only explicitly defined regions carrying this tag (repeatable)",
     )
     parser.add_argument(
+        "--enable-tag",
+        dest="enable_tags",
+        action="append",
+        default=None,
+        metavar="TAG",
+        help=(
+            "Record the regions behind this opt-in tag, such as a library's own "
+            "instrumentation; '*' enables every opt-in tag (repeatable)"
+        ),
+    )
+    parser.add_argument(
         "--entrypoint",
         metavar="NAME",
         help="Name the recursively traced entrypoint region",
@@ -235,8 +253,8 @@ def _run(argv):
 
     The output format follows the ``-o`` extension, as viztracer's does: HDF5
     unless the name asks for a JSON profile or an HTML report. The run itself
-    always writes HDF5 -- that is the format the parallel and rank-by-rank
-    writers produce -- and the requested format is rendered from it once the
+    always writes HDF5 - that is the format the parallel and rank-by-rank
+    writers produce - and the requested format is rendered from it once the
     script is done, so nothing about the measured run changes with ``-o``.
     """
     from scope_profiler.profile_io import FORMAT_HDF5, profile_format
@@ -268,6 +286,7 @@ def _run(argv):
         "profile_mpi_calls": args.mpi_calls,
         "label": args.label,
         "region_tags": args.region_tags,
+        "enable_tags": args.enable_tags,
         "config_path": args.config,
     }
     if args.no_output:
@@ -323,7 +342,12 @@ def _inspect(argv):
 
 def _report(argv):
     """Handle ``scope-profiler report``: write a standalone HTML summary."""
-    from scope_profiler.html_report import create_html_report
+    from scope_profiler.html_report import (
+        SCALING_MODES,
+        SPEEDUP_X_CHOICES,
+        SpeedupAxisError,
+        create_html_report,
+    )
     from scope_profiler.post_processing import expand_file_patterns, parse_ranks
     from scope_profiler.summary import REGION_TABLE_COLUMNS, SORT_KEYS
 
@@ -376,11 +400,33 @@ def _report(argv):
         ),
     )
     parser.add_argument(
+        "--scaling",
+        choices=SCALING_MODES,
+        default="both",
+        help=(
+            "Scaling chart(s) when the compared runs differ in ranks or "
+            "threads: 'strong' (same total problem size; speedup), 'weak' "
+            "(same problem size per rank or core; weak-scaling efficiency), "
+            "or 'both' (default)"
+        ),
+    )
+    parser.add_argument(
         "--no-individual-reports",
         action="store_true",
         help=(
             "When comparing runs, skip the full per-run reports otherwise "
             "written next to the comparison and linked from it"
+        ),
+    )
+    parser.add_argument(
+        "--speedup-x",
+        choices=SPEEDUP_X_CHOICES,
+        default="auto",
+        help=(
+            "X-axis of the scaling charts when comparing runs: MPI ranks, "
+            "nodes, OpenMP threads, or cores (ranks x threads). 'auto' "
+            "(default) uses MPI ranks when they change, otherwise threads; "
+            "the report can switch to any other axis the runs differ in"
         ),
     )
     parser.add_argument(
@@ -392,23 +438,119 @@ def _report(argv):
     ranks = None
     if args.ranks:
         ranks = sorted({rank for spec in args.ranks for rank in parse_ranks(spec)})
-    output = create_html_report(
-        expand_file_patterns(args.files, parser),
-        args.output,
-        include=args.include,
-        exclude=args.exclude,
-        ranks=ranks,
-        sort=args.sort,
-        columns=args.columns,
-        include_charts=not args.no_charts,
-        charts_cdn=args.charts_cdn,
-        individual_reports=not args.no_individual_reports,
-    )
+    try:
+        output = create_html_report(
+            expand_file_patterns(args.files, parser),
+            args.output,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=ranks,
+            sort=args.sort,
+            columns=args.columns,
+            include_charts=not args.no_charts,
+            charts_cdn=args.charts_cdn,
+            individual_reports=not args.no_individual_reports,
+            scaling=args.scaling,
+            speedup_x=args.speedup_x,
+        )
+    except SpeedupAxisError as exc:
+        parser.error(f"--speedup-x {args.speedup_x}: {exc}")
     print(f"Report written to: {output}")
     if args.show:
         import webbrowser
 
         webbrowser.open(output.resolve().as_uri())
+    return 0
+
+
+def _catalogue(argv):
+    """Handle ``scope-profiler catalogue``: index several HTML reports."""
+    from scope_profiler.catalogue import create_catalogue
+
+    parser = argparse.ArgumentParser(
+        prog="scope-profiler catalogue",
+        description="Write an HTML index page linking several HTML reports.",
+    )
+    parser.add_argument("reports", nargs="+", help="HTML report files")
+    parser.add_argument(
+        "-o",
+        "--output",
+        default="catalogue.html",
+        help="HTML file to write (default: catalogue.html)",
+    )
+    parser.add_argument("--title", default="Profiling reports", help="Page title")
+    args = parser.parse_args(argv)
+    try:
+        output = create_catalogue(args.reports, args.output, title=args.title)
+    except FileNotFoundError as exc:
+        parser.error(str(exc))
+    print(f"Catalogue written to: {output}")
+    return 0
+
+
+def _site(argv):
+    """Handle ``scope-profiler site``: Astro pages for a catalogue of runs."""
+    from scope_profiler.astro_site import SiteError, build_site, load_manifest
+
+    parser = argparse.ArgumentParser(
+        prog="scope-profiler site",
+        description=(
+            "Write the pages and chart data of a profiling catalogue, listed in "
+            "a YAML manifest, into an Astro/Starlight project. Pages go to "
+            "<output>/src/content/docs/catalogue and chart data to "
+            "<output>/public/catalogue; both are replaced on every run."
+        ),
+    )
+    parser.add_argument("manifest", help="YAML manifest listing the cases and runs")
+    parser.add_argument(
+        "-o",
+        "--output",
+        default="docs",
+        help="the Astro project to write into (default: docs)",
+    )
+    parser.add_argument(
+        "--base",
+        help="the site's base path, '/' plus the repository name on GitHub Pages "
+        "(default: 'base' in the manifest)",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="only validate the manifest and the files it lists",
+    )
+    parser.add_argument(
+        "--no-charts",
+        action="store_true",
+        help="write pages and tables only (charts need scope-profiler[pproc])",
+    )
+    parser.add_argument(
+        "--no-clean",
+        action="store_true",
+        help="write into the generated directories as they are, instead of "
+        "replacing them",
+    )
+    args = parser.parse_args(argv)
+    try:
+        manifest = load_manifest(args.manifest)
+        if args.check:
+            runs = sum(len(case.runs) for case in manifest.cases)
+            print(f"{args.manifest}: {len(manifest.cases)} case(s), {runs} run(s), ok")
+            return 0
+        result = build_site(
+            manifest,
+            args.output,
+            base=args.base,
+            charts=not args.no_charts,
+            clean=not args.no_clean,
+        )
+    except SiteError as exc:
+        parser.error(str(exc))
+    for note in result.notes:
+        print(f"note: {note}", file=sys.stderr)
+    print(
+        f"Catalogue written to: {args.output} "
+        f"({result.cases} case(s), {result.runs} run(s), {len(result.files)} files)"
+    )
     return 0
 
 
@@ -559,18 +701,71 @@ def _import_fortran(argv):
     return 0
 
 
+def _native_lines(argv):
+    """Handle ``scope-profiler native-lines``: sampled addresses -> source lines."""
+    from scope_profiler.native_samples import (
+        SAMPLES_SUFFIX,
+        find_sample_files,
+        format_line_profile,
+        line_profile,
+        read_samples,
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="scope-profiler native-lines",
+        description=(
+            "Show which source lines of each C region the sampler caught, from "
+            f"the *{SAMPLES_SUFFIX} files written when sampling is on. The "
+            "program must be built with -g."
+        ),
+    )
+    parser.add_argument(
+        "inputs",
+        nargs="+",
+        help=f"*{SAMPLES_SUFFIX} files and/or directories containing them",
+    )
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=10,
+        help="lines to show per region (default: 10)",
+    )
+    parser.add_argument(
+        "--no-source",
+        action="store_true",
+        help="do not print the source text of each line",
+    )
+    args = parser.parse_args(argv)
+
+    for path in find_sample_files(args.inputs):
+        samples = read_samples(path)
+        print(f"{path}  (rank {samples.rank}, {samples.hz} Hz)\n")
+        print(
+            format_line_profile(
+                line_profile(samples),
+                top=args.top,
+                source=not args.no_source,
+            ),
+        )
+        print()
+    return 0
+
+
 _COMMANDS = {
     "run": _run,
     "plot": _plot,
     "export": _export,
     "inspect": _inspect,
     "report": _report,
+    "catalogue": _catalogue,
+    "site": _site,
     "tui": _tui,
     "line-profile": _line_profile,
     "diff": _diff,
     "check": _check,
     "benchmark": _benchmark,
     "import-native": _import_fortran,
+    "native-lines": _native_lines,
 }
 
 
@@ -617,6 +812,18 @@ def main(argv=None):
         help="Write a standalone HTML report (see `scope-profiler report --help`)",
     )
     subparsers.add_parser(
+        "catalogue",
+        add_help=False,
+        help="Write an index page linking several HTML reports "
+        "(see `scope-profiler catalogue --help`)",
+    )
+    subparsers.add_parser(
+        "site",
+        add_help=False,
+        help="Write Astro pages for a catalogue of profiling runs "
+        "(see `scope-profiler site --help`)",
+    )
+    subparsers.add_parser(
         "tui",
         add_help=False,
         help="Interactively browse HDF5 profiling data "
@@ -649,6 +856,12 @@ def main(argv=None):
         add_help=False,
         help="Merge C/Fortran API per-rank output into one HDF5 file "
         "(see `scope-profiler import-native --help`)",
+    )
+    subparsers.add_parser(
+        "native-lines",
+        add_help=False,
+        help="Show the hottest source lines of C regions from sampled output "
+        "(see `scope-profiler native-lines --help`)",
     )
 
     if not argv:

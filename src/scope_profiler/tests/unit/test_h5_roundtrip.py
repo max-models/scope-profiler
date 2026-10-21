@@ -1,8 +1,8 @@
 """Write random runs through the real writer and read every property back.
 
 The example-based writer tests pin specific layouts. This one generates whole
-runs -- several ranks, several regions, varying call counts, tags and source
-locations -- and asserts that a round trip through HDF5 preserves *every*
+runs - several ranks, several regions, varying call counts, tags and source
+locations - and asserts that a round trip through HDF5 preserves *every*
 public property of :class:`~scope_profiler.region.Region`, not just the few a
 given test happened to look at.
 

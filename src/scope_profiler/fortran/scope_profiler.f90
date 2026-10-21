@@ -27,7 +27,7 @@
 !! look the name up on every call; prefer the handle form in hot loops.
 !!
 !! Timestamps come from the same OS clock CPython's `time.perf_counter_ns()`
-!! uses -- `CLOCK_MONOTONIC` on Linux, `CLOCK_UPTIME_RAW` on macOS -- so
+!! uses - `CLOCK_MONOTONIC` on Linux, `CLOCK_UPTIME_RAW` on macOS - so
 !! regions recorded here share an epoch with regions recorded by the Python
 !! API in the same process tree, and land on one timeline. The right clock is
 !! found by probing at run time, so the file is plain Fortran needing no
@@ -124,7 +124,7 @@ contains
    !> Nanoseconds on the same clock as Python's time.perf_counter_ns().
    !!
    !! Returns a negative value if no monotonic clock could be resolved, which
-   !! sp_init() reports and refuses to profile with -- silently handing back 0
+   !! sp_init() reports and refuses to profile with - silently handing back 0
    !! would produce a trace full of zero-length regions.
    function sp_now_ns() result(now)
       integer(int64) :: now

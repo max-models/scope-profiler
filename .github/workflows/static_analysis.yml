@@ -43,7 +43,7 @@ jobs:
           # Black is the only formatter (ruff only lints). Same pin as the dev
           # extra, so a new black release cannot fail a build on its own.
           pip install "black[jupyter]>=26.1,<27"
-          black --check src/ tutorials/
+          black --check src/ notebooks/
 
   isort:
     runs-on: ubuntu-latest
@@ -55,7 +55,7 @@ jobs:
         run: |
           pip install isort
           isort --check src/
-          isort --check tutorials/
+          isort --check notebooks/
 
   ruff:
     runs-on: ubuntu-latest

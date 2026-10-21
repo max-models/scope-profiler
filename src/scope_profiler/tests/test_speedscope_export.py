@@ -28,7 +28,7 @@ def _nested_file_data():
 def _calls(*specs):
     """Build the CallArrays the document builder expects, from seconds.
 
-    The ``parent`` column of each spec is not passed through -- nesting is
+    The ``parent`` column of each spec is not passed through - nesting is
     reconstructed from the intervals, which is the only way the exporter can
     ever receive it. It is kept in the specs as documentation of the shape
     each test is describing.

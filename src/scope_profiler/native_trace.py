@@ -11,11 +11,11 @@ produces: one rank's profile, already readable by
 then does for those files is *merging* the ranks of one run into a single
 profile.
 
-Every other native build -- Fortran, and C without HDF5 -- writes the compact
+Every other native build - Fortran, and C without HDF5 - writes the compact
 binary trace documented below instead, one ``.spt`` per rank. Both write a
 *compatible* trace format, so a program built from either (or both) lands in
 one profile. This module turns those files into the same
-:class:`~scope_profiler.results.ProfilingResults` -- and the same HDF5 layout
+:class:`~scope_profiler.results.ProfilingResults` - and the same HDF5 layout
 -- a Python run produces, so a Fortran run gets the whole post-processing
 stack (summaries, plots, exporters, ``plot``) for free. The two kinds of
 input mix freely in one import.
@@ -29,11 +29,11 @@ Trace layout, little- or big-endian, as written by ``sp_finalize``::
     per region:
         int32     length of the name in bytes
         char[]    name
-        -- version 2 only --
+        - version 2 only --
         int32     length of the source file path in bytes (0 if unknown)
         char[]    source file path
         int32     source line (-1 if unknown)
-        -- end version 2 only --
+        - end version 2 only --
         int64     number of calls
         int64[]   start timestamps, nanoseconds
         int64[]   end timestamps, nanoseconds
@@ -111,7 +111,7 @@ FORMAT_VERSION = 2
 """Newest layout this module writes metadata for; ``sp_finalize`` writes the
 same number. Version 1 (written by the Fortran API, and by older C releases)
 has no per-region source location; version 2 (the C API) adds one. Both are
-readable -- see :func:`read_trace`."""
+readable - see :func:`read_trace`."""
 
 KNOWN_FORMAT_VERSIONS = (1, 2)
 """Trace format versions this reader accepts."""
@@ -140,7 +140,7 @@ class TraceFormatError(ValueError):
 
 class _RegionTrace:
     """Unpacks as ``(start_times, end_times)``, with the region's source
-    location (if any) attached as extra attributes -- so existing
+    location (if any) attached as extra attributes - so existing
     ``starts, ends = regions[name]`` call sites keep working unchanged
     whether or not the trace carried source information.
     """
@@ -199,7 +199,7 @@ def read_trace(path) -> tuple:
     -------
     tuple
         ``(rank, regions)``, where ``regions`` maps a region name to
-        ``(start_times, end_times)`` int64 arrays in nanoseconds -- exactly the
+        ``(start_times, end_times)`` int64 arrays in nanoseconds - exactly the
         shape :class:`~scope_profiler.profile_manager.RankPayload` carries.
         Each value also carries ``.source_file`` / ``.source_lineno``
         attributes (both None on a version-1 trace, or a region registered
@@ -328,7 +328,7 @@ def read_native_h5(path) -> tuple:
 
     The file is an ordinary schema-2 profile holding one rank, so this is
     :func:`~scope_profiler.read_h5` plus a regrouping into the ``(rank,
-    regions)`` shape :func:`read_trace` returns -- which is what lets one
+    regions)`` shape :func:`read_trace` returns - which is what lets one
     import mix directly-written HDF5 with ``.spt`` traces from other ranks.
 
     Parameters
@@ -358,8 +358,8 @@ def read_native_ranks(path) -> tuple:
     """Read one native output file, whichever of the two formats it is in.
 
     The format-agnostic entry point: callers that must accept whatever a
-    native build happened to write -- :func:`load_traces` and
-    ``ProfileManager.finalize(native_traces=...)`` -- go through this rather
+    native build happened to write - :func:`load_traces` and
+    ``ProfileManager.finalize(native_traces=...)`` - go through this rather
     than choosing :func:`read_trace` or :func:`read_native_h5` by suffix
     themselves.
 
@@ -474,7 +474,7 @@ def write_results(results, output_path):
     """Write any :class:`ProfilingResults` out as a standard HDF5 file.
 
     Goes through :class:`~scope_profiler.h5writer.ProfilingWriter`, so the
-    result has exactly the layout a Python run produces -- which is what lets
+    result has exactly the layout a Python run produces - which is what lets
     an imported (or merged) run be read back by
     :func:`~scope_profiler.read_h5` and fed to every plot and exporter.
 

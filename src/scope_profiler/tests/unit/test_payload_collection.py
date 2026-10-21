@@ -106,7 +106,7 @@ def test_a_silent_rank_yields_no_group_but_still_sends(configured, tmp_path):
         need_results=True,
     )
 
-    # Rank 1 was still received -- skipping the receive would deadlock.
+    # Rank 1 was still received - skipping the receive would deadlock.
     assert comm.recv_order == [1, 2]
     with h5py.File(configured.file_path, "r") as handle:
         assert handle["rank_region_index/ranks"][()].tolist() == [0, 2]

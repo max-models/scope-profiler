@@ -168,7 +168,7 @@ class Region:
 
         Only the result set that owns this region may call this: the value is
         only meaningful against the region set it was computed with. Left
-        alone, the per-call durations remain lazy -- asking for those still
+        alone, the per-call durations remain lazy - asking for those still
         reconstructs the nesting, and then wins over this.
         """
         self._exclusive_total_ns = None if total_ns is None else int(total_ns)
@@ -305,7 +305,7 @@ class Region:
         """A view of this region holding only the calls of one thread.
 
         Every column is sliced with the same mask, so the returned region is
-        an ordinary :class:`Region` -- summaries, durations and percentiles
+        an ordinary :class:`Region` - summaries, durations and percentiles
         all describe that thread alone.
 
         Raises
@@ -390,7 +390,7 @@ class Region:
     def source_text(self) -> str | None:
         """Source text of the region's ``with`` block or decorated function.
 
-        None if it was not captured -- either the file it came from is no
+        None if it was not captured - either the file it came from is no
         longer readable, or the file predates this being recorded.
         """
         return self._source_text

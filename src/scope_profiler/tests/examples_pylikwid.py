@@ -91,7 +91,7 @@ def test_pylikwid():
     # Whether the counters hold real numbers is a property of the machine, not
     # of the profiler: a virtualized runner with an unreadable TSC, or one
     # where HyperThreading disables the PMCs, reports structurally valid zeros.
-    # Report that rather than failing on it -- the plumbing is what this test
+    # Report that rather than failing on it - the plumbing is what this test
     # is here to check.
     total = sum(
         float(result.events.sum())

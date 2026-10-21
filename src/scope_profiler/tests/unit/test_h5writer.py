@@ -625,9 +625,9 @@ NESTED = {"outer": ([0, 200], [100, 300]), "inner": ([10, 250], [30, 280])}
 def test_stored_exclusive_totals_match_reconstruction_exactly(tmp_path):
     """The run's own totals must equal what a reader derives from the events.
 
-    They are two paths to the same number -- the writer's, from the region
+    They are two paths to the same number - the writer's, from the region
     set it holds in memory, and the reader's, from the call stack it rebuilds
-    -- so any difference would make a summary depend on which one ran.
+    - so any difference would make a summary depend on which one ran.
     """
     from scope_profiler.call_stack import exclusive_totals_ns
 

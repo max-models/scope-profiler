@@ -43,7 +43,7 @@ def main() -> None:
 
     if not results.has_likwid:
         print(
-            "No LIKWID counters in the output -- run this under "
+            "No LIKWID counters in the output - run this under "
             "`likwid-perfctr -C 0 -g CLOCK -m python examples/ex_likwid.py`."
         )
         return

@@ -242,7 +242,7 @@ def test_stacked_segments_split_self_time_from_children(tmp_path):
     # "step" spans 0-500 and 1000-1500: 100 ns in assemble, 200 in solve,
     # and everything else its own.
     assert segments["step"] == {"self": 700.0, "assemble": 100.0, "solve": 200.0}
-    # "inner" is a child of "solve", not of "step" -- only direct children
+    # "inner" is a child of "solve", not of "step" - only direct children
     # become segments, and solve's self time excludes it.
     assert segments["solve"] == {"self": 150.0, "inner": 50.0}
     assert segments["inner"] == {"self": 50.0}
@@ -286,6 +286,12 @@ def test_plot_durations_stacked_bars_sum_to_the_plain_bar(tmp_path):
     )
     # 500 + 500 ns of "step", split across its own time and its children.
     assert stacked == pytest.approx(1000 / 1e9)
+    # A row per segment a bar has, not per segment any bar has: every bar
+    # keeps its own time, and a child only appears under its parent.
+    assert sorted(
+        (row["region"], row["segment"]) for row in rows if row["segment"] != "self"
+    ) == [("solve", "inner"), ("step", "assemble"), ("step", "solve")]
+    assert len([row for row in rows if row["segment"] == "self"]) == 4
 
 
 def test_plot_durations_rejects_stacking_a_min_or_max(tmp_path):
@@ -351,7 +357,7 @@ def test_hover_summary_reports_every_statistic_the_region_does(tmp_path):
 def test_hover_summary_survives_a_broken_call_graph(tmp_path):
     file_path = tmp_path / "overlapping.h5"
     # "solve" starts inside "setup" and ends after it: no nesting, so no
-    # exclusive time -- but the other statistics are still recorded.
+    # exclusive time - but the other statistics are still recorded.
     _write_sample_h5(
         file_path,
         {0: {"setup": ([0], [100]), "solve": ([20], [220])}},
@@ -946,7 +952,7 @@ def test_plot_weak_scaling_efficiency(tmp_path):
         for point in document["points"]
         if point["region"] == "solve"
     }
-    # Baseline runtime over runtime -- no division by an ideal speedup, which
+    # Baseline runtime over runtime - no division by an ideal speedup, which
     # is what separates this from plot_scaling_efficiency.
     assert efficiencies == {1: 1.0, 2: 0.8, 4: 0.5}
 
@@ -1266,6 +1272,52 @@ def test_plot_gantt_export_data_json(tmp_path):
     assert regions == {"setup", "solve"}
 
 
+def test_plot_gantt_export_data_json_carries_call_depth(tmp_path):
+    file_path = tmp_path / "run.h5"
+    data_file = tmp_path / "gantt_data.json"
+    _write_sample_h5(
+        file_path,
+        {
+            0: {
+                "outer": ([0], [100]),
+                "mid": ([10, 50], [40, 90]),
+                "leaf": ([20], [30]),
+            },
+            # Overlapping without nesting: rank 1's depths are unknown.
+            1: {"outer": ([0], [50]), "mid": ([25], [75])},
+        },
+    )
+    results = read_h5(file_path)
+
+    # The depth comes from the whole run, so excluding the parent keeps it.
+    plot_gantt(
+        results,
+        include=["mid", "leaf"],
+        show=False,
+        verbose=False,
+        data_filepath=data_file,
+        data_format="json",
+    )
+
+    intervals = json.loads(data_file.read_text(encoding="utf-8"))["intervals"]
+    assert sorted(
+        (row["region"], row["depth"]) for row in intervals if row["rank"] == 0
+    ) == [("leaf", 2), ("mid", 1), ("mid", 1)]
+    assert all("depth" not in row for row in intervals if row["rank"] == 1)
+
+    # leaf ran on rank 0 only; the CSV export skips rank 1 for it too.
+    csv_file = tmp_path / "gantt_data.csv"
+    plot_gantt(
+        results,
+        show=False,
+        verbose=False,
+        data_filepath=csv_file,
+        data_format="csv",
+    )
+    rows = csv_file.read_text(encoding="utf-8").splitlines()[1:]
+    assert sum(",leaf," in row for row in rows) == 1
+
+
 def test_plot_flame_export_data_json(tmp_path, monkeypatch):
     file_path = tmp_path / "run.h5"
     data_file = tmp_path / "flame_data.json"
@@ -1559,7 +1611,7 @@ def test_plot_duration_histogram_export_data_json(tmp_path):
 
 def test_plot_imbalance_export_data_json(tmp_path):
     file_path = tmp_path / "run.h5"
-    # Rank 1 is twice as slow as rank 0 in "solve" -- an obvious imbalance.
+    # Rank 1 is twice as slow as rank 0 in "solve" - an obvious imbalance.
     _write_sample_h5(
         file_path,
         {
@@ -2529,3 +2581,71 @@ def test_plot_gantt_leaves_the_rank_out_for_a_single_rank_run(tmp_path, monkeypa
     # The exported data tells the browser builders the same thing.
     payload = json.loads(data_path.read_text(encoding="utf-8"))
     assert payload["file_ranks"] == {"run": 1}
+
+
+def test_plot_speedup_over_nodes_is_a_scaling_axis(tmp_path):
+    paths = []
+    for index, (ranks, nodes) in enumerate([(4, 2), (2, 1), (8, 4)]):
+        path = tmp_path / f"n{index}.h5"
+        _write_sample_h5(
+            path,
+            _sample_file_data(ranks, 10, 400 // nodes),
+            metadata={"num_nodes": nodes},
+        )
+        paths.append(path)
+
+    data_file = tmp_path / "speedup.json"
+    plot_speedup(
+        [read_h5(path) for path in paths],
+        x_field="num_nodes",
+        show=False,
+        verbose=False,
+        data_filepath=data_file,
+        data_format="json",
+        backend="data-only",
+    )
+    payload = json.loads(data_file.read_text())
+    assert payload["options"] == {
+        "x_field": "num_nodes",
+        "x_label": "nodes",
+        "baseline": 1,
+    }
+    # Sorted by value, not file order, like any scaling axis.
+    solve = [point for point in payload["points"] if point["region"] == "solve"]
+    assert [point["num_nodes"] for point in solve] == [1, 2, 4]
+    assert [point["speedup"] for point in solve] == pytest.approx([1, 2, 4])
+
+
+def test_plot_speedup_over_nodes_names_a_file_without_a_node_count(tmp_path):
+    old = tmp_path / "old.h5"
+    new = tmp_path / "new.h5"
+    _write_sample_h5(old, _sample_file_data(2, 0, 100))
+    _write_sample_h5(new, _sample_file_data(4, 0, 50), metadata={"num_nodes": 2})
+
+    with pytest.raises(ValueError, match=r"'num_nodes' not found .*old\.h5"):
+        plot_speedup(
+            [read_h5(old), read_h5(new)],
+            x_field="num_nodes",
+            show=False,
+            verbose=False,
+        )
+
+
+def test_plot_durations_comparison_includes_regions_missing_from_a_run(tmp_path):
+    base_path = tmp_path / "base.h5"
+    other_path = tmp_path / "other.h5"
+    data_path = tmp_path / "durations.json"
+    _write_sample_h5(base_path, {0: {"setup": ([0], [10]), "old": ([20], [30])}})
+    _write_sample_h5(other_path, {0: {"setup": ([0], [10]), "new": ([20], [40])}})
+
+    plot_durations(
+        [read_h5(base_path), read_h5(other_path)],
+        data_filepath=data_path,
+        data_format="json",
+        backend="data-only",
+        show=False,
+        verbose=False,
+    )
+
+    names = {bar["region"] for bar in json.loads(data_path.read_text())["bars"]}
+    assert names == {"setup", "old", "new"}

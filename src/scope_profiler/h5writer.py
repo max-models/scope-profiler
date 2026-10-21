@@ -25,7 +25,7 @@ from scope_profiler.likwid_data import write_likwid_results
 _STRING_DTYPE = h5py.string_dtype(encoding="utf-8")
 _NO_GPU_DURATION = -1
 # Exclusive time is never negative, so this marks a row whose writer did not
-# compute one -- a native-trace import, say. The reader falls back to
+# compute one - a native-trace import, say. The reader falls back to
 # reconstructing the nesting for those.
 _NO_EXCLUSIVE_TOTAL = -1
 # Lane columns of an event whose run did not record one: a Fortran region
@@ -217,7 +217,7 @@ def dataset_storage_options(
 #: Datasets at or below this many bytes of payload are stored contiguously
 #: rather than chunked when the file is closed. Chunked storage costs a full
 #: chunk plus a chunk-index B-tree per dataset the moment its first element is
-#: written -- measured at ~10 KiB per dataset, against ~0.15 KiB contiguous --
+#: written - measured at ~10 KiB per dataset, against ~0.15 KiB contiguous --
 #: so a one-region profile paid ~190 KiB to store a few hundred bytes. Above
 #: this size the chunk overhead is negligible and chunking is what makes
 #: partial reads and compression possible, so it is left alone.
@@ -235,7 +235,7 @@ AUTO_COMPRESSION_MIN_EVENTS = 1 << 14
 AUTO_COMPRESSION = ("gzip", 4)
 
 #: Chunk length for the per-(rank, region) index columns. They hold one row
-#: per rank and region -- a few thousand at most on a large job -- so h5py's
+#: per rank and region - a few thousand at most on a large job - so h5py's
 #: default guess of 1024 elements allocates far more than they ever use.
 _INDEX_CHUNK = 256
 
@@ -265,7 +265,7 @@ def repack_file(
     """Copy an HDF5 file object by object, storing small datasets contiguously.
 
     HDF5 gives every resizable dataset chunked storage, and the cost of that
-    -- a full chunk plus a chunk-index B-tree -- lands the moment the first
+    - a full chunk plus a chunk-index B-tree - lands the moment the first
     element is written, whatever the chunk size. On a profile with a handful
     of events that overhead *is* the file: one region and one call produced
     193 KiB holding 0.4 KiB of data. Because freed space is never returned to
@@ -415,8 +415,8 @@ def initialize_columnar_layout(
     chunk_size=None,
 ) -> None:
     """Create the schema-2 region dictionary, pair index, and event columns."""
-    # The index and dictionary columns hold one row per rank and region -- a
-    # few thousand at most on a large job -- so h5py's default guess of 1024
+    # The index and dictionary columns hold one row per rank and region - a
+    # few thousand at most on a large job - so h5py's default guess of 1024
     # elements allocates far more than they ever use. An explicit chunk_size
     # is a deliberate request and wins over that default.
     index_chunk = (chunk_size or _INDEX_CHUNK,)
@@ -622,9 +622,9 @@ def encode_start_deltas(starts) -> np.ndarray:
     """Encode one region's start timestamps as first-absolute-then-gaps.
 
     Schema 3 stores the gap between consecutive calls of a region rather than
-    the absolute timestamp of each. The information is identical -- the first
+    the absolute timestamp of each. The information is identical - the first
     element is the run's absolute start, so :func:`decode_start_deltas` is an
-    exact ``cumsum`` -- but the magnitudes collapse: measured gaps between
+    exact ``cumsum`` - but the magnitudes collapse: measured gaps between
     consecutive calls run to a few hundred nanoseconds, about 15 bits, against
     the ~60 bits an absolute nanosecond timestamp needs. Compressed, that is
     the difference between 290 KiB and 74 KiB on a 100k-event profile.
@@ -664,7 +664,7 @@ def _encoded_columns(regions: dict, names: list) -> tuple:
     """This rank's schema-3 ``(start_deltas, durations)``, region by region.
 
     Each region is a run of its own, so each is encoded independently and the
-    results concatenated -- which is exactly how the reader slices them back
+    results concatenated - which is exactly how the reader slices them back
     apart using ``rank_region_index``.
     """
     deltas: list = []

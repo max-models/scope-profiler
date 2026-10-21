@@ -1,8 +1,8 @@
 """Thread, asyncio-task and greenlet identity for the region profiler.
 
 A region records a ``(start, end)`` pair and nothing else, which is enough
-only while one call stack owns the process. With several threads -- or several
-coroutines interleaved on one thread -- the recorded intervals of two lanes
+only while one call stack owns the process. With several threads - or several
+coroutines interleaved on one thread - the recorded intervals of two lanes
 overlap without nesting, and the whole downstream stack (flame chart,
 exclusive time, ``.prof`` export) has no call graph to reconstruct. See
 :class:`~scope_profiler.call_stack.NestingError`.
@@ -19,7 +19,7 @@ up once, per thread, not per call.
 **Tasks.** An asyncio task is a lane of its own: it runs on a thread, but so
 do the other tasks that interleave with it, and a ``with`` block held across
 an ``await`` covers wall time the task did not spend running. Instrumenting
-the task -- rather than the loop -- gives both the identity and the split:
+the task - rather than the loop - gives both the identity and the split:
 :class:`TaskRecord` accumulates running and suspended nanoseconds, and a
 region reads the suspended counter at entry and exit to report the await time
 of that one call. Greenlets are the same shape (cooperative lanes on one
@@ -51,7 +51,7 @@ UNKNOWN = -1
 #: How often a still-running thread refreshes its CPU-time reading, in
 #: recorded calls. A thread's exact total is taken when it dies (see
 #: :class:`_ThreadExitSentinel`); this is what makes the number roughly right
-#: for threads -- the main one, above all -- that are still alive at
+#: for threads - the main one, above all - that are still alive at
 #: ``finalize()``. A power of two so the hot path is one mask and a branch.
 CPU_SAMPLE_MASK = 0xFF
 
@@ -60,7 +60,7 @@ class TaskRecord:
     """One asyncio task or greenlet, and how its wall time split.
 
     ``running_ns`` is the time the lane actually held its thread, summed over
-    every step; ``suspended_ns`` is the time between steps -- awaiting, or
+    every step; ``suspended_ns`` is the time between steps - awaiting, or
     switched away from. A region entered inside the lane reads
     ``suspended_ns`` on the way in and out, and the difference is that one
     call's await time.
@@ -194,7 +194,7 @@ class _ThreadExitSentinel:
     """Records a thread's end time and total CPU time, from the thread itself.
 
     Parked in the tracker's :class:`threading.local`, so CPython drops it when
-    the thread's state is cleared -- on that thread, at the moment it exits.
+    the thread's state is cleared - on that thread, at the moment it exits.
     That is the only place ``thread_time_ns()`` can be read for a thread other
     than the one calling ``finalize()``, and it is exact rather than sampled.
 
@@ -294,7 +294,7 @@ async def _timed_coroutine(coro, record: TaskRecord, tracker):
 
     ``asyncio.Task`` insists on a genuine coroutine, so the timing cannot live
     in a bare adapter object; one ``await`` of :class:`_TimedAwaitable` gives
-    both -- a coroutine for the task and a per-step hook for us. The extra
+    both - a coroutine for the task and a per-step hook for us. The extra
     frame is entered once per step and does no work of its own.
     """
     return await _TimedAwaitable(coro, record, tracker)
@@ -402,26 +402,26 @@ class ConcurrencyTracker:
             return previous(frame, event, arg)
         return None
 
-    # -- threads --------------------------------------------------------
+    # - threads --------------------------------------------------------
     def _install_thread_hook(self) -> None:
         """Register threads at their first bytecode, not their first region.
 
         ``threading.setprofile`` arms a profile function in every thread
-        started from here on. Ours runs once -- on the bootstrap frame's call
-        event -- registers the thread with an accurate start time, and then
+        started from here on. Ours runs once - on the bootstrap frame's call
+        event - registers the thread with an accurate start time, and then
         takes itself out with ``sys.setprofile(None)``, so no profiling
         overhead survives into the thread's actual work.
         """
         self._previous_thread_hook = getattr(threading, "_profile_hook", None)
         threading.setprofile(self._thread_bootstrap)
 
-    # -- asyncio --------------------------------------------------------
+    # - asyncio --------------------------------------------------------
     def _install_asyncio(self) -> None:
         """Instrument every event loop this process runs from now on.
 
         ``BaseEventLoop.run_forever`` is the single funnel every way of
-        running a loop goes through -- ``asyncio.run``, ``run_until_complete``
-        and a bare ``run_forever`` alike -- so wrapping it reaches loops
+        running a loop goes through - ``asyncio.run``, ``run_until_complete``
+        and a bare ``run_forever`` alike - so wrapping it reaches loops
         created long after ``setup()``. A loop already running (``setup()``
         called from inside a coroutine) is instrumented directly.
         """
@@ -482,13 +482,13 @@ class ConcurrencyTracker:
         if previous is not None:
             previous(event, args)
 
-    # -- greenlets ------------------------------------------------------
+    # - greenlets ------------------------------------------------------
     def _install_greenlet(self) -> None:
         """Follow greenlet switches, when greenlet is installed at all.
 
         ``greenlet.settrace`` reports every switch, which is exactly the
         boundary between one cooperative lane holding the thread and the next
-        -- the same split the asyncio step timer measures.
+        - the same split the asyncio step timer measures.
         """
         try:
             import greenlet
@@ -582,7 +582,7 @@ class ConcurrencyTracker:
         that shape.
 
         The child therefore starts untracked, and profiles concurrency only
-        once it calls ``setup()`` for itself -- which is the supported way to
+        once it calls ``setup()`` for itself - which is the supported way to
         profile a multiprocessing worker in any case, since each process
         writes its own output file.
 
@@ -696,7 +696,7 @@ def lane_ids(thread_ids: np.ndarray, task_ids: np.ndarray | None) -> np.ndarray:
     A call belongs to its task when it ran inside one and to its bare thread
     otherwise. The two id spaces are disjoint by construction: thread lanes
     are mapped to ``-2 - thread``, task lanes stay non-negative, and ``-1`` is
-    left for a call whose thread is unknown -- a region recorded by the
+    left for a call whose thread is unknown - a region recorded by the
     Fortran API, say, folded into an otherwise thread-aware run. This is the
     key :func:`~scope_profiler.call_stack.build_call_arrays` groups by, since
     only calls sharing a lane can nest.

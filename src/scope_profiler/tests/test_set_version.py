@@ -72,7 +72,7 @@ def test_setting_the_same_version_again_changes_nothing(script, sandbox):
 
 
 def test_only_the_version_on_the_line_is_replaced(script, sandbox):
-    """Neighbouring text -- other version-shaped strings -- must survive."""
+    """Neighbouring text - other version-shaped strings - must survive."""
     pyproject = next(
         site for site in script.VERSION_SITES if site.name == "pyproject.toml"
     )

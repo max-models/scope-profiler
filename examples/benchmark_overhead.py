@@ -60,7 +60,7 @@ def main():
     args = parser.parse_args()
 
     # Preallocate enough slots for every call across every repeat. Buffers grow
-    # on demand, so this is not required for correctness -- it just keeps the
+    # on demand, so this is not required for correctness - it just keeps the
     # reallocation out of the timed loop, so what is measured is the
     # steady-state per-call cost.
     buffer_limit = NUM_CALLS * NUM_REPEATS + 1
@@ -75,8 +75,8 @@ def main():
     # per-call cost.
     # The same modes test_overhead.py budgets, in the same order, so the
     # figure and the regression gate describe one thing rather than two.
-    # LineProfiler has no budget there -- it is three orders of magnitude
-    # heavier and belongs to targeted debugging, not always-on use -- but it
+    # LineProfiler has no budget there - it is three orders of magnitude
+    # heavier and belongs to targeted debugging, not always-on use - but it
     # is what sets the scale of this chart, so it stays.
     configs = [
         (
@@ -142,7 +142,7 @@ def main():
     overheads_us = [v / 1e3 for v in overheads_ns]
     baseline_us = baseline_per_call / 1e3
 
-    # The bars are one series -- the x labels carry the identity -- so they all
+    # The bars are one series - the x labels carry the identity - so they all
     # share a single hue rather than being coloured by position.
     BAR_COLOR = "#2a78d6"
     TEXT_COLOR = "#52514e"

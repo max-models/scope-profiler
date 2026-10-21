@@ -1,6 +1,6 @@
 // Flat config for the one JS package in the repo. Deliberately small: the
 // formatting rules live in prettier, so this only carries the checks that
-// catch real mistakes -- an unused binding of the kind that let two builders
+// catch real mistakes - an unused binding of the kind that let two builders
 // destructure a themed `axis` helper and never call it.
 export default [
   {
