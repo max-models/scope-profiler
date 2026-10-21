@@ -7,6 +7,7 @@ import linecache
 import threading
 import types
 from time import perf_counter_ns
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -14,6 +15,9 @@ from scope_profiler.concurrency import CPU_SAMPLE_MASK, NO_TASK
 from scope_profiler.gpu_timing import resolve_gpu_timing_backend
 from scope_profiler.perf_events import PerfEventGroup, PerfEventTotals
 from scope_profiler.profile_config import ProfilingConfig
+
+if TYPE_CHECKING:
+    from typing_extensions import Self  # typing.Self needs Python 3.11
 
 # Parsed module ASTs, memoized by filename. Capturing a region's source only
 # runs once per region name (see BaseProfileRegion.set_source), but a file can
@@ -461,6 +465,16 @@ class BaseProfileRegion:
             return func(*args, **kwargs)
 
         return wrapper
+
+    # Declared here, with their types, so that ``with ProfileManager.region(...)``
+    # type-checks; every region class overrides both.
+    def __enter__(self) -> "Self":
+        """Start timing a ``with`` block."""
+        raise NotImplementedError
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """Stop timing a ``with`` block."""
+        raise NotImplementedError
 
     def append(self, start: float, end: float) -> None:
         """Append a start/end time pair to the buffer, growing it if needed."""
