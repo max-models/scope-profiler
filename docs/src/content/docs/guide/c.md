@@ -469,17 +469,17 @@ from scope_profiler import ProfileManager
 
 kernels = ctypes.CDLL("./libkernels.so")
 kernels.kernels_jacobi_solve.argtypes = [ctypes.c_int, ctypes.c_int]
-kernels.kernels_jacobi_solve.restype = ctypes.c_double   # see the trap below
+kernels.kernels_jacobi_solve.restype = ctypes.c_double  # see the trap below
 
 ProfileManager.setup(file_path="profiling_data.h5")
 kernels.kernels_start_profiling(b"trace", 0)
 
 for step in range(nsteps):
     with ProfileManager.region("python:step"):
-        kernels.kernels_jacobi_solve(n, sweeps)          # records its own regions
+        kernels.kernels_jacobi_solve(n, sweeps)  # records its own regions
 
-kernels.kernels_stop_profiling()                          # writes the C output
-ProfileManager.finalize(native_traces=".")                # ...and folds it in
+kernels.kernels_stop_profiling()  # writes the C output
+ProfileManager.finalize(native_traces=".")  # ...and folds it in
 ```
 
 **One file comes out**, `profiling_data.h5`, holding both languages — there is

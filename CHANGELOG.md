@@ -4,6 +4,10 @@
 
 ### Added
 
+- The user guide pages that run in Python or the CLI are Jupyter notebooks
+  (`notebooks/guides/`), executed on every docs build like the tutorials, which moved to
+  `notebooks/tutorials/`. All of them are served under `/guide/`; the old `/tutorials/<name>/`
+  addresses redirect. A new tutorial covers reports, comparisons and regression gates.
 - C API: line-level sampling of regions (`sp_start_sampling()` or
   `SCOPE_PROFILER_SAMPLE_HZ`), written to `.sps` files, and
   `scope-profiler native-lines` to show the hottest source lines per region.

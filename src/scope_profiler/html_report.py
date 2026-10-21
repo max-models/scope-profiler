@@ -999,7 +999,7 @@ def _run_meta_html(results, region_count: int) -> str:
     if model["file"]:
         parts.append(
             f'<span title="{_text(model["file"]["path"])}">'
-            f'<code>{_text(model["file"]["name"])}</code></span>'
+            f"<code>{_text(model['file']['name'])}</code></span>"
         )
     if model["timestamp"]:
         parts.append(f"<span>{_text(model['timestamp'])}</span>")
@@ -1747,7 +1747,7 @@ def _runs_table_html(runs, links) -> str:
     for index, row in enumerate(model["rows"]):
         file_cell = (
             f'<td class="run-file" title="{_text(row["file"]["path"])}">'
-            f'<code>{_text(row["file"]["name"])}</code></td>'
+            f"<code>{_text(row['file']['name'])}</code></td>"
             if row["file"]
             else "<td>-</td>"
         )

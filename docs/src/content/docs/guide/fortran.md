@@ -399,7 +399,7 @@ python -m scope_profiler plot default mpi-run/profiling_data.h5 -o mpi-run/figur
 ```python
 from scope_profiler.native_trace import load_traces, convert_traces
 
-results = load_traces("run_dir")            # -> ProfilingResults, as usual
+results = load_traces("run_dir")  # -> ProfilingResults, as usual
 results.print_summary()
 results.to_dataframe()
 

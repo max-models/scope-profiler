@@ -6,9 +6,15 @@ description: How this documentation site is built from Markdown pages, notebooks
 The site in `docs/` is built with [Astro](https://astro.build/) and
 [Starlight](https://starlight.astro.build/). It has four kinds of pages:
 
-- **Hand-written pages** in `docs/src/content/docs/`, as Markdown or MDX.
-- **Tutorials**, converted from the Jupyter notebooks in `tutorials/` by `starlight-notebooks`:
-  each notebook is executed and its outputs (text, images, tables) are written into an MDX page.
+- **Hand-written pages** in `docs/src/content/docs/`, as Markdown or MDX. Do not put `.mdx` files
+  in `guide/`: the notebook tool deletes the `.mdx` pages there that it did not generate.
+- **Tutorials and most guides**, converted from the Jupyter notebooks in `notebooks/` by
+  `starlight-notebooks`: each notebook is executed and its outputs (text, images, tables) are
+  written into an MDX page. `notebooks/tutorials/` holds the tutorials and `notebooks/guides/` the
+  guides; both are built into the `guide/` section (the tool builds one folder into one section),
+  so a tutorial is at `/guide/01-getting-started/`. The code in these pages is therefore run on
+  every docs build. The guides for C, Fortran, LIKWID and MCP, which need a compiler, hardware or
+  an MCP client, stay hand-written Markdown in `docs/src/content/docs/guide/`.
 - **API reference**, generated from the docstrings by
   [starlight-pydocs](https://ewels.github.io/starlight-pydocs/), one page per module. The
   [Python API](/scope-profiler/reference/api/) page places single objects among prose with
@@ -38,7 +44,7 @@ change them there, and update the version in `docs/package.json` and
 
 ```bash
 make docs-install     # npm packages and the Python docs extra
-make docs-notebooks   # execute tutorials/*.ipynb and convert them to pages
+make docs-notebooks   # execute notebooks/**/*.ipynb and convert them to pages
 make docs-outputs     # run the CLI and API examples into docs/src/generated/
 make docs-dev         # live preview at http://localhost:4321/scope-profiler/
 make docs-build       # the static site in docs/dist, as in CI

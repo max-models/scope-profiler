@@ -1089,7 +1089,7 @@ def _import_lines(page_dir: Path, components: Path, names) -> str:
     if not relative.startswith("."):
         relative = "./" + relative
     return "\n".join(
-        f'import {name} from {_yaml_string(f"{relative}/{name}.astro")};'
+        f"import {name} from {_yaml_string(f'{relative}/{name}.astro')};"
         for name in names
     )
 

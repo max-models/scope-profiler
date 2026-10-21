@@ -167,8 +167,8 @@ counter appended (`CAS_COUNT_RD:MBOX0C0`, ...). `event_names` and
 
 ```python
 result = results.get_likwid_region("solve")
-dict(zip(result.event_labels, result.events[:, 0]))   # safe
-dict(zip(result.event_names, result.events[:, 0]))    # loses all but one channel
+dict(zip(result.event_labels, result.events[:, 0]))  # safe
+dict(zip(result.event_names, result.events[:, 0]))  # loses all but one channel
 ```
 
 ## Reading the counters back
@@ -177,8 +177,8 @@ dict(zip(result.event_names, result.events[:, 0]))    # loses all but one channe
 from scope_profiler import read_h5
 
 results = read_h5("profiling_data.h5")
-results.has_likwid          # False for a run without counters
-results.likwid_ranks        # ranks that recorded counters
+results.has_likwid  # False for a run without counters
+results.likwid_ranks  # ranks that recorded counters
 
 # Everything, keyed by rank then region tag
 for rank, regions in results.get_likwid_regions().items():
@@ -191,8 +191,8 @@ for rank, regions in results.get_likwid_regions().items():
 
 # One region on one rank
 solve = results.get_likwid_region("solve", rank=0)
-solve.metric_names         # ['Runtime (RDTSC) [s]', 'Clock [MHz]', 'CPI', ...]
-solve.metrics[2, 0]        # CPI on the first hardware thread
+solve.metric_names  # ['Runtime (RDTSC) [s]', 'Clock [MHz]', 'CPI', ...]
+solve.metrics[2, 0]  # CPI on the first hardware thread
 ```
 
 `print_likwid_summary()` dumps all of it as text, and `likwid_to_dataframe()`

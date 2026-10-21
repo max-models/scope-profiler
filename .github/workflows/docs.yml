@@ -36,9 +36,9 @@ jobs:
         reference/api/index.html
         reference/cli/index.html
         tutorials/index.html
-        tutorials/01-getting-started/index.html
-        tutorials/03-visualization/index.html
-        tutorials/03-visualization/1.png
+        guide/01-getting-started/index.html
+        guide/03-visualization/index.html
+        guide/03-visualization/1.png
         api/scope_profiler/index.html
         api/scope_profiler/profile_manager/index.html
         figures/cli/gantt_plot.png
