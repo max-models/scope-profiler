@@ -110,6 +110,7 @@
 - `import scope_profiler` no longer imports h5py or `importlib.metadata`, about half its import
   time on top of NumPy.
 - The docs no longer claim that disabled instrumentation costs nothing: it costs one Python call.
+- The `pproc` extra takes any `maxplotlibx >= 0.1.9` instead of pinning 0.1.9.
 - The documentation site moved from Sphinx to Astro + Starlight with the shared
   [starlight-theme](https://github.com/max-models/starlight-theme): the pages
   are Markdown/MDX in `docs/src/content/docs/`, the tutorials Jupyter
