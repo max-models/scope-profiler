@@ -76,7 +76,7 @@ enabled. Recursive function tracing is opt-in with `--recursive`; add `--all`
 to include standard-library and installed-package calls as well.
 
 ```text
-usage: scope-profiler run [-h] [-o OUTFILE | --no-output] [-q] [--recursive | --no-recursive] [--include GLOB] [--exclude GLOB] [--all] [--label LABEL] [--tag TAG] [--entrypoint NAME] [--line-profile] [--memory-profile]
+usage: scope-profiler run [-h] [-o OUTFILE | --no-output] [-q] [--recursive | --no-recursive] [--include GLOB] [--exclude GLOB] [--all] [--label LABEL] [--tag TAG] [--enable-tag TAG] [--entrypoint NAME] [--line-profile] [--memory-profile]
                           [--buffer-limit BUFFER_LIMIT]
                           script ...
 ```
@@ -91,6 +91,7 @@ usage: scope-profiler run [-h] [-o OUTFILE | --no-output] [-q] [--recursive | --
 | `--all`              | Recursively trace all calls, including standard-library and installed-package calls |
 | `--label`            | Store a short label with the run for comparison and reporting         |
 | `--tag`              | Record only explicit regions carrying the given tag; repeatable      |
+| `--enable-tag`       | Record the regions behind an opt-in tag, such as a library's own instrumentation; `*` enables all; repeatable |
 | `--entrypoint`       | Name the recursively traced entrypoint region                       |
 | `--include`          | Include only recursively traced function names matching this glob; repeatable |
 | `--exclude`          | Exclude recursively traced function names matching this glob; repeatable |
@@ -140,6 +141,10 @@ override a configuration file that enables recursive tracing.
 Repeat `--tag` to select explicitly defined regions by tag; a region is kept
 when it has at least one of the requested tags. `--include` and `--exclude`
 apply to recursively traced function names and accept shell-style globs.
+
+Libraries can ship regions behind an opt-in tag (`sp.register_opt_in_tag`),
+which stay off until a run enables them. `--enable-tag mylib` records them
+alongside everything else, as does `SCOPE_PROFILER_ENABLE_TAGS=mylib`.
 
 A JSON profile holds everything the HDF5 file does — every call's
 timestamps, the lane tables, LIKWID counters, line-profiler records — in

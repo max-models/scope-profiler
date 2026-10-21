@@ -4,6 +4,12 @@
 
 ### Added
 
+- Opt-in region tags, so a library can ship its own instrumentation switched off by default:
+  it calls `sp.register_opt_in_tag("mylib")` and tags its regions (`region`, `profile`,
+  `define_region` and `instrument` take `tags=`). A run records them only when it enables the
+  tag, with `enable_tags` (a `setup()`/`session()` setting, `ProfilingOptions` field and TOML
+  key), the `SCOPE_PROFILER_ENABLE_TAGS` environment variable or `scope-profiler run
+  --enable-tag`; `"*"` enables every opt-in tag.
 - The user guide pages that run in Python or the CLI are Jupyter notebooks
   (`notebooks/guides/`), executed on every docs build like the tutorials, which moved to
   `notebooks/tutorials/`. All of them are served under `/guide/`; the old `/tutorials/<name>/`

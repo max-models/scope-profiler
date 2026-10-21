@@ -64,6 +64,13 @@ _PAYLOAD_TAG = 0x5C09
 _WRITE_TOKEN_TAG = 0x5C0A
 _UNSET = object()
 
+# Tags registered with register_opt_in_tag(). Libraries register them at
+# import time, so this outlives every setup() and reset, and is shared by all
+# managers. Regions carrying one stay disabled unless the run enables it.
+_OPT_IN_TAGS: set[str] = set()
+#: Comma-separated opt-in tags to enable, read by every setup().
+_ENABLE_TAGS_ENV = "SCOPE_PROFILER_ENABLE_TAGS"
+
 
 # HDF5 attributes cannot exceed 64 KB; a function longer than this keeps its
 # timings but not its source.
@@ -482,6 +489,7 @@ class ProfileManager:
 
     _regions: ClassVar[dict] = {}
     _region_tag_filter: frozenset[str] | None = None
+    _enabled_tags: frozenset[str] = frozenset()
     # Next call id to hand out, so ids stay unique across the repeated
     # finalize() calls of one run. Reset by setup(), which starts a new run.
     _next_call_id = 0
@@ -501,7 +509,7 @@ class ProfileManager:
     _metadata_scopes: ClassVar[list] = []
     _mpi_profile_context = None
     _region_cls = DisabledProfileRegion
-    _decorators: ClassVar[dict[str, list]] = {}  # name -> [(func, _bound), ...]
+    _decorators: ClassVar[dict[str, list]] = {}  # name -> [(func, _bound, tags), ...]
     _region_definitions: ClassVar[dict[str, tuple]] = {}
     _decorated_codes: ClassVar[set] = set()
     _recursive_state = threading.local()
@@ -609,7 +617,9 @@ class ProfileManager:
 
         tags : iterable of str, optional
             User-defined labels persisted with the region. Reusing a region
-            name with a different non-None tag set raises ``ValueError``.
+            name with a different non-None tag set raises ``ValueError``. A
+            region carrying a tag registered with :meth:`register_opt_in_tag`
+            is disabled unless the run enables that tag.
 
         Returns
         -------
@@ -635,6 +645,8 @@ class ProfileManager:
                 normalized_tags
             ).intersection(cls._region_tag_filter):
                 region_cls = DisabledProfileRegion
+            if normalized_tags and not cls._opt_in_enabled(normalized_tags):
+                region_cls = DisabledProfileRegion
             region = region_cls(
                 region_name,
                 config=cls.get_config(),
@@ -653,6 +665,45 @@ class ProfileManager:
             for func in functions:
                 region.add_function(func)
         return region
+
+    @classmethod
+    def _opt_in_enabled(cls, tags) -> bool:
+        """Whether ``tags`` carry no opt-in tag, or one this run enables."""
+        opt_in = _OPT_IN_TAGS.intersection(tags)
+        if not opt_in or "*" in cls._enabled_tags:
+            return True
+        return not opt_in.isdisjoint(cls._enabled_tags)
+
+    @classmethod
+    def register_opt_in_tag(cls, *tags: str) -> None:
+        """Mark ``tags`` as opt-in: their regions are off unless enabled.
+
+        Meant for libraries that ship their own instrumentation. Register the
+        tag once, at import time, and tag the library's regions with it::
+
+            # mylib/__init__.py
+            import scope_profiler as sp
+
+            sp.register_opt_in_tag("mylib")
+
+            @sp.profile("mylib.solve", tags=("mylib",))
+            def solve(): ...
+
+        Applications that profile themselves then don't record ``mylib``'s
+        regions until they ask for them, without editing ``mylib``: with
+        ``setup(enable_tags=["mylib"])`` (also a ``ProfilingOptions`` field
+        and a TOML setting), the ``SCOPE_PROFILER_ENABLE_TAGS=mylib``
+        environment variable, or ``scope-profiler run --enable-tag mylib``.
+        ``"*"`` enables every opt-in tag. Listing the tag in ``region_tags``
+        enables it too.
+
+        A disabled decorated function is left unwrapped, so instrumentation
+        that is off costs nothing per call.
+        """
+        for tag in tags:
+            if not isinstance(tag, str) or not tag:
+                raise TypeError(f"opt-in tags must be non-empty strings, got {tag!r}")
+        _OPT_IN_TAGS.update(tags)
 
     #: Original name for :meth:`region`, kept so existing instrumentation
     #: keeps working unchanged. Same object, not a forwarding wrapper: this
@@ -677,6 +728,7 @@ class ProfileManager:
                 "_next_call_id": 0,
                 "_config": None,
                 "_region_tag_filter": None,
+                "_enabled_tags": frozenset(),
                 "_configured": False,
                 "_lifecycle_state": _LifecycleState.INACTIVE,
                 "_auto_finalize_callback": None,
@@ -851,7 +903,13 @@ class ProfileManager:
             cls._region_cls = TimeOnlyProfileRegion
 
     @classmethod
-    def _bind_decorated_region(cls, name: str, func, _bound: list) -> BaseProfileRegion:
+    def _bind_decorated_region(
+        cls,
+        name: str,
+        func,
+        _bound: list,
+        tags=None,
+    ) -> BaseProfileRegion:
         """Resolve ``name``'s region, capture ``func``'s source, and bind it into ``_bound``.
 
         Shared between the initial ``@ProfileManager.profile`` decoration and
@@ -859,7 +917,7 @@ class ProfileManager:
         object (see ``set_config``) and the new one starts with no source of
         its own - skipping this on rebind would silently drop it.
         """
-        region = cls.profile_region(name)
+        region = cls.profile_region(name, tags=tags)
         if not isinstance(region, DisabledProfileRegion):
             if cls._config.capture_region_source:
                 source = function_source(func)
@@ -885,6 +943,7 @@ class ProfileManager:
         recursive: bool | None = None,
         metadata=None,
         record_outcome: bool = False,
+        tags=None,
     ) -> Callable:
         """
         Decorator factory for profiling a function.
@@ -904,6 +963,10 @@ class ProfileManager:
         record_outcome : bool, optional
             Add ``status`` and, for failures, ``exception`` metadata to each
             decorated call (default: False).
+        tags : iterable of str, optional
+            Labels persisted with the region, as for :meth:`region`. An
+            opt-in tag (see :meth:`register_opt_in_tag`) leaves the function
+            unprofiled unless the run enables it.
 
         Returns
         -------
@@ -918,6 +981,8 @@ class ProfileManager:
         ``@ProfileManager.profile`` can be applied at class-definition time
         even when ``setup()`` is called later.
         """
+
+        region_tags = None if tags is None else tuple(tags)
 
         def decorator(func):
             name = region_name or func.__name__
@@ -956,11 +1021,11 @@ class ProfileManager:
                 with cls.metadata(**values):
                     return _bound[1](*args, **kwargs)
 
-            cls._bind_decorated_region(name, func, _bound)
+            cls._bind_decorated_region(name, func, _bound, region_tags)
             cls._decorated_codes.add(func.__code__)
 
             # Register so set_config() can rebind without a per-call check.
-            cls._decorators.setdefault(name, []).append((func, _bound))
+            cls._decorators.setdefault(name, []).append((func, _bound, region_tags))
 
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
@@ -1086,8 +1151,21 @@ class ProfileManager:
         return completed
 
     @classmethod
-    def instrument(cls, module, *, include=("*",), exclude=(), prefix=None):
-        """Decorate matching module-level functions without editing source."""
+    def instrument(
+        cls,
+        module,
+        *,
+        include=("*",),
+        exclude=(),
+        prefix=None,
+        tags=None,
+    ):
+        """Decorate matching module-level functions without editing source.
+
+        ``tags`` is passed to every :meth:`profile` decorator, so a library
+        can put a whole module behind one opt-in tag (see
+        :meth:`register_opt_in_tag`).
+        """
         changed = {}
         module_name = getattr(module, "__name__", "module")
         for name, function in list(vars(module).items()):
@@ -1098,7 +1176,7 @@ class ProfileManager:
             if any(fnmatch.fnmatch(name, pattern) for pattern in exclude):
                 continue
             region_name = f"{prefix}.{name}" if prefix else f"{module_name}.{name}"
-            wrapped = cls.profile(region_name)(function)
+            wrapped = cls.profile(region_name, tags=tags)(function)
             setattr(module, name, wrapped)
             changed[name] = wrapped
         return changed
@@ -2584,6 +2662,11 @@ class ProfileManager:
         hdf5_chunk_size : int or None, optional
             Maximum events per dataset chunk. Enables chunked partial reads
             even without compression.
+        enable_tags : iterable of str, optional
+            Opt-in tags (see :meth:`register_opt_in_tag`) whose regions this
+            run records; ``"*"`` enables all of them. The comma-separated
+            ``SCOPE_PROFILER_ENABLE_TAGS`` environment variable adds to this
+            list, as do the tags in ``region_tags``.
 
         Notes
         -----
@@ -2656,6 +2739,12 @@ class ProfileManager:
             **settings,
         )
         cls._region_tag_filter = None if region_tags is None else frozenset(region_tags)
+        env_tags = os.environ.get(_ENABLE_TAGS_ENV, "")
+        cls._enabled_tags = (
+            frozenset(config.enable_tags)
+            .union(tag.strip() for tag in env_tags.split(",") if tag.strip())
+            .union(cls._region_tag_filter or ())
+        )
         cls.set_config(config=config)
         cls._requested_output = requested_output
         if auto_finalize:
@@ -2768,8 +2857,8 @@ class ProfileManager:
         # Rebind all registered decorator wrappers to the new region class.
         # This is the only place rebinding happens — there is no per-call check.
         for name, entries in cls._decorators.items():
-            for func, _bound in entries:
-                cls._bind_decorated_region(name, func, _bound)
+            for func, _bound, tags in entries:
+                cls._bind_decorated_region(name, func, _bound, tags)
         for name, (functions, tags) in cls._region_definitions.items():
             cls.region(name, functions=functions, tags=tags)
 
@@ -2828,6 +2917,7 @@ class ProfileManager:
         cls._requested_output = None
         cls._metadata_scopes = []
         cls._region_tag_filter = None
+        cls._enabled_tags = frozenset()
         cls._configured = False
         cls._lifecycle_state = _LifecycleState.INACTIVE
 

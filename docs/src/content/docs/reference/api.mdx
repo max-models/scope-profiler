@@ -33,6 +33,15 @@ results = run.results
 rather than wrappers around them, and act on the same process-wide default
 manager. Use `ProfileManager` directly for independent manager instances.
 
+### Library instrumentation that is off by default
+
+A library registers an opt-in tag once with `sp.register_opt_in_tag("mylib")`
+and passes `tags=("mylib",)` to `region`, `profile`, `define_region` or
+`instrument`. Those regions stay disabled until a run enables the tag with
+`setup(enable_tags=["mylib"])`, the `enable_tags` TOML setting,
+`SCOPE_PROFILER_ENABLE_TAGS=mylib` or `scope-profiler run --enable-tag mylib`.
+The registry is process-wide and shared by every manager.
+
 ## ProfileManager
 
 The main entry point for all profiling operations. Class methods provide the
