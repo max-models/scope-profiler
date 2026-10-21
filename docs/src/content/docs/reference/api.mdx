@@ -42,6 +42,10 @@ and passes `tags=("mylib",)` to `region`, `profile`, `define_region` or
 `SCOPE_PROFILER_ENABLE_TAGS=mylib` or `scope-profiler run --enable-tag mylib`.
 The registry is process-wide and shared by every manager.
 
+Test suites reset the profiler between tests with `sp.reset()`, which keeps
+the instrumentation (decorated functions and `define_region` definitions)
+so that it records again after the next `setup()`.
+
 ## ProfileManager
 
 The main entry point for all profiling operations. Class methods provide the

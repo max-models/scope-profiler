@@ -4,6 +4,10 @@
 
 ### Added
 
+- `sp.reset()`, for test suites: it forgets the configuration and what was recorded but keeps the
+  instrumentation, so a library's `@sp.profile` functions record again after the next `setup()`.
+  Before, the private `ProfileManager._reset()` dropped them for good, and calling one before the
+  next `setup()` raised `AttributeError`.
 - Opt-in region tags, so a library can ship its own instrumentation switched off by default:
   it calls `sp.register_opt_in_tag("mylib")` and tags its regions (`region`, `profile`,
   `define_region` and `instrument` take `tags=`). A run records them only when it enables the
@@ -97,6 +101,15 @@
 
 ### Changed
 
+- A decorated function whose region is disabled (before `setup()`, or behind an opt-in tag that is
+  off) calls straight through: it skips `metadata` and no longer starts recursive tracing.
+- `register_opt_in_tag()` also re-resolves the regions and decorated functions that already exist,
+  so a library may call it after its own imports.
+- `sp.profile` keeps the decorated function's signature for type checkers, and `with sp.region(...)`
+  type-checks (`BaseProfileRegion` declares `__enter__`/`__exit__`).
+- `import scope_profiler` no longer imports h5py or `importlib.metadata`, about half its import
+  time on top of NumPy.
+- The docs no longer claim that disabled instrumentation costs nothing: it costs one Python call.
 - The documentation site moved from Sphinx to Astro + Starlight with the shared
   [starlight-theme](https://github.com/max-models/starlight-theme): the pages
   are Markdown/MDX in `docs/src/content/docs/`, the tutorials Jupyter

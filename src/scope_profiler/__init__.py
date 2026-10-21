@@ -1,6 +1,5 @@
 """scope-profiler: lightweight region-based profiling for Python and HPC applications."""
 
-from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING, Any
 
 from scope_profiler.call_stack import (
@@ -79,21 +78,19 @@ region_factory = ProfileManager.region_factory
 recorded_regions = ProfileManager.recorded_regions
 region = ProfileManager.region
 register_opt_in_tag = ProfileManager.register_opt_in_tag
+reset = ProfileManager.reset
 registered_regions = ProfileManager.registered_regions
 session = ProfileManager.session
 setup = ProfileManager.setup
 setup_from_env = ProfileManager.setup_from_env
 run = ProfileManager.run
 
-try:
-    __version__ = version("scope-profiler")
-except PackageNotFoundError:
-    __version__ = "unknown"
-
 # Keep these imports visible to language servers without importing the optional
 # plotting/reporting dependencies at runtime.  Dynamic module attributes are
 # otherwise invisible to hover, completion, and static type checkers.
 if TYPE_CHECKING:
+    __version__: str
+
     from scope_profiler.chrome_trace_export import export_chrome_trace
     from scope_profiler.html_report import create_html_report
     from scope_profiler.inspection import collect_file_metadata, inspect_file
@@ -200,6 +197,7 @@ __all__ = [
     "region_factory",
     "register_opt_in_tag",
     "registered_regions",
+    "reset",
     "run",
     "session",
     "setup",
@@ -214,6 +212,15 @@ __all__ = [
 
 def __getattr__(name: str) -> Any:
     """Load optional top-level helpers only when they are first used."""
+    if name == "__version__":
+        # Looked up on first use: importlib.metadata is about half the cost of
+        # ``import scope_profiler`` on top of NumPy.
+        from importlib.metadata import PackageNotFoundError, version
+
+        try:
+            return version("scope-profiler")
+        except PackageNotFoundError:
+            return "unknown"
     if name in {
         "collect_region_statistics",
         "collect_roofline_points",

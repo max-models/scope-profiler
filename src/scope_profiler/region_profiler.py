@@ -462,6 +462,16 @@ class BaseProfileRegion:
 
         return wrapper
 
+    # Declared here, with their types, so that ``with ProfileManager.region(...)``
+    # type-checks; every region class overrides both.
+    def __enter__(self) -> "BaseProfileRegion":
+        """Start timing a ``with`` block."""
+        raise NotImplementedError
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """Stop timing a ``with`` block."""
+        raise NotImplementedError
+
     def append(self, start: float, end: float) -> None:
         """Append a start/end time pair to the buffer, growing it if needed."""
 
