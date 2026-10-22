@@ -12,7 +12,6 @@ import json
 from copy import copy
 from pathlib import Path
 
-import h5py
 import numpy as np
 
 from scope_profiler.h5schema import HDF5SchemaError, migrate_schema, read_schema_version
@@ -39,6 +38,10 @@ class CorruptProfileError(OSError):
 
 def _open_h5(file_path):
     """Open a profiling file, reporting an unreadable one in context."""
+    # Imported here, not at module level: ``import scope_profiler`` (and so
+    # every library that ships regions) should not pay for h5py up front.
+    import h5py
+
     try:
         return h5py.File(file_path, "r")
     except OSError as exc:

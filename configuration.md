@@ -403,8 +403,9 @@ ProfileManager.setup(
 ## Library regions that are off by default
 
 A library can ship its own regions without them showing up in every
-profile of the code that uses it. It registers an *opt-in tag* once, at
-import time, and tags its regions with it:
+profile of the code that uses it. It registers an *opt-in tag* once, in its
+package `__init__` (before or after its own imports), and tags its regions
+with it:
 
 ```python
 # mylib/__init__.py
@@ -422,9 +423,11 @@ def fft(x):
 ```
 
 `sp.instrument(module, tags=("mylib",))` tags every function it wraps.
-These regions stay disabled, and a decorated function stays unwrapped, until
-the run enables the tag. Untagged regions and regions with other tags are
-unaffected. The application enables it without editing the library, in any
+These regions stay disabled until the run enables the tag; a disabled
+decorated function calls straight through, skipping `metadata` and recursive
+tracing. Either way, instrumentation that is off costs one extra Python call
+(roughly 0.1–0.3 µs), so keep it to operations that take microseconds or
+more. Untagged regions and regions with other tags are unaffected. The application enables it without editing the library, in any
 of these ways (they add up):
 
 - `setup(enable_tags=["mylib"])` or `session(enable_tags=["mylib"])`, or
@@ -437,6 +440,19 @@ of these ways (they add up):
 `"*"` enables every opt-in tag. A region carrying several opt-in tags
 records when any of them is enabled. Naming an opt-in tag in
 `region_tags` (`--tag`) enables it too.
+
+A test suite that profiles in more than one test resets the profiler between
+them with `sp.reset()`. It forgets the configuration and what was recorded
+but keeps the instrumentation, as importing the library left it, so the
+library's decorated functions record again after the next `setup()`:
+
+```python
+@pytest.fixture(autouse=True)
+def _fresh_profiler():
+    sp.reset()
+    yield
+    sp.reset()
+```
 
 ## Recursive profiling of decorated entrypoints
 

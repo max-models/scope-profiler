@@ -13,13 +13,13 @@ import sys
 import sysconfig
 import threading
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from contextlib import ContextDecorator, contextmanager
 from contextvars import ContextVar
 from enum import Enum, auto
 from time import perf_counter_ns
 from types import FrameType
-from typing import TYPE_CHECKING, ClassVar, NamedTuple
+from typing import TYPE_CHECKING, ClassVar, NamedTuple, ParamSpec, TypeVar, overload
 
 import numpy as np
 
@@ -63,6 +63,8 @@ if TYPE_CHECKING:  # imported lazily in read_results() to keep imports cheap
 _PAYLOAD_TAG = 0x5C09
 _WRITE_TOKEN_TAG = 0x5C0A
 _UNSET = object()
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
 
 # Tags registered with register_opt_in_tag(). Libraries register them at
 # import time, so this outlives every setup() and reset, and is shared by all
@@ -697,13 +699,29 @@ class ProfileManager:
         ``"*"`` enables every opt-in tag. Listing the tag in ``region_tags``
         enables it too.
 
-        A disabled decorated function is left unwrapped, so instrumentation
-        that is off costs nothing per call.
+        Regions and decorated functions that already exist pick the change up,
+        so the call may come after the library's own imports.
+
+        Instrumentation that is off costs one extra Python call (roughly
+        0.1-0.3 µs per call), so keep it to operations that take microseconds
+        or more.
         """
         for tag in tags:
             if not isinstance(tag, str) or not tag:
                 raise TypeError(f"opt-in tags must be non-empty strings, got {tag!r}")
-        _OPT_IN_TAGS.update(tags)
+        new = set(tags) - _OPT_IN_TAGS
+        _OPT_IN_TAGS.update(new)
+        if new and cls._configured:
+            cls._rebind_tagged(new)
+
+    @classmethod
+    def _rebind_tagged(cls, tags) -> None:
+        """Re-resolve the existing regions and decorators that carry ``tags``."""
+        for name in [n for n, r in cls._regions.items() if tags.intersection(r.tags)]:
+            del cls._regions[name]
+        for name, func, _bound, region_tags in cls._decorated_functions():
+            if region_tags and tags.intersection(region_tags):
+                cls._bind_decorated_region(name, func, _bound, region_tags)
 
     #: Original name for :meth:`region`, kept so existing instrumentation
     #: keeps working unchanged. Same object, not a forwarding wrapper: this
@@ -934,8 +952,21 @@ class ProfileManager:
                     )
         _bound[0] = region
         _bound[1] = region.wrap(func)
+        _bound[2] = isinstance(region, DisabledProfileRegion)
         return region
 
+    @classmethod
+    def _decorated_functions(cls):
+        """Yield ``(name, func, _bound, tags)`` for every @profile wrapper."""
+        for name, entries in cls._decorators.items():
+            for entry in entries:
+                yield (name, *entry)
+
+    @overload
+    @classmethod
+    def profile(cls, region_name: Callable[_P, _R]) -> Callable[_P, _R]: ...
+
+    @overload
     @classmethod
     def profile(
         cls,
@@ -943,8 +974,18 @@ class ProfileManager:
         recursive: bool | None = None,
         metadata=None,
         record_outcome: bool = False,
+        tags: Iterable[str] | None = None,
+    ) -> Callable[[Callable[_P, _R]], Callable[_P, _R]]: ...
+
+    @classmethod
+    def profile(
+        cls,
+        region_name=None,
+        recursive=None,
+        metadata=None,
+        record_outcome=False,
         tags=None,
-    ) -> Callable:
+    ):
         """
         Decorator factory for profiling a function.
 
@@ -979,7 +1020,10 @@ class ProfileManager:
         ``ProfileManager.setup()`` after decoration re-binds the wrapper to
         the new region class at zero per-call cost.  This means
         ``@ProfileManager.profile`` can be applied at class-definition time
-        even when ``setup()`` is called later.
+        even when ``setup()`` is called later. While its region is disabled
+        (before ``setup()``, or behind an opt-in tag that is off) the wrapper
+        calls the function directly, skipping ``metadata`` and recursive
+        tracing.
         """
 
         region_tags = None if tags is None else tuple(tags)
@@ -989,7 +1033,7 @@ class ProfileManager:
             # _bound[1] is the inner callable produced by region.wrap(func).
             # It is replaced (without touching the outer wrapper) whenever
             # set_config() is called, so there is no per-call rebind check.
-            _bound = [None, None]  # [region, wrapped_func]
+            _bound = [None, func, True]  # [region, wrapped_func, disabled]
             recursive_override = recursive
 
             def invoke(*args, **kwargs):
@@ -1024,11 +1068,10 @@ class ProfileManager:
             cls._bind_decorated_region(name, func, _bound, region_tags)
             cls._decorated_codes.add(func.__code__)
 
-            # Register so set_config() can rebind without a per-call check.
-            cls._decorators.setdefault(name, []).append((func, _bound, region_tags))
-
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
+                if _bound[2]:
+                    return _bound[1](*args, **kwargs)
                 recursive_enabled = cls._config.recursive_profile
                 if recursive_override is not None:
                     recursive_enabled = recursive_override
@@ -1057,6 +1100,8 @@ class ProfileManager:
                     sys.setprofile(prev_profiler)
                     state.depth -= 1
 
+            # Register so set_config() can rebind without a per-call check.
+            cls._decorators.setdefault(name, []).append((func, _bound, region_tags))
             return wrapper
 
         # Support @ProfileManager.profile without parentheses
@@ -2461,6 +2506,13 @@ class ProfileManager:
             if cls._configured:
                 cls.finalize()
 
+        if not cls._config.deactivate_file_output:
+            # The hook writes HDF5 at exit, and h5py must not be imported for
+            # the first time during interpreter shutdown (it crashes). Importing
+            # it now also registers its own exit hook before ours, so ours runs
+            # first.
+            import h5py  # noqa: F401
+
         cls._auto_finalize_callback = finalize_at_exit
         atexit.register(finalize_at_exit)
 
@@ -2856,9 +2908,8 @@ class ProfileManager:
         cls._update_region_cls()  # Set the proper region class
         # Rebind all registered decorator wrappers to the new region class.
         # This is the only place rebinding happens — there is no per-call check.
-        for name, entries in cls._decorators.items():
-            for func, _bound, tags in entries:
-                cls._bind_decorated_region(name, func, _bound, tags)
+        for name, func, _bound, tags in cls._decorated_functions():
+            cls._bind_decorated_region(name, func, _bound, tags)
         for name, (functions, tags) in cls._region_definitions.items():
             cls.region(name, functions=functions, tags=tags)
 
@@ -2922,11 +2973,31 @@ class ProfileManager:
         cls._lifecycle_state = _LifecycleState.INACTIVE
 
     @classmethod
-    def _reset(cls) -> None:
+    def reset(cls) -> None:
+        """Forget the configuration and everything recorded; keep the instrumentation.
+
+        Leaves the manager as importing the instrumented code does: not
+        configured, every region disabled until the next :meth:`setup`.
+        Decorated functions and :meth:`define_region` definitions stay
+        registered, and decorated functions call straight through until then.
+        Meant for test suites that profile in more than one test::
+
+            @pytest.fixture(autouse=True)
+            def _fresh_profiler():
+                sp.reset()
+                yield
+                sp.reset()
+        """
         cls._reset_regions()
         cls._reset_config()
-        # Back to the state a fresh import leaves behind: no configuration,
-        # and regions disabled until setup() or get_config() says otherwise.
         cls._region_cls = DisabledProfileRegion
+        for _name, func, _bound, _tags in cls._decorated_functions():
+            _bound[:] = [None, func, True]
+
+    @classmethod
+    def _reset(cls) -> None:
+        # reset(), and forget every decorator and definition too, so that no
+        # test of scope-profiler itself sees another test's instrumentation.
+        cls.reset()
         cls._decorators.clear()
         cls._region_definitions.clear()

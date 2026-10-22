@@ -1,5 +1,7 @@
 """Opt-in region tags: library instrumentation that is off unless enabled."""
 
+import sys
+
 import pytest
 
 import scope_profiler as sp
@@ -195,3 +197,70 @@ with sp.region("user.step"):
 
     assert set(read_h5(off).region_names) == {"user.step"}
     assert set(read_h5(on).region_names) == {"mylib.kernel", "user.step"}
+
+
+def test_reset_keeps_decorated_functions_for_the_next_setup():
+    sp.register_opt_in_tag("mylib")
+
+    @sp.profile("mylib.solve", tags=("mylib",))
+    def solve():
+        return 1
+
+    sp.reset()
+    assert solve() == 1  # calls straight through while nothing is configured
+    ProfileManager.setup(output=None, enable_tags=["mylib"])
+    solve()
+    results = ProfileManager.finalize(verbose=False, return_results=True)
+
+    assert results["mylib.solve"].num_calls == 1
+
+
+def test_private_reset_forgets_decorated_functions():
+    @sp.profile("solve")
+    def solve():
+        pass
+
+    ProfileManager._reset()
+    ProfileManager.setup(output=None)
+
+    assert "solve" not in sp.registered_regions()
+
+
+def test_disabled_decorated_function_skips_metadata_and_tracing():
+    sp.register_opt_in_tag("mylib")
+    metadata_calls = []
+    profilers = []
+
+    def metadata(*args, **kwargs):
+        metadata_calls.append(args)
+        return {"n": 1}
+
+    @sp.profile("mylib.solve", tags=("mylib",), metadata=metadata, recursive=True)
+    def solve():
+        profilers.append(sys.getprofile())
+
+    before = sys.getprofile()
+    ProfileManager.setup(output=None)
+    solve()
+    ProfileManager.finalize(verbose=False)
+
+    assert metadata_calls == []
+    assert profilers == [before]
+
+
+def test_registering_a_tag_late_disables_existing_instrumentation():
+    @sp.profile("mylib.solve", tags=("mylib",))
+    def solve():
+        pass
+
+    ProfileManager.setup(output=None)
+    with sp.region("mylib.kernel", tags=("mylib",)):
+        pass
+    sp.register_opt_in_tag("mylib")
+    solve()
+    with sp.region("mylib.kernel", tags=("mylib",)):
+        pass
+    results = ProfileManager.finalize(verbose=False, return_results=True)
+
+    assert "mylib.solve" not in results.region_names
+    assert "mylib.kernel" not in results.region_names
