@@ -1,6 +1,8 @@
 """The lane bookkeeping behind ``track_threads`` and ``track_async``."""
 
 import asyncio
+import subprocess
+import sys
 import threading
 
 import numpy as np
@@ -316,3 +318,15 @@ def test_the_thread_start_hook_chains_to_a_profiler_that_was_already_there():
         sys.setprofile(None)
         tracker.uninstall()
         threading.setprofile(None)
+
+
+def test_imports_without_a_per_thread_clock():
+    """Pyodide's ``time`` has no ``thread_time_ns``; the process clock stands in."""
+    code = (
+        "import time\n"
+        "del time.thread_time_ns\n"
+        "import scope_profiler\n"
+        "from scope_profiler import concurrency\n"
+        "assert concurrency.thread_time_ns is time.process_time_ns\n"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)

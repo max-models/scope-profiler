@@ -173,6 +173,8 @@
 
 ### Fixed
 
+- `import scope_profiler` works on Pyodide, whose `time` has no `thread_time_ns`; the process
+  clock stands in for it there.
 - Summary: a recursive row's total sums only the outermost calls, so it no longer
   exceeds the time of its caller, and the regions called from a recursive
   function are no longer marked with the recursive symbol (#313).
