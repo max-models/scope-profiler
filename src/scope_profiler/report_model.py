@@ -441,7 +441,9 @@ def line_profile_location(results, entry: dict) -> dict:
     ranks_note = (
         f" · {_plural(len(entry['ranks']), 'rank')}"
         if len(entry["ranks"]) > 1
-        else f" · rank {entry['ranks'][0]}" if results.num_ranks > 1 else ""
+        else f" · rank {entry['ranks'][0]}"
+        if results.num_ranks > 1
+        else ""
     )
     return {"text": location + ranks_note, "title": entry["filename"]}
 

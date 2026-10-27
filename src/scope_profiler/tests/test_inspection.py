@@ -12,9 +12,9 @@ from scope_profiler.h5writer import ProfilingWriter
 from scope_profiler.inspection import (
     collect_file_metadata,
     inspect_file,
+    write_metadata_json,
 )
 from scope_profiler.inspection import main as inspect_main
-from scope_profiler.inspection import write_metadata_json
 from scope_profiler.likwid_data import LikwidRegionResult, write_likwid_results
 from scope_profiler.perf_events import PerfEventTotals
 from scope_profiler.profile_manager import RankPayload

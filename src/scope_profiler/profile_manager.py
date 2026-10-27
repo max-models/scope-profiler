@@ -589,6 +589,14 @@ class ProfileManager:
         )
 
     @classmethod
+    def _opt_in_enabled(cls, tags) -> bool:
+        """Whether ``tags`` carry no opt-in tag, or one this run enables."""
+        opt_in = _OPT_IN_TAGS.intersection(tags)
+        if not opt_in or "*" in cls._enabled_tags:
+            return True
+        return not opt_in.isdisjoint(cls._enabled_tags)
+
+    @classmethod
     def region(
         cls,
         region_name,
@@ -668,61 +676,6 @@ class ProfileManager:
                 region.add_function(func)
         return region
 
-    @classmethod
-    def _opt_in_enabled(cls, tags) -> bool:
-        """Whether ``tags`` carry no opt-in tag, or one this run enables."""
-        opt_in = _OPT_IN_TAGS.intersection(tags)
-        if not opt_in or "*" in cls._enabled_tags:
-            return True
-        return not opt_in.isdisjoint(cls._enabled_tags)
-
-    @classmethod
-    def register_opt_in_tag(cls, *tags: str) -> None:
-        """Mark ``tags`` as opt-in: their regions are off unless enabled.
-
-        Meant for libraries that ship their own instrumentation. Register the
-        tag once, at import time, and tag the library's regions with it::
-
-            # mylib/__init__.py
-            import scope_profiler as sp
-
-            sp.register_opt_in_tag("mylib")
-
-            @sp.profile("mylib.solve", tags=("mylib",))
-            def solve(): ...
-
-        Applications that profile themselves then don't record ``mylib``'s
-        regions until they ask for them, without editing ``mylib``: with
-        ``setup(enable_tags=["mylib"])`` (also a ``ProfilingOptions`` field
-        and a TOML setting), the ``SCOPE_PROFILER_ENABLE_TAGS=mylib``
-        environment variable, or ``scope-profiler run --enable-tag mylib``.
-        ``"*"`` enables every opt-in tag. Listing the tag in ``region_tags``
-        enables it too.
-
-        Regions and decorated functions that already exist pick the change up,
-        so the call may come after the library's own imports.
-
-        Instrumentation that is off costs one extra Python call (roughly
-        0.1-0.3 µs per call), so keep it to operations that take microseconds
-        or more.
-        """
-        for tag in tags:
-            if not isinstance(tag, str) or not tag:
-                raise TypeError(f"opt-in tags must be non-empty strings, got {tag!r}")
-        new = set(tags) - _OPT_IN_TAGS
-        _OPT_IN_TAGS.update(new)
-        if new and cls._configured:
-            cls._rebind_tagged(new)
-
-    @classmethod
-    def _rebind_tagged(cls, tags) -> None:
-        """Re-resolve the existing regions and decorators that carry ``tags``."""
-        for name in [n for n, r in cls._regions.items() if tags.intersection(r.tags)]:
-            del cls._regions[name]
-        for name, func, _bound, region_tags in cls._decorated_functions():
-            if region_tags and tags.intersection(region_tags):
-                cls._bind_decorated_region(name, func, _bound, region_tags)
-
     #: Original name for :meth:`region`, kept so existing instrumentation
     #: keeps working unchanged. Same object, not a forwarding wrapper: this
     #: is on the per-event hot path.
@@ -767,6 +720,95 @@ class ProfileManager:
             },
         )
         return object.__new__(isolated_cls)
+
+    @classmethod
+    def _bind_decorated_region(
+        cls,
+        name: str,
+        func,
+        _bound: list,
+        tags=None,
+    ) -> BaseProfileRegion:
+        """Resolve ``name``'s region, capture ``func``'s source, and bind it into ``_bound``.
+
+        Shared between the initial ``@ProfileManager.profile`` decoration and
+        ``set_config()``'s rebind, since a config change replaces every region
+        object (see ``set_config``) and the new one starts with no source of
+        its own - skipping this on rebind would silently drop it.
+        """
+        region = cls.profile_region(name, tags=tags)
+        if not isinstance(region, DisabledProfileRegion):
+            if cls._config.capture_region_source:
+                source = function_source(func)
+                if source is not None:
+                    filename, first_lineno, text = source
+                    region.set_source(cls._recorded_path(filename), first_lineno, text)
+            else:
+                code = getattr(func, "__code__", None)
+                if code is not None:
+                    region.set_source(
+                        cls._recorded_path(code.co_filename),
+                        code.co_firstlineno,
+                        None,
+                    )
+        _bound[0] = region
+        _bound[1] = region.wrap(func)
+        _bound[2] = isinstance(region, DisabledProfileRegion)
+        return region
+
+    @classmethod
+    def _decorated_functions(cls):
+        """Yield ``(name, func, _bound, tags)`` for every @profile wrapper."""
+        for name, entries in cls._decorators.items():
+            for entry in entries:
+                yield (name, *entry)
+
+    @classmethod
+    def _rebind_tagged(cls, tags) -> None:
+        """Re-resolve the existing regions and decorators that carry ``tags``."""
+        for name in [n for n, r in cls._regions.items() if tags.intersection(r.tags)]:
+            del cls._regions[name]
+        for name, func, _bound, region_tags in cls._decorated_functions():
+            if region_tags and tags.intersection(region_tags):
+                cls._bind_decorated_region(name, func, _bound, region_tags)
+
+    @classmethod
+    def register_opt_in_tag(cls, *tags: str) -> None:
+        """Mark ``tags`` as opt-in: their regions are off unless enabled.
+
+        Meant for libraries that ship their own instrumentation. Register the
+        tag once, at import time, and tag the library's regions with it::
+
+            # mylib/__init__.py
+            import scope_profiler as sp
+
+            sp.register_opt_in_tag("mylib")
+
+            @sp.profile("mylib.solve", tags=("mylib",))
+            def solve(): ...
+
+        Applications that profile themselves then don't record ``mylib``'s
+        regions until they ask for them, without editing ``mylib``: with
+        ``setup(enable_tags=["mylib"])`` (also a ``ProfilingOptions`` field
+        and a TOML setting), the ``SCOPE_PROFILER_ENABLE_TAGS=mylib``
+        environment variable, or ``scope-profiler run --enable-tag mylib``.
+        ``"*"`` enables every opt-in tag. Listing the tag in ``region_tags``
+        enables it too.
+
+        Regions and decorated functions that already exist pick the change up,
+        so the call may come after the library's own imports.
+
+        Instrumentation that is off costs one extra Python call (roughly
+        0.1-0.3 µs per call), so keep it to operations that take microseconds
+        or more.
+        """
+        for tag in tags:
+            if not isinstance(tag, str) or not tag:
+                raise TypeError(f"opt-in tags must be non-empty strings, got {tag!r}")
+        new = set(tags) - _OPT_IN_TAGS
+        _OPT_IN_TAGS.update(new)
+        if new and cls._configured:
+            cls._rebind_tagged(new)
 
     @classmethod
     def _frame_region_name(cls, frame: FrameType) -> str:
@@ -919,48 +961,6 @@ class ProfileManager:
             cls._region_cls = ThreadedProfileRegion
         else:
             cls._region_cls = TimeOnlyProfileRegion
-
-    @classmethod
-    def _bind_decorated_region(
-        cls,
-        name: str,
-        func,
-        _bound: list,
-        tags=None,
-    ) -> BaseProfileRegion:
-        """Resolve ``name``'s region, capture ``func``'s source, and bind it into ``_bound``.
-
-        Shared between the initial ``@ProfileManager.profile`` decoration and
-        ``set_config()``'s rebind, since a config change replaces every region
-        object (see ``set_config``) and the new one starts with no source of
-        its own - skipping this on rebind would silently drop it.
-        """
-        region = cls.profile_region(name, tags=tags)
-        if not isinstance(region, DisabledProfileRegion):
-            if cls._config.capture_region_source:
-                source = function_source(func)
-                if source is not None:
-                    filename, first_lineno, text = source
-                    region.set_source(cls._recorded_path(filename), first_lineno, text)
-            else:
-                code = getattr(func, "__code__", None)
-                if code is not None:
-                    region.set_source(
-                        cls._recorded_path(code.co_filename),
-                        code.co_firstlineno,
-                        None,
-                    )
-        _bound[0] = region
-        _bound[1] = region.wrap(func)
-        _bound[2] = isinstance(region, DisabledProfileRegion)
-        return region
-
-    @classmethod
-    def _decorated_functions(cls):
-        """Yield ``(name, func, _bound, tags)`` for every @profile wrapper."""
-        for name, entries in cls._decorators.items():
-            for entry in entries:
-                yield (name, *entry)
 
     @overload
     @classmethod
@@ -1975,6 +1975,14 @@ class ProfileManager:
         return records
 
     @classmethod
+    def _cancel_auto_finalize(cls) -> None:
+        """Remove this manager's pending process-exit finalizer, if any."""
+        callback = cls._auto_finalize_callback
+        cls._auto_finalize_callback = None
+        if callback is not None:
+            atexit.unregister(callback)
+
+    @classmethod
     def finalize(
         cls,
         verbose: bool = True,
@@ -2485,14 +2493,6 @@ class ProfileManager:
     def last_results(cls):
         """Most recent in-memory results requested from this manager, if any."""
         return cls._last_results
-
-    @classmethod
-    def _cancel_auto_finalize(cls) -> None:
-        """Remove this manager's pending process-exit finalizer, if any."""
-        callback = cls._auto_finalize_callback
-        cls._auto_finalize_callback = None
-        if callback is not None:
-            atexit.unregister(callback)
 
     @classmethod
     def _register_auto_finalize(cls) -> None:

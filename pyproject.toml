@@ -96,17 +96,11 @@ optional-dependencies.extras = [
 ]
 
 optional-dependencies.dev = [
-  # Black is the one code formatter; ruff only lints (`ruff format` is not
-  # used - the two disagree on a handful of constructs). Pinned to a year
-  # series: black changes its stable style only in the January release.
-  "black[jupyter] >= 26.1, < 27",
-  "isort >= 9.0.0",
-  "mypy >= 1.11.0",
   # Pinned to a minor series. Ruff's default rule set grows between minor
   # releases, so an unpinned dependency turns a routine upgrade into a red
   # build on a commit nobody touched (0.15 -> 0.16 added ~79 findings here).
   # Bump deliberately, fixing or triaging the new rules in the same change.
-  "ruff >= 0.16, < 0.17",
+  "ruff >= 0.17, < 0.18",
   "scope-profiler[docs,fortran,line-profiler,mcp,mpi,notebook,nvtx,pproc,test,tui]",
 ]
 # The docs site (docs/, @max-models/starlight-theme): griffe reads the API reference, and
@@ -171,58 +165,6 @@ scope_profiler = [
   "py.typed",
 ]
 
-[tool.isort]
-profile = "black"
-
-[tool.black]
-# Inferred from requires-python, black also targets not-yet-released Pythons
-# and then warns that it cannot verify its output on the running one. The
-# oldest supported version is what decides the formatting anyway.
-target-version = [ "py310" ]
-
-[tool.mypy]
-# Incremental typing covers the core public result/configuration objects and
-# the pure helpers they rest on. Optional integrations and older dynamically
-# typed code can be migrated independently without weakening this check.
-files = [
-  "src/scope_profiler/profile_config.py",
-  "src/scope_profiler/region.py",
-  "src/scope_profiler/mpi_region.py",
-  "src/scope_profiler/results.py",
-  "src/scope_profiler/h5schema.py",
-  "src/scope_profiler/json_export.py",
-  "src/scope_profiler/profile_io.py",
-  "src/scope_profiler/call_stack.py",
-  "src/scope_profiler/concurrency.py",
-  "src/scope_profiler/gpu_timing.py",
-  "src/scope_profiler/metadata.py",
-  "src/scope_profiler/mpi_launch.py",
-]
-# Resolve imports against the source tree rather than whatever happens to be
-# installed. Without this, an editable install (a .pth file mypy cannot follow)
-# silently degrades every intra-package import to Any locally, while CI's
-# regular install - which now carries a py.typed marker - checks them for
-# real. That difference hid 131 errors from local runs.
-mypy_path = "src"
-# Run the checker on the lowest CI-supported modern typing environment. The
-# source remains constrained by requires-python >= 3.10.
-python_version = "3.12"
-check_untyped_defs = true
-disallow_untyped_defs = false
-ignore_missing_imports = true
-no_implicit_optional = true
-warn_unused_ignores = true
-# Check the modules listed above, not everything they import. Dropping this
-# pulls in 21 more modules and ~130 pre-existing errors, which is a migration
-# to do module by module (adding each to `files` as it goes green), not a
-# config flip.
-#
-# It also has to stay explicit rather than rely on the default: with a regular
-# install (CI) mypy resolves the intra-package imports and follows them, while
-# with an editable install (the usual local setup) it cannot, so leaving this
-# unset makes local runs pass and CI fail on the very same commit.
-follow_imports = "skip"
-
 [tool.coverage.run]
 # PEP 669 monitoring rather than the C tracer: coverage's default tracer takes
 # the single sys.settrace slot, which the recursive tracer and the line
@@ -266,7 +208,7 @@ exclude_also = [
 ]
 
 [tool.ruff]
-# Linting only: black formats the code. Do not run `ruff format`.
+# formatting: `ruff format`; import sorting: the isort rules of `ruff check`
 src = [ "src" ]
 
 [tool.ruff.lint]
@@ -289,10 +231,6 @@ ignore = [
   # part of the public contract and asserted by tests (e.g. sample_every);
   # changing it is an API break, not a lint fix.
   "TRY004",
-  # Import sorting belongs to isort, which has its own CI job and its own
-  # [tool.isort] profile. With both enabled the two disagree on a handful of
-  # files and each undoes the other's fix on every run.
-  "I001",
 ]
 
 [tool.ruff.lint.per-file-ignores]
