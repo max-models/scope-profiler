@@ -82,10 +82,6 @@ jobs:
       - name: Test
         run: npm test
 
-  # Type checking runs in the "Testing" workflow's `typing` job, against the
-  # module list in [tool.mypy]. It is a hard gate there, so it is not
-  # duplicated here.
-  #
   # pylint and prospector were evaluated and dropped rather than left running
   # with `|| true`: an advisory job nobody can fail is noise, and ruff already
   # covers the rules this project enforces.
