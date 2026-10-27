@@ -96,17 +96,12 @@ optional-dependencies.extras = [
 ]
 
 optional-dependencies.dev = [
-  # Black is the one code formatter; ruff only lints (`ruff format` is not
-  # used - the two disagree on a handful of constructs). Pinned to a year
-  # series: black changes its stable style only in the January release.
-  "black[jupyter] >= 26.1, < 27",
-  "isort >= 9.0.0",
   "mypy >= 1.11.0",
   # Pinned to a minor series. Ruff's default rule set grows between minor
   # releases, so an unpinned dependency turns a routine upgrade into a red
   # build on a commit nobody touched (0.15 -> 0.16 added ~79 findings here).
   # Bump deliberately, fixing or triaging the new rules in the same change.
-  "ruff >= 0.16, < 0.17",
+  "ruff >= 0.17, < 0.18",
   "scope-profiler[docs,fortran,line-profiler,mcp,mpi,notebook,nvtx,pproc,test,tui]",
 ]
 # The docs site (docs/, @max-models/starlight-theme): griffe reads the API reference, and
@@ -170,15 +165,6 @@ scope_profiler = [
   # are only visible to a downstream type checker if this marker ships too.
   "py.typed",
 ]
-
-[tool.isort]
-profile = "black"
-
-[tool.black]
-# Inferred from requires-python, black also targets not-yet-released Pythons
-# and then warns that it cannot verify its output on the running one. The
-# oldest supported version is what decides the formatting anyway.
-target-version = [ "py310" ]
 
 [tool.mypy]
 # Incremental typing covers the core public result/configuration objects and
@@ -266,7 +252,7 @@ exclude_also = [
 ]
 
 [tool.ruff]
-# Linting only: black formats the code. Do not run `ruff format`.
+# formatting: `ruff format`; import sorting: the isort rules of `ruff check`
 src = [ "src" ]
 
 [tool.ruff.lint]
@@ -289,10 +275,6 @@ ignore = [
   # part of the public contract and asserted by tests (e.g. sample_every);
   # changing it is an API break, not a lint fix.
   "TRY004",
-  # Import sorting belongs to isort, which has its own CI job and its own
-  # [tool.isort] profile. With both enabled the two disagree on a handful of
-  # files and each undoes the other's fix on every run.
-  "I001",
 ]
 
 [tool.ruff.lint.per-file-ignores]

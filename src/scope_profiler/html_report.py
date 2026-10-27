@@ -1049,6 +1049,49 @@ def _rank_breakdown_html(rank_rows) -> str:
     )
 
 
+def _line_profile_table_html(model, filename, table_id) -> str:
+    """The table of a :func:`line_profile_model`."""
+    body = []
+    for row in model["rows"]:
+        if not row["recorded"]:
+            body.append(
+                f'<tr class="lp-idle"><td class="lp-lineno">{row["number"]}</td>'
+                f'<td></td><td></td><td></td><td></td><td class="lp-src">{row["source"]}</td></tr>'
+            )
+            continue
+        row_class = ' class="lp-hot"' if row["hot"] else ""
+        body.append(
+            f'<tr{row_class}><td class="lp-lineno">{row["number"]}</td>'
+            f"<td>{row['hits']:,}</td><td>{_text(_duration_text(row['seconds']))}</td>"
+            f"<td>{_text(_duration_text(row['per_hit']))}</td>"
+            f'<td class="lp-pct" style="--pct:{min(row["percent"], 100.0):.3g}%">{row["percent"]:.2f}%</td>'
+            f'<td class="lp-src">{row["source"]}</td></tr>'
+        )
+    return (
+        f'<div class="lp-scroll"><table class="lp-table" id="{table_id}"><thead><tr>'
+        "<th>line</th><th>hits</th><th>time</th><th>per hit</th><th>% time</th>"
+        '<th class="lp-src">source</th></tr></thead><tbody>'
+        + "".join(body)
+        + "</tbody></table></div>"
+        + (
+            ""
+            if model["has_source"]
+            else '<p class="muted table-note">No source: this profile does not store '
+            f"it, and <code>{_text(filename)}</code> could not be read from "
+            "here. Profiles recorded with the current scope-profiler carry the "
+            "source with them.</p>"
+        )
+    )
+
+
+def _lp_location_html(location) -> str:
+    """Where a profiled function is, and on how many ranks it ran."""
+    return (
+        f'<span class="lp-loc" title="{_text(location["title"])}">'
+        f"{_text(location['text'])}</span>"
+    )
+
+
 def _region_detail_html(detail, table_id="lp") -> str:
     """Expandable detail for one region: call site, tags, ranks and line profile."""
     parts = []
@@ -1255,49 +1298,6 @@ def _line_profile_table(entry, table_id) -> str:
     )
 
 
-def _line_profile_table_html(model, filename, table_id) -> str:
-    """The table of a :func:`line_profile_model`."""
-    body = []
-    for row in model["rows"]:
-        if not row["recorded"]:
-            body.append(
-                f'<tr class="lp-idle"><td class="lp-lineno">{row["number"]}</td>'
-                f'<td></td><td></td><td></td><td></td><td class="lp-src">{row["source"]}</td></tr>'
-            )
-            continue
-        row_class = ' class="lp-hot"' if row["hot"] else ""
-        body.append(
-            f'<tr{row_class}><td class="lp-lineno">{row["number"]}</td>'
-            f"<td>{row['hits']:,}</td><td>{_text(_duration_text(row['seconds']))}</td>"
-            f"<td>{_text(_duration_text(row['per_hit']))}</td>"
-            f'<td class="lp-pct" style="--pct:{min(row["percent"], 100.0):.3g}%">{row["percent"]:.2f}%</td>'
-            f'<td class="lp-src">{row["source"]}</td></tr>'
-        )
-    return (
-        f'<div class="lp-scroll"><table class="lp-table" id="{table_id}"><thead><tr>'
-        "<th>line</th><th>hits</th><th>time</th><th>per hit</th><th>% time</th>"
-        '<th class="lp-src">source</th></tr></thead><tbody>'
-        + "".join(body)
-        + "</tbody></table></div>"
-        + (
-            ""
-            if model["has_source"]
-            else '<p class="muted table-note">No source: this profile does not store '
-            f"it, and <code>{_text(filename)}</code> could not be read from "
-            "here. Profiles recorded with the current scope-profiler carry the "
-            "source with them.</p>"
-        )
-    )
-
-
-def _lp_location_html(location) -> str:
-    """Where a profiled function is, and on how many ranks it ran."""
-    return (
-        f'<span class="lp-loc" title="{_text(location["title"])}">'
-        f"{_text(location['text'])}</span>"
-    )
-
-
 def _line_profile_html(results, functions, section_id="run-0") -> str:
     """Line profiles of regions the table does not show: one row per function.
 
@@ -1450,16 +1450,70 @@ def _chart_description(title: str, payload: dict, comparison: bool = False) -> s
     return f'<p class="muted">{text}</p>'
 
 
-def _deviation_style(value: float, mean: float) -> str:
-    """Background for a matrix cell: blue below the region's mean, red above."""
-    return _shade_style(deviation(value, mean))
-
-
 def _shade_style(shade) -> str:
     if shade is None:
         return ""
     color = "220,38,38" if shade["sign"] > 0 else "37,99,235"
     return f' style="background:rgba({color},{shade["alpha"]:.2f})"'
+
+
+def _deviation_style(value: float, mean: float) -> str:
+    """Background for a matrix cell: blue below the region's mean, red above."""
+    return _shade_style(deviation(value, mean))
+
+
+def _rank_matrix_html(results, balance, section_id) -> str:
+    """Every rank side by side, region by region, against the region's mean."""
+    run = _text(results.display_label)
+    model = matrix_model(balance)
+    columns = len(model["ranks"])
+    compact = columns > _MATRIX_TEXT_RANKS
+
+    def cells(cells_) -> str:
+        return "".join(
+            f'<td class="heat"{_shade_style(cell["shade"])}'
+            f' title="{_text(cell["title"])}">{cell["label"]}</td>'
+            for cell in cells_
+        )
+
+    header = "".join(
+        (
+            f'<th class="slowest" title="slowest rank overall">{rank}</th>'
+            if rank == model["slowest_rank"]
+            else f"<th>{rank}</th>"
+        )
+        for rank in model["ranks"]
+    )
+    body = "".join(
+        f'<tr class="select-row" data-region="{_text(entry["name"])}" data-run="{run}"'
+        f' data-filter-region="{_text(entry["name"])}">'
+        f'<td title="{_text(entry["name"])}">{_text(entry["name"])}</td>'
+        f"<td>{_text(entry['mean_text'])}</td>" + cells(entry["cells"]) + "</tr>"
+        for entry in model["rows"]
+    )
+    footer = (
+        "<tfoot><tr><td>all regions</td>"
+        f"<td>{_text(model['totals']['mean_text'])}</td>"
+        + cells(model["totals"]["cells"])
+        + "</tr></tfoot>"
+    )
+    notes = model["notes"]
+    return (
+        f'<h3 id="{section_id}-ranks">Rank comparison</h3>'
+        '<p class="muted">Each cell compares one rank\'s time in a region with the '
+        f"region's mean over the ranks. {model['overall']} Hover a cell for its time.</p>"
+        '<p class="legend"><span>faster than the mean</span><span class="legend-scale">'
+        "</span><span>slower</span></p>"
+        f'<div class="table-scroll"><table class="rank-matrix{" compact" if compact else ""}">'
+        "<thead><tr><th>region</th><th>mean</th>"
+        + header
+        + "</tr></thead><tbody>"
+        + body
+        + "</tbody>"
+        + footer
+        + "</table></div>"
+        + (f'<p class="muted table-note">{" ".join(notes)}</p>' if notes else "")
+    )
 
 
 def _load_balance_html(results, balance, region_ids, section_id) -> str:
@@ -1522,60 +1576,6 @@ def _load_balance_html(results, balance, region_ids, section_id) -> str:
         + table
         + _rank_matrix_html(results, balance, section_id)
         + "</div>"
-    )
-
-
-def _rank_matrix_html(results, balance, section_id) -> str:
-    """Every rank side by side, region by region, against the region's mean."""
-    run = _text(results.display_label)
-    model = matrix_model(balance)
-    columns = len(model["ranks"])
-    compact = columns > _MATRIX_TEXT_RANKS
-
-    def cells(cells_) -> str:
-        return "".join(
-            f'<td class="heat"{_shade_style(cell["shade"])}'
-            f' title="{_text(cell["title"])}">{cell["label"]}</td>'
-            for cell in cells_
-        )
-
-    header = "".join(
-        (
-            f'<th class="slowest" title="slowest rank overall">{rank}</th>'
-            if rank == model["slowest_rank"]
-            else f"<th>{rank}</th>"
-        )
-        for rank in model["ranks"]
-    )
-    body = "".join(
-        f'<tr class="select-row" data-region="{_text(entry["name"])}" data-run="{run}"'
-        f' data-filter-region="{_text(entry["name"])}">'
-        f'<td title="{_text(entry["name"])}">{_text(entry["name"])}</td>'
-        f"<td>{_text(entry['mean_text'])}</td>" + cells(entry["cells"]) + "</tr>"
-        for entry in model["rows"]
-    )
-    footer = (
-        "<tfoot><tr><td>all regions</td>"
-        f"<td>{_text(model['totals']['mean_text'])}</td>"
-        + cells(model["totals"]["cells"])
-        + "</tr></tfoot>"
-    )
-    notes = model["notes"]
-    return (
-        f'<h3 id="{section_id}-ranks">Rank comparison</h3>'
-        '<p class="muted">Each cell compares one rank\'s time in a region with the '
-        f"region's mean over the ranks. {model['overall']} Hover a cell for its time.</p>"
-        '<p class="legend"><span>faster than the mean</span><span class="legend-scale">'
-        "</span><span>slower</span></p>"
-        f'<div class="table-scroll"><table class="rank-matrix{" compact" if compact else ""}">'
-        "<thead><tr><th>region</th><th>mean</th>"
-        + header
-        + "</tr></thead><tbody>"
-        + body
-        + "</tbody>"
-        + footer
-        + "</table></div>"
-        + (f'<p class="muted table-note">{" ".join(notes)}</p>' if notes else "")
     )
 
 
@@ -2330,12 +2330,7 @@ def _single_run_body(results, include, exclude, ranks, sort, columns, charts, li
     )
     return (
         # The bar leads the page, above the title, and stays there on scroll.
-        _filter_bar(limits)
-        + header
-        + _navigation(links)
-        + sections
-        + hardware
-        + charts
+        _filter_bar(limits) + header + _navigation(links) + sections + hardware + charts
     )
 
 

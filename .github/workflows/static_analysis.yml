@@ -32,44 +32,27 @@ jobs:
           ./cloc --version
           ./cloc $(git ls-files)
 
-  black:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout the code
-        uses: actions/checkout@v4
-
-      - name: Code formatting with black
-        run: |
-          # Black is the only formatter (ruff only lints). Same pin as the dev
-          # extra, so a new black release cannot fail a build on its own.
-          pip install "black[jupyter]>=26.1,<27"
-          black --check src/ notebooks/
-
-  isort:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout the code
-        uses: actions/checkout@v4
-
-      - name: Code formatting with isort
-        run: |
-          pip install isort
-          isort --check src/
-          isort --check notebooks/
-
   ruff:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout the code
         uses: actions/checkout@v4
 
-      - name: Linting with ruff
+      - name: Linting with ruff (including import sorting)
         run: |
           # Same pin as the dev extra, so a new ruff release cannot fail a
           # build on its own. Checks everything, not just src/: examples and
           # docs generators are code users copy from.
-          pip install "ruff>=0.16,<0.17"
+          pip install "ruff>=0.17,<0.18"
           ruff check .
+
+      - name: Code formatting with ruff
+        run: ruff format --check .
+
+      - name: Check statement order
+        run: |
+          pip install ssort
+          ssort --check --diff .
 
   # The one JavaScript package in the repo. Its formatting had drifted for
   # want of a gate, and `no-unused-vars` catches the class of mistake that let

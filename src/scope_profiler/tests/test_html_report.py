@@ -707,6 +707,14 @@ def test_comparison_of_run_sizes_compares_time_per_rank(tmp_path):
     assert "total and own times are per rank" in document
 
 
+def _speedup_document(document, title="Speedup"):
+    """A scaling chart's embedded chart document (the speedup by default)."""
+    documents = json.loads(
+        re.search(r"const scopeProfilerCharts = (.*?);\n", document).group(1)
+    )
+    return next(item for item in documents if item["title"] == title)
+
+
 def test_comparison_of_thread_counts_scales_over_threads(tmp_path):
     pytest.importorskip("plotly")
     threads_only = _scaling_profiles(tmp_path, [1, 1], threads=[1, 4])
@@ -751,14 +759,6 @@ def test_comparison_of_equal_sizes_has_no_speedup_chart(tmp_path):
     assert _scaling_value(_Run(2, {"omp_num_threads": 3}), "total_cores") == 6
     assert _scaling_value(_Run(2, {}), "omp_num_threads") is None
     assert _scaling_value(_Run(2, {}), "total_cores") is None
-
-
-def _speedup_document(document, title="Speedup"):
-    """A scaling chart's embedded chart document (the speedup by default)."""
-    documents = json.loads(
-        re.search(r"const scopeProfilerCharts = (.*?);\n", document).group(1)
-    )
-    return next(item for item in documents if item["title"] == title)
 
 
 def test_speedup_x_selects_the_axis_and_offers_the_others(tmp_path):
@@ -2225,8 +2225,9 @@ def test_comparison_of_identical_runs_reports_no_changes(tmp_path):
     )
     assert _change_html(None, None, "total") == ("-", None)
     assert _change_html(0.0, 1.0, "total")[0] == '<span class="badge new">new</span>'
-    assert "delta slower" in _change_html(1.0, 0.0, "total")[0] or "faster" in (
-        _change_html(1.0, 0.0, "total")[0]
+    assert (
+        "delta slower" in _change_html(1.0, 0.0, "total")[0]
+        or "faster" in (_change_html(1.0, 0.0, "total")[0])
     )
     assert (
         'class="delta neutral down" title="-2 calls"' in _change_html(4, 2, "calls")[0]

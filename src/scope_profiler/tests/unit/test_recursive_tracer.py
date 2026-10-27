@@ -293,8 +293,9 @@ def test_nested_calls_produce_nested_regions(manager):
     assert outer_region.num_calls == 1
     assert inner_region.num_calls == 1
     # The inner call really is contained by the outer one.
-    assert outer_region.get_start_times_numpy()[0] <= (
-        inner_region.get_start_times_numpy()[0]
+    assert (
+        outer_region.get_start_times_numpy()[0]
+        <= (inner_region.get_start_times_numpy()[0])
     )
     assert (
         inner_region.get_end_times_numpy()[0] <= outer_region.get_end_times_numpy()[0]
