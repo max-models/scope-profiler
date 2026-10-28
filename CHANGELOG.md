@@ -173,6 +173,10 @@
 
 ### Fixed
 
+- `AGENTS.md`, which the README, the examples page and the MCP guide link to for the measured
+  benchmark workflow, did not exist; it now describes the development setup and the
+  benchmark-change-compare loop, and the agent workflow example points to it instead of a missing
+  `CLAUDE.md`.
 - `import scope_profiler` works on Pyodide, whose `time` has no `thread_time_ns`; the process
   clock stands in for it there.
 - Summary: a recursive row's total sums only the outermost calls, so it no longer
