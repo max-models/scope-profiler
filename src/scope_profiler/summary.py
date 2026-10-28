@@ -8,6 +8,7 @@ Everything here works off duck-typed results/region objects, so this module has
 no scope-profiler imports and cannot introduce an import cycle.
 """
 
+import argparse
 import os
 import re
 import shlex
@@ -53,6 +54,21 @@ def _print_heading(text, stream) -> None:
     if getattr(stream, "isatty", lambda: False)():
         text = f"\033[1;36m{text}\033[0m"
     print(text, file=stream)
+
+
+def regions_title(rows, top=None) -> str:
+    """``Regions (n)``, or ``Regions (top of n)`` when only ``top`` are shown."""
+    if top and top < len(rows):
+        return f"Regions ({top} of {len(rows)})"
+    return f"Regions ({len(rows)})"
+
+
+def positive_int(value: str) -> int:
+    """The ``argparse`` type of ``--top``: an integer of at least 1."""
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"must be at least 1, got {value}")
+    return number
 
 
 SORT_KEYS = (

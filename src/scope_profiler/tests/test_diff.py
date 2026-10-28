@@ -247,6 +247,30 @@ def test_cli_threshold_flag(file_a, file_b, capsys):
     assert "setup" not in out.split("Regions")[1]
 
 
+def test_cli_top_flag_keeps_the_largest_changes(file_a, file_b, capsys):
+    diff_main([str(file_a), str(file_b), "--top", "1"])
+    out = capsys.readouterr().out
+    assert "Regions (1 of 3)" in out
+    table = out.split("Regions (1 of 3)")[1]
+    assert "solve" in table
+    assert "setup" not in table
+
+
+def test_cli_top_rejects_zero(file_a, file_b, capsys):
+    with pytest.raises(SystemExit):
+        diff_main([str(file_a), str(file_b), "--top", "0"])
+    assert "must be at least 1" in capsys.readouterr().err
+
+
+def test_check_top_shortens_the_table_but_checks_every_region(file_a, file_b, capsys):
+    assert check_main([str(file_a), str(file_b), "--fail-on-new", "--top", "1"]) == 1
+    out = capsys.readouterr().out
+    table, violations = out.split("Budget violations:")
+    assert "solve" in table
+    assert "teardown" not in table.split("Only in b")[0]
+    assert violations.strip() == "solve, teardown"
+
+
 def test_check_passes_within_budget_and_fails_over_budget(file_a, file_b, capsys):
     from scope_profiler.h5reader import read_h5
 
