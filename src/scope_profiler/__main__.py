@@ -41,6 +41,10 @@ The subcommands:
   merged HDF5 profiling files, region by region, so a regression (or
   improvement) between two runs shows up in one table. See
   ``scope_profiler.diff``.
+- ``scope-profiler tags`` - lists the opt-in region tags of the installed
+  packages (found through the ``scope_profiler.opt_in_tags`` entry points, or
+  ``--import MODULE``) and the regions behind each, i.e. what
+  ``--enable-tag`` can switch on. See ``scope_profiler.tags_cli``.
 - ``scope-profiler check a.h5 b.h5`` - applies a regression budget and
   returns a CI-friendly exit code.
 - ``scope-profiler benchmark run config.toml`` - runs a repeatable benchmark
@@ -575,6 +579,13 @@ def _diff(argv):
     return diff_main(argv)
 
 
+def _tags(argv):
+    """Handle ``scope-profiler tags``: list the available opt-in tags."""
+    from scope_profiler.tags_cli import main as tags_main
+
+    return tags_main(argv)
+
+
 def _check(argv):
     """Handle ``scope-profiler check``: enforce a regression budget."""
     from scope_profiler.diff import check_main
@@ -763,6 +774,7 @@ _COMMANDS = {
     "line-profile": _line_profile,
     "diff": _diff,
     "check": _check,
+    "tags": _tags,
     "benchmark": _benchmark,
     "import-native": _import_fortran,
     "native-lines": _native_lines,
@@ -845,6 +857,12 @@ def main(argv=None):
         "check",
         add_help=False,
         help="Fail on profiling regressions (see `scope-profiler check --help`)",
+    )
+    subparsers.add_parser(
+        "tags",
+        add_help=False,
+        help="List the opt-in region tags of the installed packages "
+        "(see `scope-profiler tags --help`)",
     )
     subparsers.add_parser(
         "benchmark",

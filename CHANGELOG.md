@@ -4,6 +4,10 @@
 
 ### Added
 
+- `scope-profiler tags` lists the opt-in tags of the installed packages and the regions behind
+  each (`--json` for a JSON document). It imports the modules a library declares in the
+  `scope_profiler.opt_in_tags` entry-point group, and any named with `--import MODULE`.
+  `sp.opt_in_tags()` returns the same map in Python.
 - `sp.reset()`, for test suites: it forgets the configuration and what was recorded but keeps the
   instrumentation, so a library's `@sp.profile` functions record again after the next `setup()`.
   Before, the private `ProfileManager._reset()` dropped them for good, and calling one before the

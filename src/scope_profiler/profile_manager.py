@@ -70,6 +70,8 @@ _R = TypeVar("_R")
 # import time, so this outlives every setup() and reset, and is shared by all
 # managers. Regions carrying one stay disabled unless the run enables it.
 _OPT_IN_TAGS: set[str] = set()
+# The module that first registered each opt-in tag, for `scope-profiler tags`.
+_OPT_IN_TAG_MODULES: dict[str, str] = {}
 #: Comma-separated opt-in tags to enable, read by every setup().
 _ENABLE_TAGS_ENV = "SCOPE_PROFILER_ENABLE_TAGS"
 
@@ -807,8 +809,38 @@ class ProfileManager:
                 raise TypeError(f"opt-in tags must be non-empty strings, got {tag!r}")
         new = set(tags) - _OPT_IN_TAGS
         _OPT_IN_TAGS.update(new)
+        module = sys._getframe(1).f_globals.get("__name__")
+        for tag in new:
+            _OPT_IN_TAG_MODULES[tag] = module
         if new and cls._configured:
             cls._rebind_tagged(new)
+
+    @classmethod
+    def opt_in_tags(cls) -> dict[str, tuple[str, ...]]:
+        """Map every registered opt-in tag to the names of its known regions.
+
+        A region is known once it is declared: an ``@profile`` function at
+        decoration, a ``define_region``/``region_factory`` handle at
+        definition, and a ``with region(...)`` block only after it first ran.
+        Only tags registered with :meth:`register_opt_in_tag` are listed, so
+        the packages that register them must have been imported.
+
+        Returns
+        -------
+        dict of str to tuple of str
+            Each opt-in tag, sorted, and the sorted names of the regions that
+            carry it (empty when none is known yet).
+        """
+        names = {tag: set() for tag in _OPT_IN_TAGS}
+        declared = [(name, tags) for name, _f, _b, tags in cls._decorated_functions()]
+        declared += [
+            (name, tags) for name, (_f, tags) in cls._region_definitions.items()
+        ]
+        declared += [(name, region.tags) for name, region in cls._regions.items()]
+        for name, tags in declared:
+            for tag in _OPT_IN_TAGS.intersection(tags or ()):
+                names[tag].add(name)
+        return {tag: tuple(sorted(names[tag])) for tag in sorted(names)}
 
     @classmethod
     def _frame_region_name(cls, frame: FrameType) -> str:

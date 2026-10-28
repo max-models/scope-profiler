@@ -41,6 +41,10 @@ and passes `tags=("mylib",)` to `region`, `profile`, `define_region` or
 `setup(enable_tags=["mylib"])`, the `enable_tags` TOML setting,
 `SCOPE_PROFILER_ENABLE_TAGS=mylib` or `scope-profiler run --enable-tag mylib`.
 The registry is process-wide and shared by every manager.
+`sp.opt_in_tags()` maps each registered tag to the regions known to carry it,
+and `scope-profiler tags` lists the tags of the installed packages; a library
+makes its tags discoverable there with a `scope_profiler.opt_in_tags` entry
+point (see the [CLI reference](/scope-profiler/reference/cli/#scope-profiler-tags)).
 
 Test suites reset the profiler between tests with `sp.reset()`, which keeps
 the instrumentation (decorated functions and `define_region` definitions)
