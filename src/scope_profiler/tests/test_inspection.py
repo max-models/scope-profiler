@@ -12,6 +12,7 @@ from scope_profiler.h5writer import ProfilingWriter
 from scope_profiler.inspection import (
     collect_file_metadata,
     inspect_file,
+    print_json,
     write_metadata_json,
 )
 from scope_profiler.inspection import main as inspect_main
@@ -210,6 +211,33 @@ def test_top_prints_only_the_first_regions(sample_file, capsys):
 def test_cli_top_flag(sample_file, capsys):
     inspect_main([str(sample_file), "--regions-only", "--sort", "total", "--top", "5"])
     assert "Regions (2)" in capsys.readouterr().out
+
+
+def test_cli_json_is_the_inspect_profile_payload(sample_file, tmp_path, capsys):
+    out_file = tmp_path / "meta.json"
+    args = [str(sample_file), "--json", "--sort", "total", "--top", "1"]
+    inspect_main([*args, "--export-metadata", str(out_file)])
+    payload = json.loads(capsys.readouterr().out)
+    assert [row["name"] for row in payload["regions"]["items"]] == ["solve"]
+    assert payload["regions"]["total_matching_filter"] == 2
+    assert out_file.exists()
+
+    inspect_main([str(sample_file.parent / "*.h5"), "--json"])
+    assert len(json.loads(capsys.readouterr().out)) == 1
+
+
+def test_print_json_converts_numpy_values_and_paths(tmp_path, capsys):
+    from pathlib import Path
+
+    print_json({"n": np.int64(3), "a": np.arange(2), "p": Path("x"), "b": b"y"})
+    assert json.loads(capsys.readouterr().out) == {
+        "n": 3,
+        "a": [0, 1],
+        "p": "x",
+        "b": "y",
+    }
+    with pytest.raises(TypeError, match="object is not JSON serializable"):
+        print_json({"o": object()})
 
 
 def test_include_exclude_and_ranks(sample_file, capsys):

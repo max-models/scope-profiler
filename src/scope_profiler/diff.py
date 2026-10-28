@@ -10,6 +10,7 @@ configs, two job sizes) shows up as a single table instead of two separate
 import argparse
 import sys
 
+from scope_profiler.inspection import print_json
 from scope_profiler.profile_io import read_profile, read_profile_summary
 from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import (
@@ -501,6 +502,14 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="N",
         help="Print only the first N regions in --sort order",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help=(
+            "Print the comparison as JSON (the MCP compare_profiles payload); "
+            "regressions/improvements are the changes beyond --threshold (default 0)"
+        ),
+    )
     return parser
 
 
@@ -534,7 +543,39 @@ def build_check_parser() -> argparse.ArgumentParser:
         metavar="N",
         help="Print only the N regions with the largest change (all are checked)",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as JSON: the compare_profiles payload plus the verdict",
+    )
     return parser
+
+
+def _read_for_metric(file_path, metric: str) -> ProfilingResults:
+    """Read only the summary when ``metric`` needs no per-call durations."""
+    if metric in _SUMMARY_METRICS:
+        return read_profile_summary(
+            file_path,
+            include_likwid=False,
+            include_line_profile=False,
+        )
+    return read_profile(file_path)
+
+
+def _compare_payload(args, ranks, threshold: float) -> dict:
+    """The MCP ``compare_profiles`` payload for the parsed CLI arguments."""
+    from scope_profiler.mcp_server.tools import compare_profiles
+
+    return compare_profiles(
+        args.file_a,
+        args.file_b,
+        include=args.include,
+        exclude=args.exclude,
+        ranks=ranks,
+        metric=args.metric,
+        threshold_pct=threshold,
+        top_n=args.top,
+    )
 
 
 def main(argv: list | None = None):
@@ -547,6 +588,16 @@ def main(argv: list | None = None):
     ranks = None
     if args.ranks:
         ranks = sorted({rank for spec in args.ranks for rank in parse_ranks(spec)})
+
+    if args.json:
+        print_json(
+            _compare_payload(
+                args,
+                ranks,
+                threshold=args.threshold or 0.0,
+            ),
+        )
+        return 0
 
     diff_files(
         args.file_a,
@@ -571,6 +622,26 @@ def check_main(argv: list | None = None):
     ranks = None
     if args.ranks:
         ranks = sorted({rank for spec in args.ranks for rank in parse_ranks(spec)})
+    if args.json:
+        payload = _compare_payload(args, ranks, threshold=args.max_regression)
+        failures = check_rows(
+            _read_for_metric(args.file_a, args.metric),
+            _read_for_metric(args.file_b, args.metric),
+            max_regression=args.max_regression,
+            include=args.include,
+            exclude=args.exclude,
+            ranks=ranks,
+            metric=args.metric,
+            fail_on_new=args.fail_on_new,
+        )
+        payload["check"] = {
+            "passed": not failures,
+            "max_regression_pct": args.max_regression,
+            "fail_on_new": args.fail_on_new,
+            "violations": [row["name"] for row in failures],
+        }
+        print_json(payload)
+        return 1 if failures else 0
     return check_files(
         args.file_a,
         args.file_b,

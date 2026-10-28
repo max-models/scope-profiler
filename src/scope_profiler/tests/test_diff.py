@@ -327,6 +327,42 @@ def test_diff_and_check_print_the_overall_line(tmp_path, capsys):
     assert "Overall: b is 1.25x faster than a" in capsys.readouterr().out
 
 
+def test_diff_json_is_the_compare_profiles_payload(tmp_path, capsys):
+    import json
+
+    a = _timed_file(tmp_path / "a.h5", 10)
+    b = _timed_file(tmp_path / "b.h5", 8)
+    assert diff_main([str(a), str(b), "--json", "--top", "1"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["overall"]["speedup"] == pytest.approx(1.25)
+    assert payload["regions"]["returned"] == 1
+    assert [row["name"] for row in payload["improvements"]] == ["solve"]
+
+
+def test_check_json_adds_the_verdict(file_a, file_b, capsys):
+    import json
+
+    assert check_main([str(file_a), str(file_b), "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["check"] == {
+        "passed": False,
+        "max_regression_pct": 0.0,
+        "fail_on_new": False,
+        "violations": ["solve"],
+    }
+    args = [
+        str(file_a),
+        str(file_b),
+        "--json",
+        "--metric",
+        "p95",
+        "--max-regression",
+        "60",
+    ]
+    assert check_main(args) == 0
+    assert json.loads(capsys.readouterr().out)["check"]["passed"] is True
+
+
 def test_check_passes_within_budget_and_fails_over_budget(file_a, file_b, capsys):
     from scope_profiler.h5reader import read_h5
 

@@ -104,6 +104,9 @@
 - `scope-profiler diff` and `check` print the whole-run comparison above the table, e.g.
   `Overall: b is 1.25x faster than a (-20%, -2 s)`. `scope_profiler.diff.overall_change` computes
   it; the MCP `compare_profiles` tool now uses it for its `overall` field.
+- `--json` for `scope-profiler inspect`, `diff` and `check`: the same payloads as the MCP
+  `inspect_profile` and `compare_profiles` tools (`check` adds its verdict and keeps the exit
+  code), for scripts and coding agents without the MCP server.
 
 ### Changed
 
