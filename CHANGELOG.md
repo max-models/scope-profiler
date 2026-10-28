@@ -101,6 +101,9 @@
 - `--top N` for `scope-profiler inspect`, `diff` and `check`: print only the first `N` regions of
   the table (in `--sort` order; for `check` the largest changes, while every region is still
   checked), so a run with many regions gives a short answer.
+- `scope-profiler diff` and `check` print the whole-run comparison above the table, e.g.
+  `Overall: b is 1.25x faster than a (-20%, -2 s)`. `scope_profiler.diff.overall_change` computes
+  it; the MCP `compare_profiles` tool now uses it for its `overall` field.
 
 ### Changed
 

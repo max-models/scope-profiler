@@ -149,6 +149,62 @@ def diff_rows(
     return rows
 
 
+def overall_change(results_a: ProfilingResults, results_b: ProfilingResults) -> dict:
+    """Compare the whole runs: total time from ``setup()`` to ``finalize()``.
+
+    Returns
+    -------
+    dict
+        ``absolute_diff_seconds`` (``b - a``), ``relative_change_pct``,
+        ``speedup`` (``a / b``, above 1 when ``b`` is faster) and ``faster``
+        (whether ``b`` took less time). All are None when either file lacks
+        the total time (an older file, or a run not set up by
+        ``setup()``/``session()``).
+    """
+    change = {
+        "absolute_diff_seconds": None,
+        "relative_change_pct": None,
+        "speedup": None,
+        "faster": None,
+    }
+    total_a, total_b = results_a.total_time, results_b.total_time
+    if total_a is None or total_b is None:
+        return change
+    change["absolute_diff_seconds"] = total_b - total_a
+    change["relative_change_pct"] = (
+        (total_b - total_a) / total_a * 100 if total_a else None
+    )
+    change["speedup"] = total_a / total_b if total_b else None
+    change["faster"] = total_b < total_a
+    return change
+
+
+def _format_pct(value) -> str:
+    """Format a signed percent change, or a dash when there is no baseline."""
+    if value is None:
+        return "-"
+    sign = "+" if value >= 0 else ""
+    return f"{sign}{value:.4g}%"
+
+
+def format_overall_change(change: dict) -> str:
+    """One line for :func:`overall_change`, e.g. ``b is 1.25x faster than a``."""
+    if change["faster"] is None:
+        return "Overall: no total run time in one of the files"
+    diff = change["absolute_diff_seconds"]
+    if diff == 0:
+        return "Overall: same total time"
+    details = f"{diff:+.6g} s"
+    if change["relative_change_pct"] is not None:
+        details = f"{_format_pct(change['relative_change_pct'])}, {details}"
+    speedup = change["speedup"]
+    if change["faster"]:
+        return f"Overall: b is {speedup:.3g}x faster than a ({details})"
+    if speedup:
+        return f"Overall: b is {1 / speedup:.3g}x slower than a ({details})"
+    return f"Overall: b is slower than a ({details})"
+
+
 def _format_value(value, metric) -> str:
     """Format one side's metric value, or a dash when the region is absent."""
     if value is None:
@@ -162,14 +218,6 @@ def _format_delta(value, metric) -> str:
         return "-"
     sign = "+" if value >= 0 else ""
     return f"{sign}{int(value)}" if metric == "calls" else f"{sign}{value:.6g}"
-
-
-def _format_pct(value) -> str:
-    """Format a signed percent change, or a dash when there is no baseline."""
-    if value is None:
-        return "-"
-    sign = "+" if value >= 0 else ""
-    return f"{sign}{value:.4g}%"
 
 
 def print_diff_table(
@@ -272,6 +320,7 @@ def diff_files(
     print("=" * 78, file=stream)
     print(f"a: {results_a.default_title()}", file=stream)
     print(f"b: {results_b.default_title()}", file=stream)
+    print(format_overall_change(overall_change(results_a, results_b)), file=stream)
     print("=" * 78 + "\n", file=stream)
 
     for label, results in (("a", results_a), ("b", results_b)):
@@ -385,6 +434,7 @@ def check_files(
     )
     print(f"Baseline: {results_a.default_title()}", file=stream)
     print(f"Candidate: {results_b.default_title()}", file=stream)
+    print(format_overall_change(overall_change(results_a, results_b)), file=stream)
     print(
         f"Regression budget: +{max_regression:g}% ({metric})",
         file=stream,

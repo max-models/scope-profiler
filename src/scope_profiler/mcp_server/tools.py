@@ -29,7 +29,7 @@ from scope_profiler.benchmark import BenchmarkError, load_config
 from scope_profiler.benchmark import compare_benchmarks as _compare_benchmarks
 from scope_profiler.benchmark import run_benchmark as _run_benchmark
 from scope_profiler.diff import METRICS as DIFF_METRICS
-from scope_profiler.diff import diff_rows
+from scope_profiler.diff import diff_rows, overall_change
 from scope_profiler.inspection import (
     _metadata_sections,
     _time_span,
@@ -313,29 +313,10 @@ def compare_profiles(
         regressions = regressions[:top_n]
         improvements = improvements[:top_n]
 
-    baseline_total = baseline.total_time
-    candidate_total = candidate.total_time
-    overall = {
-        "absolute_diff_seconds": None,
-        "relative_change_pct": None,
-        "speedup": None,
-        "faster": None,
-    }
-    if baseline_total is not None and candidate_total is not None:
-        absolute_diff = candidate_total - baseline_total
-        overall["absolute_diff_seconds"] = absolute_diff
-        overall["relative_change_pct"] = (
-            (absolute_diff / baseline_total) * 100 if baseline_total else None
-        )
-        overall["speedup"] = (
-            (baseline_total / candidate_total) if candidate_total else None
-        )
-        overall["faster"] = candidate_total < baseline_total
-
     return {
         "baseline": _profile_headline(baseline),
         "candidate": _profile_headline(candidate),
-        "overall": overall,
+        "overall": overall_change(baseline, candidate),
         "metric": metric,
         "threshold_pct": threshold_pct,
         "regions": {

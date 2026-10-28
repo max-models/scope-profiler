@@ -11,17 +11,22 @@ from scope_profiler.diff import (
     check_rows,
     diff_files,
     diff_rows,
+    format_overall_change,
+    overall_change,
 )
 from scope_profiler.diff import main as diff_main
 
 NS = 1_000_000_000
 
 
-def _write_sample_h5(path, rank_regions, label=None):
+def _write_sample_h5(path, rank_regions, label=None, total=None):
     with h5py.File(path, "w") as h5file:
         meta_grp = h5file.create_group("metadata")
         if label is not None:
             meta_grp.attrs["label"] = label
+        if total is not None:
+            meta_grp.attrs["start_time_ns"] = 0
+            meta_grp.attrs["finalize_time_ns"] = int(total * NS)
         for rank, regions in rank_regions.items():
             regions_group = h5file.create_group(f"rank{rank}").create_group("regions")
             for region_name, payload in regions.items():
@@ -269,6 +274,57 @@ def test_check_top_shortens_the_table_but_checks_every_region(file_a, file_b, ca
     assert "solve" in table
     assert "teardown" not in table.split("Only in b")[0]
     assert violations.strip() == "solve, teardown"
+
+
+def _timed_file(path, total):
+    _write_sample_h5(path, {0: {"solve": ([0], [int(total * NS)])}}, total=total)
+    return path
+
+
+def test_overall_change_of_a_faster_run(tmp_path):
+    from scope_profiler.h5reader import read_h5
+
+    a = read_h5(_timed_file(tmp_path / "a.h5", 10))
+    b = read_h5(_timed_file(tmp_path / "b.h5", 8))
+    change = overall_change(a, b)
+    assert change["faster"] is True
+    assert change["speedup"] == pytest.approx(1.25)
+    assert change["relative_change_pct"] == pytest.approx(-20)
+    assert change["absolute_diff_seconds"] == pytest.approx(-2)
+    assert format_overall_change(change) == (
+        "Overall: b is 1.25x faster than a (-20%, -2 s)"
+    )
+    assert format_overall_change(overall_change(b, a)) == (
+        "Overall: b is 1.25x slower than a (+25%, +2 s)"
+    )
+    assert format_overall_change(overall_change(a, a)) == "Overall: same total time"
+
+
+def test_overall_change_without_total_times(file_a, file_b):
+    from scope_profiler.h5reader import read_h5
+
+    change = overall_change(read_h5(file_a), read_h5(file_b))
+    assert set(change.values()) == {None}
+    assert "no total run time" in format_overall_change(change)
+
+
+def test_overall_change_with_a_zero_time():
+    change = {
+        "absolute_diff_seconds": 1.0,
+        "relative_change_pct": None,
+        "speedup": 0.0,
+        "faster": False,
+    }
+    assert format_overall_change(change) == "Overall: b is slower than a (+1 s)"
+
+
+def test_diff_and_check_print_the_overall_line(tmp_path, capsys):
+    a = _timed_file(tmp_path / "a.h5", 10)
+    b = _timed_file(tmp_path / "b.h5", 8)
+    diff_main([str(a), str(b)])
+    assert "Overall: b is 1.25x faster than a" in capsys.readouterr().out
+    check_main([str(a), str(b)])
+    assert "Overall: b is 1.25x faster than a" in capsys.readouterr().out
 
 
 def test_check_passes_within_budget_and_fails_over_budget(file_a, file_b, capsys):
