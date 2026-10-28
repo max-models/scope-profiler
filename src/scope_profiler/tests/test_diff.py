@@ -363,6 +363,65 @@ def test_check_json_adds_the_verdict(file_a, file_b, capsys):
     assert json.loads(capsys.readouterr().out)["check"]["passed"] is True
 
 
+def _runs(tmp_path, prefix, totals):
+    return [_timed_file(tmp_path / f"{prefix}{i}.h5", t) for i, t in enumerate(totals)]
+
+
+def test_repeated_runs_give_means_and_a_noise_band(tmp_path):
+    from scope_profiler.h5reader import read_h5
+
+    base = [read_h5(p) for p in _runs(tmp_path, "a", [10.0, 10.2, 9.8])]
+    same = [read_h5(p) for p in _runs(tmp_path, "s", [10.1, 9.9, 10.3])]
+    fast = [read_h5(p) for p in _runs(tmp_path, "f", [8.0, 8.1, 7.9])]
+
+    (row,) = diff_rows(base, same)
+    assert row["a"] == pytest.approx(10.0)
+    assert row["b"] == pytest.approx(10.1)
+    assert row["noise"] == pytest.approx(2 * np.hypot(0.2, 0.2) / np.sqrt(3))
+    assert row["significant"] is False
+
+    (row,) = diff_rows(base, fast)
+    assert row["delta"] == pytest.approx(-2.0)
+    assert row["significant"] is True
+
+    (row,) = diff_rows(base, fast[0])
+    assert row["noise"] is None
+    assert row["significant"] is None
+
+    assert overall_change(base, same)["significant"] is False
+    assert overall_change(base, fast)["significant"] is True
+    assert "beyond the noise of" in format_overall_change(overall_change(base, fast))
+    assert "within the noise of" in format_overall_change(overall_change(base, same))
+
+
+def test_diff_cli_takes_globs_of_repeated_runs(tmp_path, capsys):
+    _runs(tmp_path, "a", [10.0, 10.2, 9.8])
+    _runs(tmp_path, "s", [10.1, 9.9, 10.3])
+    diff_main([str(tmp_path / "a*.h5"), str(tmp_path / "s*.h5")])
+    out = capsys.readouterr().out
+    assert "and 2 more run(s)" in out
+    assert "within the noise" in out
+    assert "noise" in out.split("Regions")[1]
+    assert "% ~" in out
+
+
+def test_check_ignores_regressions_within_the_noise(tmp_path, capsys):
+    import json
+
+    _runs(tmp_path, "a", [10.0, 10.2, 9.8])
+    _runs(tmp_path, "s", [10.1, 9.9, 10.3])
+    _runs(tmp_path, "w", [12.0, 12.1, 11.9])
+    base, same, slow = (str(tmp_path / f"{p}*.h5") for p in "asw")
+    assert check_main([base, same]) == 0
+    assert check_main([base, slow]) == 1
+    assert check_main([base, same, "--json"]) == 0
+    payload = capsys.readouterr().out.split("\n{", 1)[1]
+    payload = json.loads("{" + payload)
+    assert payload["baseline"]["runs"] == 3
+    assert payload["regions"]["items"][0]["significant"] is False
+    assert payload["regressions"] == []
+
+
 def test_check_passes_within_budget_and_fails_over_budget(file_a, file_b, capsys):
     from scope_profiler.h5reader import read_h5
 

@@ -10,6 +10,8 @@ configs, two job sizes) shows up as a single table instead of two separate
 import argparse
 import sys
 
+import numpy as np
+
 from scope_profiler.inspection import print_json
 from scope_profiler.profile_io import read_profile, read_profile_summary
 from scope_profiler.results import ProfilingResults
@@ -63,9 +65,44 @@ _METRIC_LABELS = {
 }
 
 
+def _runs(results) -> list:
+    """One result set, or a sequence of repeated runs, as a list of runs."""
+    return list(results) if isinstance(results, (list, tuple)) else [results]
+
+
+def _region_values(runs, include, exclude, ranks, metric) -> dict:
+    """The metric's value in every run that timed the region, by region name."""
+    values: dict = {}
+    for results in runs:
+        for region in results.get_regions(include=include, exclude=exclude):
+            row = region_row(region, ranks)
+            if row[metric] is not None:
+                values.setdefault(row["name"], []).append(row[metric])
+    return values
+
+
+def _mean_and_error(values):
+    """Mean of the runs and its standard error (None from a single run)."""
+    if values is None:
+        return None, None
+    if len(values) == 1:
+        return values[0], None
+    return float(np.mean(values)), float(np.std(values, ddof=1) / np.sqrt(len(values)))
+
+
+def _noise(error_a, error_b) -> float | None:
+    """Two standard errors of ``b - a``: the band a change must leave to count.
+
+    Only known when both sides have repeated runs.
+    """
+    if error_a is None or error_b is None:
+        return None
+    return 2 * float(np.hypot(error_a, error_b))
+
+
 def diff_rows(
-    results_a: ProfilingResults,
-    results_b: ProfilingResults,
+    results_a,
+    results_b,
     include=None,
     exclude=None,
     ranks=None,
@@ -77,8 +114,10 @@ def diff_rows(
 
     Parameters
     ----------
-    results_a, results_b : ProfilingResults
-        The "before" (``a``) and "after" (``b``) runs.
+    results_a, results_b : ProfilingResults or sequence of ProfilingResults
+        The "before" (``a``) and "after" (``b``) runs. A sequence is repeated
+        runs of the same case: each region is compared by the mean over the
+        runs that timed it, and the run-to-run spread gives the noise band.
     include, exclude : list of str or str, optional
         Regex patterns selecting which regions to compare, matched as in
         :func:`~scope_profiler.summary.region_rows`.
@@ -98,38 +137,26 @@ def diff_rows(
     Returns
     -------
     list of dict
-        Each entry has ``name``, ``a``, ``b`` (the metric's value in each
-        file, or None when the region is missing - or timed no calls on the
-        selected ranks - there), ``delta`` (``b - a``, treating a missing
-        side as 0) and ``pct`` (percent change, or None when ``a`` is None or
-        0).
+        Each entry has ``name``, ``a``, ``b`` (the metric's value, or mean over
+        the runs, in each side, or None when the region is missing - or timed
+        no calls on the selected ranks - there), ``delta`` (``b - a``,
+        treating a missing side as 0), ``pct`` (percent change, or None when
+        ``a`` is None or 0), ``noise`` (two standard errors of ``delta``, None
+        unless both sides have repeated runs) and ``significant`` (whether
+        ``|delta|`` exceeds ``noise``; None without a noise estimate).
     """
     if metric not in METRICS:
         raise ValueError(f"metric must be one of {METRICS}, got {metric!r}")
     if sort not in SORT_KEYS:
         raise ValueError(f"sort must be one of {SORT_KEYS}, got {sort!r}")
 
-    rows_a = {
-        row["name"]: row
-        for row in (
-            region_row(region, ranks)
-            for region in results_a.get_regions(include=include, exclude=exclude)
-        )
-    }
-    rows_b = {
-        row["name"]: row
-        for row in (
-            region_row(region, ranks)
-            for region in results_b.get_regions(include=include, exclude=exclude)
-        )
-    }
+    values_a = _region_values(_runs(results_a), include, exclude, ranks, metric)
+    values_b = _region_values(_runs(results_b), include, exclude, ranks, metric)
 
     rows = []
-    for name in sorted(set(rows_a) | set(rows_b)):
-        a = rows_a[name][metric] if name in rows_a else None
-        b = rows_b[name][metric] if name in rows_b else None
-        if a is None and b is None:
-            continue
+    for name in sorted(set(values_a) | set(values_b)):
+        a, error_a = _mean_and_error(values_a.get(name))
+        b, error_b = _mean_and_error(values_b.get(name))
 
         delta = (b or 0) - (a or 0)
         pct = (delta / a * 100) if a else None
@@ -137,7 +164,19 @@ def diff_rows(
         if threshold is not None and pct is not None and abs(pct) < threshold:
             continue
 
-        rows.append({"name": name, "a": a, "b": b, "delta": delta, "pct": pct})
+        noise = _noise(error_a, error_b) if a is not None and b is not None else None
+        significant = None if noise is None else abs(delta) > noise
+        rows.append(
+            {
+                "name": name,
+                "a": a,
+                "b": b,
+                "delta": delta,
+                "pct": pct,
+                "noise": noise,
+                "significant": significant,
+            },
+        )
 
     # Sort by name first so the stable sort below breaks ties alphabetically,
     # as region_rows() does.
@@ -150,16 +189,21 @@ def diff_rows(
     return rows
 
 
-def overall_change(results_a: ProfilingResults, results_b: ProfilingResults) -> dict:
+def overall_change(results_a, results_b) -> dict:
     """Compare the whole runs: total time from ``setup()`` to ``finalize()``.
+
+    ``results_a`` and ``results_b`` are result sets, or sequences of repeated
+    runs compared by their mean total time.
 
     Returns
     -------
     dict
         ``absolute_diff_seconds`` (``b - a``), ``relative_change_pct``,
-        ``speedup`` (``a / b``, above 1 when ``b`` is faster) and ``faster``
-        (whether ``b`` took less time). All are None when either file lacks
-        the total time (an older file, or a run not set up by
+        ``speedup`` (``a / b``, above 1 when ``b`` is faster), ``faster``
+        (whether ``b`` took less time), ``noise_seconds`` (two standard errors
+        of the difference, None unless both sides have repeated runs) and
+        ``significant`` (whether the difference exceeds it). All are None when
+        a file lacks the total time (an older file, or a run not set up by
         ``setup()``/``session()``).
     """
     change = {
@@ -167,16 +211,24 @@ def overall_change(results_a: ProfilingResults, results_b: ProfilingResults) -> 
         "relative_change_pct": None,
         "speedup": None,
         "faster": None,
+        "noise_seconds": None,
+        "significant": None,
     }
-    total_a, total_b = results_a.total_time, results_b.total_time
-    if total_a is None or total_b is None:
+    totals_a = [results.total_time for results in _runs(results_a)]
+    totals_b = [results.total_time for results in _runs(results_b)]
+    if None in totals_a or None in totals_b:
         return change
+    total_a, error_a = _mean_and_error(totals_a)
+    total_b, error_b = _mean_and_error(totals_b)
+    noise = _noise(error_a, error_b)
     change["absolute_diff_seconds"] = total_b - total_a
     change["relative_change_pct"] = (
         (total_b - total_a) / total_a * 100 if total_a else None
     )
     change["speedup"] = total_a / total_b if total_b else None
     change["faster"] = total_b < total_a
+    change["noise_seconds"] = noise
+    change["significant"] = None if noise is None else abs(total_b - total_a) > noise
     return change
 
 
@@ -198,6 +250,9 @@ def format_overall_change(change: dict) -> str:
     details = f"{diff:+.6g} s"
     if change["relative_change_pct"] is not None:
         details = f"{_format_pct(change['relative_change_pct'])}, {details}"
+    if change.get("noise_seconds") is not None:
+        side = "beyond" if change["significant"] else "within"
+        details += f", {side} the noise of ±{change['noise_seconds']:.3g} s"
     speedup = change["speedup"]
     if change["faster"]:
         return f"Overall: b is {speedup:.3g}x faster than a ({details})"
@@ -242,12 +297,14 @@ def print_diff_table(
         print("  (no regions to compare)", file=stream)
         return
 
+    with_noise = any(row.get("noise") is not None for row in rows)
     columns = (
         ("name", "region"),
         ("a", f"{label} (a)"),
         ("b", f"{label} (b)"),
         ("delta", "delta"),
         ("pct", "delta [%]"),
+        *((("noise", "noise"),) if with_noise else ()),
     )
     formatted = [
         {
@@ -255,7 +312,12 @@ def print_diff_table(
             "a": _format_value(row["a"], metric),
             "b": _format_value(row["b"], metric),
             "delta": _format_delta(row["delta"], metric),
-            "pct": _format_pct(row["pct"]),
+            # "~": the change is within the run-to-run noise
+            "pct": _format_pct(row["pct"])
+            + (" ~" if row.get("significant") is False else ""),
+            "noise": "-"
+            if row.get("noise") is None
+            else f"±{_format_value(row['noise'], metric)}",
         }
         for row in rows
     ]
@@ -274,7 +336,37 @@ def print_diff_table(
         print(f"\n  Only in a: {', '.join(only_a)}", file=stream)
     if only_b:
         print(f"  Only in b: {', '.join(only_b)}", file=stream)
+    if with_noise:
+        print(
+            "\n  noise: two standard errors of the delta over the repeated runs; "
+            "~ marks a change within it",
+            file=stream,
+        )
     print(file=stream)
+
+
+def _read_for_metric(file_path, metric: str) -> ProfilingResults:
+    """Read only the summary when ``metric`` needs no per-call durations."""
+    if metric in _SUMMARY_METRICS:
+        return read_profile_summary(
+            file_path,
+            include_likwid=False,
+            include_line_profile=False,
+        )
+    return read_profile(file_path)
+
+
+def _read_runs(files, metric: str) -> list:
+    """Read one file, or each of a sequence of repeated runs, for ``metric``."""
+    paths = files if isinstance(files, (list, tuple)) else [files]
+    return [_read_for_metric(path, metric) for path in paths]
+
+
+def _runs_title(runs) -> str:
+    """The title of one run, or of the first of several and their count."""
+    if len(runs) == 1:
+        return runs[0].default_title()
+    return f"{runs[0].default_title()} and {len(runs) - 1} more run(s)"
 
 
 def diff_files(
@@ -293,8 +385,9 @@ def diff_files(
 
     Parameters
     ----------
-    file_a, file_b : str or Path
-        The "before" and "after" merged profiling files.
+    file_a, file_b : str or Path, or a sequence of them
+        The "before" and "after" merged profiling files; a sequence is
+        repeated runs of the same case (see :func:`diff_rows`).
     include, exclude, ranks, metric, sort, threshold
         See :func:`diff_rows`.
     top : int, optional
@@ -303,30 +396,18 @@ def diff_files(
         Where to write (default: stdout).
     """
     stream = sys.stdout if stream is None else stream
-    if metric in _SUMMARY_METRICS:
-        results_a = read_profile_summary(
-            file_a,
-            include_likwid=False,
-            include_line_profile=False,
-        )
-        results_b = read_profile_summary(
-            file_b,
-            include_likwid=False,
-            include_line_profile=False,
-        )
-    else:
-        results_a = read_profile(file_a)
-        results_b = read_profile(file_b)
+    results_a = _read_runs(file_a, metric)
+    results_b = _read_runs(file_b, metric)
 
     print("=" * 78, file=stream)
-    print(f"a: {results_a.default_title()}", file=stream)
-    print(f"b: {results_b.default_title()}", file=stream)
+    print(f"a: {_runs_title(results_a)}", file=stream)
+    print(f"b: {_runs_title(results_b)}", file=stream)
     print(format_overall_change(overall_change(results_a, results_b)), file=stream)
     print("=" * 78 + "\n", file=stream)
 
-    for label, results in (("a", results_a), ("b", results_b)):
+    for label, runs in (("a", results_a), ("b", results_b)):
         for warning in gpu_timing_warnings(
-            region_rows(results, include=include, exclude=exclude, ranks=ranks)
+            region_rows(runs[0], include=include, exclude=exclude, ranks=ranks)
         ):
             print(f"{label}: {warning}", file=stream)
 
@@ -363,6 +444,8 @@ def check_rows(
 
     ``max_regression`` is a percentage. New regions have no meaningful
     percentage baseline and are only failures when ``fail_on_new`` is true.
+    With repeated runs on both sides, a change within the run-to-run noise
+    (see :func:`diff_rows`) is not a violation.
     """
     if max_regression < 0:
         raise ValueError("max_regression must be non-negative")
@@ -378,7 +461,11 @@ def check_rows(
     return [
         row
         for row in rows
-        if (row["pct"] is not None and row["pct"] > max_regression)
+        if (
+            row["pct"] is not None
+            and row["pct"] > max_regression
+            and row["significant"] is not False
+        )
         or (row["pct"] is None and row["a"] is None and fail_on_new)
     ]
 
@@ -401,19 +488,8 @@ def check_files(
     change; every budget violation is still listed and counted.
     """
     stream = sys.stdout if stream is None else stream
-    if metric in _SUMMARY_METRICS:
-        results_a = read_profile_summary(
-            file_a,
-            include_likwid=False,
-            include_line_profile=False,
-        )
-        results_b = read_profile_summary(
-            file_b,
-            include_likwid=False,
-            include_line_profile=False,
-        )
-    else:
-        results_a, results_b = read_profile(file_a), read_profile(file_b)
+    results_a = _read_runs(file_a, metric)
+    results_b = _read_runs(file_b, metric)
     failures = check_rows(
         results_a,
         results_b,
@@ -433,8 +509,8 @@ def check_files(
         metric=metric,
         sort="pct",
     )
-    print(f"Baseline: {results_a.default_title()}", file=stream)
-    print(f"Candidate: {results_b.default_title()}", file=stream)
+    print(f"Baseline: {_runs_title(results_a)}", file=stream)
+    print(f"Candidate: {_runs_title(results_b)}", file=stream)
     print(format_overall_change(overall_change(results_a, results_b)), file=stream)
     print(
         f"Regression budget: +{max_regression:g}% ({metric})",
@@ -461,8 +537,14 @@ def build_parser() -> argparse.ArgumentParser:
         prog="scope-profiler diff",
         description="Compare region statistics between two profiling files.",
     )
-    parser.add_argument("file_a", help="Baseline profiling_data.h5 ('a')")
-    parser.add_argument("file_b", help="Comparison profiling_data.h5 ('b')")
+    parser.add_argument(
+        "file_a",
+        help="Baseline profiling_data.h5 ('a'), or a glob of repeated runs",
+    )
+    parser.add_argument(
+        "file_b",
+        help="Comparison profiling_data.h5 ('b'), or a glob of repeated runs",
+    )
     parser.add_argument(
         "--include",
         nargs="+",
@@ -519,8 +601,14 @@ def build_check_parser() -> argparse.ArgumentParser:
         prog="scope-profiler check",
         description="Fail when a profiling candidate exceeds a regression budget.",
     )
-    parser.add_argument("file_a", help="Baseline profiling_data.h5")
-    parser.add_argument("file_b", help="Candidate profiling_data.h5")
+    parser.add_argument(
+        "file_a",
+        help="Baseline profiling_data.h5, or a glob of repeated runs",
+    )
+    parser.add_argument(
+        "file_b",
+        help="Candidate profiling_data.h5, or a glob of repeated runs",
+    )
     parser.add_argument(
         "--max-regression",
         type=float,
@@ -551,15 +639,12 @@ def build_check_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _read_for_metric(file_path, metric: str) -> ProfilingResults:
-    """Read only the summary when ``metric`` needs no per-call durations."""
-    if metric in _SUMMARY_METRICS:
-        return read_profile_summary(
-            file_path,
-            include_likwid=False,
-            include_line_profile=False,
-        )
-    return read_profile(file_path)
+def _expand_runs(args, parser) -> None:
+    """Expand a glob in ``file_a``/``file_b`` into the list of repeated runs."""
+    from scope_profiler.post_processing import expand_file_patterns
+
+    args.file_a = expand_file_patterns([args.file_a], parser)
+    args.file_b = expand_file_patterns([args.file_b], parser)
 
 
 def _compare_payload(args, ranks, threshold: float) -> dict:
@@ -584,6 +669,7 @@ def main(argv: list | None = None):
 
     parser = build_parser()
     args = parser.parse_args(argv)
+    _expand_runs(args, parser)
 
     ranks = None
     if args.ranks:
@@ -619,14 +705,15 @@ def check_main(argv: list | None = None):
 
     parser = build_check_parser()
     args = parser.parse_args(argv)
+    _expand_runs(args, parser)
     ranks = None
     if args.ranks:
         ranks = sorted({rank for spec in args.ranks for rank in parse_ranks(spec)})
     if args.json:
         payload = _compare_payload(args, ranks, threshold=args.max_regression)
         failures = check_rows(
-            _read_for_metric(args.file_a, args.metric),
-            _read_for_metric(args.file_b, args.metric),
+            _read_runs(args.file_a, args.metric),
+            _read_runs(args.file_b, args.metric),
             max_regression=args.max_regression,
             include=args.include,
             exclude=args.exclude,
