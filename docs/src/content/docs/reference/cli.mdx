@@ -607,12 +607,30 @@ Above the table, one line compares the whole runs (time from `setup()` to
 the answer to "did it get faster?" needs no arithmetic. `check` prints the same
 line. The MCP `compare_profiles` tool returns the same numbers as `overall`.
 
+### Repeated runs
+
+A single run per side cannot tell a real change from run-to-run noise. Give
+`file_a` and `file_b` as globs of repeated runs instead:
+
+```bash
+scope-profiler diff 'base_*.h5' 'cand_*.h5'
+```
+
+Each region is then compared by its mean over the runs, and a `noise` column
+gives two standard errors of the delta (the band a change has to leave to be
+more than noise); `~` marks a change within it. The overall line says whether
+the whole-run change is beyond or within its noise. `check` takes globs the
+same way and does not count a regression within the noise as a violation, and
+`--json` (like the MCP `compare_profiles` tool, which accepts lists of paths)
+adds `noise` and `significant` to every region.
+
 ## `scope-profiler check`
 
 Use `check` in CI to fail when a candidate exceeds a performance budget:
 
 ```bash
 scope-profiler check baseline.h5 candidate.h5 --max-regression 5
+scope-profiler check 'base_*.h5' 'cand_*.h5' --max-regression 5   # repeated runs
 ```
 
 The command prints the comparison table and returns exit code `1` when any
