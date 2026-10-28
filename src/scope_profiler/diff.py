@@ -16,8 +16,10 @@ from scope_profiler.summary import (
     _REGION_TABLE_FORMAT,
     _print_table,
     gpu_timing_warnings,
+    positive_int,
     region_row,
     region_rows,
+    regions_title,
 )
 
 METRICS = (
@@ -170,9 +172,19 @@ def _format_pct(value) -> str:
     return f"{sign}{value:.4g}%"
 
 
-def print_diff_table(rows, metric: str = "total", title=None, stream=None) -> None:
-    """Print the aligned region comparison table built by :func:`diff_rows`."""
+def print_diff_table(
+    rows,
+    metric: str = "total",
+    title=None,
+    stream=None,
+    top: int | None = None,
+) -> None:
+    """Print the aligned region comparison table built by :func:`diff_rows`.
+
+    ``top`` keeps only the first ``top`` rows (default: all).
+    """
     stream = sys.stdout if stream is None else stream
+    rows = rows[:top] if top else rows
     label = _METRIC_LABELS[metric]
 
     if title:
@@ -225,6 +237,7 @@ def diff_files(
     metric: str = "total",
     sort: str = "delta",
     threshold: float | None = None,
+    top: int | None = None,
     stream=None,
 ) -> None:
     """Print a region-by-region comparison of two profiling HDF5 files.
@@ -235,6 +248,8 @@ def diff_files(
         The "before" and "after" merged profiling files.
     include, exclude, ranks, metric, sort, threshold
         See :func:`diff_rows`.
+    top : int, optional
+        Print only the first ``top`` regions in ``sort`` order (default: all).
     stream : file-like, optional
         Where to write (default: stdout).
     """
@@ -275,7 +290,13 @@ def diff_files(
         sort=sort,
         threshold=threshold,
     )
-    print_diff_table(rows, metric=metric, title=f"Regions ({len(rows)})", stream=stream)
+    print_diff_table(
+        rows,
+        metric=metric,
+        title=regions_title(rows, top),
+        stream=stream,
+        top=top,
+    )
 
 
 def check_rows(
@@ -321,9 +342,14 @@ def check_files(
     ranks=None,
     metric: str = "total",
     fail_on_new: bool = False,
+    top: int | None = None,
     stream=None,
 ) -> int:
-    """Print a CI regression report and return 0 for pass, 1 for failure."""
+    """Print a CI regression report and return 0 for pass, 1 for failure.
+
+    ``top`` shortens the printed table to the regions with the largest percent
+    change; every budget violation is still listed and counted.
+    """
     stream = sys.stdout if stream is None else stream
     if metric in _SUMMARY_METRICS:
         results_a = read_profile_summary(
@@ -368,6 +394,7 @@ def check_files(
         metric=metric,
         title=f"Regression check: {'FAIL' if failures else 'PASS'}",
         stream=stream,
+        top=top,
     )
     if failures:
         print(
@@ -418,6 +445,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PCT",
         help="Only show regions whose absolute percent change is at least this",
     )
+    parser.add_argument(
+        "--top",
+        type=positive_int,
+        metavar="N",
+        help="Print only the first N regions in --sort order",
+    )
     return parser
 
 
@@ -445,6 +478,12 @@ def build_check_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Treat regions absent from the baseline as failures",
     )
+    parser.add_argument(
+        "--top",
+        type=positive_int,
+        metavar="N",
+        help="Print only the N regions with the largest change (all are checked)",
+    )
     return parser
 
 
@@ -468,6 +507,7 @@ def main(argv: list | None = None):
         metric=args.metric,
         sort=args.sort,
         threshold=args.threshold,
+        top=args.top,
     )
     return 0
 
@@ -490,4 +530,5 @@ def check_main(argv: list | None = None):
         ranks=ranks,
         metric=args.metric,
         fail_on_new=args.fail_on_new,
+        top=args.top,
     )

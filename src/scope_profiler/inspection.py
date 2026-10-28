@@ -20,10 +20,12 @@ from scope_profiler.results import ProfilingResults
 from scope_profiler.summary import (
     REGION_TABLE_COLUMNS,
     SORT_KEYS,
+    positive_int,
     print_likwid_tables,
     print_perf_event_tables,
     print_region_table,
     region_rows,
+    regions_title,
 )
 
 # Metadata is printed in these groups, in this order, so the fields that
@@ -176,6 +178,7 @@ def inspect_file(
     source: list | None = None,
     columns=None,
     percentage_mode: str = "coverage",
+    top: int | None = None,
     stream=None,
 ) -> None:
     """Print a summary of one profiling HDF5 file.
@@ -205,6 +208,8 @@ def inspect_file(
         ``percent``, ``total`` and ``avg``.
     percentage_mode : {"coverage", "exclusive"}, optional
         Quantity used for ``% session``. Defaults to wall-clock coverage.
+    top : int, optional
+        Print only the first ``top`` regions in ``sort`` order (default: all).
     stream : file-like, optional
         Where to write (default: stdout).
     """
@@ -254,8 +259,8 @@ def inspect_file(
             percentage_mode=percentage_mode,
         )
         print_region_table(
-            rows,
-            title=f"Regions ({len(rows)})",
+            rows[:top] if top else rows,
+            title=regions_title(rows, top),
             stream=stream,
             total_time=results.total_time,
             columns=columns,
@@ -417,6 +422,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="How to calculate %% session (default: coverage)",
     )
     parser.add_argument(
+        "--top",
+        type=positive_int,
+        metavar="N",
+        help="Print only the first N regions in --sort order, e.g. --sort total --top 10",
+    )
+    parser.add_argument(
         "--full",
         action="store_true",
         help="Print long metadata values (PATH, LD_LIBRARY_PATH, ...) in full",
@@ -485,6 +496,7 @@ def main(argv: list | None = None):
             source=args.source,
             columns=args.columns,
             percentage_mode=args.percentage_mode,
+            top=args.top,
         )
         printed += 1
 

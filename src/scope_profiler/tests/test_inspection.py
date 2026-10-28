@@ -199,6 +199,19 @@ def test_sorting(sample_file, capsys):
     assert ordered == ["setup", "solve"]
 
 
+def test_top_prints_only_the_first_regions(sample_file, capsys):
+    inspect_file(sample_file, sort="total", top=1, show_metadata=False)
+    out = capsys.readouterr().out
+    assert "Regions (1 of 2)" in out
+    assert "solve" in out
+    assert "setup" not in out
+
+
+def test_cli_top_flag(sample_file, capsys):
+    inspect_main([str(sample_file), "--regions-only", "--sort", "total", "--top", "5"])
+    assert "Regions (2)" in capsys.readouterr().out
+
+
 def test_include_exclude_and_ranks(sample_file, capsys):
     inspect_file(sample_file, include="solve")
     out = capsys.readouterr().out

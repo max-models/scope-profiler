@@ -98,6 +98,9 @@
   `allgather` of host names in `finalize()`. `ProfilingResults.num_nodes`
   reads it, answering 1 for single-rank files written before it existed and
   None for older multi-rank ones.
+- `--top N` for `scope-profiler inspect`, `diff` and `check`: print only the first `N` regions of
+  the table (in `--sort` order; for `check` the largest changes, while every region is still
+  checked), so a run with many regions gives a short answer.
 
 ### Changed
 
