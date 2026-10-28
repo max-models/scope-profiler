@@ -599,6 +599,11 @@ scope-profiler diff baseline.h5 candidate.h5 --metric avg --threshold 5
 scope-profiler diff baseline.h5 candidate.h5 --top 10
 ```
 
+Above the table, one line compares the whole runs (time from `setup()` to
+`finalize()`), for example `Overall: b is 1.25x faster than a (-20%, -2 s)`, so
+the answer to "did it get faster?" needs no arithmetic. `check` prints the same
+line. The MCP `compare_profiles` tool returns the same numbers as `overall`.
+
 ## `scope-profiler check`
 
 Use `check` in CI to fail when a candidate exceeds a performance budget:
