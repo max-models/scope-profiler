@@ -145,6 +145,7 @@ apply to recursively traced function names and accept shell-style globs.
 Libraries can ship regions behind an opt-in tag (`sp.register_opt_in_tag`),
 which stay off until a run enables them. `--enable-tag mylib` records them
 alongside everything else, as does `SCOPE_PROFILER_ENABLE_TAGS=mylib`.
+[`scope-profiler tags`](#scope-profiler-tags) lists the tags available.
 
 A JSON profile holds everything the HDF5 file does — every call's
 timestamps, the lane tables, LIKWID counters, line-profiler records — in
@@ -617,6 +618,47 @@ missing from is `b` - dropping out from a nonzero baseline in `a` is a
 well-defined -100%, while a region appearing fresh in `b` has no baseline to
 divide by, and is listed under "Only in b" instead. `--threshold` never drops
 those regions, since there is nothing to compare against.
+
+## `scope-profiler tags`
+
+List the opt-in tags of the installed packages and the regions behind each,
+i.e. what `--enable-tag`, `SCOPE_PROFILER_ENABLE_TAGS` and
+`setup(enable_tags=[...])` can switch on.
+
+```text
+usage: scope-profiler tags [-h] [--import MODULE] [--no-entry-points] [--json]
+```
+
+| Flag                | Description                                                         |
+| ------------------- | ------------------------------------------------------------------- |
+| `--import`          | Also import this module before listing; repeatable                  |
+| `--no-entry-points` | Do not import the modules of the `scope_profiler.opt_in_tags` entry points |
+| `--json`            | Print `{"tags": [{"tag", "module", "regions"}], "errors": [...]}`   |
+
+A library registers its tags when it is imported, so the command imports the
+packages first: every module declared in the `scope_profiler.opt_in_tags`
+entry-point group, and every module named with `--import`. A library declares
+the entry point in its `pyproject.toml`:
+
+```toml
+[project.entry-points."scope_profiler.opt_in_tags"]
+mylib = "mylib"
+```
+
+```console
+$ scope-profiler tags --import mylib
+mylib (registered by mylib)
+  mylib.halo_exchange
+  mylib.solve
+```
+
+`@sp.profile` functions and `sp.define_region`/`sp.region_factory` handles are
+listed as soon as their module is imported; a `with sp.region(...)` block only
+once it ran, so a library that wants all its regions listed declares them with
+`define_region`. A package that fails to import is reported as a warning (the
+exit code is 1 only when it was named with `--import`). In Python,
+`sp.opt_in_tags()` returns the same tag-to-regions map for whatever is
+imported.
 
 ## `scope-profiler plot`
 

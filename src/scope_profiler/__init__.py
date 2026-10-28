@@ -78,6 +78,7 @@ region_factory = ProfileManager.region_factory
 recorded_regions = ProfileManager.recorded_regions
 region = ProfileManager.region
 register_opt_in_tag = ProfileManager.register_opt_in_tag
+opt_in_tags = ProfileManager.opt_in_tags
 reset = ProfileManager.reset
 registered_regions = ProfileManager.registered_regions
 session = ProfileManager.session
@@ -169,6 +170,7 @@ __all__ = [
     "merge_results",
     "message_nbytes",
     "metadata",
+    "opt_in_tags",
     "parse_mpi_region",
     "plot_duration_timeseries",
     "plot_durations",
