@@ -239,9 +239,19 @@ def inspect_profile(
     return payload
 
 
+def _paths(paths) -> list[str]:
+    """One path, or a list of paths of repeated runs, as a list."""
+    return [paths] if isinstance(paths, str) else list(paths)
+
+
+def _runs_headline(runs: list) -> dict:
+    """The headline of the first run, and how many runs the side has."""
+    return {**_profile_headline(runs[0]), "runs": len(runs)}
+
+
 def compare_profiles(
-    baseline_path: str,
-    candidate_path: str,
+    baseline_path: str | list[str],
+    candidate_path: str | list[str],
     include: list[str] | None = None,
     exclude: list[str] | None = None,
     ranks: list[int] | None = None,
@@ -259,6 +269,11 @@ def compare_profiles(
     Regions whose percent change exceeds ``threshold_pct`` are additionally
     surfaced in ``regressions``/``improvements`` (candidate slower/faster
     than baseline respectively), sorted by magnitude.
+
+    A list of paths on either side is repeated runs of the same case: regions
+    and the total time are compared by their means, every delta gets a
+    ``noise`` band (two standard errors) and ``significant`` flag, and a
+    change within the noise is not a regression or an improvement.
     """
     if metric not in DIFF_METRICS:
         raise ToolError(f"metric must be one of {DIFF_METRICS}, got {metric!r}")
@@ -266,8 +281,8 @@ def compare_profiles(
         raise ToolError("top_n must be a positive integer, or None/0 for no limit")
 
     reader = _read_profile if metric in {"p50", "p95", "p99"} else _read_summary_profile
-    baseline = reader(baseline_path)
-    candidate = reader(candidate_path)
+    baseline = [reader(path) for path in _paths(baseline_path)]
+    candidate = [reader(path) for path in _paths(candidate_path)]
 
     rows = diff_rows(
         baseline,
@@ -285,6 +300,8 @@ def compare_profiles(
             "candidate": row["b"],
             "delta": row["delta"],
             "pct": row["pct"],
+            "noise": row["noise"],
+            "significant": row["significant"],
         }
         for row in rows
     ]
@@ -293,7 +310,9 @@ def compare_profiles(
         (
             row
             for row in region_deltas
-            if row["pct"] is not None and row["pct"] > threshold_pct
+            if row["pct"] is not None
+            and row["pct"] > threshold_pct
+            and row["significant"] is not False
         ),
         key=lambda row: row["pct"],
         reverse=True,
@@ -302,7 +321,9 @@ def compare_profiles(
         (
             row
             for row in region_deltas
-            if row["pct"] is not None and row["pct"] < -threshold_pct
+            if row["pct"] is not None
+            and row["pct"] < -threshold_pct
+            and row["significant"] is not False
         ),
         key=lambda row: row["pct"],
     )
@@ -314,8 +335,8 @@ def compare_profiles(
         improvements = improvements[:top_n]
 
     return {
-        "baseline": _profile_headline(baseline),
-        "candidate": _profile_headline(candidate),
+        "baseline": _runs_headline(baseline),
+        "candidate": _runs_headline(candidate),
         "overall": overall_change(baseline, candidate),
         "metric": metric,
         "threshold_pct": threshold_pct,

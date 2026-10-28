@@ -192,6 +192,7 @@ usage: scope-profiler inspect [-h] [--include INCLUDE [INCLUDE ...]]
 | `--sort`          | Order regions by any region-table statistic, or by `name` alphabetically |
 | `--columns`       | Restrict the region table to selected columns; default is `region ranks calls total avg` |
 | `--top`           | Print only the first `N` regions in `--sort` order                      |
+| `--json`          | Print the summary as JSON instead: the MCP `inspect_profile` payload (one object for one path, a list for several paths or a glob) |
 | `--full`          | Print long metadata values (`PATH`, `LD_LIBRARY_PATH`, ...) in full     |
 | `--source`        | Print the captured call-site source (the `with` block or decorated function that defines it) of these regions |
 | `--export-metadata` | Also write the metadata of every inspected file to this JSON file     |
@@ -203,6 +204,7 @@ usage: scope-profiler inspect [-h] [--include INCLUDE [INCLUDE ...]]
 scope-profiler inspect profiling_data.h5 --regions-only
 scope-profiler inspect 'run_*.h5' --regions-only --sort calls
 scope-profiler inspect profiling_data.h5 --regions-only --sort total --top 10
+scope-profiler inspect profiling_data.h5 --json --sort total --top 10
 scope-profiler inspect profiling_data.h5 --regions-only --columns region ranks calls total avg
 scope-profiler inspect profiling_data.h5 --export-metadata metadata.json --quiet
 scope-profiler inspect profiling_data.h5 --source solve assemble
@@ -592,6 +594,7 @@ usage: scope-profiler diff [-h] [--include INCLUDE [INCLUDE ...]]
 | `--sort`          | Order regions by descending `|delta|` (default), descending `|delta %|`, or `name` |
 | `--threshold`     | Only show regions whose absolute percent change is at least this many percent |
 | `--top`           | Print only the first `N` regions in `--sort` order                       |
+| `--json`          | Print the comparison as JSON: the MCP `compare_profiles` payload, with `overall`, the regions sorted by percent change, and `regressions`/`improvements` beyond `--threshold` (default 0) |
 
 ```bash
 scope-profiler diff baseline.h5 candidate.h5
@@ -604,12 +607,30 @@ Above the table, one line compares the whole runs (time from `setup()` to
 the answer to "did it get faster?" needs no arithmetic. `check` prints the same
 line. The MCP `compare_profiles` tool returns the same numbers as `overall`.
 
+### Repeated runs
+
+A single run per side cannot tell a real change from run-to-run noise. Give
+`file_a` and `file_b` as globs of repeated runs instead:
+
+```bash
+scope-profiler diff 'base_*.h5' 'cand_*.h5'
+```
+
+Each region is then compared by its mean over the runs, and a `noise` column
+gives two standard errors of the delta (the band a change has to leave to be
+more than noise); `~` marks a change within it. The overall line says whether
+the whole-run change is beyond or within its noise. `check` takes globs the
+same way and does not count a regression within the noise as a violation, and
+`--json` (like the MCP `compare_profiles` tool, which accepts lists of paths)
+adds `noise` and `significant` to every region.
+
 ## `scope-profiler check`
 
 Use `check` in CI to fail when a candidate exceeds a performance budget:
 
 ```bash
 scope-profiler check baseline.h5 candidate.h5 --max-regression 5
+scope-profiler check 'base_*.h5' 'cand_*.h5' --max-regression 5   # repeated runs
 ```
 
 The command prints the comparison table and returns exit code `1` when any
@@ -617,7 +638,9 @@ region is more than 5% slower. Use `--fail-on-new` to treat newly appearing
 regions as failures, and `--metric p95` or `--metric imbalance` to enforce a
 tail-latency or MPI-balance budget. `--top N` prints only the `N` regions with
 the largest percent change; every region is still checked and every budget
-violation listed.
+violation listed. `--json` prints the `diff --json` payload with a `check`
+entry (`passed`, `max_regression_pct`, `fail_on_new`, `violations`) and keeps
+the exit code.
 
 Example output:
 

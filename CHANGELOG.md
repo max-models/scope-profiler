@@ -104,6 +104,15 @@
 - `scope-profiler diff` and `check` print the whole-run comparison above the table, e.g.
   `Overall: b is 1.25x faster than a (-20%, -2 s)`. `scope_profiler.diff.overall_change` computes
   it; the MCP `compare_profiles` tool now uses it for its `overall` field.
+- `--json` for `scope-profiler inspect`, `diff` and `check`: the same payloads as the MCP
+  `inspect_profile` and `compare_profiles` tools (`check` adds its verdict and keeps the exit
+  code), for scripts and coding agents without the MCP server.
+- Repeated runs in `scope-profiler diff` and `check`: either side can be a glob of runs of the same
+  case (`'base_*.h5' 'cand_*.h5'`). Regions and the total time are compared by their means, with a
+  noise band of two standard errors of the difference; changes within it are marked `~`, are not
+  `check` violations and are not listed as MCP `compare_profiles` regressions or improvements
+  (which now takes lists of paths too). `benchmark compare` also keeps a candidate only when its
+  speedup exceeds the noise of the repeated runs (`noise_seconds`, `significant`).
 
 ### Changed
 

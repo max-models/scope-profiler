@@ -8,6 +8,7 @@ with :func:`write_metadata_json`.
 """
 
 import argparse
+import glob
 import json
 import sys
 from collections.abc import Sequence
@@ -303,6 +304,21 @@ def _json_safe(value):
     return value
 
 
+def _json_default(value):
+    """``json.dumps`` fallback for the numpy values and paths in a payload."""
+    if isinstance(value, (np.generic, np.ndarray, bytes)):
+        return _json_safe(value)
+    if isinstance(value, Path):
+        return str(value)
+    raise TypeError(f"{type(value).__name__} is not JSON serializable")
+
+
+def print_json(payload, stream=None) -> None:
+    """Print a payload of the MCP tools (``--json`` of the CLI) as JSON."""
+    stream = sys.stdout if stream is None else stream
+    print(json.dumps(payload, indent=2, default=_json_default), file=stream)
+
+
 def collect_file_metadata(
     profiling_data: ProfilingResults | str | Path | Sequence,
 ) -> dict:
@@ -428,6 +444,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print only the first N regions in --sort order, e.g. --sort total --top 10",
     )
     parser.add_argument(
+        "--json",
+        action="store_true",
+        help=(
+            "Print the summary as JSON (the MCP inspect_profile payload): "
+            "one object for one path, a list for several paths or a glob"
+        ),
+    )
+    parser.add_argument(
         "--full",
         action="store_true",
         help="Print long metadata values (PATH, LD_LIBRARY_PATH, ...) in full",
@@ -477,6 +501,29 @@ def main(argv: list | None = None):
     ranks = None
     if args.ranks:
         ranks = sorted({rank for spec in args.ranks for rank in parse_ranks(spec)})
+
+    if args.json:
+        from scope_profiler.mcp_server.tools import inspect_profile
+
+        payloads = [
+            inspect_profile(
+                str(file_path),
+                include=args.include,
+                exclude=args.exclude,
+                ranks=ranks,
+                sort=args.sort,
+                top_n=args.top,
+                full_metadata=args.full,
+            )
+            for file_path in files
+        ]
+        # A list whenever the arguments could name several files, so the shape
+        # does not depend on how many files a glob happens to match.
+        single = len(args.files) == 1 and not glob.has_magic(args.files[0])
+        print_json(payloads[0] if single else payloads)
+        if args.export_metadata:
+            write_metadata_json(files, args.export_metadata)
+        return
 
     printed = 0
     for file_path in files:
