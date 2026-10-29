@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   docs:
-    uses: max-models/starlight-theme/.github/workflows/docs.yml@v0.5.2
+    uses: max-models/starlight-theme/.github/workflows/docs.yml@v0.6.0
     with:
       apt-packages: "libopenmpi-dev openmpi-bin"
       pre-build: |
