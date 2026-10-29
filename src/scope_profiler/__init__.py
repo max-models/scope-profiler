@@ -65,6 +65,7 @@ from scope_profiler.results import ProfilingResults, merge_results
 #: extra frame there is measurable overhead. They act on the same global
 #: manager state the class methods do.
 finalize = ProfileManager.finalize
+current_timings = ProfileManager.current_timings
 define_region = ProfileManager.define_region
 is_active = ProfileManager.is_active
 is_configured = ProfileManager.is_configured
@@ -72,6 +73,7 @@ instrument = ProfileManager.instrument
 last_results = ProfileManager.last_results
 metadata = ProfileManager.metadata
 profile_command = ProfileManager.profile_command
+print_timings = ProfileManager.print_timings
 profile_script = ProfileManager.profile_script
 profile = ProfileManager.profile
 region_factory = ProfileManager.region_factory
@@ -152,6 +154,7 @@ __all__ = [
     "collect_region_statistics",
     "collect_roofline_points",
     "create_html_report",
+    "current_timings",
     "define_region",
     "export_chrome_trace",
     "export_flamegraph_svg",
@@ -185,6 +188,7 @@ __all__ = [
     "plot_speedup",
     "plot_weak_scaling",
     "plot_weak_scaling_efficiency",
+    "print_timings",
     "profile",
     "profile_command",
     "profile_mpi4py",
