@@ -1,5 +1,5 @@
 ---
-title: Profiling C and C++ code
+title: C and C++
 ---
 
 > **Install for this page:** `pip install scope-profiler` supplies the C/C++

@@ -1,5 +1,5 @@
 ---
-title: LIKWID hardware counters
+title: LIKWID counters
 ---
 
 > **Install for this page:** install LIKWID on the system first, then run

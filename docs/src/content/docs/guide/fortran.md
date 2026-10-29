@@ -1,5 +1,5 @@
 ---
-title: Profiling Fortran code
+title: Fortran
 ---
 
 > **Install for this page:** `pip install scope-profiler` supplies the Fortran
