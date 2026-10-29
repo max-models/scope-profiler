@@ -264,3 +264,44 @@ def test_registering_a_tag_late_disables_existing_instrumentation():
 
     assert "mylib.solve" not in results.region_names
     assert "mylib.kernel" not in results.region_names
+
+
+def test_region_tags_filter_decorated_functions_and_revert_with_none():
+    @sp.profile("core.solve", tags=("core",))
+    def solve():
+        pass
+
+    @sp.profile("detail.check", tags=("detail",))
+    def check():
+        pass
+
+    @sp.profile("untagged")
+    def untagged():
+        pass
+
+    def record(**setup_kwargs):
+        ProfileManager.setup(output=None, **setup_kwargs)
+        solve()
+        check()
+        untagged()
+        results = ProfileManager.finalize(verbose=False, return_results=True)
+        return results
+
+    subset = record(region_tags=["core"])
+    assert set(subset.region_names) == {"core.solve"}
+    assert subset["core.solve"].tags == ("core",)
+
+    full = record(region_tags=None)
+    assert set(full.region_names) == {"core.solve", "detail.check", "untagged"}
+    assert full["detail.check"].tags == ("detail",)
+
+
+def test_decorator_tags_accept_any_iterable():
+    @sp.profile("gen.solve", tags=(tag for tag in ["a", "b"]))
+    def solve():
+        pass
+
+    ProfileManager.setup(output=None, region_tags={"b"})
+    solve()
+    results = ProfileManager.finalize(verbose=False, return_results=True)
+    assert results["gen.solve"].tags == ("a", "b")
