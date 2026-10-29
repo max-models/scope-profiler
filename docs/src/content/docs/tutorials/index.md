@@ -21,7 +21,8 @@ generates its own profiling data in a temporary directory, so they can be run
 in any order and in any environment.
 
 1. [Getting started](/scope-profiler/guide/01-getting-started/) — configure the
-   profiler, mark regions, finalize, and inspect the first output file.
+   profiler, mark regions, print timings during the run, finalize, and inspect
+   the first output file.
 2. [Post-processing profiling data](/scope-profiler/guide/02-postprocessing/) — use
    `ProfilingResults`, summaries, DataFrames, filtering, metadata, and JSON.
 3. [Visualizing results](/scope-profiler/guide/03-visualization/) — create Gantt,
