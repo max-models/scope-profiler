@@ -1,6 +1,6 @@
 name: Docs
 
-# The Astro + Starlight site in docs/: hand-written pages, the executed tutorial notebooks, the
+# The Astro + Starlight site in docs/: hand-written pages, the executed example notebooks, the
 # generated command output and the API reference. Built on every push and pull request with the
 # shared workflow of max-models/starlight-theme; deployed to GitHub Pages from devel.
 # docs/generate_docs_outputs.py runs the MPI examples under mpirun, hence Open MPI.
@@ -35,6 +35,8 @@ jobs:
         guide/plotly-package/index.html
         reference/api/index.html
         reference/cli/index.html
+        examples/index.html
+        examples/scripts/index.html
         tutorials/index.html
         guide/01-getting-started/index.html
         guide/03-visualization/index.html

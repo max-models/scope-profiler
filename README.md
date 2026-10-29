@@ -138,8 +138,8 @@ pip install "scope-profiler[notebook]"
   and [MCP](https://max-models.github.io/scope-profiler/guide/mcp/)
 - [Jupyter/IPython
   magics](https://max-models.github.io/scope-profiler/guide/notebook-magics/)
-- [Tutorial
-  notebooks](https://max-models.github.io/scope-profiler/tutorials/)
+- [Example
+  notebooks](https://max-models.github.io/scope-profiler/examples/)
 - [Examples](https://github.com/max-models/scope-profiler/tree/devel/examples)
 
 ### Build the documentation locally

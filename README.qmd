@@ -117,7 +117,7 @@ pip install "scope-profiler[notebook]"
 - [MPI](https://max-models.github.io/scope-profiler/guide/mpi/), [C](https://max-models.github.io/scope-profiler/guide/c/), and [Fortran](https://max-models.github.io/scope-profiler/guide/fortran/)
 - [LIKWID](https://max-models.github.io/scope-profiler/guide/likwid/), [line profiling](https://max-models.github.io/scope-profiler/guide/line-profiler/), and [MCP](https://max-models.github.io/scope-profiler/guide/mcp/)
 - [Jupyter/IPython magics](https://max-models.github.io/scope-profiler/guide/notebook-magics/)
-- [Tutorial notebooks](https://max-models.github.io/scope-profiler/tutorials/)
+- [Example notebooks](https://max-models.github.io/scope-profiler/examples/)
 - [Examples](https://github.com/max-models/scope-profiler/tree/devel/examples)
 
 ### Build the documentation locally
