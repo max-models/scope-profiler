@@ -2506,6 +2506,105 @@ class ProfileManager:
         )
 
     @classmethod
+    def current_timings(
+        cls, regions: str | Iterable[str] | None = None
+    ) -> dict[str, dict[str, float | int]]:
+        """Timings recorded so far in the current run, without finalizing.
+
+        Reads the live buffers of this rank only (no collective), so it is
+        cheap enough to call every few time steps. Calls that are still open
+        are left out.
+
+        Parameters
+        ----------
+        regions : str or iterable of str, optional
+            Region names or shell-style patterns (``"solver.*"``) to include.
+            None includes every region that has recorded a call.
+
+        Returns
+        -------
+        dict
+            Region name -> ``{"num_calls", "total", "mean", "min", "max"}``,
+            durations in seconds, in the order the regions were defined.
+        """
+        if isinstance(regions, str):
+            regions = (regions,)
+        patterns = None if regions is None else tuple(regions)
+
+        def wanted(name: str) -> bool:
+            return patterns is None or any(
+                fnmatch.fnmatchcase(name, pattern) for pattern in patterns
+            )
+
+        timings: dict[str, dict[str, float | int]] = {}
+        config = cls._config
+        if config is not None and config.aggregation_mode:
+            for name, region in cls._regions.items():
+                if not wanted(name):
+                    continue
+                aggregate = region.aggregate_snapshot()
+                count = int(aggregate["count"])
+                if count:
+                    timings[name] = {
+                        "num_calls": count,
+                        "total": aggregate["total"] / 1e9,
+                        "mean": aggregate["total"] / count / 1e9,
+                        "min": aggregate["minimum"] / 1e9,
+                        "max": aggregate["maximum"] / 1e9,
+                    }
+            return timings
+        for name, arrays in cls._snapshot_regions().items():
+            if not wanted(name):
+                continue
+            durations = (
+                np.asarray(arrays[1], dtype=np.int64)
+                - np.asarray(arrays[0], dtype=np.int64)
+            ) / 1e9
+            if durations.size:
+                timings[name] = {
+                    "num_calls": int(durations.size),
+                    "total": float(durations.sum()),
+                    "mean": float(durations.mean()),
+                    "min": float(durations.min()),
+                    "max": float(durations.max()),
+                }
+        return timings
+
+    @classmethod
+    def print_timings(
+        cls,
+        label: str = "",
+        regions: str | Iterable[str] | None = None,
+        sort: str | None = "total",
+        file=None,
+    ) -> dict[str, dict[str, float | int]]:
+        """Print a table of the timings recorded so far in the current run.
+
+        Parameters
+        ----------
+        label : str, optional
+            Text shown in the table header, e.g. ``f"timestep {i}"``.
+        regions : str or iterable of str, optional
+            Region names or shell-style patterns to include; None prints all.
+        sort : str or None, optional
+            Column to sort by, descending (``"total"``, ``"mean"``, ``"min"``,
+            ``"max"``, ``"num_calls"``), ``"name"``, or None for definition
+            order.
+        file : file-like, optional
+            Where to print; defaults to ``sys.stdout``.
+
+        Returns
+        -------
+        dict
+            The timings that were printed, as from :meth:`current_timings`.
+        """
+        from scope_profiler.summary import print_timings
+
+        timings = cls.current_timings(regions)
+        print_timings(timings, label=label, sort=sort, stream=file)
+        return timings
+
+    @classmethod
     def is_configured(cls) -> bool:
         """Whether explicit setup has configured this manager."""
         return cls._configured

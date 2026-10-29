@@ -33,6 +33,28 @@ results = run.results
 rather than wrappers around them, and act on the same process-wide default
 manager. Use `ProfileManager` directly for independent manager instances.
 
+### Intermediate timings
+
+`sp.print_timings(label, regions=None, sort="total")` prints the timings
+recorded so far in the running session, without finalizing it, for example
+once every few time steps:
+
+```python
+for i in range(num_steps):
+    with sp.region("step"):
+        step()
+    if i % 100 == 0:
+        sp.print_timings(f"timestep {i}", regions=["step", "solver.*"])
+```
+
+`regions` takes region names or shell-style patterns (all regions by
+default); `sort` is a column (`"total"`, `"mean"`, `"min"`, `"max"`,
+`"num_calls"`), `"name"`, or `None` for definition order. To format the
+output yourself, `sp.current_timings(regions)` returns the same numbers as a
+dict mapping each region to `num_calls`, `total`, `mean`, `min` and `max` (in
+seconds). Both read this rank's buffers only and leave out calls that are
+still open.
+
 ### Library instrumentation that is off by default
 
 A library registers an opt-in tag once with `sp.register_opt_in_tag("mylib")`

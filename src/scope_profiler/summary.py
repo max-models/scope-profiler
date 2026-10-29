@@ -29,12 +29,15 @@ _REGION_TABLE_FORMAT = TableFormat(
 )
 
 
-def _print_table(rows, headers, stream, title=None, tablefmt="rounded_outline") -> None:
+def _print_table(
+    rows, headers, stream, title=None, tablefmt="rounded_outline", colalign=None
+) -> None:
     """Print an aligned, header-separated table."""
     lines = tabulate(
         rows,
         headers=headers,
         tablefmt=tablefmt,
+        colalign=colalign,
         disable_numparse=True,
         preserve_whitespace=True,
     ).splitlines()
@@ -1190,3 +1193,57 @@ def print_perf_event_tables(
             stream,
         )
         print(file=stream)
+
+
+def _format_seconds(value: float) -> str:
+    """Format a duration in seconds with a unit that keeps it readable."""
+    for scale, unit in ((1.0, "s"), (1e-3, "ms"), (1e-6, "µs")):
+        if value >= scale:
+            return f"{value / scale:.3f} {unit}"
+    return f"{value * 1e9:.0f} ns"
+
+
+def print_timings(timings: dict, label: str = "", sort="total", stream=None) -> None:
+    """Print the live timings of ``ProfileManager.current_timings()`` as a table.
+
+    Parameters
+    ----------
+    timings : dict
+        Region name -> ``{"num_calls", "total", "mean", "min", "max"}`` in
+        seconds.
+    label : str, optional
+        Shown in the title, e.g. ``"timestep 10"``.
+    sort : str or None, optional
+        Column to sort by, descending, ``"name"``, or None to keep the order.
+    stream : file-like, optional
+        Where to print; defaults to ``sys.stdout``.
+    """
+    stream = sys.stdout if stream is None else stream
+    title = f"Timings ({label})" if label else "Timings"
+    if not timings:
+        _print_heading(f"{title}: no regions recorded yet", stream)
+        return
+    items = list(timings.items())
+    if sort == "name":
+        items.sort(key=lambda item: item[0])
+    elif sort is not None:
+        items.sort(key=lambda item: item[1][sort], reverse=True)
+    rows = [
+        [
+            name,
+            _format_count(values["num_calls"]),
+            _format_seconds(values["total"]),
+            _format_seconds(values["mean"]),
+            _format_seconds(values["min"]),
+            _format_seconds(values["max"]),
+        ]
+        for name, values in items
+    ]
+    _print_table(
+        rows,
+        ["Region", "Calls", "Total", "Mean", "Min", "Max"],
+        stream,
+        title=title,
+        tablefmt=_REGION_TABLE_FORMAT,
+        colalign=("left",) + ("right",) * 5,
+    )
