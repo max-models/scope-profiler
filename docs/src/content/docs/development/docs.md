@@ -8,11 +8,12 @@ The site in `docs/` is built with [Astro](https://astro.build/) and
 
 - **Hand-written pages** in `docs/src/content/docs/`, as Markdown or MDX. Do not put `.mdx` files
   in `guide/`: the notebook tool deletes the `.mdx` pages there that it did not generate.
-- **Tutorials and most guides**, converted from the Jupyter notebooks in `notebooks/` by
+- **Example notebooks and most guides**, converted from the Jupyter notebooks in `notebooks/` by
   `starlight-notebooks`: each notebook is executed and its outputs (text, images, tables) are
-  written into an MDX page. `notebooks/tutorials/` holds the tutorials and `notebooks/guides/` the
-  guides; both are built into the `guide/` section (the tool builds one folder into one section),
-  so a tutorial is at `/guide/01-getting-started/`. The code in these pages is therefore run on
+  written into an MDX page. `notebooks/tutorials/` holds the example notebooks, listed in the
+  Examples section of the sidebar, and `notebooks/guides/` the guides; both are built into the
+  `guide/` section (the tool builds one folder into one section), so an example notebook is at
+  `/guide/01-getting-started/`. The code in these pages is therefore run on
   every docs build. The guides for C, Fortran, LIKWID and MCP, which need a compiler, hardware or
   an MCP client, stay hand-written Markdown in `docs/src/content/docs/guide/`.
 - **API reference**, generated from the docstrings by

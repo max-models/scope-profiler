@@ -43,9 +43,8 @@ export default defineDocs({
 	nav: [
 		{ label: 'Getting started', link: '/getting-started/installation/' },
 		{ label: 'User guide', link: '/guide/configuration/', section: '/guide/' },
-		{ label: 'Tutorials', link: '/tutorials/' },
 		{ label: 'Reference', link: '/reference/api/', section: '/reference/' },
-		{ label: 'Examples', link: '/examples/' },
+		{ label: 'Examples', link: '/examples/', section: '/examples/' },
 		{ label: 'API', link: '/api/scope_profiler/', section: '/api/' },
 	],
 	sidebar: [
@@ -79,21 +78,22 @@ export default defineDocs({
 			].map((page) => ({ slug: `guide/${page}` })),
 		},
 		{
-			label: 'Interactive Jupyter tutorials',
-			// the tutorials are notebooks in notebooks/tutorials/, built into the guide section with the guides
-			items: [
-				{ label: 'Overview', slug: 'tutorials' },
-				...tutorials.map((page) => ({ slug: `guide/${dashed(page)}` })),
-			],
-		},
-		{
 			label: 'Reference',
 			items: [
 				{ label: 'Python API', slug: 'reference/api' },
 				{ label: 'CLI', slug: 'reference/cli' },
 			],
 		},
-		{ label: 'Examples & workflows', items: [{ slug: 'examples' }] },
+		{
+			label: 'Examples',
+			// the example notebooks are in notebooks/tutorials/, built into the guide section with the
+			// guides (the notebook tool builds one folder into one section)
+			items: [
+				{ label: 'Overview', slug: 'examples' },
+				...tutorials.map((page) => ({ slug: `guide/${dashed(page)}` })),
+				{ label: 'Scripts and workflows', slug: 'examples/scripts' },
+			],
+		},
 		{ label: 'Development', items: [{ label: 'Building the docs', slug: 'development/docs' }] },
 	],
 	// the Fortran guide's code blocks; Shiki names the language fortran-free-form
@@ -105,7 +105,8 @@ export default defineDocs({
 			'/api.html': '/reference/api/',
 			'/cli.html': '/reference/cli/',
 			'/examples.html': '/examples/',
-			'/tutorials.html': '/tutorials/',
+			'/tutorials.html': '/examples/',
+			'/tutorials/': '/examples/',
 			...Object.fromEntries(
 				guides.map((page) => [`/guide/${page}.html`, page === 'try_it' ? '/getting-started/try-it/' : `/guide/${dashed(page)}/`]),
 			),
