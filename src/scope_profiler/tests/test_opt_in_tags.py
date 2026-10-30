@@ -296,6 +296,18 @@ def test_region_tags_filter_decorated_functions_and_revert_with_none():
     assert full["detail.check"].tags == ("detail",)
 
 
+def test_region_tags_filter_keeps_the_session_root_region():
+    with ProfileManager.session(
+        output=None, region_tags=["core"], verbose=False, return_results=True
+    ) as run:
+        with sp.region("core.solve", tags=("core",)):
+            pass
+        with sp.region("detail.check", tags=("detail",)):
+            pass
+
+    assert set(run.results.region_names) == {"scope_profiler.session", "core.solve"}
+
+
 def test_decorator_tags_accept_any_iterable():
     @sp.profile("gen.solve", tags=(tag for tag in ["a", "b"]))
     def solve():

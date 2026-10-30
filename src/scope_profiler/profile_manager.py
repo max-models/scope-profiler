@@ -653,9 +653,13 @@ class ProfileManager:
             # hot path: tags are metadata, not per-event work.
             normalized_tags = () if tags is None else tuple(tags)
             region_cls = cls._region_cls
-            if cls._region_tag_filter is not None and not set(
-                normalized_tags
-            ).intersection(cls._region_tag_filter):
+            # The session's root region is the run's total time, not user
+            # instrumentation, so a tag filter never drops it.
+            if (
+                cls._region_tag_filter is not None
+                and region_name != _ProfilingSession.ROOT_REGION_NAME
+                and not set(normalized_tags).intersection(cls._region_tag_filter)
+            ):
                 region_cls = DisabledProfileRegion
             if normalized_tags and not cls._opt_in_enabled(normalized_tags):
                 region_cls = DisabledProfileRegion
