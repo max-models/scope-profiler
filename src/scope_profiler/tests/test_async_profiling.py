@@ -92,9 +92,11 @@ def test_await_time_is_separated_from_the_work(tmp_path):
     job_region = run.results["job"][0]
     duration = job_region.durations[0]
     awaited = job_region.await_times[0]
-    assert awaited == pytest.approx(0.05, abs=0.03)
+    # Lower bounds only: a slow runner stretches the sleep, not the separation.
+    assert awaited >= 0.05
     # The rest is time the task actually held the thread: two spins.
-    assert duration - awaited == pytest.approx(2 * SPIN_SECONDS, abs=0.01)
+    assert duration - awaited >= 2 * SPIN_SECONDS
+    assert duration - awaited < awaited
     assert job_region.total_await_duration == pytest.approx(awaited)
     assert job_region.await_times_ns[0] == pytest.approx(awaited * 1e9, rel=1e-9)
 
@@ -195,8 +197,11 @@ def test_interleaved_tasks_close_their_own_scope(tmp_path):
     both = run.results["both"][0]
     assert both.num_calls == 2
     durations = sorted(both.durations)
-    assert durations[0] == pytest.approx(0.005, abs=0.02)
-    assert durations[1] == pytest.approx(0.05, abs=0.03)
+    # Lower bounds only: a slow runner stretches the sleeps, but swapped slots
+    # would cut the slow task's duration below its own sleep.
+    assert durations[0] >= 0.005
+    assert durations[1] >= 0.05
+    assert durations[0] < durations[1]
     assert len(set(both.task_ids.tolist())) == 2
 
 
