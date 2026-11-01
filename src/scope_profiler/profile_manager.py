@@ -779,6 +779,19 @@ class ProfileManager:
                 cls._bind_decorated_region(name, func, _bound, region_tags)
 
     @classmethod
+    def _register_opt_in_tags(cls, tags, module) -> None:
+        """Register ``tags`` as opt-in, recording ``module`` as their owner."""
+        for tag in tags:
+            if not isinstance(tag, str) or not tag:
+                raise TypeError(f"opt-in tags must be non-empty strings, got {tag!r}")
+        new = set(tags) - _OPT_IN_TAGS
+        _OPT_IN_TAGS.update(new)
+        for tag in new:
+            _OPT_IN_TAG_MODULES[tag] = module
+        if new and cls._configured:
+            cls._rebind_tagged(new)
+
+    @classmethod
     def register_opt_in_tag(cls, *tags: str) -> None:
         """Mark ``tags`` as opt-in: their regions are off unless enabled.
 
@@ -807,17 +820,13 @@ class ProfileManager:
         Instrumentation that is off costs one extra Python call (roughly
         0.1-0.3 µs per call), so keep it to operations that take microseconds
         or more.
+
+        See Also
+        --------
+        scope_profiler.library : Register the tag and get a ``profile``
+            decorator and ``region`` that add it and prefix the region names.
         """
-        for tag in tags:
-            if not isinstance(tag, str) or not tag:
-                raise TypeError(f"opt-in tags must be non-empty strings, got {tag!r}")
-        new = set(tags) - _OPT_IN_TAGS
-        _OPT_IN_TAGS.update(new)
-        module = sys._getframe(1).f_globals.get("__name__")
-        for tag in new:
-            _OPT_IN_TAG_MODULES[tag] = module
-        if new and cls._configured:
-            cls._rebind_tagged(new)
+        cls._register_opt_in_tags(tags, sys._getframe(1).f_globals.get("__name__"))
 
     @classmethod
     def opt_in_tags(cls) -> dict[str, tuple[str, ...]]:

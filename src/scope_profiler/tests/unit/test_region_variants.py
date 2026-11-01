@@ -215,9 +215,32 @@ def test_a_paused_nvtx_region_emits_no_range_and_records_nothing(nvtx, config):
 
 
 def test_nvtx_reports_a_missing_install(monkeypatch, config):
-    monkeypatch.setitem(sys.modules, "nvtx", None)
-    with pytest.raises(ImportError, match="nvtx is not installed"):
+    for name in ("nvtx", "cupy", "cupy.cuda"):
+        monkeypatch.setitem(sys.modules, name, None)
+    with pytest.raises(ImportError, match="neither nvtx nor CuPy is installed"):
         NVTXProfileRegion("solve", config)
+
+
+def test_nvtx_falls_back_to_cupy(monkeypatch, config):
+    """Without the nvtx package, CuPy's bundled NVTX bindings mark the ranges."""
+    calls = []
+    cupy_nvtx = types.ModuleType("cupy.cuda.nvtx")
+    cupy_nvtx.RangePush = lambda name: calls.append(("push", name))
+    cupy_nvtx.RangePop = lambda: calls.append(("pop",))
+    cuda = types.ModuleType("cupy.cuda")
+    cuda.nvtx = cupy_nvtx
+    cupy = types.ModuleType("cupy")
+    cupy.cuda = cuda
+    monkeypatch.setitem(sys.modules, "nvtx", None)
+    monkeypatch.setitem(sys.modules, "cupy", cupy)
+    monkeypatch.setitem(sys.modules, "cupy.cuda", cuda)
+    monkeypatch.setitem(sys.modules, "cupy.cuda.nvtx", cupy_nvtx)
+
+    region = NVTXProfileRegion("solve", config)
+    with region:
+        pass
+
+    assert calls == [("push", "solve"), ("pop",)]
 
 
 def test_import_nvtx_returns_the_module(nvtx):

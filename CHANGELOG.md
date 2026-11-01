@@ -4,6 +4,15 @@
 
 ### Added
 
+- `sp.library("mylib")` registers a library's opt-in tag and returns its profiler, whose
+  `profile` decorator and `region` name the regions `mylib.<name>` and tag them `mylib`
+  (`@prof.profile("solve")`, `with prof.region("assemble"):`).
+- `scope_profiler.testing`: `assert_opt_in_tag(tag, run, expected)` checks in one test that a
+  library's regions are off by default, recorded once the tag is enabled, and that the package
+  declares the entry point; `recorded_region_names(run, **setup_kwargs)` and `fresh_profiler()`
+  help with the other tests, and the pytest plugin provides `fresh_profiler` as a fixture.
+- NVTX ranges (`use_nvtx`) fall back to CuPy's bundled `cupy.cuda.nvtx` when the `nvtx` package
+  is not installed.
 - `scope-profiler tags` lists the opt-in tags of the installed packages and the regions behind
   each (`--json` for a JSON document). It imports the modules a library declares in the
   `scope_profiler.opt_in_tags` entry-point group, and any named with `--import MODULE`.
