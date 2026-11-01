@@ -17,6 +17,7 @@ from scope_profiler.json_export import (
     read_json,
     write_json,
 )
+from scope_profiler.library import LibraryProfiler, library
 from scope_profiler.likwid_data import LikwidRegionResult
 from scope_profiler.mpi_region import MPIRegion
 from scope_profiler.mpi_wrappers import (
@@ -130,6 +131,7 @@ __all__ = [
     "GPUOptions",
     "HDF5Options",
     "JSONProfileError",
+    "LibraryProfiler",
     "LikwidRegionResult",
     "MPIRegion",
     "MPIRegionMetadata",
@@ -168,6 +170,7 @@ __all__ = [
     "is_active",
     "is_configured",
     "last_results",
+    "library",
     "load",
     "load_prof",
     "merge_results",

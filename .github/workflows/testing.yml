@@ -48,7 +48,7 @@ jobs:
   # their dedicated Linux jobs; pytest reports their skips explicitly.
   macos:
     name: Test macOS (Python 3.13)
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
