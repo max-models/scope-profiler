@@ -112,6 +112,7 @@ optional-dependencies.docs = [
   "nbformat",
   "pre-commit",
   "pyproject-fmt",
+  "pytest",
   "scope-profiler[line-profiler,mpi,notebook,pproc,site,tui]",
 ]
 optional-dependencies.test = [
