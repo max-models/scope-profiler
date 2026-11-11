@@ -74,8 +74,13 @@ case = ProfilingCase(
 )
 for ntasks in (1, 2, 4, 8):
     case.launch(ntasks, args=["--cells", "100000"])
-case.launch(4, env={"BACKEND": "gpu"}, metadata={"backend": "gpu"},
-            cluster="mycluster_gpu", sbatch={"time": "00:30:00"})
+case.launch(
+    4,
+    env={"BACKEND": "gpu"},
+    metadata={"backend": "gpu"},
+    cluster="mycluster_gpu",
+    sbatch={"time": "00:30:00"},
+)
 case.finalize()
 ```
 
