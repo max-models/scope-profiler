@@ -51,6 +51,11 @@ The subcommands:
   with a correctness gate and writes a JSON manifest.
 - ``scope-profiler benchmark compare baseline.json candidate.json`` - makes a
   median-based keep/reject decision for an AI agent or CI.
+- ``scope-profiler jobs run case.toml`` - launches a profiling case at
+  several rank counts, locally or through SLURM, and packages each run
+  (profiles, results, metadata) as it finishes; ``jobs sweep`` runs many
+  cases from one process and ``jobs upload`` pushes a packaged case to a git
+  results repository. See ``scope_profiler.jobs``.
 - ``scope-profiler import-native traces/ -o out.h5`` - merges the per-rank
   files written by the C and Fortran region APIs
   (``scope_profiler/c/scope_profiler.c``,
@@ -762,6 +767,13 @@ def _native_lines(argv):
     return 0
 
 
+def _jobs(argv):
+    """Handle ``scope-profiler jobs``: launch and package profiling jobs."""
+    from scope_profiler.jobs.cli import main as jobs_main
+
+    return jobs_main(argv)
+
+
 _COMMANDS = {
     "run": _run,
     "plot": _plot,
@@ -778,6 +790,7 @@ _COMMANDS = {
     "benchmark": _benchmark,
     "import-native": _import_fortran,
     "native-lines": _native_lines,
+    "jobs": _jobs,
 }
 
 
@@ -880,6 +893,13 @@ def main(argv=None):
         add_help=False,
         help="Show the hottest source lines of C regions from sampled output "
         "(see `scope-profiler native-lines --help`)",
+    )
+
+    subparsers.add_parser(
+        "jobs",
+        add_help=False,
+        help="Launch profiling jobs locally or with SLURM and package the results "
+        "(see `scope-profiler jobs --help`)",
     )
 
     if not argv:

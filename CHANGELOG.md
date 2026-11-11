@@ -4,6 +4,19 @@
 
 ### Added
 
+- **Profiling jobs for any program (`scope_profiler.jobs`, `scope-profiler
+  jobs`).** A `ProfilingCase` (in Python or a TOML file) runs a command at
+  several rank counts, as SLURM batch jobs where `sbatch` exists and as local
+  bash scripts otherwise, then packages every run as soon as its job
+  finishes: the profiles, files a post-processing command wrote, and
+  `case_metadata.json`/`run_metadata.json` with the git state, environment,
+  job script and final SLURM state. Cluster presets (`#SBATCH` pragmas,
+  module setup, node hardware, detection) come from TOML files in
+  `$SCOPE_PROFILER_CLUSTERS`; `--upload` pushes each package to a git results
+  repository; `scope-profiler jobs sweep` runs many cases from one process.
+  No new dependency: `sbatch`, `squeue` and `sacct` are called directly. See
+  the "Profiling jobs" guide and `examples/jobs`.
+
 - `sp.library("mylib")` registers a library's opt-in tag and returns its profiler, whose
   `profile` decorator and `region` name the regions `mylib.<name>` and tag them `mylib`
   (`@prof.profile("solve")`, `with prof.region("assemble"):`).
