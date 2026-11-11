@@ -1,0 +1,28 @@
+# Cluster presets for scope-profiler jobs. Load with
+#   export SCOPE_PROFILER_CLUSTERS=examples/jobs/clusters.toml
+# or --cluster-config examples/jobs/clusters.toml. The values are placeholders.
+
+[clusters.mycluster_cpu]
+description = "CPU partition"
+cpus_per_node = 128
+gpus_per_node = 0
+setup = ["module purge", "module load gcc openmpi python"]
+detect = { HOSTNAME = "mycluster" }
+
+[clusters.mycluster_cpu.sbatch]
+partition = "general"
+account = "my_project"
+time = "00:15:00"
+cpus_per_task = 1
+
+[clusters.mycluster_gpu]
+description = "GPU partition; not detected, pick it per launch with cluster = \"mycluster_gpu\""
+cpus_per_node = 72
+gpus_per_node = 4
+setup = ["module purge", "module load gcc openmpi cuda python"]
+
+[clusters.mycluster_gpu.sbatch]
+partition = "gpu"
+account = "my_project"
+gres = "gpu:4"
+time = "00:15:00"

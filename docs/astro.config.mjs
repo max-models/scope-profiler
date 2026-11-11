@@ -70,6 +70,7 @@ export default defineDocs({
 				'plotly-package',
 				'dashboard',
 				'mcp',
+				'jobs',
 				'notebook-magics',
 				'mpi',
 				'likwid',
