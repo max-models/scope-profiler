@@ -15,10 +15,6 @@ from scope_profiler.jobs import (
     ClusterPreset,
     GitResultsStore,
     ProfilingCase,
-)
-from scope_profiler.jobs import case as case_module
-from scope_profiler.jobs import clusters as clusters_module
-from scope_profiler.jobs import (
     detect_cluster,
     get_cluster,
     load_case_config,
@@ -28,6 +24,8 @@ from scope_profiler.jobs import (
     run_sweep,
     variant_entries,
 )
+from scope_profiler.jobs import case as case_module
+from scope_profiler.jobs import clusters as clusters_module
 from scope_profiler.jobs.case import _render_command
 from scope_profiler.jobs.schedulers import SlurmScheduler, detect_scheduler
 
