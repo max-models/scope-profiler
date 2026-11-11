@@ -184,6 +184,20 @@ def _render_command(
     return " ".join(parts)
 
 
+def _scope_profiler_version() -> str | None:
+    try:
+        from scope_profiler import __version__
+    except ImportError:  # pragma: no cover - only in a broken install
+        return None
+    return __version__
+
+
+# Packaging folders (and results clones) prepared in this process, so that the
+# cases of one sweep share a clone instead of each re-cloning (and so dropping
+# what the others packaged).
+_PREPARED_ROOTS: set[Path] = set()
+
+
 @dataclass
 class ProfilingCase:
     """A program to profile at one or more rank counts, and how to package its output.
@@ -742,23 +756,11 @@ class ProfilingCase:
         print(f"    scope-profiler inspect {shlex.quote(str(first))}/*.h5 --sort total")
 
 
-def _scope_profiler_version() -> str | None:
-    try:
-        from scope_profiler import __version__
-    except ImportError:  # pragma: no cover - only in a broken install
-        return None
-    return __version__
-
-
 # ---------------------------------------------------------------------------
 # Several cases at once
 # ---------------------------------------------------------------------------
 # Cases whose `finalize` was deferred by a sweep, or None outside one.
 _SWEEP_CASES: list[ProfilingCase] | None = None
-# Packaging folders (and results clones) prepared in this process, so that the
-# cases of one sweep share a clone instead of each re-cloning (and so dropping
-# what the others packaged).
-_PREPARED_ROOTS: set[Path] = set()
 
 
 def begin_sweep() -> None:
@@ -817,6 +819,15 @@ def _iter_finished(
         yield case, info
 
 
+def _push_all(cases: Sequence[ProfilingCase]) -> None:
+    """Push each results clone once, whichever of ``cases`` packaged into it."""
+    seen: set[Path] = set()
+    for case in cases:
+        if case.upload and case.packaged_root not in seen:
+            seen.add(case.packaged_root)
+            case.push()
+
+
 def finalize_all(cases: Sequence[ProfilingCase], poll_interval: float = 30.0) -> None:
     """:meth:`ProfilingCase.finalize` for several cases: package (and push) every run as it finishes.
 
@@ -845,12 +856,3 @@ def finalize_all(cases: Sequence[ProfilingCase], poll_interval: float = 30.0) ->
 
     for case in cases:
         case.report()
-
-
-def _push_all(cases: Sequence[ProfilingCase]) -> None:
-    """Push each results clone once, whichever of ``cases`` packaged into it."""
-    seen: set[Path] = set()
-    for case in cases:
-        if case.upload and case.packaged_root not in seen:
-            seen.add(case.packaged_root)
-            case.push()
