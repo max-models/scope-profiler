@@ -106,6 +106,11 @@ def _parse_run_args(argv):
         action="store_true",
         help="Suppress the per-region summary printed after the run",
     )
+    parser.add_argument(
+        "--suppress-notes",
+        action="store_true",
+        help='Leave the "Info" notes box out of the printed summary',
+    )
     recursive = parser.add_mutually_exclusive_group()
     recursive.add_argument(
         "--recursive",
@@ -218,7 +223,7 @@ def _parse_run_args(argv):
     return parser.parse_args(argv)
 
 
-def _convert_run_output(profile_path, output_path, quiet=False):
+def _convert_run_output(profile_path, output_path, quiet=False, suppress_notes=False):
     """Render the run's HDF5 output as JSON or HTML, then drop the HDF5.
 
     Under MPI only rank 0 holds the merged file, and only rank 0 wrote it, so
@@ -248,7 +253,7 @@ def _convert_run_output(profile_path, output_path, quiet=False):
             results._file_path = Path(output_path)
         written = write_profile(results, output_path)
         if not quiet:
-            results.print_summary()
+            results.print_summary(suppress_notes=suppress_notes)
             print(f"\nwrote {written}")
     finally:
         try:
@@ -325,12 +330,20 @@ def _run(argv):
         # The summary names the file it came from, so with a conversion still
         # to come it is printed afterwards, against the file the user asked
         # for, rather than against a temporary that is about to be deleted.
-        finalize_kwargs = {"verbose": not args.quiet and not convert}
+        finalize_kwargs = {
+            "verbose": not args.quiet and not convert,
+            "suppress_notes": args.suppress_notes,
+        }
         if args.no_output:
             finalize_kwargs["return_results"] = True
         ProfileManager.finalize(**finalize_kwargs)
         if convert:
-            _convert_run_output(profile_path, args.outfile, quiet=args.quiet)
+            _convert_run_output(
+                profile_path,
+                args.outfile,
+                quiet=args.quiet,
+                suppress_notes=args.suppress_notes,
+            )
 
 
 def _plot(argv):
