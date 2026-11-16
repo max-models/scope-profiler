@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.0 - 2026-11-16
+
 ### Added
 
 - **Profiling jobs for any program (`scope_profiler.jobs`, `scope-profiler
@@ -16,7 +18,6 @@
   repository; `scope-profiler jobs sweep` runs many cases from one process.
   No new dependency: `sbatch`, `squeue` and `sacct` are called directly. See
   the "Profiling jobs" guide and `examples/jobs`.
-
 - `sp.library("mylib")` registers a library's opt-in tag and returns its profiler, whose
   `profile` decorator and `region` name the regions `mylib.<name>` and tag them `mylib`
   (`@prof.profile("solve")`, `with prof.region("assemble"):`).
@@ -30,6 +31,35 @@
   each (`--json` for a JSON document). It imports the modules a library declares in the
   `scope_profiler.opt_in_tags` entry-point group, and any named with `--import MODULE`.
   `sp.opt_in_tags()` returns the same map in Python.
+- `--top N` for `scope-profiler inspect`, `diff` and `check`: print only the first `N` regions of
+  the table (in `--sort` order; for `check` the largest changes, while every region is still
+  checked), so a run with many regions gives a short answer.
+- `scope-profiler diff` and `check` print the whole-run comparison above the table, e.g.
+  `Overall: b is 1.25x faster than a (-20%, -2 s)`. `scope_profiler.diff.overall_change` computes
+  it; the MCP `compare_profiles` tool now uses it for its `overall` field.
+- `--json` for `scope-profiler inspect`, `diff` and `check`: the same payloads as the MCP
+  `inspect_profile` and `compare_profiles` tools (`check` adds its verdict and keeps the exit
+  code), for scripts and coding agents without the MCP server.
+- Repeated runs in `scope-profiler diff` and `check`: either side can be a glob of runs of the same
+  case (`'base_*.h5' 'cand_*.h5'`). Regions and the total time are compared by their means, with a
+  noise band of two standard errors of the difference; changes within it are marked `~`, are not
+  `check` violations and are not listed as MCP `compare_profiles` regressions or improvements
+  (which now takes lists of paths too). `benchmark compare` also keeps a candidate only when its
+  speedup exceeds the noise of the repeated runs (`noise_seconds`, `significant`).
+
+### Fixed
+
+- `AGENTS.md`, which the README, the examples page and the MCP guide link to for the measured
+  benchmark workflow, did not exist; it now describes the development setup and the
+  benchmark-change-compare loop, and the agent workflow example points to it instead of a missing
+  `CLAUDE.md`.
+- `import scope_profiler` works on Pyodide, whose `time` has no `thread_time_ns`; the process
+  clock stands in for it there.
+
+## 0.7.5 - 2026-10-22
+
+### Added
+
 - `sp.reset()`, for test suites: it forgets the configuration and what was recorded but keeps the
   instrumentation, so a library's `@sp.profile` functions record again after the next `setup()`.
   Before, the private `ProfileManager._reset()` dropped them for good, and calling one before the
@@ -79,7 +109,6 @@
   and on-demand completed-call statistics through `sp_get_region_stats`.
 - Fortran regions accept optional source files and line numbers, written in
   native trace format v2 and preserved by HDF5 conversion.
-
 - `metadata_detail` setting: `"minimal"` (the default) records only versions,
   platform, CPU model and thread/rank counts, and stores source files relative
   to the working directory (outside it, relative to the `sys.path` entry they
@@ -124,21 +153,6 @@
   `allgather` of host names in `finalize()`. `ProfilingResults.num_nodes`
   reads it, answering 1 for single-rank files written before it existed and
   None for older multi-rank ones.
-- `--top N` for `scope-profiler inspect`, `diff` and `check`: print only the first `N` regions of
-  the table (in `--sort` order; for `check` the largest changes, while every region is still
-  checked), so a run with many regions gives a short answer.
-- `scope-profiler diff` and `check` print the whole-run comparison above the table, e.g.
-  `Overall: b is 1.25x faster than a (-20%, -2 s)`. `scope_profiler.diff.overall_change` computes
-  it; the MCP `compare_profiles` tool now uses it for its `overall` field.
-- `--json` for `scope-profiler inspect`, `diff` and `check`: the same payloads as the MCP
-  `inspect_profile` and `compare_profiles` tools (`check` adds its verdict and keeps the exit
-  code), for scripts and coding agents without the MCP server.
-- Repeated runs in `scope-profiler diff` and `check`: either side can be a glob of runs of the same
-  case (`'base_*.h5' 'cand_*.h5'`). Regions and the total time are compared by their means, with a
-  noise band of two standard errors of the difference; changes within it are marked `~`, are not
-  `check` violations and are not listed as MCP `compare_profiles` regressions or improvements
-  (which now takes lists of paths too). `benchmark compare` also keeps a candidate only when its
-  speedup exceeds the noise of the repeated runs (`noise_seconds`, `significant`).
 
 ### Changed
 
@@ -159,7 +173,6 @@
   the API reference generated from the docstrings. Page URLs drop `.html`
   (`guide/plot_cli.html` is now `guide/plot-cli/`); the old URLs redirect.
   `make docs-build` builds it, and `docs/Makefile` is gone.
-
 - Report generation benchmark (`benchmarks/report.toml`, five synthetic
   profile shapes up to 1550 nested regions and a two-run comparison) and
   `slow` tests holding each shape to a time and size limit, plus a check that
@@ -214,12 +227,6 @@
 
 ### Fixed
 
-- `AGENTS.md`, which the README, the examples page and the MCP guide link to for the measured
-  benchmark workflow, did not exist; it now describes the development setup and the
-  benchmark-change-compare loop, and the agent workflow example points to it instead of a missing
-  `CLAUDE.md`.
-- `import scope_profiler` works on Pyodide, whose `time` has no `thread_time_ns`; the process
-  clock stands in for it there.
 - Summary: a recursive row's total sums only the outermost calls, so it no longer
   exceeds the time of its caller, and the regions called from a recursive
   function are no longer marked with the recursive symbol (#313).
