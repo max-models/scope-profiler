@@ -268,7 +268,11 @@ main()
         cli_main(["run", "-q", "-o", str(output), str(script)])
         results = read_h5(output)
 
-        assert set(results.region_names) == {"main", "iteration"}
+        assert set(results.region_names) == {
+            "main",
+            "iteration",
+            "scope_profiler.session",
+        }
         assert results["main"].num_calls == 1
         assert results["iteration"].num_calls == 3
     finally:
@@ -294,7 +298,7 @@ with sp.region("slow", tags=["cold"]):
     try:
         cli_main(["run", "-q", "--tag", "hot", "-o", str(output), str(script)])
         results = read_h5(output)
-        assert set(results.region_names) == {"fast"}
+        assert set(results.region_names) == {"fast", "scope_profiler.session"}
     finally:
         ProfileManager._reset()
 

@@ -267,6 +267,7 @@ def _run(argv):
     script is done, so nothing about the measured run changes with ``-o``.
     """
     from scope_profiler.profile_io import FORMAT_HDF5, profile_format
+    from scope_profiler.profile_manager import _ProfilingSession
 
     args = _parse_run_args(argv)
 
@@ -304,18 +305,22 @@ def _run(argv):
         setup_kwargs["file_path"] = profile_path
     ProfileManager.setup(**setup_kwargs)
 
+    # Same root interval as ProfileManager.session(), so the summary shows
+    # `% session` here too.
+    root_region = ProfileManager.profile_region(_ProfilingSession.ROOT_REGION_NAME)
     try:
-        ProfileManager.run_script(
-            args.script,
-            script_args=args.script_args,
-            recursive=args.all
-            or args.entrypoint is not None
-            or ProfileManager.get_config().recursive_profile,
-            only_user_code=not args.all,
-            include_patterns=args.include_patterns,
-            exclude_patterns=args.exclude_patterns,
-            entrypoint=args.entrypoint,
-        )
+        with root_region:
+            ProfileManager.run_script(
+                args.script,
+                script_args=args.script_args,
+                recursive=args.all
+                or args.entrypoint is not None
+                or ProfileManager.get_config().recursive_profile,
+                only_user_code=not args.all,
+                include_patterns=args.include_patterns,
+                exclude_patterns=args.exclude_patterns,
+                entrypoint=args.entrypoint,
+            )
     finally:
         # The summary names the file it came from, so with a conversion still
         # to come it is printed afterwards, against the file the user asked
