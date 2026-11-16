@@ -25,7 +25,7 @@ classifiers = [
 dependencies = [
   "h5py",
   "numpy",
-  "tabulate",
+  "tabulate>=0.10.0",
   "tomli>=2.0; python_version < '3.11'",
 ]
 
@@ -84,7 +84,7 @@ optional-dependencies.pproc = [
   "pyvis >= 0.3.2",
   "pyyaml",
   "snakeviz",
-  "tabulate",
+  "tabulate>=0.10.0",
   "textual>=0.86",
 ]
 
@@ -126,7 +126,7 @@ optional-dependencies.test = [
 ]
 
 optional-dependencies.tui = [
-  "tabulate",
+  "tabulate>=0.10.0",
   "textual>=0.86",
 ]
 urls."Source" = "https://github.com/max-models/scope-profiler"
