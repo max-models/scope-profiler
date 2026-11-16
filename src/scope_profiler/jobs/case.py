@@ -593,7 +593,7 @@ class ProfilingCase:
             "scheduler": self.scheduler,
             "hardware_information": {
                 "cluster": cluster.to_dict() if cluster else None,
-                "submit_host": socket.getfqdn(),
+                "submit_host": socket.gethostname(),
                 "platform": platform.platform(),
                 "machine": platform.machine(),
                 "cpu_count": os.cpu_count(),

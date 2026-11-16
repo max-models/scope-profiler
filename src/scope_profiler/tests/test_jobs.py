@@ -666,3 +666,15 @@ def test_case_toml_with_single_launch_table_and_store(app, results_repo):
     assert any(
         name.endswith("run01/profiling_data.h5") for name in _repo_files(results_repo)
     )
+
+
+def test_launch_does_not_do_a_reverse_dns_lookup(app, monkeypatch):
+    # socket.getfqdn() stalls for ~30 s per call on hosts without reverse DNS
+    # (GitHub's macOS runners), which made this module take 18 minutes there.
+    def fail():
+        raise AssertionError("socket.getfqdn() must not be called")
+
+    monkeypatch.setattr(case_module.socket, "getfqdn", fail)
+    case = _case(app)
+    case.launch(1)
+    case.finalize()
