@@ -105,7 +105,7 @@ def test_run_line_profile_flag_is_passed_to_setup(tmp_path, monkeypatch):
             "entrypoint": entrypoint,
         }
 
-    def fake_finalize(verbose=True):
+    def fake_finalize(verbose=True, suppress_notes=False):
         calls["finalize"] = {"verbose": verbose}
 
     monkeypatch.setattr("scope_profiler.__main__.ProfileManager.setup", fake_setup)
@@ -195,7 +195,11 @@ def test_run_can_disable_recursive_tracing_and_file_output(tmp_path, monkeypatch
     assert calls["setup"]["deactivate_file_output"] is True
     assert calls["setup"]["label"] == "trial"
     assert calls["run_script"]["recursive"] is False
-    assert calls["finalize"] == {"verbose": True, "return_results": True}
+    assert calls["finalize"] == {
+        "verbose": True,
+        "suppress_notes": False,
+        "return_results": True,
+    }
 
 
 def test_run_can_enable_automatic_mpi_call_profiling(tmp_path, monkeypatch):
