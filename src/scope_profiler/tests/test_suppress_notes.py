@@ -27,9 +27,14 @@ def test_run_suppress_notes(tmp_path):
         "import scope_profiler as sp\nwith sp.region('work'):\n    pass\n"
     )
     cmd = [sys.executable, "-m", "scope_profiler", "run", "-o", str(tmp_path / "o.h5")]
-    plain = subprocess.run(cmd + [str(script)], capture_output=True, text=True)
+    plain = subprocess.run(
+        cmd + [str(script)], capture_output=True, text=True, check=False
+    )
     quiet = subprocess.run(
-        cmd + ["--suppress-notes", str(script)], capture_output=True, text=True
+        cmd + ["--suppress-notes", str(script)],
+        capture_output=True,
+        text=True,
+        check=False,
     )
     assert "Durations are in seconds" in plain.stdout
     assert "work" in quiet.stdout

@@ -76,7 +76,7 @@ enabled. Recursive function tracing is opt-in with `--recursive`; add `--all`
 to include standard-library and installed-package calls as well.
 
 ```text
-usage: scope-profiler run [-h] [-o OUTFILE | --no-output] [-q] [--recursive | --no-recursive] [--include GLOB] [--exclude GLOB] [--all] [--label LABEL] [--tag TAG] [--enable-tag TAG] [--entrypoint NAME] [--line-profile] [--memory-profile]
+usage: scope-profiler run [-h] [-o OUTFILE | --no-output] [-q] [--suppress-notes] [--recursive | --no-recursive] [--include GLOB] [--exclude GLOB] [--all] [--label LABEL] [--tag TAG] [--enable-tag TAG] [--entrypoint NAME] [--line-profile] [--memory-profile]
                           [--buffer-limit BUFFER_LIMIT]
                           script ...
 ```
@@ -122,6 +122,25 @@ main()
 nothing; `scope-profiler run my_script.py` activates and records them. Use
 `scope-profiler run --recursive my_script.py` for an uninstrumented script. The
 explicit `session()`, `setup()`, and `finalize()` APIs remain unchanged.
+
+### Hiding the Info box
+
+The summary table ends with an "Info" box of notes (units, file path, hints).
+To leave it out, pass `--suppress-notes` to `scope-profiler run`:
+
+```bash
+scope-profiler run --suppress-notes my_script.py
+```
+
+In a script with an explicit session, pass `suppress_notes=True` to
+`session()` (or `finalize()`):
+
+```python
+with sp.session(suppress_notes=True):
+    work()
+```
+
+To print the summary yourself, use `results.print_summary(suppress_notes=True)`.
 
 ### Output formats
 
