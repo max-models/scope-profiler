@@ -208,8 +208,28 @@ def run_benchmark(config: BenchmarkConfig, label: str = "candidate") -> dict:
     return manifest
 
 
+def _noise_seconds(base: dict, cand: dict) -> float | None:
+    """Two standard errors of the difference of the mean run times.
+
+    None unless both manifests hold at least two runs with their spread.
+    """
+    if base.get("count", 0) < 2 or cand.get("count", 0) < 2:
+        return None
+    if "stdev" not in base or "stdev" not in cand:
+        return None
+    return 2 * math.hypot(
+        base["stdev"] / math.sqrt(base["count"]),
+        cand["stdev"] / math.sqrt(cand["count"]),
+    )
+
+
 def compare_benchmarks(baseline: dict | str, candidate: dict | str) -> dict:
-    """Compare benchmark manifests using medians and report an agent decision."""
+    """Compare benchmark manifests using medians and report an agent decision.
+
+    A candidate is kept when it is correct and faster by at least the
+    configured threshold; with repeated runs on both sides the change must
+    also exceed the run-to-run noise (two standard errors of the difference).
+    """
 
     def load(value):
         if isinstance(value, dict):
@@ -223,7 +243,13 @@ def compare_benchmarks(baseline: dict | str, candidate: dict | str) -> dict:
         ((cand_median - base_median) / base_median * 100) if base_median else None
     )
     threshold = float(cand.get("config", {}).get("threshold_pct", 2.0))
-    faster = bool(cand_median < base_median and change_pct <= -threshold)
+    noise = _noise_seconds(base["total_time_seconds"], cand["total_time_seconds"])
+    significant = None if noise is None else abs(cand_median - base_median) > noise
+    faster = bool(
+        cand_median < base_median
+        and change_pct <= -threshold
+        and significant is not False
+    )
     correctness_passed = bool(cand.get("correctness", {}).get("passed", False))
     decision = "keep" if faster and correctness_passed else "reject"
     return {
@@ -231,6 +257,8 @@ def compare_benchmarks(baseline: dict | str, candidate: dict | str) -> dict:
         "candidate": {"label": cand.get("label"), "stats": cand["total_time_seconds"]},
         "relative_change_pct": change_pct,
         "speedup": base_median / cand_median if cand_median else None,
+        "noise_seconds": noise,
+        "significant": significant,
         "faster_beyond_threshold": faster,
         "correctness_passed": correctness_passed,
         "decision": decision,

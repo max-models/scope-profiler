@@ -1,0 +1,32 @@
+# A profiling case for scope-profiler jobs: strong scaling of heat.py.
+#
+#   scope-profiler jobs run examples/jobs/case.toml                   # all variants
+#   scope-profiler jobs run examples/jobs/case.toml --variant small   # one variant
+#   scope-profiler jobs run examples/jobs/case.toml --scheduler dry-run
+#
+# On a SLURM cluster the launches are submitted as batch jobs (with the preset
+# of the detected cluster, see clusters.toml); elsewhere they run locally.
+
+[case]
+label = "heat_strong_scaling"
+name = "Heat equation, strong scaling"
+description = "Jacobi sweeps of a 1D heat equation."
+command = ["python", "{case_dir}/heat.py", "--profile-out", "{profile}"]
+inputs = ["heat.py"]
+env = { OMP_NUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1" }
+metadata = { code = "heat.py" }
+
+[[launch]]
+ntasks = [1, 2, 4]
+args = ["--steps", "200"]
+sbatch = { time = "00:05:00" }
+
+[variants.small]
+args = ["--cells", "100000"]
+[variants.large]
+args = ["--cells", "10000000"]
+description = "Ten million cells."
+
+# Pushed with --upload (or set $SCOPE_PROFILER_RESULTS_REPO):
+# [store]
+# url = "git@github.com:<you>/profiling-results.git"

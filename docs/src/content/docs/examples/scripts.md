@@ -1,5 +1,7 @@
 ---
-title: Examples and workflows
+title: Scripts and workflows
+sidebar:
+  order: 100
 ---
 
 > **Install for this page:** `pip install scope-profiler` runs the core

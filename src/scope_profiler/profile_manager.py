@@ -70,6 +70,8 @@ _R = TypeVar("_R")
 # import time, so this outlives every setup() and reset, and is shared by all
 # managers. Regions carrying one stay disabled unless the run enables it.
 _OPT_IN_TAGS: set[str] = set()
+# The module that first registered each opt-in tag, for `scope-profiler tags`.
+_OPT_IN_TAG_MODULES: dict[str, str] = {}
 #: Comma-separated opt-in tags to enable, read by every setup().
 _ENABLE_TAGS_ENV = "SCOPE_PROFILER_ENABLE_TAGS"
 
@@ -305,6 +307,7 @@ class _ProfilingSession(ContextDecorator):
         verbose_line_profiler,
         return_results,
         native_traces,
+        suppress_notes=False,
     ):
         self._manager = manager
         self._setup_kwargs = setup_kwargs
@@ -312,6 +315,7 @@ class _ProfilingSession(ContextDecorator):
         self._verbose_line_profiler = verbose_line_profiler
         self._return_results = return_results
         self._native_traces = native_traces
+        self._suppress_notes = suppress_notes
         self.results = None
         self._root_region = None
 
@@ -324,6 +328,7 @@ class _ProfilingSession(ContextDecorator):
             self._verbose_line_profiler,
             self._return_results,
             self._native_traces,
+            self._suppress_notes,
         )
 
     def __enter__(self):
@@ -346,6 +351,7 @@ class _ProfilingSession(ContextDecorator):
                     verbose_line_profiler=self._verbose_line_profiler,
                     return_results=self._return_results,
                     native_traces=self._native_traces,
+                    suppress_notes=self._suppress_notes,
                 )
             finally:
                 # The session is the profiling window, so its end is where
@@ -589,6 +595,14 @@ class ProfileManager:
         )
 
     @classmethod
+    def _opt_in_enabled(cls, tags) -> bool:
+        """Whether ``tags`` carry no opt-in tag, or one this run enables."""
+        opt_in = _OPT_IN_TAGS.intersection(tags)
+        if not opt_in or "*" in cls._enabled_tags:
+            return True
+        return not opt_in.isdisjoint(cls._enabled_tags)
+
+    @classmethod
     def region(
         cls,
         region_name,
@@ -643,9 +657,13 @@ class ProfileManager:
             # hot path: tags are metadata, not per-event work.
             normalized_tags = () if tags is None else tuple(tags)
             region_cls = cls._region_cls
-            if cls._region_tag_filter is not None and not set(
-                normalized_tags
-            ).intersection(cls._region_tag_filter):
+            # The session's root region is the run's total time, not user
+            # instrumentation, so a tag filter never drops it.
+            if (
+                cls._region_tag_filter is not None
+                and region_name != _ProfilingSession.ROOT_REGION_NAME
+                and not set(normalized_tags).intersection(cls._region_tag_filter)
+            ):
                 region_cls = DisabledProfileRegion
             if normalized_tags and not cls._opt_in_enabled(normalized_tags):
                 region_cls = DisabledProfileRegion
@@ -667,61 +685,6 @@ class ProfileManager:
             for func in functions:
                 region.add_function(func)
         return region
-
-    @classmethod
-    def _opt_in_enabled(cls, tags) -> bool:
-        """Whether ``tags`` carry no opt-in tag, or one this run enables."""
-        opt_in = _OPT_IN_TAGS.intersection(tags)
-        if not opt_in or "*" in cls._enabled_tags:
-            return True
-        return not opt_in.isdisjoint(cls._enabled_tags)
-
-    @classmethod
-    def register_opt_in_tag(cls, *tags: str) -> None:
-        """Mark ``tags`` as opt-in: their regions are off unless enabled.
-
-        Meant for libraries that ship their own instrumentation. Register the
-        tag once, at import time, and tag the library's regions with it::
-
-            # mylib/__init__.py
-            import scope_profiler as sp
-
-            sp.register_opt_in_tag("mylib")
-
-            @sp.profile("mylib.solve", tags=("mylib",))
-            def solve(): ...
-
-        Applications that profile themselves then don't record ``mylib``'s
-        regions until they ask for them, without editing ``mylib``: with
-        ``setup(enable_tags=["mylib"])`` (also a ``ProfilingOptions`` field
-        and a TOML setting), the ``SCOPE_PROFILER_ENABLE_TAGS=mylib``
-        environment variable, or ``scope-profiler run --enable-tag mylib``.
-        ``"*"`` enables every opt-in tag. Listing the tag in ``region_tags``
-        enables it too.
-
-        Regions and decorated functions that already exist pick the change up,
-        so the call may come after the library's own imports.
-
-        Instrumentation that is off costs one extra Python call (roughly
-        0.1-0.3 µs per call), so keep it to operations that take microseconds
-        or more.
-        """
-        for tag in tags:
-            if not isinstance(tag, str) or not tag:
-                raise TypeError(f"opt-in tags must be non-empty strings, got {tag!r}")
-        new = set(tags) - _OPT_IN_TAGS
-        _OPT_IN_TAGS.update(new)
-        if new and cls._configured:
-            cls._rebind_tagged(new)
-
-    @classmethod
-    def _rebind_tagged(cls, tags) -> None:
-        """Re-resolve the existing regions and decorators that carry ``tags``."""
-        for name in [n for n, r in cls._regions.items() if tags.intersection(r.tags)]:
-            del cls._regions[name]
-        for name, func, _bound, region_tags in cls._decorated_functions():
-            if region_tags and tags.intersection(region_tags):
-                cls._bind_decorated_region(name, func, _bound, region_tags)
 
     #: Original name for :meth:`region`, kept so existing instrumentation
     #: keeps working unchanged. Same object, not a forwarding wrapper: this
@@ -767,6 +730,134 @@ class ProfileManager:
             },
         )
         return object.__new__(isolated_cls)
+
+    @classmethod
+    def _bind_decorated_region(
+        cls,
+        name: str,
+        func,
+        _bound: list,
+        tags=None,
+    ) -> BaseProfileRegion:
+        """Resolve ``name``'s region, capture ``func``'s source, and bind it into ``_bound``.
+
+        Shared between the initial ``@ProfileManager.profile`` decoration and
+        ``set_config()``'s rebind, since a config change replaces every region
+        object (see ``set_config``) and the new one starts with no source of
+        its own - skipping this on rebind would silently drop it.
+        """
+        region = cls.profile_region(name, tags=tags)
+        if not isinstance(region, DisabledProfileRegion):
+            if cls._config.capture_region_source:
+                source = function_source(func)
+                if source is not None:
+                    filename, first_lineno, text = source
+                    region.set_source(cls._recorded_path(filename), first_lineno, text)
+            else:
+                code = getattr(func, "__code__", None)
+                if code is not None:
+                    region.set_source(
+                        cls._recorded_path(code.co_filename),
+                        code.co_firstlineno,
+                        None,
+                    )
+        _bound[0] = region
+        _bound[1] = region.wrap(func)
+        _bound[2] = isinstance(region, DisabledProfileRegion)
+        return region
+
+    @classmethod
+    def _decorated_functions(cls):
+        """Yield ``(name, func, _bound, tags)`` for every @profile wrapper."""
+        for name, entries in cls._decorators.items():
+            for entry in entries:
+                yield (name, *entry)
+
+    @classmethod
+    def _rebind_tagged(cls, tags) -> None:
+        """Re-resolve the existing regions and decorators that carry ``tags``."""
+        for name in [n for n, r in cls._regions.items() if tags.intersection(r.tags)]:
+            del cls._regions[name]
+        for name, func, _bound, region_tags in cls._decorated_functions():
+            if region_tags and tags.intersection(region_tags):
+                cls._bind_decorated_region(name, func, _bound, region_tags)
+
+    @classmethod
+    def _register_opt_in_tags(cls, tags, module) -> None:
+        """Register ``tags`` as opt-in, recording ``module`` as their owner."""
+        for tag in tags:
+            if not isinstance(tag, str) or not tag:
+                raise TypeError(f"opt-in tags must be non-empty strings, got {tag!r}")
+        new = set(tags) - _OPT_IN_TAGS
+        _OPT_IN_TAGS.update(new)
+        for tag in new:
+            _OPT_IN_TAG_MODULES[tag] = module
+        if new and cls._configured:
+            cls._rebind_tagged(new)
+
+    @classmethod
+    def register_opt_in_tag(cls, *tags: str) -> None:
+        """Mark ``tags`` as opt-in: their regions are off unless enabled.
+
+        Meant for libraries that ship their own instrumentation. Register the
+        tag once, at import time, and tag the library's regions with it::
+
+            # mylib/__init__.py
+            import scope_profiler as sp
+
+            sp.register_opt_in_tag("mylib")
+
+            @sp.profile("mylib.solve", tags=("mylib",))
+            def solve(): ...
+
+        Applications that profile themselves then don't record ``mylib``'s
+        regions until they ask for them, without editing ``mylib``: with
+        ``setup(enable_tags=["mylib"])`` (also a ``ProfilingOptions`` field
+        and a TOML setting), the ``SCOPE_PROFILER_ENABLE_TAGS=mylib``
+        environment variable, or ``scope-profiler run --enable-tag mylib``.
+        ``"*"`` enables every opt-in tag. Listing the tag in ``region_tags``
+        enables it too.
+
+        Regions and decorated functions that already exist pick the change up,
+        so the call may come after the library's own imports.
+
+        Instrumentation that is off costs one extra Python call (roughly
+        0.1-0.3 µs per call), so keep it to operations that take microseconds
+        or more.
+
+        See Also
+        --------
+        scope_profiler.library : Register the tag and get a ``profile``
+            decorator and ``region`` that add it and prefix the region names.
+        """
+        cls._register_opt_in_tags(tags, sys._getframe(1).f_globals.get("__name__"))
+
+    @classmethod
+    def opt_in_tags(cls) -> dict[str, tuple[str, ...]]:
+        """Map every registered opt-in tag to the names of its known regions.
+
+        A region is known once it is declared: an ``@profile`` function at
+        decoration, a ``define_region``/``region_factory`` handle at
+        definition, and a ``with region(...)`` block only after it first ran.
+        Only tags registered with :meth:`register_opt_in_tag` are listed, so
+        the packages that register them must have been imported.
+
+        Returns
+        -------
+        dict of str to tuple of str
+            Each opt-in tag, sorted, and the sorted names of the regions that
+            carry it (empty when none is known yet).
+        """
+        names = {tag: set() for tag in _OPT_IN_TAGS}
+        declared = [(name, tags) for name, _f, _b, tags in cls._decorated_functions()]
+        declared += [
+            (name, tags) for name, (_f, tags) in cls._region_definitions.items()
+        ]
+        declared += [(name, region.tags) for name, region in cls._regions.items()]
+        for name, tags in declared:
+            for tag in _OPT_IN_TAGS.intersection(tags or ()):
+                names[tag].add(name)
+        return {tag: tuple(sorted(names[tag])) for tag in sorted(names)}
 
     @classmethod
     def _frame_region_name(cls, frame: FrameType) -> str:
@@ -919,48 +1010,6 @@ class ProfileManager:
             cls._region_cls = ThreadedProfileRegion
         else:
             cls._region_cls = TimeOnlyProfileRegion
-
-    @classmethod
-    def _bind_decorated_region(
-        cls,
-        name: str,
-        func,
-        _bound: list,
-        tags=None,
-    ) -> BaseProfileRegion:
-        """Resolve ``name``'s region, capture ``func``'s source, and bind it into ``_bound``.
-
-        Shared between the initial ``@ProfileManager.profile`` decoration and
-        ``set_config()``'s rebind, since a config change replaces every region
-        object (see ``set_config``) and the new one starts with no source of
-        its own - skipping this on rebind would silently drop it.
-        """
-        region = cls.profile_region(name, tags=tags)
-        if not isinstance(region, DisabledProfileRegion):
-            if cls._config.capture_region_source:
-                source = function_source(func)
-                if source is not None:
-                    filename, first_lineno, text = source
-                    region.set_source(cls._recorded_path(filename), first_lineno, text)
-            else:
-                code = getattr(func, "__code__", None)
-                if code is not None:
-                    region.set_source(
-                        cls._recorded_path(code.co_filename),
-                        code.co_firstlineno,
-                        None,
-                    )
-        _bound[0] = region
-        _bound[1] = region.wrap(func)
-        _bound[2] = isinstance(region, DisabledProfileRegion)
-        return region
-
-    @classmethod
-    def _decorated_functions(cls):
-        """Yield ``(name, func, _bound, tags)`` for every @profile wrapper."""
-        for name, entries in cls._decorators.items():
-            for entry in entries:
-                yield (name, *entry)
 
     @overload
     @classmethod
@@ -1975,12 +2024,21 @@ class ProfileManager:
         return records
 
     @classmethod
+    def _cancel_auto_finalize(cls) -> None:
+        """Remove this manager's pending process-exit finalizer, if any."""
+        callback = cls._auto_finalize_callback
+        cls._auto_finalize_callback = None
+        if callback is not None:
+            atexit.unregister(callback)
+
+    @classmethod
     def finalize(
         cls,
         verbose: bool = True,
         return_results: bool = False,
         native_traces=None,
         verbose_line_profiler: bool = False,
+        suppress_notes: bool = False,
     ):
         """
         Finalize profiling and write the run's data to a single output file.
@@ -2008,6 +2066,9 @@ class ProfileManager:
         verbose_line_profiler : bool, optional
             If True, prints detailed line-profiler tables when line profiling
             is enabled (default: False).
+        suppress_notes : bool, optional
+            If True, leave the "Info" notes box out of the printed summary
+            (default: False).
         return_results : bool, optional
             If True, return the run's data as a
             :class:`~scope_profiler.results.ProfilingResults` - the same
@@ -2236,15 +2297,16 @@ class ProfileManager:
         # Non-root ranks hold an empty result set, for which this does nothing.
         if verbose and rank == 0 and write_file:
             if rendered_results is not None:
-                rendered_results.print_summary()
+                rendered_results.print_summary(suppress_notes=suppress_notes)
             else:
                 from scope_profiler.h5reader import read_h5
 
-                read_h5(config.file_path).print_summary()
+                read_h5(config.file_path).print_summary(suppress_notes=suppress_notes)
         elif verbose and not write_file:
             rank_label = "rank" if size == 1 else "ranks"
             results.print_summary(
                 title=f"{results.display_label} (in memory, {size} {rank_label})",
+                suppress_notes=suppress_notes,
             )
 
         if verbose and rank == 0 and config.memory_profile_path is not None:
@@ -2466,6 +2528,105 @@ class ProfileManager:
         )
 
     @classmethod
+    def current_timings(
+        cls, regions: str | Iterable[str] | None = None
+    ) -> dict[str, dict[str, float | int]]:
+        """Timings recorded so far in the current run, without finalizing.
+
+        Reads the live buffers of this rank only (no collective), so it is
+        cheap enough to call every few time steps. Calls that are still open
+        are left out.
+
+        Parameters
+        ----------
+        regions : str or iterable of str, optional
+            Region names or shell-style patterns (``"solver.*"``) to include.
+            None includes every region that has recorded a call.
+
+        Returns
+        -------
+        dict
+            Region name -> ``{"num_calls", "total", "mean", "min", "max"}``,
+            durations in seconds, in the order the regions were defined.
+        """
+        if isinstance(regions, str):
+            regions = (regions,)
+        patterns = None if regions is None else tuple(regions)
+
+        def wanted(name: str) -> bool:
+            return patterns is None or any(
+                fnmatch.fnmatchcase(name, pattern) for pattern in patterns
+            )
+
+        timings: dict[str, dict[str, float | int]] = {}
+        config = cls._config
+        if config is not None and config.aggregation_mode:
+            for name, region in cls._regions.items():
+                if not wanted(name):
+                    continue
+                aggregate = region.aggregate_snapshot()
+                count = int(aggregate["count"])
+                if count:
+                    timings[name] = {
+                        "num_calls": count,
+                        "total": aggregate["total"] / 1e9,
+                        "mean": aggregate["total"] / count / 1e9,
+                        "min": aggregate["minimum"] / 1e9,
+                        "max": aggregate["maximum"] / 1e9,
+                    }
+            return timings
+        for name, arrays in cls._snapshot_regions().items():
+            if not wanted(name):
+                continue
+            durations = (
+                np.asarray(arrays[1], dtype=np.int64)
+                - np.asarray(arrays[0], dtype=np.int64)
+            ) / 1e9
+            if durations.size:
+                timings[name] = {
+                    "num_calls": int(durations.size),
+                    "total": float(durations.sum()),
+                    "mean": float(durations.mean()),
+                    "min": float(durations.min()),
+                    "max": float(durations.max()),
+                }
+        return timings
+
+    @classmethod
+    def print_timings(
+        cls,
+        label: str = "",
+        regions: str | Iterable[str] | None = None,
+        sort: str | None = "total",
+        file=None,
+    ) -> dict[str, dict[str, float | int]]:
+        """Print a table of the timings recorded so far in the current run.
+
+        Parameters
+        ----------
+        label : str, optional
+            Text shown in the table header, e.g. ``f"timestep {i}"``.
+        regions : str or iterable of str, optional
+            Region names or shell-style patterns to include; None prints all.
+        sort : str or None, optional
+            Column to sort by, descending (``"total"``, ``"mean"``, ``"min"``,
+            ``"max"``, ``"num_calls"``), ``"name"``, or None for definition
+            order.
+        file : file-like, optional
+            Where to print; defaults to ``sys.stdout``.
+
+        Returns
+        -------
+        dict
+            The timings that were printed, as from :meth:`current_timings`.
+        """
+        from scope_profiler.summary import print_timings
+
+        timings = cls.current_timings(regions)
+        print_timings(timings, label=label, sort=sort, stream=file)
+        return timings
+
+    @classmethod
     def is_configured(cls) -> bool:
         """Whether explicit setup has configured this manager."""
         return cls._configured
@@ -2485,14 +2646,6 @@ class ProfileManager:
     def last_results(cls):
         """Most recent in-memory results requested from this manager, if any."""
         return cls._last_results
-
-    @classmethod
-    def _cancel_auto_finalize(cls) -> None:
-        """Remove this manager's pending process-exit finalizer, if any."""
-        callback = cls._auto_finalize_callback
-        cls._auto_finalize_callback = None
-        if callback is not None:
-            atexit.unregister(callback)
 
     @classmethod
     def _register_auto_finalize(cls) -> None:
@@ -2810,6 +2963,7 @@ class ProfileManager:
         *,
         verbose: bool = True,
         verbose_line_profiler: bool = False,
+        suppress_notes: bool = False,
         return_results: bool = False,
         native_traces=None,
         output=_UNSET,
@@ -2820,7 +2974,7 @@ class ProfileManager:
         """Return a context manager that sets up and finalizes profiling.
 
         Every argument other than ``verbose``, ``verbose_line_profiler``,
-        ``return_results`` and ``native_traces`` is passed to :meth:`setup`,
+        ``suppress_notes``, ``return_results`` and ``native_traces`` is passed to :meth:`setup`,
         with the same meaning and precedence there - ``options`` (a
         :class:`~scope_profiler.profile_config.ProfilingOptions`),
         ``config_path``, and any setting as a keyword::
@@ -2863,6 +3017,7 @@ class ProfileManager:
             verbose_line_profiler,
             return_results,
             native_traces,
+            suppress_notes,
         )
 
     @classmethod

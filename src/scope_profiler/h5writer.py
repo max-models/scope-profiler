@@ -969,6 +969,16 @@ def compression_filter_available(compression: str | None) -> bool:
     return bool(h5py.h5z.filter_avail(filter_ids[compression]))
 
 
+def _line_profile_source_attrs(record) -> dict:
+    """A line-profile record's stored source, when it carries one."""
+    if not record.get("source"):
+        return {}
+    return {
+        "source": str(record["source"]),
+        "source_first_lineno": int(record["source_first_lineno"]),
+    }
+
+
 def payload_layout(payload) -> dict:
     """Return the small, array-free schema needed for collective creation."""
     sources = payload.sources or {}
@@ -1354,16 +1364,6 @@ def write_regions(
             region_grp.attrs["source_text"] = source_text
         if name in tags:
             region_grp.attrs.create("tags", list(tags[name]), dtype=h5py.string_dtype())
-
-
-def _line_profile_source_attrs(record) -> dict:
-    """A line-profile record's stored source, when it carries one."""
-    if not record.get("source"):
-        return {}
-    return {
-        "source": str(record["source"]),
-        "source_first_lineno": int(record["source_first_lineno"]),
-    }
 
 
 def write_line_profile(

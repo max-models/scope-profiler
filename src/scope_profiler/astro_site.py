@@ -768,6 +768,10 @@ def _load_runs(case: Case) -> list[_LoadedRun]:
     return loaded
 
 
+def _has_non_finite(row: dict) -> bool:
+    return any(isinstance(v, float) and not math.isfinite(v) for v in row.values())
+
+
 def _finite(value, drop_rows: bool = False):
     """``value`` without non-finite numbers, which are not JSON.
 
@@ -791,10 +795,6 @@ def _finite(value, drop_rows: bool = False):
     if isinstance(value, dict):
         return {key: _finite(item, drop_rows) for key, item in value.items()}
     return value
-
-
-def _has_non_finite(row: dict) -> bool:
-    return any(isinstance(v, float) and not math.isfinite(v) for v in row.values())
 
 
 def _dump_json(value, *, drop_rows: bool = False) -> str:
@@ -827,6 +827,51 @@ def _plain(value) -> str:
     if isinstance(value, (list, dict)):
         value = json.dumps(value, ensure_ascii=False)
     return str(value)
+
+
+def _copy_files(
+    paths, who, directory: Path, url_base: str, written: list
+) -> list[dict]:
+    """Copy attached files into ``directory`` and describe them for a page.
+
+    A text file small enough is shown on the page (``text``); a larger or binary one is
+    only offered for download, and says why (``reason``).
+    """
+    attachments = []
+    seen: set[str] = set()
+    for path in paths:
+        if path.name in seen:
+            raise SiteError(f"{who}: two attached files are called {path.name!r}")
+        seen.add(path.name)
+        size = path.stat().st_size
+        if size > MAX_COPIED_FILE_BYTES:
+            raise SiteError(
+                f"{who}: {path} is {size / 1e6:.0f} MB, too large to attach"
+            )
+        data = path.read_bytes()
+        target = directory / "files" / path.name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        written.append(target)
+        text = reason = None
+        if size > MAX_SHOWN_FILE_BYTES:
+            reason = "too large to show"
+        else:
+            try:
+                text = data.decode("utf-8")
+            except UnicodeDecodeError:
+                reason = "not a text file"
+        attachments.append(
+            {
+                "name": path.name,
+                "url": f"{url_base}/files/{path.name}",
+                "size": size,
+                "language": LANGUAGES.get(path.suffix.lower(), "text"),
+                "text": text,
+                "reason": reason,
+            }
+        )
+    return attachments
 
 
 def _attach_files(run, directory: Path, url_base: str, written: list) -> list[dict]:
@@ -883,51 +928,6 @@ def _attach_code(
         record["link"] = spec.url
         records.append(record)
     return records
-
-
-def _copy_files(
-    paths, who, directory: Path, url_base: str, written: list
-) -> list[dict]:
-    """Copy attached files into ``directory`` and describe them for a page.
-
-    A text file small enough is shown on the page (``text``); a larger or binary one is
-    only offered for download, and says why (``reason``).
-    """
-    attachments = []
-    seen: set[str] = set()
-    for path in paths:
-        if path.name in seen:
-            raise SiteError(f"{who}: two attached files are called {path.name!r}")
-        seen.add(path.name)
-        size = path.stat().st_size
-        if size > MAX_COPIED_FILE_BYTES:
-            raise SiteError(
-                f"{who}: {path} is {size / 1e6:.0f} MB, too large to attach"
-            )
-        data = path.read_bytes()
-        target = directory / "files" / path.name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
-        written.append(target)
-        text = reason = None
-        if size > MAX_SHOWN_FILE_BYTES:
-            reason = "too large to show"
-        else:
-            try:
-                text = data.decode("utf-8")
-            except UnicodeDecodeError:
-                reason = "not a text file"
-        attachments.append(
-            {
-                "name": path.name,
-                "url": f"{url_base}/files/{path.name}",
-                "size": size,
-                "language": LANGUAGES.get(path.suffix.lower(), "text"),
-                "text": text,
-                "reason": reason,
-            }
-        )
-    return attachments
 
 
 def _write_panels(panels, directory: Path, url_base: str, files, notes) -> list[dict]:
@@ -1002,6 +1002,24 @@ def _write_panels(panels, directory: Path, url_base: str, files, notes) -> list[
     return records
 
 
+def _run_meta(results) -> dict:
+    """What identifies each run, by label, for the labels a chart can show above its bars."""
+    from scope_profiler.report_data import _threads
+
+    meta = {}
+    for run in results:
+        threads = _threads(run)
+        meta[run.display_label] = {
+            "label": run.display_label,
+            "ranks": run.num_ranks,
+            "threads": threads,
+            "nodes": run.num_nodes,
+            "cores": run.num_ranks * threads if threads else None,
+            "wall": run.time_span,
+        }
+    return meta
+
+
 def _chart_data(
     case, results, *, comparison, scaling_field, directory, url_base, files
 ):
@@ -1063,24 +1081,6 @@ def _chart_data(
             "top": _TIMELINE_REGIONS if len(region_index) > _TIMELINE_REGIONS else None,
         },
     }
-
-
-def _run_meta(results) -> dict:
-    """What identifies each run, by label, for the labels a chart can show above its bars."""
-    from scope_profiler.report_data import _threads
-
-    meta = {}
-    for run in results:
-        threads = _threads(run)
-        meta[run.display_label] = {
-            "label": run.display_label,
-            "ranks": run.num_ranks,
-            "threads": threads,
-            "nodes": run.num_nodes,
-            "cores": run.num_ranks * threads if threads else None,
-            "wall": run.time_span,
-        }
-    return meta
 
 
 def _import_lines(page_dir: Path, components: Path, names) -> str:

@@ -73,3 +73,23 @@ def test_compare_benchmarks_requires_speedup_and_correctness():
 
     assert result["speedup"] == pytest.approx(10 / 9)
     assert result["decision"] == "keep"
+    assert result["noise_seconds"] is None
+
+
+def test_compare_benchmarks_rejects_a_speedup_within_the_noise():
+    def manifest(median, stdev):
+        stats = {"median": median, "stdev": stdev, "count": 5}
+        return {
+            "total_time_seconds": stats,
+            "correctness": {"passed": True},
+            "config": {"threshold_pct": 2.0},
+        }
+
+    noisy = compare_benchmarks(manifest(10.0, 2.0), manifest(9.5, 2.0))
+    assert noisy["noise_seconds"] == pytest.approx(2 * 2.0 * (2 / 5) ** 0.5)
+    assert noisy["significant"] is False
+    assert noisy["decision"] == "reject"
+
+    quiet = compare_benchmarks(manifest(10.0, 0.05), manifest(9.5, 0.05))
+    assert quiet["significant"] is True
+    assert quiet["decision"] == "keep"

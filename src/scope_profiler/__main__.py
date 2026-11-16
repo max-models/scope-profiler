@@ -41,12 +41,21 @@ The subcommands:
   merged HDF5 profiling files, region by region, so a regression (or
   improvement) between two runs shows up in one table. See
   ``scope_profiler.diff``.
+- ``scope-profiler tags`` - lists the opt-in region tags of the installed
+  packages (found through the ``scope_profiler.opt_in_tags`` entry points, or
+  ``--import MODULE``) and the regions behind each, i.e. what
+  ``--enable-tag`` can switch on. See ``scope_profiler.tags_cli``.
 - ``scope-profiler check a.h5 b.h5`` - applies a regression budget and
   returns a CI-friendly exit code.
 - ``scope-profiler benchmark run config.toml`` - runs a repeatable benchmark
   with a correctness gate and writes a JSON manifest.
 - ``scope-profiler benchmark compare baseline.json candidate.json`` - makes a
   median-based keep/reject decision for an AI agent or CI.
+- ``scope-profiler jobs run case.toml`` - launches a profiling case at
+  several rank counts, locally or through SLURM, and packages each run
+  (profiles, results, metadata) as it finishes; ``jobs sweep`` runs many
+  cases from one process and ``jobs upload`` pushes a packaged case to a git
+  results repository. See ``scope_profiler.jobs``.
 - ``scope-profiler import-native traces/ -o out.h5`` - merges the per-rank
   files written by the C and Fortran region APIs
   (``scope_profiler/c/scope_profiler.c``,
@@ -96,6 +105,11 @@ def _parse_run_args(argv):
         "--quiet",
         action="store_true",
         help="Suppress the per-region summary printed after the run",
+    )
+    parser.add_argument(
+        "--suppress-notes",
+        action="store_true",
+        help='Leave the "Info" notes box out of the printed summary',
     )
     recursive = parser.add_mutually_exclusive_group()
     recursive.add_argument(
@@ -209,7 +223,7 @@ def _parse_run_args(argv):
     return parser.parse_args(argv)
 
 
-def _convert_run_output(profile_path, output_path, quiet=False):
+def _convert_run_output(profile_path, output_path, quiet=False, suppress_notes=False):
     """Render the run's HDF5 output as JSON or HTML, then drop the HDF5.
 
     Under MPI only rank 0 holds the merged file, and only rank 0 wrote it, so
@@ -239,7 +253,7 @@ def _convert_run_output(profile_path, output_path, quiet=False):
             results._file_path = Path(output_path)
         written = write_profile(results, output_path)
         if not quiet:
-            results.print_summary()
+            results.print_summary(suppress_notes=suppress_notes)
             print(f"\nwrote {written}")
     finally:
         try:
@@ -258,6 +272,7 @@ def _run(argv):
     script is done, so nothing about the measured run changes with ``-o``.
     """
     from scope_profiler.profile_io import FORMAT_HDF5, profile_format
+    from scope_profiler.profile_manager import _ProfilingSession
 
     args = _parse_run_args(argv)
 
@@ -295,28 +310,40 @@ def _run(argv):
         setup_kwargs["file_path"] = profile_path
     ProfileManager.setup(**setup_kwargs)
 
+    # Same root interval as ProfileManager.session(), so the summary shows
+    # `% session` here too.
+    root_region = ProfileManager.profile_region(_ProfilingSession.ROOT_REGION_NAME)
     try:
-        ProfileManager.run_script(
-            args.script,
-            script_args=args.script_args,
-            recursive=args.all
-            or args.entrypoint is not None
-            or ProfileManager.get_config().recursive_profile,
-            only_user_code=not args.all,
-            include_patterns=args.include_patterns,
-            exclude_patterns=args.exclude_patterns,
-            entrypoint=args.entrypoint,
-        )
+        with root_region:
+            ProfileManager.run_script(
+                args.script,
+                script_args=args.script_args,
+                recursive=args.all
+                or args.entrypoint is not None
+                or ProfileManager.get_config().recursive_profile,
+                only_user_code=not args.all,
+                include_patterns=args.include_patterns,
+                exclude_patterns=args.exclude_patterns,
+                entrypoint=args.entrypoint,
+            )
     finally:
         # The summary names the file it came from, so with a conversion still
         # to come it is printed afterwards, against the file the user asked
         # for, rather than against a temporary that is about to be deleted.
-        finalize_kwargs = {"verbose": not args.quiet and not convert}
+        finalize_kwargs = {
+            "verbose": not args.quiet and not convert,
+            "suppress_notes": args.suppress_notes,
+        }
         if args.no_output:
             finalize_kwargs["return_results"] = True
         ProfileManager.finalize(**finalize_kwargs)
         if convert:
-            _convert_run_output(profile_path, args.outfile, quiet=args.quiet)
+            _convert_run_output(
+                profile_path,
+                args.outfile,
+                quiet=args.quiet,
+                suppress_notes=args.suppress_notes,
+            )
 
 
 def _plot(argv):
@@ -575,6 +602,13 @@ def _diff(argv):
     return diff_main(argv)
 
 
+def _tags(argv):
+    """Handle ``scope-profiler tags``: list the available opt-in tags."""
+    from scope_profiler.tags_cli import main as tags_main
+
+    return tags_main(argv)
+
+
 def _check(argv):
     """Handle ``scope-profiler check``: enforce a regression budget."""
     from scope_profiler.diff import check_main
@@ -751,6 +785,13 @@ def _native_lines(argv):
     return 0
 
 
+def _jobs(argv):
+    """Handle ``scope-profiler jobs``: launch and package profiling jobs."""
+    from scope_profiler.jobs.cli import main as jobs_main
+
+    return jobs_main(argv)
+
+
 _COMMANDS = {
     "run": _run,
     "plot": _plot,
@@ -763,9 +804,11 @@ _COMMANDS = {
     "line-profile": _line_profile,
     "diff": _diff,
     "check": _check,
+    "tags": _tags,
     "benchmark": _benchmark,
     "import-native": _import_fortran,
     "native-lines": _native_lines,
+    "jobs": _jobs,
 }
 
 
@@ -847,6 +890,12 @@ def main(argv=None):
         help="Fail on profiling regressions (see `scope-profiler check --help`)",
     )
     subparsers.add_parser(
+        "tags",
+        add_help=False,
+        help="List the opt-in region tags of the installed packages "
+        "(see `scope-profiler tags --help`)",
+    )
+    subparsers.add_parser(
         "benchmark",
         add_help=False,
         help="Run or compare repeatable benchmarks (see `scope-profiler benchmark --help`)",
@@ -862,6 +911,13 @@ def main(argv=None):
         add_help=False,
         help="Show the hottest source lines of C regions from sampled output "
         "(see `scope-profiler native-lines --help`)",
+    )
+
+    subparsers.add_parser(
+        "jobs",
+        add_help=False,
+        help="Launch profiling jobs locally or with SLURM and package the results "
+        "(see `scope-profiler jobs --help`)",
     )
 
     if not argv:

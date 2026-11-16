@@ -16,6 +16,20 @@ from scope_profiler.profile_manager import ProfileManager
 _MANAGER_ATTRIBUTE = "_scope_profiler_pytest_manager"
 
 
+@pytest.fixture
+def fresh_profiler():
+    """Run the test with a fresh profiler that no environment variable enables.
+
+    The profiling state is global, so a test that profiles resets it before
+    and after; ``SCOPE_PROFILER_ENABLE_TAGS`` is hidden meanwhile. See
+    :func:`scope_profiler.testing.fresh_profiler`.
+    """
+    from scope_profiler.testing import fresh_profiler as _fresh_profiler
+
+    with _fresh_profiler():
+        yield
+
+
 def pytest_addoption(parser) -> None:
     """Register the command-line switches without enabling profiling by default."""
     group = parser.getgroup("scope-profiler")

@@ -195,8 +195,9 @@ with sp.region("user.step"):
     ProfileManager._reset()
     cli_main(["run", "-q", "--enable-tag", "mylib", "-o", str(on), str(script)])
 
-    assert set(read_h5(off).region_names) == {"user.step"}
-    assert set(read_h5(on).region_names) == {"mylib.kernel", "user.step"}
+    root = "scope_profiler.session"
+    assert set(read_h5(off).region_names) == {"user.step", root}
+    assert set(read_h5(on).region_names) == {"mylib.kernel", "user.step", root}
 
 
 def test_reset_keeps_decorated_functions_for_the_next_setup():
@@ -264,3 +265,56 @@ def test_registering_a_tag_late_disables_existing_instrumentation():
 
     assert "mylib.solve" not in results.region_names
     assert "mylib.kernel" not in results.region_names
+
+
+def test_region_tags_filter_decorated_functions_and_revert_with_none():
+    @sp.profile("core.solve", tags=("core",))
+    def solve():
+        pass
+
+    @sp.profile("detail.check", tags=("detail",))
+    def check():
+        pass
+
+    @sp.profile("untagged")
+    def untagged():
+        pass
+
+    def record(**setup_kwargs):
+        ProfileManager.setup(output=None, **setup_kwargs)
+        solve()
+        check()
+        untagged()
+        results = ProfileManager.finalize(verbose=False, return_results=True)
+        return results
+
+    subset = record(region_tags=["core"])
+    assert set(subset.region_names) == {"core.solve"}
+    assert subset["core.solve"].tags == ("core",)
+
+    full = record(region_tags=None)
+    assert set(full.region_names) == {"core.solve", "detail.check", "untagged"}
+    assert full["detail.check"].tags == ("detail",)
+
+
+def test_region_tags_filter_keeps_the_session_root_region():
+    with ProfileManager.session(
+        output=None, region_tags=["core"], verbose=False, return_results=True
+    ) as run:
+        with sp.region("core.solve", tags=("core",)):
+            pass
+        with sp.region("detail.check", tags=("detail",)):
+            pass
+
+    assert set(run.results.region_names) == {"scope_profiler.session", "core.solve"}
+
+
+def test_decorator_tags_accept_any_iterable():
+    @sp.profile("gen.solve", tags=(tag for tag in ["a", "b"]))
+    def solve():
+        pass
+
+    ProfileManager.setup(output=None, region_tags={"b"})
+    solve()
+    results = ProfileManager.finalize(verbose=False, return_results=True)
+    assert results["gen.solve"].tags == ("a", "b")

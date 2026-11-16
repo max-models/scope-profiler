@@ -266,6 +266,38 @@ def plot_speedup(
     return rendered if return_fig else None
 
 
+_WEAK_SCALING_KINDS: dict[str, dict] = {
+    "weak_scaling": {
+        "noun": "Weak scaling plot",
+        "data_noun": "weak-scaling",
+        "gerund": "weak scaling comparison",
+        # Runtime relative to the baseline scale: 2.0 means the same work per
+        # rank took twice as long once the run was scaled up.
+        "value": lambda baseline, duration: duration / baseline,
+        "y_key": "normalized_runtime",
+        "hover_label": "normalized runtime",
+        "ylabel": "Normalized runtime",
+        "title": "Weak scaling",
+        "ideal_label": "Ideal weak scaling",
+        "ylim": None,
+    },
+    "weak_scaling_efficiency": {
+        "noun": "Weak scaling efficiency",
+        "data_noun": "weak-scaling-efficiency",
+        "gerund": "weak scaling efficiency",
+        # The reciprocal, read as a fraction of ideal: 0.5 means half the
+        # work per rank is being lost to the cost of scaling up.
+        "value": lambda baseline, duration: baseline / duration,
+        "y_key": "efficiency",
+        "hover_label": "efficiency",
+        "ylabel": "Weak-scaling efficiency",
+        "title": "Weak-scaling efficiency",
+        "ideal_label": "Ideal efficiency",
+        "ylim": (0, 1.05),
+    },
+}
+
+
 def _weak_scaling_curve(
     profiling_data: ProfilingResults | Sequence[ProfilingResults],
     *,
@@ -452,38 +484,6 @@ def _weak_scaling_curve(
 
     rendered = _ps._render(canvas, filepath, show, backend, return_fig=return_fig)
     return rendered if return_fig else None
-
-
-_WEAK_SCALING_KINDS: dict[str, dict] = {
-    "weak_scaling": {
-        "noun": "Weak scaling plot",
-        "data_noun": "weak-scaling",
-        "gerund": "weak scaling comparison",
-        # Runtime relative to the baseline scale: 2.0 means the same work per
-        # rank took twice as long once the run was scaled up.
-        "value": lambda baseline, duration: duration / baseline,
-        "y_key": "normalized_runtime",
-        "hover_label": "normalized runtime",
-        "ylabel": "Normalized runtime",
-        "title": "Weak scaling",
-        "ideal_label": "Ideal weak scaling",
-        "ylim": None,
-    },
-    "weak_scaling_efficiency": {
-        "noun": "Weak scaling efficiency",
-        "data_noun": "weak-scaling-efficiency",
-        "gerund": "weak scaling efficiency",
-        # The reciprocal, read as a fraction of ideal: 0.5 means half the
-        # work per rank is being lost to the cost of scaling up.
-        "value": lambda baseline, duration: baseline / duration,
-        "y_key": "efficiency",
-        "hover_label": "efficiency",
-        "ylabel": "Weak-scaling efficiency",
-        "title": "Weak-scaling efficiency",
-        "ideal_label": "Ideal efficiency",
-        "ylim": (0, 1.05),
-    },
-}
 
 
 def plot_weak_scaling(

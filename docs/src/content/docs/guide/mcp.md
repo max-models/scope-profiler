@@ -1,5 +1,5 @@
 ---
-title: MCP server for AI coding agents
+title: MCP server
 ---
 
 > **Install for this page:** `pip install "scope-profiler[mcp]"`. To use the

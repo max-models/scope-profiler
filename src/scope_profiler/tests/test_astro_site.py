@@ -215,16 +215,16 @@ def test_build_writes_pages_and_chart_data(tmp_path):
             )
 
 
-def _data(out, *parts):
-    """The JSON data file of a generated page (``parts`` below the catalogue)."""
-    return _strict_json((out / CONTENT).joinpath(*parts).read_text())
-
-
 def _strict_json(text):
     def refuse(constant):
         raise ValueError(f"{constant} is not JSON")
 
     return json.loads(text, parse_constant=refuse)
+
+
+def _data(out, *parts):
+    """The JSON data file of a generated page (``parts`` below the catalogue)."""
+    return _strict_json((out / CONTENT).joinpath(*parts).read_text())
 
 
 def test_chart_data_is_valid_json_when_a_run_lacks_a_region(tmp_path):

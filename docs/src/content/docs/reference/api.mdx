@@ -33,18 +33,54 @@ results = run.results
 rather than wrappers around them, and act on the same process-wide default
 manager. Use `ProfileManager` directly for independent manager instances.
 
+### Intermediate timings
+
+`sp.print_timings(label, regions=None, sort="total")` prints the timings
+recorded so far in the running session, without finalizing it, for example
+once every few time steps:
+
+```python
+for i in range(num_steps):
+    with sp.region("step"):
+        step()
+    if i % 100 == 0:
+        sp.print_timings(f"timestep {i}", regions=["step", "solver.*"])
+```
+
+`regions` takes region names or shell-style patterns (all regions by
+default); `sort` is a column (`"total"`, `"mean"`, `"min"`, `"max"`,
+`"num_calls"`), `"name"`, or `None` for definition order. To format the
+output yourself, `sp.current_timings(regions)` returns the same numbers as a
+dict mapping each region to `num_calls`, `total`, `mean`, `min` and `max` (in
+seconds). Both read this rank's buffers only and leave out calls that are
+still open.
+
 ### Library instrumentation that is off by default
 
-A library registers an opt-in tag once with `sp.register_opt_in_tag("mylib")`
-and passes `tags=("mylib",)` to `region`, `profile`, `define_region` or
-`instrument`. Those regions stay disabled until a run enables the tag with
+A library registers an opt-in tag once with `prof = sp.library("mylib")`, and
+names and tags its regions with `@prof.profile("solve")` and
+`with prof.region("assemble"):` (the regions `mylib.solve` and
+`mylib.assemble`, tagged `mylib`). The lower-level form is
+`sp.register_opt_in_tag("mylib")` and `tags=("mylib",)` on `region`, `profile`,
+`define_region` or `instrument`. Those regions stay disabled until a run enables the tag with
 `setup(enable_tags=["mylib"])`, the `enable_tags` TOML setting,
 `SCOPE_PROFILER_ENABLE_TAGS=mylib` or `scope-profiler run --enable-tag mylib`.
 The registry is process-wide and shared by every manager.
+`sp.opt_in_tags()` maps each registered tag to the regions known to carry it,
+and `scope-profiler tags` lists the tags of the installed packages; a library
+makes its tags discoverable there with a `scope_profiler.opt_in_tags` entry
+point (see the [CLI reference](/scope-profiler/reference/cli/#scope-profiler-tags)).
 
 Test suites reset the profiler between tests with `sp.reset()`, which keeps
 the instrumentation (decorated functions and `define_region` definitions)
 so that it records again after the next `setup()`.
+`scope_profiler.testing` checks a library's tag in one test:
+`assert_opt_in_tag("mylib", run=fn, expected={"mylib.solve"})` asserts that the
+regions are off by default, recorded with `enable_tags=["mylib"]` and `["*"]`,
+and that the package declares the entry point. `recorded_region_names(fn,
+**setup_kwargs)` returns the regions one call records, and the pytest plugin's
+`fresh_profiler` fixture resets the profiler around a test and hides
+`SCOPE_PROFILER_ENABLE_TAGS`.
 
 ## ProfileManager
 

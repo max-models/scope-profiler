@@ -35,7 +35,12 @@ import os
 import sys
 import threading
 import weakref
-from time import perf_counter_ns, thread_time_ns
+from time import perf_counter_ns
+
+try:
+    from time import thread_time_ns
+except ImportError:  # Emscripten (Pyodide): no per-thread clock, and only one thread
+    from time import process_time_ns as thread_time_ns
 from typing import Any
 
 import numpy as np

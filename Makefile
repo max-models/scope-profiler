@@ -6,7 +6,7 @@
 #   make check-version           Verify every file agrees on it.
 #
 # The documentation site uses @max-models/starlight-theme (docs/node_modules): the notebook
-# tool runs notebooks/**/*.ipynb (the tutorials and the guides), docs/generate_docs_outputs.py the command output the pages import.
+# tool runs notebooks/**/*.ipynb (the example notebooks and the guides), docs/generate_docs_outputs.py the command output the pages import.
 PYTHON ?= .venv/bin/python
 DOCS_ENV = DOCS_PYTHON=$(abspath $(PYTHON))
 NOTEBOOKS = cd docs && $(DOCS_ENV) npx starlight-notebooks

@@ -2,6 +2,69 @@
 
 ## Unreleased
 
+## 0.8.0 - 2026-11-16
+
+### Added
+
+- **Profiling jobs for any program (`scope_profiler.jobs`, `scope-profiler
+  jobs`).** A `ProfilingCase` (in Python or a TOML file) runs a command at
+  several rank counts, as SLURM batch jobs where `sbatch` exists and as local
+  bash scripts otherwise, then packages every run as soon as its job
+  finishes: the profiles, files a post-processing command wrote, and
+  `case_metadata.json`/`run_metadata.json` with the git state, environment,
+  job script and final SLURM state. Cluster presets (`#SBATCH` pragmas,
+  module setup, node hardware, detection) come from TOML files in
+  `$SCOPE_PROFILER_CLUSTERS`; `--upload` pushes each package to a git results
+  repository; `scope-profiler jobs sweep` runs many cases from one process.
+  No new dependency: `sbatch`, `squeue` and `sacct` are called directly. See
+  the "Profiling jobs" guide and `examples/jobs`.
+- `sp.library("mylib")` registers a library's opt-in tag and returns its profiler, whose
+  `profile` decorator and `region` name the regions `mylib.<name>` and tag them `mylib`
+  (`@prof.profile("solve")`, `with prof.region("assemble"):`).
+- `scope_profiler.testing`: `assert_opt_in_tag(tag, run, expected)` checks in one test that a
+  library's regions are off by default, recorded once the tag is enabled, and that the package
+  declares the entry point; `recorded_region_names(run, **setup_kwargs)` and `fresh_profiler()`
+  help with the other tests, and the pytest plugin provides `fresh_profiler` as a fixture.
+- NVTX ranges (`use_nvtx`) fall back to CuPy's bundled `cupy.cuda.nvtx` when the `nvtx` package
+  is not installed.
+- `scope-profiler tags` lists the opt-in tags of the installed packages and the regions behind
+  each (`--json` for a JSON document). It imports the modules a library declares in the
+  `scope_profiler.opt_in_tags` entry-point group, and any named with `--import MODULE`.
+  `sp.opt_in_tags()` returns the same map in Python.
+- `--top N` for `scope-profiler inspect`, `diff` and `check`: print only the first `N` regions of
+  the table (in `--sort` order; for `check` the largest changes, while every region is still
+  checked), so a run with many regions gives a short answer.
+- `scope-profiler diff` and `check` print the whole-run comparison above the table, e.g.
+  `Overall: b is 1.25x faster than a (-20%, -2 s)`. `scope_profiler.diff.overall_change` computes
+  it; the MCP `compare_profiles` tool now uses it for its `overall` field.
+- `suppress_notes` for `session()` and `finalize()`, and `--suppress-notes` for
+  `scope-profiler run`, leave the "Info" box out of the printed summary.
+- `--json` for `scope-profiler inspect`, `diff` and `check`: the same payloads as the MCP
+  `inspect_profile` and `compare_profiles` tools (`check` adds its verdict and keeps the exit
+  code), for scripts and coding agents without the MCP server.
+- Repeated runs in `scope-profiler diff` and `check`: either side can be a glob of runs of the same
+  case (`'base_*.h5' 'cand_*.h5'`). Regions and the total time are compared by their means, with a
+  noise band of two standard errors of the difference; changes within it are marked `~`, are not
+  `check` violations and are not listed as MCP `compare_profiles` regressions or improvements
+  (which now takes lists of paths too). `benchmark compare` also keeps a candidate only when its
+  speedup exceeds the noise of the repeated runs (`noise_seconds`, `significant`).
+
+### Fixed
+
+- `scope-profiler run` records the `scope_profiler.session` root region like `session()` does, so
+  the summary shows the `% session` column.
+- `tabulate>=0.10.0` is required; older versions fail on `preserve_whitespace`.
+- The profiling jobs no longer call `socket.getfqdn()`, whose reverse DNS lookup stalled for about
+  30 s per launch on hosts without it (`submit_host` is now the short hostname).
+- `AGENTS.md`, which the README, the examples page and the MCP guide link to for the measured
+  benchmark workflow, did not exist; it now describes the development setup and the
+  benchmark-change-compare loop, and the agent workflow example points to it instead of a missing
+  `CLAUDE.md`.
+- `import scope_profiler` works on Pyodide, whose `time` has no `thread_time_ns`; the process
+  clock stands in for it there.
+
+## 0.7.5 - 2026-10-22
+
 ### Added
 
 - `sp.reset()`, for test suites: it forgets the configuration and what was recorded but keeps the
@@ -53,7 +116,6 @@
   and on-demand completed-call statistics through `sp_get_region_stats`.
 - Fortran regions accept optional source files and line numbers, written in
   native trace format v2 and preserved by HDF5 conversion.
-
 - `metadata_detail` setting: `"minimal"` (the default) records only versions,
   platform, CPU model and thread/rank counts, and stores source files relative
   to the working directory (outside it, relative to the `sys.path` entry they
@@ -118,7 +180,6 @@
   the API reference generated from the docstrings. Page URLs drop `.html`
   (`guide/plot_cli.html` is now `guide/plot-cli/`); the old URLs redirect.
   `make docs-build` builds it, and `docs/Makefile` is gone.
-
 - Report generation benchmark (`benchmarks/report.toml`, five synthetic
   profile shapes up to 1550 nested regions and a two-run comparison) and
   `slow` tests holding each shape to a time and size limit, plus a check that

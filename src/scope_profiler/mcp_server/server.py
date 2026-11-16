@@ -94,8 +94,8 @@ def create_server() -> FastMCP:
 
     @server.tool()
     def compare_profiles(
-        baseline_path: str,
-        candidate_path: str,
+        baseline_path: str | list[str],
+        candidate_path: str | list[str],
         include: list[str] | None = None,
         exclude: list[str] | None = None,
         ranks: list[int] | None = None,
@@ -113,8 +113,12 @@ def create_server() -> FastMCP:
         separate `inspect_profile` calls.
 
         Args:
-            baseline_path: The "before" profiling file.
-            candidate_path: The "after" profiling file.
+            baseline_path: The "before" profiling file, or a list of files
+                of repeated runs. With repeated runs on both sides, every
+                delta gets a `noise` band and `significant` flag, and changes
+                within the noise are not listed as regressions/improvements.
+            candidate_path: The "after" profiling file, or a list of files
+                of repeated runs.
             include: Only compare regions whose name matches one of these
                 regex patterns.
             exclude: Skip regions whose name matches one of these regex

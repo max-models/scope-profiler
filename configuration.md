@@ -413,9 +413,11 @@ import scope_profiler as sp
 
 sp.register_opt_in_tag("mylib")
 
+
 # mylib/linalg.py
 @sp.profile("mylib.matmul", tags=("mylib",))
 def matmul(a, b): ...
+
 
 def fft(x):
     with sp.region("mylib.fft", tags=("mylib",)):

@@ -156,15 +156,31 @@ def _function_for_frame(frame):
         return None
 
 
+class _CupyNVTX:
+    """``push_range``/``pop_range`` over CuPy's bundled ``cupy.cuda.nvtx``."""
+
+    def __init__(self, module) -> None:
+        self.push_range = module.RangePush
+        self.pop_range = module.RangePop
+
+
 def _import_nvtx():
-    """Import NVTX lazily, with an actionable optional-dependency error."""
+    """Import NVTX lazily, with an actionable optional-dependency error.
+
+    Uses the ``nvtx`` package, or else the NVTX bindings that CuPy ships
+    (``cupy.cuda.nvtx``), so a CuPy installation needs nothing extra.
+    """
     try:
         import nvtx
     except ImportError as exc:
-        raise ImportError(
-            "NVTX annotations requested but nvtx is not installed. Install "
-            "scope-profiler[nvtx], or nvtx directly.",
-        ) from exc
+        try:
+            from cupy.cuda import nvtx as cupy_nvtx
+        except Exception:
+            raise ImportError(
+                "NVTX annotations requested but neither nvtx nor CuPy is "
+                "installed. Install scope-profiler[nvtx], or nvtx directly.",
+            ) from exc
+        return _CupyNVTX(cupy_nvtx)
     return nvtx
 
 
@@ -466,16 +482,6 @@ class BaseProfileRegion:
 
         return wrapper
 
-    # Declared here, with their types, so that ``with ProfileManager.region(...)``
-    # type-checks; every region class overrides both.
-    def __enter__(self) -> "Self":
-        """Start timing a ``with`` block."""
-        raise NotImplementedError
-
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        """Stop timing a ``with`` block."""
-        raise NotImplementedError
-
     def append(self, start: float, end: float) -> None:
         """Append a start/end time pair to the buffer, growing it if needed."""
 
@@ -591,6 +597,16 @@ class BaseProfileRegion:
 
     def add_function(self, func) -> None:
         """Register a function for profiling. No-op except in LineProfilerRegion."""
+
+    # Declared here, with their types, so that ``with ProfileManager.region(...)``
+    # type-checks; every region class overrides both.
+    def __enter__(self) -> "Self":
+        """Start timing a ``with`` block."""
+        raise NotImplementedError
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """Stop timing a ``with`` block."""
+        raise NotImplementedError
 
 
 # Disabled region: does nothing
