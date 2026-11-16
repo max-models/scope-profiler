@@ -41,7 +41,7 @@ jobs:
         run: python -m pip install --upgrade pip && python -m pip install ".[dev]"
 
       - name: Run test suite
-        run: python -m pytest .
+        run: python -m pytest . --durations=25
 
   # One native runner catches path, subprocess, clock and plotting assumptions
   # that are invisible on Linux. Hardware-specific modes remain covered by
@@ -66,7 +66,7 @@ jobs:
           python -m pip install -e ".[test,fortran,line-profiler,mcp,mpi,notebook,nvtx,pproc,tui]" memray
 
       - name: Run portable test suite
-        run: python -m pytest . -m "not needs_mpi and not likwid and not gpu and not overhead"
+        run: python -m pytest . --durations=25 -m "not needs_mpi and not likwid and not gpu and not overhead"
 
   package:
     name: Build and smoke-test wheel (Python ${{ matrix.python-version }})
