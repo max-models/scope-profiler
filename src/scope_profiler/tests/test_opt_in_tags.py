@@ -195,8 +195,9 @@ with sp.region("user.step"):
     ProfileManager._reset()
     cli_main(["run", "-q", "--enable-tag", "mylib", "-o", str(on), str(script)])
 
-    assert set(read_h5(off).region_names) == {"user.step"}
-    assert set(read_h5(on).region_names) == {"mylib.kernel", "user.step"}
+    root = "scope_profiler.session"
+    assert set(read_h5(off).region_names) == {"user.step", root}
+    assert set(read_h5(on).region_names) == {"mylib.kernel", "user.step", root}
 
 
 def test_reset_keeps_decorated_functions_for_the_next_setup():
