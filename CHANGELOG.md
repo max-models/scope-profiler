@@ -37,6 +37,8 @@
 - `scope-profiler diff` and `check` print the whole-run comparison above the table, e.g.
   `Overall: b is 1.25x faster than a (-20%, -2 s)`. `scope_profiler.diff.overall_change` computes
   it; the MCP `compare_profiles` tool now uses it for its `overall` field.
+- `suppress_notes` for `session()` and `finalize()`, and `--suppress-notes` for
+  `scope-profiler run`, leave the "Info" box out of the printed summary.
 - `--json` for `scope-profiler inspect`, `diff` and `check`: the same payloads as the MCP
   `inspect_profile` and `compare_profiles` tools (`check` adds its verdict and keeps the exit
   code), for scripts and coding agents without the MCP server.
@@ -49,6 +51,11 @@
 
 ### Fixed
 
+- `scope-profiler run` records the `scope_profiler.session` root region like `session()` does, so
+  the summary shows the `% session` column.
+- `tabulate>=0.10.0` is required; older versions fail on `preserve_whitespace`.
+- The profiling jobs no longer call `socket.getfqdn()`, whose reverse DNS lookup stalled for about
+  30 s per launch on hosts without it (`submit_host` is now the short hostname).
 - `AGENTS.md`, which the README, the examples page and the MCP guide link to for the measured
   benchmark workflow, did not exist; it now describes the development setup and the
   benchmark-change-compare loop, and the agent workflow example points to it instead of a missing
