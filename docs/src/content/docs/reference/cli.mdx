@@ -86,6 +86,7 @@ usage: scope-profiler run [-h] [-o OUTFILE | --no-output] [-q] [--recursive | --
 | `-o`, `--outfile`    | Path of the output file (default: `profiling_data.h5`); the extension picks the format |
 | `--no-output`        | Keep results in memory and do not write a profile file                  |
 | `-q`, `--quiet`      | Suppress the per-region summary printed after the run                |
+| `--suppress-notes`   | Leave the "Info" notes box out of the printed summary                |
 | `--recursive`        | Trace every Python function in the script; explicit regions only by default |
 | `--no-recursive`     | Disable recursive tracing, overriding the configuration file         |
 | `--all`              | Recursively trace all calls, including standard-library and installed-package calls |

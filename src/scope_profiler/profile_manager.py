@@ -307,6 +307,7 @@ class _ProfilingSession(ContextDecorator):
         verbose_line_profiler,
         return_results,
         native_traces,
+        suppress_notes=False,
     ):
         self._manager = manager
         self._setup_kwargs = setup_kwargs
@@ -314,6 +315,7 @@ class _ProfilingSession(ContextDecorator):
         self._verbose_line_profiler = verbose_line_profiler
         self._return_results = return_results
         self._native_traces = native_traces
+        self._suppress_notes = suppress_notes
         self.results = None
         self._root_region = None
 
@@ -326,6 +328,7 @@ class _ProfilingSession(ContextDecorator):
             self._verbose_line_profiler,
             self._return_results,
             self._native_traces,
+            self._suppress_notes,
         )
 
     def __enter__(self):
@@ -348,6 +351,7 @@ class _ProfilingSession(ContextDecorator):
                     verbose_line_profiler=self._verbose_line_profiler,
                     return_results=self._return_results,
                     native_traces=self._native_traces,
+                    suppress_notes=self._suppress_notes,
                 )
             finally:
                 # The session is the profiling window, so its end is where
@@ -2034,6 +2038,7 @@ class ProfileManager:
         return_results: bool = False,
         native_traces=None,
         verbose_line_profiler: bool = False,
+        suppress_notes: bool = False,
     ):
         """
         Finalize profiling and write the run's data to a single output file.
@@ -2061,6 +2066,9 @@ class ProfileManager:
         verbose_line_profiler : bool, optional
             If True, prints detailed line-profiler tables when line profiling
             is enabled (default: False).
+        suppress_notes : bool, optional
+            If True, leave the "Info" notes box out of the printed summary
+            (default: False).
         return_results : bool, optional
             If True, return the run's data as a
             :class:`~scope_profiler.results.ProfilingResults` - the same
@@ -2289,15 +2297,16 @@ class ProfileManager:
         # Non-root ranks hold an empty result set, for which this does nothing.
         if verbose and rank == 0 and write_file:
             if rendered_results is not None:
-                rendered_results.print_summary()
+                rendered_results.print_summary(suppress_notes=suppress_notes)
             else:
                 from scope_profiler.h5reader import read_h5
 
-                read_h5(config.file_path).print_summary()
+                read_h5(config.file_path).print_summary(suppress_notes=suppress_notes)
         elif verbose and not write_file:
             rank_label = "rank" if size == 1 else "ranks"
             results.print_summary(
                 title=f"{results.display_label} (in memory, {size} {rank_label})",
+                suppress_notes=suppress_notes,
             )
 
         if verbose and rank == 0 and config.memory_profile_path is not None:
@@ -2954,6 +2963,7 @@ class ProfileManager:
         *,
         verbose: bool = True,
         verbose_line_profiler: bool = False,
+        suppress_notes: bool = False,
         return_results: bool = False,
         native_traces=None,
         output=_UNSET,
@@ -2964,7 +2974,7 @@ class ProfileManager:
         """Return a context manager that sets up and finalizes profiling.
 
         Every argument other than ``verbose``, ``verbose_line_profiler``,
-        ``return_results`` and ``native_traces`` is passed to :meth:`setup`,
+        ``suppress_notes``, ``return_results`` and ``native_traces`` is passed to :meth:`setup`,
         with the same meaning and precedence there - ``options`` (a
         :class:`~scope_profiler.profile_config.ProfilingOptions`),
         ``config_path``, and any setting as a keyword::
@@ -3007,6 +3017,7 @@ class ProfileManager:
             verbose_line_profiler,
             return_results,
             native_traces,
+            suppress_notes,
         )
 
     @classmethod
