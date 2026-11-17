@@ -444,6 +444,72 @@ def test_upload_pushes_each_run(app, results_repo, monkeypatch):
     assert "Add profiling data for demo case" in log
 
 
+def test_upload_into_a_directory_of_the_repository(app, results_repo):
+    store = GitResultsStore(url=str(results_repo), path="mycode/{label}")
+    case = _case(app, upload=True, store=store)
+    case.launch(1)
+    case.finalize()
+    name = case.destination_dir.name
+    assert f"mycode/demo_case/{name}/run01/profiling_data.h5" in _repo_files(
+        results_repo
+    )
+
+
+def test_cli_upload_into_a_directory(app, results_repo):
+    case = _case(app)
+    case.launch(1)
+    case.finalize()
+    argv = ["jobs", "upload", str(case.destination_dir), "--repo", str(results_repo)]
+    assert cli_main([*argv, "--path", "mycode/{label}"]) == 0
+    name = case.destination_dir.name
+    assert f"mycode/demo_case/{name}/case_metadata.json" in _repo_files(results_repo)
+    assert cli_main([*argv, "--path", "../outside"]) == 2
+
+
+REAL_APP = textwrap.dedent(
+    """
+    import os
+    from scope_profiler.tests.test_post_processing import _write_sample_h5
+
+    ranks = int(os.environ["SCOPE_PROFILER_NTASKS"])
+    data = {rank: {"solve": ([0], [1_000_000 // ranks])} for rank in range(ranks)}
+    _write_sample_h5(os.environ["SCOPE_PROFILER_PROFILE"], data, {"mpi_size": ranks})
+    """,
+)
+
+
+def test_a_catalogue_reads_the_uploaded_runs(app, results_repo, tmp_path):
+    pytest.importorskip("yaml")
+    pytest.importorskip("plotly")
+    from scope_profiler.astro_site import build_site, load_manifest
+
+    (app / "real.py").write_text(REAL_APP, encoding="utf-8")
+    store = GitResultsStore(url=str(results_repo), path="mycode/{label}")
+    case = _case(
+        app,
+        label="heat",
+        command=[sys.executable, "{case_dir}/real.py"],
+        inputs=[app / "real.py"],
+        upload=True,
+        store=store,
+    )
+    for ntasks in (1, 2):
+        case.launch(ntasks)
+    case.finalize()
+    data = tmp_path / "data"
+    subprocess.run(["git", "clone", "-q", str(results_repo), str(data)], check=True)
+    (data / "profiling.yaml").write_text(
+        "base: /mycode\ncases:\n  - title: Heat\n    executions:\n"
+        '      path: "mycode/heat/{execution}/run*/profiling_data.h5"\n'
+    )
+
+    manifest = load_manifest(data / "profiling.yaml")
+    (execution,) = manifest.cases[0].executions
+    assert [run.label for run in execution.runs] == ["np1", "np2"]
+    build_site(manifest, tmp_path / "docs", section="profiling")
+    assert (tmp_path / "docs/src/content/docs/profiling/heat.mdx").is_file()
+
+
 def test_upload_requires_a_repository(app):
     with pytest.raises(RuntimeError, match="no results repository"):
         _case(app, upload=True)

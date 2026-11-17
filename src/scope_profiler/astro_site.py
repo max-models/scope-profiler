@@ -437,12 +437,78 @@ def _expand_runs(runs, where: str, root: Path) -> tuple[RunSpec, ...]:
     return tuple(specs)
 
 
+def _read_json(path: Path) -> dict:
+    """A JSON object from ``path``; empty when it is missing or not a JSON object."""
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _jobs_package_meta(directory: Path) -> dict:
+    """Label, date and info of a case folder packaged by ``scope-profiler jobs``.
+
+    Empty for a directory without ``case_metadata.json``. Only what identifies the
+    execution is taken (the time, the commit and branch, the cluster), not the host,
+    the environment or the installed packages the file also records.
+    """
+    metadata = _read_json(directory / "case_metadata.json")
+    if not metadata:
+        return {}
+    general = metadata.get("general_information") or {}
+    software = metadata.get("software_information") or {}
+    hardware = metadata.get("hardware_information") or {}
+    cluster = (hardware.get("cluster") or {}).get("name") or hardware.get(
+        "slurm_cluster_name"
+    )
+    commit = (software.get("git_commit") or "")[:8]
+    info = {
+        "commit": commit or None,
+        "branch": software.get("git_branch"),
+        "cluster": cluster,
+        "scheduler": metadata.get("scheduler"),
+        **(metadata.get("metadata") or {}),
+    }
+    meta: dict = {"info": {key: value for key, value in info.items() if value}}
+    stamp = general.get("time_date_utc")
+    if stamp:
+        meta["date"] = str(stamp)
+        meta["label"] = " · ".join(
+            filter(None, [str(stamp)[:16].replace("T", " "), commit])
+        )
+    return meta
+
+
+def _run_labels(runs: list[str]) -> list[str | None]:
+    """Labels for the runs of an execution whose file names do not tell them apart.
+
+    A run packaged by ``scope-profiler jobs`` (``run01/profiling_data.h5``) is
+    labelled by its ranks from the ``run_metadata.json`` beside it (``np4``); other
+    runs whose file names repeat by their directory. None keeps the profile's own label.
+    """
+    paths = [Path(run) for run in runs]
+    stems = [path.stem for path in paths]
+    if len(set(stems)) == len(stems):
+        return [None] * len(paths)
+    labels = []
+    for path in paths:
+        ntasks = _read_json(path.parent / "run_metadata.json").get("ntasks")
+        labels.append(f"np{ntasks}" if ntasks else None)
+    if None in labels or len(set(labels)) != len(labels):
+        labels = [path.parent.name for path in paths]
+    return labels
+
+
 def _discover_executions(spec: dict, where: str, root: Path) -> tuple[Execution, ...]:
     """The executions a pattern finds: ``path`` has ``{execution}`` where each one's name goes.
 
     ``data/poisson/{execution}/np*.h5`` finds an execution per directory below
     ``data/poisson`` that holds runs. A ``meta.yml`` (the ``meta`` key names another
     file) in an execution's directory may give its ``label``, ``date`` and ``info``.
+    A case folder packaged by ``scope-profiler jobs`` is an execution too, found with
+    ``<label>/{execution}/run*/profiling_data.h5``: its ``case_metadata.json`` gives
+    the date, commit and cluster, and each run's ``run_metadata.json`` its ranks.
     """
     here = f"{where}.executions"
     _check_keys(spec, _DISCOVER_KEYS, here)
@@ -469,13 +535,15 @@ def _discover_executions(spec: dict, where: str, root: Path) -> tuple[Execution,
         )
         if not runs:
             continue
-        meta = {}
+        # A package of `scope-profiler jobs` describes itself in case_metadata.json;
+        # a meta.yml next to it still has the last word.
+        meta = _jobs_package_meta(Path(candidate))
         meta_path = Path(candidate) / meta_name
         if after.startswith("/") and meta_path.is_file():
             try:
                 import yaml
 
-                meta = _mapping(
+                own = _mapping(
                     yaml.safe_load(meta_path.read_text(encoding="utf-8")) or {},
                     str(meta_path),
                 )
@@ -485,7 +553,9 @@ def _discover_executions(spec: dict, where: str, root: Path) -> tuple[Execution,
                 ) from exc
             except yaml.YAMLError as exc:
                 raise SiteError(f"{meta_path} is not valid YAML: {exc}") from exc
-            _check_keys(meta, {"label", "date", "info"}, str(meta_path))
+            _check_keys(own, {"label", "date", "info"}, str(meta_path))
+            info = {**meta.get("info", {}), **(own.get("info") or {})}
+            meta = {**meta, **own, "info": info}
         date = meta.get("date")
         label = _text(meta.get("label", name), f"{meta_path}: label")
         info = _mapping(meta.get("info") or {}, f"{meta_path}: info")
@@ -496,7 +566,10 @@ def _discover_executions(spec: dict, where: str, root: Path) -> tuple[Execution,
             Execution(
                 id=slug,
                 label=label,
-                runs=tuple(RunSpec(Path(run)) for run in runs),
+                runs=tuple(
+                    RunSpec(Path(run), label)
+                    for run, label in zip(runs, _run_labels(runs))
+                ),
                 date=None if date is None else str(date),
                 info={str(key): value for key, value in info.items()},
             )

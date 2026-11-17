@@ -7,6 +7,12 @@
 - `scope-profiler site --section NAME` writes a catalogue into a section of any
   Astro/Starlight site (`src/content/docs/NAME`, `public/NAME`), such as a "Profiling"
   section of a code's documentation, instead of only into `catalogue/` of a site of its own.
+- A results repository shared by several codes: `path` of the `[store]` table
+  (`GitResultsStore(path=...)`, `jobs upload --path`) puts the uploaded case folders into a
+  directory such as `mycode/{label}`.
+- `scope-profiler site` reads the case folders that `scope-profiler jobs` uploads as executions
+  of a case (`executions: {path: "<label>/{execution}/run*/profiling_data.h5"}`), with the date,
+  commit, branch and cluster from `case_metadata.json` and each run named by its ranks.
 
 ### Changed
 

@@ -26,6 +26,7 @@ they are copied::
 
     [store]                    # optional, used with --upload
     url = "git@github.com:me/profiling-results.git"
+    path = "mycode/{label}"    # optional: where in the repository the runs go
 
     [clusters.mycluster]       # optional presets, see scope_profiler.jobs.clusters
     cpus_per_node = 128
@@ -113,7 +114,9 @@ def load_case_config(path: str | os.PathLike[str]) -> dict[str, Any]:
     store = raw.get("store")
     if store is not None:
         _check_keys(
-            f"{path} [store]", store, {"url", "branch", "message", "push_attempts"}
+            f"{path} [store]",
+            store,
+            {"url", "branch", "message", "push_attempts", "path"},
         )
 
     for name, table in raw.get("clusters", {}).items():

@@ -533,7 +533,11 @@ one's directory name goes, and every directory holding runs is an execution.
 
 A `meta.yml` in an execution's directory (the `meta` key names another file) may give its `label`,
 `date` and `info`, so a nightly job only has to drop its files, and a `meta.yml`, into a new
-directory.
+directory. A case folder that [`scope-profiler jobs`](/scope-profiler/guide/jobs/) packaged is an
+execution as it stands: with `path: "<label>/{execution}/run*/profiling_data.h5"` its
+`case_metadata.json` gives the date, commit, branch and cluster (never the host or environment it
+also records), and each run is named by its ranks from its `run_metadata.json` (`np4`). Runs whose
+file names repeat in other cases are named by their directory.
 
 Each execution has an `id` (default: its `label` or `date`), an optional `label`, `date` and
 `info`, and its own `runs`. The case keeps one sidebar entry; its page is the latest execution

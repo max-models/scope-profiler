@@ -39,7 +39,7 @@ Directory layout under ``work_dir`` (``_profiling_jobs`` by default)::
     runs/<timestamp>-<commit>/<label>/      one case: job scripts, inputs
         run_01/                             one launch: output, logs
     packaged/                               (results/ clone with upload=True)
-        <timestamp>-<commit>-<label>/
+        [store path/]<timestamp>-<commit>-<label>/
             case_metadata.json
             inputs/...
             run01/run_metadata.json, *.h5, results files
@@ -70,6 +70,7 @@ from scope_profiler.jobs.schedulers import (
     detect_scheduler,
 )
 from scope_profiler.jobs.store import GitResultsStore
+from scope_profiler.jobs.store import slug as _slug
 
 DEFAULT_WORK_DIR = "_profiling_jobs"
 PROFILE_FILE_NAME = "profiling_data.h5"
@@ -88,10 +89,6 @@ DEFAULT_RESULTS_SUFFIXES = (
 _PLACEHOLDER = re.compile(
     r"\{(run_dir|profile|case_dir|ntasks|nodes|launch_id|label)\}"
 )
-
-
-def _slug(value: str) -> str:
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._-") or "case"
 
 
 def _unique_dir(path: Path) -> Path:
@@ -606,7 +603,14 @@ class ProfilingCase:
     def package_case_metadata(self) -> Path:
         """Create the packaged folder and (re)write its inputs and ``case_metadata.json``."""
         if self.destination_dir is None:
-            self.destination_dir = self.packaged_root / self._package_name
+            subdirectory = (
+                self.store.subdirectory(self.label)
+                if self.upload and self.store is not None
+                else Path()
+            )
+            self.destination_dir = (
+                self.packaged_root / subdirectory / self._package_name
+            )
         self.destination_dir.mkdir(parents=True, exist_ok=True)
         if self.inputs:
             (self.destination_dir / "inputs").mkdir(exist_ok=True)
