@@ -86,7 +86,9 @@ case.finalize()
 
 ### Placeholders
 
-`command`, `postprocess` and `cwd` may contain:
+`command`, `postprocess`, `cwd`, the values of `env` (of the case and of a
+launch), the `setup` lines (of the case and of its cluster preset) and the
+`#SBATCH` values may contain:
 
 | Placeholder | Value |
 | --- | --- |
@@ -101,6 +103,24 @@ gets them only where it says `{args}`. The job script also exports
 `SCOPE_PROFILER_RUN_DIR`, `SCOPE_PROFILER_PROFILE`, `SCOPE_PROFILER_CASE_DIR`,
 `SCOPE_PROFILER_NTASKS`, `SCOPE_PROFILER_LAUNCH_ID` and
 `SCOPE_PROFILER_LABEL`, for programs that would rather read the environment.
+So `env = { APP_LOG = "{run_dir}/app.log" }` gives every run its own log, and
+`sbatch = { time = "00:{ntasks}0:00" }` a time limit that grows with the rank
+count.
+
+### Preparing a case
+
+`prepare` is a command run once, before the first launch, on the machine the
+driver runs on (a login node), e.g. to compile the code:
+
+```toml
+[case]
+prepare = ["make", "-j8"]     # or a shell line: "pip install -e . && make"
+```
+
+It runs in the case directory with the case's `env` (`{case_dir}` and `{label}`
+work in it), writes its output to `<case_dir>/prepare.out` and is recorded in
+`case_metadata.json` with its duration and exit code. If it fails, the case
+stops before any job is submitted, with the end of its output in the error.
 
 With `mpi=True` (the default) the command is prefixed by the launcher:
 `srun -n N` under SLURM, `mpirun -n N` (or `mpiexec`) locally, or whatever
@@ -160,8 +180,15 @@ preset. `run_metadata.json` records the launch (ranks, nodes, args, env),
 the job script exactly as submitted, the SLURM job id and final state, the
 packaged files and, under `application_metadata`, the `run_metadata.json`
 the program itself may have written into its run directory. A run that left
-no profile and no results (it crashed before writing anything) is not
-packaged; its state is reported.
+no profile and no results (it crashed, hit its time limit, never started) has
+no folder, but `case_metadata.json` still lists it, marked `failed`, with its
+job state and the last lines of its output; a catalogue shows it as a failed
+run instead of leaving the point out.
+
+The metadata names the machine and the person who ran the case: the submit
+host, the checkout and work directories, the virtual environment. With
+`redact=True` (or a store marked `public`, below) those are replaced by
+`<host>`, `<work_dir>`, `<repo>`, `<venv>` and `~` in everything packaged.
 
 Inspect a packaged run like any other profile:
 
@@ -201,7 +228,37 @@ That is the layout a catalogue reads: with
 [`scope-profiler site`](/scope-profiler/reference/cli/#scope-profiler-site) makes every
 uploaded case folder an execution of the case, labelled by its date and commit, with the
 commit, branch and cluster from `case_metadata.json` as its metadata and each run named by its
-ranks (`np4`). New uploads need no change to the manifest.
+ranks (`np4`, and `np4 · cupy` when the launch's `metadata` says so). New uploads need no
+change to the manifest.
+
+Two more settings of the store:
+
+```toml
+[store]
+public = true      # a public repository: package with redact=True
+after_push = ["gh workflow run docs.yml -R me/mycode"]   # e.g. rebuild the catalogue
+```
+
+`after_push` commands run after every successful push, with `{label}`, `{commit}`
+and `{url}` filled in; one that fails is reported, and the results stay pushed.
+Rebuilding the docs that show the results this way updates the catalogue as soon
+as a run is in, without waiting for the next commit to the code.
+
+### Looking after the repository
+
+```bash
+scope-profiler jobs check results/                 # exit code 1 on any problem
+scope-profiler jobs prune results/ --keep 30       # list what would go
+scope-profiler jobs prune results/ --keep 30 --older-than 90 --yes
+```
+
+`check` reads every packaged case folder: its metadata parses, the runs it lists
+have their folders, metadata and profiles, every `.h5` file opens and no file is
+larger than `--max-mb` (50 MB; GitHub refuses 100 MB). Run it in the
+repository's CI. `prune` removes all but the newest `--keep` executions of every
+case (by date), with `--older-than` only those older than that many days; it
+lists them until `--yes` deletes them, and the removal is then committed like any
+other change.
 
 ## Sweeps
 
