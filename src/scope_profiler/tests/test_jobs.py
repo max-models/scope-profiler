@@ -519,6 +519,78 @@ def test_a_catalogue_reads_the_uploaded_runs(app, results_repo, tmp_path):
     assert (tmp_path / "docs/src/content/docs/profiling/heat.mdx").is_file()
 
 
+def test_placeholders_in_env_setup_and_sbatch(app):
+    case = _case(
+        app,
+        scheduler="dry-run",
+        env={"APP_LOG": "{run_dir}/app.log"},
+        setup=["echo setting up {label} with {ntasks} ranks"],
+    )
+    info = case.launch(2, sbatch={"time": "00:{ntasks}0:00", "comment": "{label}"})
+    script = info["job_script"]
+    run_dir = info["run_directory"]
+    assert f"export APP_LOG={run_dir}/app.log" in script
+    assert "echo setting up demo case with 2 ranks" in script
+    assert info["sbatch"]["time"] == "00:20:00"
+    assert info["sbatch"]["comment"] == "demo case"
+
+
+def test_prepare_runs_once_before_the_first_launch(app):
+    case = _case(app, prepare="echo built {label} > built.txt; echo done")
+    case.launch(1)
+    case.launch(1)
+    built = (case.case_dir / "built.txt").read_text().strip()
+    assert built == "built demo case"
+    assert "done" in (case.case_dir / "prepare.out").read_text()
+    case.finalize()
+    metadata = json.loads((case.destination_dir / "case_metadata.json").read_text())
+    assert metadata["prepare"]["returncode"] == 0
+    assert metadata["prepare"]["seconds"] >= 0
+
+
+def test_a_failing_prepare_stops_the_case(app):
+    case = _case(app, prepare=["bash", "-c", "echo broken build; exit 4"])
+    with pytest.raises(RuntimeError, match=r"exit code 4\)[\s\S]*broken build"):
+        case.launch(1)
+    assert case.job_infos == []
+
+
+def test_redacted_metadata_leaves_out_hosts_and_private_paths(app, monkeypatch):
+    import socket
+
+    monkeypatch.setattr(socket, "gethostname", lambda: "secret-node7")
+    case = _case(app, redact=True)
+    case.launch(1)
+    case.finalize()
+    text = (case.destination_dir / "case_metadata.json").read_text()
+    run_text = (case.destination_dir / "run01" / "run_metadata.json").read_text()
+    for written in (text, run_text):
+        assert "secret-node7" not in written
+        assert str(case.work_dir) not in written
+    assert "<work_dir>" in run_text
+    assert json.loads(text)["hardware_information"]["submit_host"] == "<host>"
+
+
+def test_a_public_store_redacts_by_default(app, results_repo):
+    store = GitResultsStore(url=str(results_repo), public=True)
+    assert _case(app, upload=True, store=store).redacting
+    assert not _case(app, upload=True, store=store, redact=False).redacting
+    assert not _case(app).redacting
+
+
+def test_after_push_commands_run_after_a_push(app, results_repo, tmp_path):
+    marker = tmp_path / "pushed.txt"
+    store = GitResultsStore(
+        url=str(results_repo),
+        after_push=[f"echo {{label}} {{commit}} >> {marker}", "exit 3"],
+    )
+    case = _case(app, upload=True, store=store)
+    case.launch(1)
+    case.finalize()
+    lines = marker.read_text().splitlines()
+    assert lines and all(line.startswith("demo case") for line in lines)
+
+
 def test_upload_requires_a_repository(app):
     with pytest.raises(RuntimeError, match="no results repository"):
         _case(app, upload=True)

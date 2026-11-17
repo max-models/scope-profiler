@@ -58,6 +58,14 @@ class GitResultsStore:
         them at the top. A repository shared by several codes uses, say,
         ``mycode/{label}``, which is the layout a catalogue
         (``scope-profiler site``) finds a case's executions in.
+    public : bool
+        The repository is public: cases uploaded to it leave host names and
+        private paths out of their metadata (see ``ProfilingCase.redact``).
+    after_push : list[str] or str or None
+        Shell commands run after every successful push, e.g. to rebuild the
+        docs that show the results: ``gh workflow run docs.yml -R me/mycode``.
+        ``{label}``, ``{commit}`` and ``{url}`` are filled in. A failing command
+        is reported, not raised: the results are pushed either way.
     """
 
     url: str
@@ -65,6 +73,8 @@ class GitResultsStore:
     message: str = "Add profiling data for {label} at {commit}"
     push_attempts: int = 5
     path: str = ""
+    public: bool = False
+    after_push: list[str] | str | None = None
 
     def subdirectory(self, label: str) -> Path:
         """Where the packaged folders of the case ``label`` go, relative to the clone."""
@@ -84,6 +94,25 @@ class GitResultsStore:
                 f"no results repository: pass a GitResultsStore(url=...) or set ${RESULTS_REPO_ENV_VAR}",
             )
         return cls(url=url, **kwargs)
+
+    def run_after_push(self, label: str = "", commit: str = "") -> list[int]:
+        """Run the ``after_push`` commands; return their exit codes (a failure only warns)."""
+        commands = self.after_push or []
+        if isinstance(commands, str):
+            commands = [commands]
+        values = {"label": label, "commit": (commit or "")[:8], "url": self.url}
+        codes = []
+        for template in commands:
+            command = re.sub(
+                r"\{(label|commit|url)\}", lambda m: values[m.group(1)], template
+            )
+            done = subprocess.run(["bash", "-c", command], check=False)
+            if done.returncode != 0:
+                print(
+                    f"WARNING: after_push command failed (exit code {done.returncode}): {command}"
+                )
+            codes.append(done.returncode)
+        return codes
 
     def clone(self, clone_dir: Path) -> Path:
         """Clone the repository (shallow) into ``clone_dir``, replacing whatever is there."""
@@ -118,6 +147,7 @@ class GitResultsStore:
                 == 0
             ):
                 print(f"Pushed profiling data to {self.url}.")
+                self.run_after_push(label=label, commit=commit)
                 return True
             print(
                 f"Push attempt {attempt + 1} failed; rebasing on the remote before retrying."

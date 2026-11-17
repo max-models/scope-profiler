@@ -56,6 +56,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -158,7 +159,9 @@ def _pip_freeze() -> str | None:
 
 def _substitute(text: str, values: dict[str, str]) -> str:
     """Replace the known ``{placeholders}``; any other braces are left alone."""
-    return _PLACEHOLDER.sub(lambda match: values[match.group(1)], text)
+    return _PLACEHOLDER.sub(
+        lambda match: values.get(match.group(1), match.group(0)), text
+    )
 
 
 def _render_command(
@@ -280,6 +283,17 @@ class ProfilingCase:
         Results repository; from ``SCOPE_PROFILER_RESULTS_REPO`` if None.
     record_pip_freeze : bool
         Record ``pip freeze`` of this interpreter in the case metadata.
+    prepare : list[str] or str or None
+        Command run once, in this process's environment and before the first
+        launch, e.g. to compile the code: ``["make", "-j8"]``. Its output goes to
+        ``<case_dir>/prepare.out`` and its duration and exit code into the case
+        metadata; a failure stops the case before any job is submitted. The
+        placeholders ``{case_dir}`` and ``{label}`` work in it.
+    redact : bool or None
+        Leave out of the packaged metadata what identifies the machine and the
+        person (host names, home and work directories, the virtual environment's
+        path), for a public results repository. None (the default) redacts when
+        uploading to a store marked ``public``.
     """
 
     label: str
@@ -305,6 +319,8 @@ class ProfilingCase:
     upload: bool = False
     store: GitResultsStore | None = None
     record_pip_freeze: bool = True
+    prepare: list[str] | str | None = None
+    redact: bool | None = None
 
     # Set up by __post_init__ / launch / finalize; not constructor arguments.
     timestamp: datetime = field(init=False)
@@ -313,6 +329,7 @@ class ProfilingCase:
     destination_dir: Path | None = field(init=False, default=None)
     job_infos: list[dict[str, Any]] = field(init=False, default_factory=list)
     packaged_runs: list[dict[str, Any]] = field(init=False, default_factory=list)
+    prepared: dict[str, Any] | None = field(init=False, default=None)
     launch_count: int = field(init=False, default=0)
 
     def __post_init__(self) -> None:
@@ -406,8 +423,11 @@ class ProfilingCase:
                 )
 
         exports = {
-            **self.env,
-            **(env or {}),
+            **{key: _substitute(str(value), values) for key, value in self.env.items()},
+            **{
+                key: _substitute(str(value), values)
+                for key, value in (env or {}).items()
+            },
             "SCOPE_PROFILER_RUN_DIR": values["run_dir"],
             "SCOPE_PROFILER_PROFILE": values["profile"],
             "SCOPE_PROFILER_CASE_DIR": values["case_dir"],
@@ -415,9 +435,12 @@ class ProfilingCase:
             "SCOPE_PROFILER_LAUNCH_ID": values["launch_id"],
             "SCOPE_PROFILER_LABEL": self.label,
         }
-        cluster_setup = (
-            self.cluster.setup if isinstance(self.cluster, ClusterPreset) else []
-        )
+        cluster_setup = [
+            _substitute(line, values)
+            for line in (
+                self.cluster.setup if isinstance(self.cluster, ClusterPreset) else []
+            )
+        ]
         venv = os.environ.get("VIRTUAL_ENV")
         activate = (
             [f"source {shlex.quote(str(Path(venv) / 'bin' / 'activate'))}"]
@@ -433,7 +456,7 @@ class ProfilingCase:
             *cluster_setup,
             "set -e",
             *activate,
-            *self.setup,
+            *(_substitute(line, values) for line in self.setup),
             *(
                 f"export {key}={shlex.quote(str(value))}"
                 for key, value in exports.items()
@@ -516,6 +539,8 @@ class ProfilingCase:
         if ntasks % nodes != 0:
             raise ValueError(f"ntasks ({ntasks}) is not divisible by nodes ({nodes})")
 
+        if self.prepare is not None and self.prepared is None:
+            self.run_prepare()
         self.launch_count += 1
         launch_id = self.launch_count
         run_dir = self.case_dir / f"run_{launch_id:02d}"
@@ -535,6 +560,11 @@ class ProfilingCase:
                 "job_name": f"{_slug(self.label)}_{launch_id:02d}",
                 "nodes": nodes,
                 "ntasks_per_node": ntasks // nodes,
+            }
+            values = self._placeholders(run_dir, ntasks, nodes, launch_id)
+            pragmas = {
+                key: _substitute(value, values) if isinstance(value, str) else value
+                for key, value in pragmas.items()
             }
 
         if self.scheduler == "local":
@@ -573,6 +603,102 @@ class ProfilingCase:
     # ------------------------------------------------------------------
     # Packaging
     # ------------------------------------------------------------------
+    def run_prepare(self) -> dict[str, Any] | None:
+        """Run the ``prepare`` command once (the first launch does it); return its record.
+
+        Runs in this process's environment (with the virtual environment, the
+        case's ``setup`` lines are for the job scripts), in the case directory.
+        With the ``dry-run`` scheduler it is only recorded, not run.
+
+        Raises
+        ------
+        RuntimeError
+            If the command fails; the end of its output is in the message.
+        """
+        if self.prepare is None:
+            return None
+        if self.prepared is not None:
+            return self.prepared
+        values = {"case_dir": str(self.case_dir), "label": self.label}
+        command = _render_command(self.prepare, values, (), append_args=False)
+        out = self.case_dir / "prepare.out"
+        if self.scheduler == "dry-run":
+            self.prepared = {"command": command, "returncode": None, "seconds": None}
+            print(f"Would prepare {self.label!r} with: {command}")
+            return self.prepared
+        exports = {
+            key: _substitute(str(value), values) for key, value in self.env.items()
+        }
+        print(f"Preparing {self.label!r}: {command}")
+        start = time.monotonic()
+        with out.open("w", encoding="utf-8") as handle:
+            done = subprocess.run(
+                ["bash", "-c", f"set -e\n{command}"],
+                cwd=self.case_dir,
+                env={**os.environ, **exports},
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+                check=False,
+            )
+        self.prepared = {
+            "command": command,
+            "returncode": done.returncode,
+            "seconds": round(time.monotonic() - start, 3),
+            "output": "prepare.out",
+        }
+        if done.returncode != 0:
+            tail = "\n".join(
+                out.read_text(encoding="utf-8", errors="replace").splitlines()[-40:]
+            )
+            raise RuntimeError(
+                f"preparing {self.label!r} failed (exit code {done.returncode}): "
+                f"{command}\n{tail}"
+            )
+        return self.prepared
+
+    @property
+    def redacting(self) -> bool:
+        """Whether the packaged metadata leaves out host names and private paths."""
+        if self.redact is not None:
+            return self.redact
+        return bool(
+            self.upload
+            and self.store is not None
+            and getattr(self.store, "public", False)
+        )
+
+    def _redacted(self, value):
+        """``value`` with host names and private paths replaced, when :attr:`redacting`."""
+        if not self.redacting:
+            return value
+        replacements = []
+        for path, name in (
+            (self.work_dir, "<work_dir>"),
+            (self.repo, "<repo>"),
+            (os.environ.get("VIRTUAL_ENV"), "<venv>"),
+            (Path.home(), "~"),
+        ):
+            if path:
+                replacements.append((str(Path(path)), name))
+        host = socket.gethostname()
+        if host:
+            replacements.append((host, "<host>"))
+        # The longest first, so that a path inside another one keeps its own name.
+        replacements.sort(key=lambda pair: len(pair[0]), reverse=True)
+
+        def scrub(item):
+            if isinstance(item, str):
+                for old, new in replacements:
+                    item = item.replace(old, new)
+                return item
+            if isinstance(item, dict):
+                return {key: scrub(entry) for key, entry in item.items()}
+            if isinstance(item, (list, tuple)):
+                return [scrub(entry) for entry in item]
+            return item
+
+        return scrub(value)
+
     def case_metadata(self) -> dict[str, Any]:
         """The contents of ``case_metadata.json``: the case, machine, software and packaged runs."""
         if not hasattr(self, "_software"):
@@ -610,6 +736,7 @@ class ProfilingCase:
                 "slurm_cluster_name": os.environ.get("SLURM_CLUSTER_NAME"),
             },
             "software_information": self._software,
+            "prepare": self.prepared,
             "runs": self.packaged_runs,
         }
 
@@ -633,7 +760,7 @@ class ProfilingCase:
                     self.destination_dir / "inputs" / path.name,
                 )
         (self.destination_dir / "case_metadata.json").write_text(
-            json.dumps(self.case_metadata(), indent=2, default=str),
+            json.dumps(self._redacted(self.case_metadata()), indent=2, default=str),
             encoding="utf-8",
         )
         return self.destination_dir
@@ -727,7 +854,7 @@ class ProfilingCase:
         }
         destination.mkdir(parents=True, exist_ok=True)
         (destination / RUN_METADATA_FILE).write_text(
-            json.dumps(run_metadata, indent=2, default=str),
+            json.dumps(self._redacted(run_metadata), indent=2, default=str),
             encoding="utf-8",
         )
         self.packaged_runs.append(
