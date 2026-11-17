@@ -298,11 +298,13 @@ def test_pages_link_to_each_other_with_the_base_path(tmp_path):
     assert "[← Poisson solver](/cat/catalogue/solvers/poisson-solver/)" in run
     # The components are imported relative to the page, however deep it is.
     assert (
-        'import Summary from "../../../../../components/report/Summary.astro";' in run
+        'import Summary from "../../../../../components/scope-profiler/Summary.astro";'
+        in run
     )
     single = (content / "single-run" / "only-run.mdx").read_text()
     assert (
-        'import Summary from "../../../../components/report/Summary.astro";' in single
+        'import Summary from "../../../../components/scope-profiler/Summary.astro";'
+        in single
     )
     # The runs table links each run's page; chart data is addressed from the site
     # root, and the component adds the base path.
@@ -655,6 +657,95 @@ def test_site_command_takes_the_base_path_from_the_command_line(tmp_path):
     assert "(/x/catalogue/single-run/)" in (out / CONTENT / "index.mdx").read_text()
 
 
+def test_a_section_puts_the_catalogue_into_a_part_of_a_docs_site(tmp_path):
+    _write_profiles(tmp_path / "data")
+    out = tmp_path / "docs"
+
+    build_site(load_manifest(_manifest(tmp_path, BASIC)), out, section="profiling")
+
+    index = (out / "src/content/docs/profiling/index.mdx").read_text()
+    assert "[Single run](/cat/profiling/single-run/)" in index
+    assert (out / "public/profiling/index.json").is_file()
+    assert not (out / CONTENT).exists()
+    data = json.loads(
+        (
+            out / "src/content/docs/profiling/solvers/poisson-solver.data.json"
+        ).read_text()
+    )
+    assert data["charts"]["panels"][0]["src"].startswith("/profiling/solvers/")
+
+
+def test_a_section_must_be_a_path_of_slugs(tmp_path):
+    _write_profiles(tmp_path / "data")
+    manifest = load_manifest(_manifest(tmp_path, BASIC))
+
+    with pytest.raises(SiteError, match="section must be lowercase"):
+        build_site(manifest, tmp_path / "docs", section="My Profiles")
+    build_site(manifest, tmp_path / "docs", section="/reference/profiling/")
+    assert (tmp_path / "docs/src/content/docs/reference/profiling/index.mdx").is_file()
+
+
+def test_the_components_are_copied_into_the_project(tmp_path):
+    _write_profiles(tmp_path / "data")
+    out = tmp_path / "docs"
+    components = out / "src/components/scope-profiler"
+    components.mkdir(parents=True)
+    (components / "Stale.astro").write_text("old")
+    (components / MARKER).write_text("")
+
+    build_site(load_manifest(_manifest(tmp_path, BASIC)), out)
+
+    assert (components / "Summary.astro").is_file()
+    assert (components / "report.css").is_file()
+    assert not (components / "Stale.astro").exists()
+
+
+def test_components_written_by_hand_are_not_replaced(tmp_path):
+    _write_profiles(tmp_path / "data")
+    out = tmp_path / "docs"
+    (out / "src/components/scope-profiler").mkdir(parents=True)
+    (out / "src/components/scope-profiler/Mine.astro").write_text("mine")
+
+    with pytest.raises(SiteError, match="was not written by scope-profiler site"):
+        build_site(load_manifest(_manifest(tmp_path, BASIC)), out)
+
+
+def test_missing_npm_packages_are_a_note(tmp_path):
+    _write_profiles(tmp_path / "data")
+    out = tmp_path / "docs"
+    out.mkdir()
+    (out / "package.json").write_text(
+        json.dumps({"dependencies": {"plotly.js-dist-min": "^4.2.0"}})
+    )
+    manifest = load_manifest(_manifest(tmp_path, BASIC))
+
+    result = build_site(manifest, out)
+    assert any("@scope-profiler/plotly" in note for note in result.notes)
+
+    (out / "package.json").write_text(
+        json.dumps(
+            {
+                "dependencies": {
+                    "plotly.js-dist-min": "^4.2.0",
+                    "@scope-profiler/plotly": "^0.4.0",
+                }
+            }
+        )
+    )
+    assert not any("npm" in note for note in build_site(manifest, out).notes)
+
+
+def test_site_command_takes_the_section(tmp_path):
+    _write_profiles(tmp_path / "data")
+    manifest = _manifest(tmp_path, BASIC)
+    out = tmp_path / "docs"
+
+    assert (
+        cli_main(["site", str(manifest), "-o", str(out), "--section", "profiling"]) == 0
+    )
+    assert (out / "src/content/docs/profiling/index.mdx").is_file()
+
+
 def test_site_command_check_only_validates(tmp_path, capsys):
     _write_profiles(tmp_path / "data")
     manifest = _manifest(tmp_path, BASIC)
@@ -987,6 +1078,109 @@ def test_found_executions_need_no_meta_file(tmp_path):
         ("n1", "n1", None),
         ("n2", "n2", None),
     ]
+
+
+def _jobs_package(root, stamp, commit, ranks=(1, 2), **extra):
+    """A case folder as ``scope-profiler jobs`` packages it: run01/profiling_data.h5, ..."""
+    folder = root / f"{stamp.replace('-', '').replace(':', '')}-{commit}-heat"
+    for index, count in enumerate(ranks, start=1):
+        run = folder / f"run{index:02d}"
+        _write_profiles(run, ranks=(count,))
+        (run / f"np{count}.h5").rename(run / "profiling_data.h5")
+        (run / "run_metadata.json").write_text(
+            json.dumps({"launch_id": index, "ntasks": count})
+        )
+    (folder / "case_metadata.json").write_text(
+        json.dumps(
+            {
+                "general_information": {"label": "heat", "time_date_utc": stamp},
+                "software_information": {
+                    "git_commit": commit + "9" * 32,
+                    "git_branch": "devel",
+                    "git_repository": "/home/secret/heat",
+                },
+                "hardware_information": {
+                    "cluster": {"name": "raven"},
+                    "submit_host": "secret-host",
+                },
+                "scheduler": "slurm",
+                "metadata": extra,
+            }
+        )
+    )
+    return folder
+
+
+def test_packages_of_profiling_jobs_are_executions(tmp_path):
+    _jobs_package(tmp_path / "heat", "2026-11-16T22:00:00+00:00", "aaaa1111")
+    _jobs_package(
+        tmp_path / "heat", "2026-11-17T22:00:00+00:00", "bbbb2222", grid="64^3"
+    )
+    text = (
+        "cases:\n  - title: Heat\n    executions:\n"
+        '      path: "heat/{execution}/run*/profiling_data.h5"\n'
+    )
+
+    manifest = load_manifest(_manifest(tmp_path, text))
+
+    first, second = manifest.cases[0].executions
+    assert first.label == "2026-11-16 22:00 · aaaa1111"
+    assert first.date == "2026-11-16T22:00:00+00:00"
+    assert second.info == {
+        "commit": "bbbb2222",
+        "branch": "devel",
+        "cluster": "raven",
+        "scheduler": "slurm",
+        "grid": "64^3",
+    }
+    assert [run.label for run in second.runs] == ["np1", "np2"]
+    build_site(manifest, tmp_path / "docs")
+    page = (tmp_path / "docs" / CONTENT / "heat.mdx").read_text()
+    assert "secret" not in page
+    data = (tmp_path / "docs" / CONTENT / "heat.data.json").read_text()
+    assert "secret" not in data
+
+
+def test_a_single_packaged_run_is_named_by_its_ranks(tmp_path):
+    _jobs_package(
+        tmp_path / "heat", "2026-11-16T22:00:00+00:00", "aaaa1111", ranks=(4,)
+    )
+    text = (
+        "cases:\n  - title: Heat\n    executions:\n"
+        '      path: "heat/{execution}/run*/profiling_data.h5"\n'
+    )
+
+    (execution,) = load_manifest(_manifest(tmp_path, text)).cases[0].executions
+
+    assert [run.label for run in execution.runs] == ["np4"]
+
+
+def test_a_meta_file_overrides_the_package_metadata(tmp_path):
+    folder = _jobs_package(tmp_path / "heat", "2026-11-16T22:00:00+00:00", "aaaa1111")
+    (folder / "meta.yml").write_text("label: First night\ninfo: {system: 1 node}\n")
+    text = (
+        "cases:\n  - title: Heat\n    executions:\n"
+        '      path: "heat/{execution}/run*/profiling_data.h5"\n'
+    )
+
+    (execution,) = load_manifest(_manifest(tmp_path, text)).cases[0].executions
+
+    assert execution.label == "First night"
+    assert execution.info["system"] == "1 node"
+    assert execution.info["commit"] == "aaaa1111"
+
+
+def test_runs_with_the_same_file_name_are_told_apart_by_their_directory(tmp_path):
+    for name in ("a", "b"):
+        _write_profiles(tmp_path / "data" / "n1" / name, ranks=(2,))
+    text = (
+        "cases:\n  - title: Same\n    executions:\n"
+        '      path: "data/{execution}/*/np2.h5"\n'
+    )
+
+    (execution,) = load_manifest(_manifest(tmp_path, text)).cases[0].executions
+
+    assert [run.label for run in execution.runs] == ["a", "b"]
 
 
 @pytest.mark.parametrize(

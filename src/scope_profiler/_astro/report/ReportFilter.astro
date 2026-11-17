@@ -1,0 +1,43 @@
+---
+// The bar that stays at the top of a report page: the region filter, the charts' Regions and Depth
+// sliders when there are any, and the highlight status; plus the toast that offers the jump to a
+// region clicked in a chart. Every report page has one, and it starts the page's interactions.
+import './report.css';
+import { depthLabel, topLabel } from './format.js';
+const { data } = Astro.props;
+const limits = data.charts?.limits;
+const regions = limits?.regions ?? 0;
+const maxDepth = limits?.max_depth ?? 0;
+const top = limits ? (limits.top ?? regions) : 0;
+---
+<div class="sp-report filter-bar not-content">
+	<label for="region-filter">Filter regions</label>
+	<input id="region-filter" class="region-filter" type="search" autocomplete="off" placeholder="e.g. solve, ^prop:" title="Comma-separated, case-insensitive substring match. Prefix a term with ^ to anchor it to the start of the region name." aria-label="Filter regions" />
+	<span class="filter-count" id="region-filter-count" aria-live="polite"></span>
+	{(regions > 1 || maxDepth >= 1) && (
+		<span class="region-limits">
+			{regions > 1 && (<>
+				<label for="region-top" title="Draw only the regions with the most time, in every chart">Regions</label>
+				<input type="range" class="region-top" id="region-top" title="Draw only the regions with the most time, in every chart" min="1" max={regions} step="1" value={top} />
+				<output for="region-top">{topLabel(top, regions)}</output>
+			</>)}
+			{maxDepth >= 1 && (<>
+				<label for="region-depth" title="Hide regions, and timeline calls, nested deeper than this">Depth</label>
+				<input type="range" class="region-depth" id="region-depth" title="Hide regions, and timeline calls, nested deeper than this" min="0" max={maxDepth} step="1" value={maxDepth} />
+				<output for="region-depth">{depthLabel(maxDepth, maxDepth)}</output>
+			</>)}
+		</span>
+	)}
+	<span class="selection-status" id="region-selection" aria-live="polite"></span>
+	<button class="clear-selection" id="clear-region-selection" type="button" hidden>Clear highlight</button>
+</div>
+<div class="region-toast" id="region-toast" role="status" hidden>
+	<span class="toast-text"></span>
+	<button class="toast-jump" type="button">Show in table</button>
+	<button class="toast-close" type="button" aria-label="Dismiss">×</button>
+</div>
+
+<script>
+	import { initReport } from './client.js';
+	initReport();
+</script>

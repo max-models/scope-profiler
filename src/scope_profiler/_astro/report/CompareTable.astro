@@ -1,0 +1,23 @@
+---
+// Every region's duration in the compared runs, against the baseline: switch the metric, and order
+// the rows by the call tree or by the size of the change. Which runs it shows follows the choice
+// made in CompareControls; the table itself is drawn by compare.js.
+import './report.css';
+---
+<div class="sp-report not-content">
+	<div class="table-tools">
+		<span class="tools-label">Show</span>
+		<button type="button" data-compare-metric="total" aria-pressed="true">total</button>
+		<button type="button" data-compare-metric="own" aria-pressed="false">own</button>
+		<button type="button" data-compare-metric="avg" aria-pressed="false">avg/call</button>
+		<button type="button" data-compare-metric="calls" aria-pressed="false">calls</button>
+		<span class="tools-label">Order</span>
+		<button type="button" data-compare-sort="tree" aria-pressed="true">call tree</button>
+		<button type="button" data-compare-sort="change" aria-pressed="false">largest change</button>
+	</div>
+	<div class="table-scroll" id="sp-compare-box"></div>
+</div>
+
+<script>
+	import './compare.js';
+</script>

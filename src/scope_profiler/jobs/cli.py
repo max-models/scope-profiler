@@ -101,6 +101,12 @@ def _parser() -> argparse.ArgumentParser:
     upload.add_argument(
         "--branch", help="branch to push to (default: the remote's default)"
     )
+    upload.add_argument(
+        "--path",
+        default="",
+        help="directory in the repository to put the folder into; {label} is the "
+        "case's label (e.g. mycode/{label}; default: the top)",
+    )
 
     presets = sub.add_parser(
         "clusters", help="list the cluster presets and the detected one"
@@ -157,15 +163,13 @@ def main(argv: list[str]) -> int:
 
     if args.action == "upload":
         store = (
-            GitResultsStore(url=args.repo, branch=args.branch)
+            GitResultsStore(url=args.repo, branch=args.branch, path=args.path)
             if args.repo
-            else GitResultsStore.from_env(
-                branch=args.branch,
-            )
+            else GitResultsStore.from_env(branch=args.branch, path=args.path)
         )
         try:
             store.upload(args.case_dir)
-        except FileNotFoundError as exc:
+        except (FileNotFoundError, ValueError) as exc:
             print(f"error: {exc}")
             return 2
         return 0

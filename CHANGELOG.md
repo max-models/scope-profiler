@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Added
+
+- `scope-profiler site --section NAME` writes a catalogue into a section of any
+  Astro/Starlight site (`src/content/docs/NAME`, `public/NAME`), such as a "Profiling"
+  section of a code's documentation, instead of only into `catalogue/` of a site of its own.
+- A results repository shared by several codes: `path` of the `[store]` table
+  (`GitResultsStore(path=...)`, `jobs upload --path`) puts the uploaded case folders into a
+  directory such as `mycode/{label}`.
+- `scope-profiler site` reads the case folders that `scope-profiler jobs` uploads as executions
+  of a case (`executions: {path: "<label>/{execution}/run*/profiling_data.h5"}`), with the date,
+  commit, branch and cluster from `case_metadata.json` and each run named by its ranks.
+
+### Changed
+
+- The Astro components that draw the catalogue pages ship with scope-profiler and
+  `scope-profiler site` copies them into `src/components/scope-profiler/` of the site, so the
+  pages and their components always match; a site no longer keeps its own copy in
+  `src/components/report/`. It prints a note when the site's `package.json` lacks the npm
+  packages the components import.
+
 ## 0.8.0 - 2026-11-16
 
 ### Added

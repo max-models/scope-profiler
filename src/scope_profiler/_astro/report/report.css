@@ -1,0 +1,1230 @@
+/*
+ * The styles of the report components, a port of the standalone HTML report's, drawn with the
+ * colours of the site theme so that they follow its light and dark mode. Every rule is below
+ * `.sp-report`, the class each component's root carries (with Starlight's `not-content`, which
+ * keeps the prose styles of the page away from the tables inside).
+ */
+
+.sp-report {
+	--sp-text: var(--sl-color-text);
+	--sp-muted: var(--sl-color-gray-3);
+	--sp-faint: var(--sl-color-gray-4);
+	--sp-line: var(--sl-color-hairline);
+	--sp-line-strong: var(--sl-color-hairline-light);
+	--sp-surface: var(--sl-color-bg-inline-code);
+	--sp-bg: var(--sl-color-bg);
+	--sp-accent: var(--sl-color-accent);
+	--sp-hover: color-mix(in srgb, var(--sl-color-text) 7%, transparent);
+	--sp-selected: color-mix(in srgb, var(--sl-color-orange) 22%, transparent);
+	/* fills and bars */
+	--sp-good: var(--sl-color-green);
+	--sp-warn: var(--sl-color-orange);
+	--sp-bad: var(--sl-color-red);
+	/* text: Starlight's plain colours are pale in the light theme (contrast 1.6 on its background),
+	   its "high" variants are made for text (6 or more in both themes) */
+	--sp-good-text: var(--sl-color-green-high);
+	--sp-warn-text: var(--sl-color-orange-high);
+	--sp-bad-text: var(--sl-color-red-high);
+	--sp-bar: color-mix(in srgb, var(--sl-color-accent) 55%, transparent);
+	--sp-own-bar: color-mix(in srgb, var(--sl-color-blue, var(--sl-color-accent)) 55%, transparent);
+	--sp-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	color: var(--sp-text);
+	font-size: var(--sl-text-base, 1rem);
+	line-height: 1.45;
+	margin: 1rem 0;
+}
+
+.sp-report *,
+.sp-report *::before,
+.sp-report *::after {
+	box-sizing: border-box;
+}
+
+.sp-report .muted {
+	color: var(--sp-muted);
+}
+.sp-report p {
+	margin: 0.4rem 0;
+}
+.sp-report code {
+	overflow-wrap: anywhere;
+}
+.sp-report a {
+	color: var(--sp-accent);
+}
+.sp-report h3,
+.sp-report h4 {
+	margin: 1rem 0 0.4rem;
+}
+
+/* Tables */
+.sp-report table {
+	border-collapse: collapse;
+	margin: 0.75rem 0;
+	width: 100%;
+}
+.sp-report th,
+.sp-report td {
+	border: 0;
+	border-bottom: 1px solid var(--sp-line);
+	padding: 0.4rem 0.6rem;
+	text-align: right;
+}
+.sp-report th {
+	background: var(--sp-bg);
+	position: sticky;
+	top: var(--filter-bar-height, 0px);
+	z-index: 2;
+}
+.sp-report th:first-child,
+.sp-report td:first-child {
+	text-align: left;
+}
+.sp-report .table-scroll {
+	overflow-x: auto;
+}
+.sp-report .table-scroll th {
+	top: 0;
+}
+.sp-report .table-note {
+	font-size: 0.9em;
+	margin-top: -0.25rem;
+}
+.sp-report .table-tools {
+	align-items: baseline;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	margin: 0.5rem 0 -0.25rem;
+}
+.sp-report .table-tools .tools-label {
+	color: var(--sp-muted);
+	font-size: 0.9em;
+	margin-left: 0.5rem;
+}
+.sp-report .table-tools .tools-label:first-child {
+	margin-left: 0;
+}
+.sp-report .table-tools button,
+.sp-report .chart-controls button,
+.sp-report .chart-tools button {
+	background: transparent;
+	border: 1px solid var(--sp-line-strong);
+	border-radius: 0.3rem;
+	color: var(--sp-text);
+	cursor: pointer;
+	font: inherit;
+	font-size: 0.9em;
+	padding: 0.15rem 0.6rem;
+}
+.sp-report .table-tools button:hover,
+.sp-report .chart-controls button:hover,
+.sp-report .chart-tools button:hover {
+	background: var(--sp-hover);
+}
+.sp-report .table-tools button[aria-pressed='true'],
+.sp-report .chart-tools button[aria-pressed='true'] {
+	background: var(--sp-accent);
+	border-color: var(--sp-accent);
+	color: var(--sl-color-text-invert);
+}
+
+/* Headline numbers and findings */
+.sp-report .kpis {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.6rem 2.5rem;
+	margin: 0.5rem 0 1rem;
+}
+.sp-report .kpi {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+.sp-report .kpi-label,
+.sp-report .kpi-detail {
+	color: var(--sp-muted);
+	font-size: 0.85em;
+}
+.sp-report .kpi-value {
+	font-size: 1.15em;
+	font-variant-numeric: tabular-nums;
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.sp-report .kpi-value a {
+	color: inherit;
+	text-decoration: none;
+}
+.sp-report .kpi-value a:hover {
+	color: var(--sp-accent);
+}
+.sp-report .kpi.warn .kpi-value,
+.sp-report .kpi.bad .kpi-value {
+	color: var(--sp-warn-text);
+}
+.sp-report .kpi.bad .kpi-value {
+	color: var(--sp-bad-text);
+}
+.sp-report .kpi.good .kpi-value {
+	color: var(--sp-good-text);
+}
+.sp-report .findings {
+	margin: 0.5rem 0 1rem;
+	padding-left: 1.25rem;
+}
+.sp-report .findings li {
+	margin: 0.2rem 0;
+}
+.sp-report .findings a {
+	color: inherit;
+}
+.sp-report .flag {
+	color: var(--sp-warn-text);
+}
+
+/* Run header */
+.sp-report .run-meta {
+	color: var(--sp-muted);
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.4rem;
+	margin: 0 0 0.5rem;
+}
+.sp-report .run-meta span {
+	border: 1px solid var(--sp-line);
+	border-radius: 999px;
+	font-size: 0.85em;
+	padding: 0.1rem 0.6rem;
+}
+
+/* Hotspots */
+.sp-report .hotspots ol {
+	display: grid;
+	gap: 0.2rem;
+	list-style: none;
+	margin: 0.5rem 0;
+	padding: 0;
+}
+.sp-report .hotspots li {
+	margin: 0;
+}
+.sp-report .hotspot {
+	align-items: center;
+	background: none;
+	border: 0;
+	border-radius: 0.4rem;
+	color: inherit;
+	cursor: pointer;
+	display: grid;
+	font: inherit;
+	gap: 0.2rem 0.9rem;
+	grid-template-columns: 1.6rem minmax(12rem, 20rem) 1fr 4rem;
+	padding: 0.3rem 0.5rem;
+	text-align: left;
+	width: 100%;
+}
+.sp-report .hotspot:hover {
+	background: var(--sp-hover);
+}
+.sp-report .hs-rank {
+	color: var(--sp-faint);
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+}
+.sp-report .hs-name {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+.sp-report .hs-label,
+.sp-report .hs-path {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.sp-report .hs-bar {
+	display: flex;
+	flex-direction: column;
+	gap: 0.2rem;
+	min-width: 0;
+}
+.sp-report .hs-path {
+	color: var(--sp-muted);
+	font-size: 0.82em;
+}
+.sp-report .hs-tag {
+	color: var(--sp-muted);
+	font-size: 0.85em;
+	font-weight: 400;
+	margin-left: 0.3rem;
+}
+.sp-report .hs-track {
+	background: var(--sp-hover);
+	height: 0.5rem;
+	overflow: hidden;
+}
+.sp-report .hs-fill {
+	background: var(--sp-bar);
+	display: block;
+	height: 100%;
+}
+.sp-report .hs-fill.own {
+	background: var(--sp-own-bar);
+}
+.sp-report .hs-fill.outside {
+	background: var(--sp-faint);
+}
+.sp-report .hs-share {
+	font-variant-numeric: tabular-nums;
+	font-weight: 600;
+	text-align: right;
+}
+.sp-report .hs-detail {
+	color: var(--sp-muted);
+	font-size: 0.82em;
+	font-variant-numeric: tabular-nums;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* The region statistics table */
+.sp-report .region-row,
+.sp-report .select-row {
+	cursor: pointer;
+}
+.sp-report .region-row:hover,
+.sp-report .select-row:hover {
+	background: var(--sp-hover);
+}
+.sp-report .region-row.region-selected,
+.sp-report .select-row.region-selected {
+	background: var(--sp-selected);
+	box-shadow: inset 4px 0 var(--sp-warn);
+}
+.sp-report .region-row td:first-child,
+.sp-report .own-row td:first-child {
+	align-items: center;
+	display: flex;
+	gap: 0.4rem;
+}
+.sp-report .region-row:focus-visible {
+	outline: 2px solid var(--sp-accent);
+	outline-offset: -2px;
+}
+.sp-report .tree-toggle {
+	background: none;
+	border: 0;
+	color: var(--sp-muted);
+	cursor: pointer;
+	display: inline-block;
+	font: inherit;
+	padding: 0;
+	width: 0.9em;
+}
+.sp-report .tree-toggle:hover {
+	color: var(--sp-accent);
+}
+.sp-report .region-stats:not(.flat):not(.filtering) > tbody.tree-hidden {
+	display: none;
+}
+.sp-report .region-stats:not(.flat):not(.filtering) > tbody.tree-collapsed .own-row {
+	display: none;
+}
+.sp-report .region-stats.flat .tree-toggle,
+.sp-report .region-stats.filtering .tree-toggle {
+	visibility: hidden;
+}
+.sp-report .region-stats {
+	border: 1px solid var(--sp-line-strong);
+	border-collapse: separate;
+	border-radius: 0.5rem;
+	border-spacing: 0;
+	min-width: 50%;
+	width: auto;
+}
+.sp-report .region-stats > thead > tr > th,
+.sp-report .region-stats > tbody > tr > td {
+	border-bottom: 0;
+	font-family: var(--sp-mono);
+	font-size: 0.9em;
+	padding: 0.2rem 0.75rem;
+	text-align: left;
+	white-space: pre;
+}
+.sp-report .region-stats > thead > tr > th {
+	border-bottom: 1px solid var(--sp-line-strong);
+}
+.sp-report .region-stats > tbody > tr.region-detail > td {
+	font-family: inherit;
+	font-size: inherit;
+	white-space: normal;
+}
+.sp-report .region-stats .indent {
+	color: var(--sp-faint);
+}
+.sp-report .region-stats.flat .indent {
+	display: none;
+}
+.sp-report .own-row td {
+	color: var(--sp-muted);
+}
+.sp-report .bar-cell {
+	position: relative;
+}
+.sp-report .bar {
+	background: var(--sp-bar);
+	border-radius: 2px;
+	bottom: 0.1rem;
+	height: 3px;
+	left: 0.75rem;
+	max-width: calc(100% - 1.5rem);
+	position: absolute;
+	z-index: 0;
+}
+.sp-report .bar-cell > span:not(.bar) {
+	position: relative;
+	z-index: 1;
+}
+.sp-report .own-row .bar {
+	background: var(--sp-own-bar);
+}
+.sp-report .region-detail td {
+	background: var(--sp-surface);
+	padding: 0.75rem 1.25rem;
+	text-align: left;
+}
+.sp-report .region-detail pre {
+	background: var(--sl-color-bg);
+	border: 1px solid var(--sp-line);
+	border-radius: 0.4rem;
+	margin: 0.35rem 0 0.9rem;
+	overflow-x: auto;
+	padding: 0.6rem 0.75rem;
+}
+.sp-report .rank-table {
+	min-width: 40%;
+	width: auto;
+}
+.sp-report .rank-table th,
+.sp-report .rank-table td {
+	padding: 0.3rem 0.6rem;
+}
+.sp-report .tag {
+	background: var(--sl-color-accent-low);
+	border-radius: 0.3rem;
+	color: var(--sl-color-accent-high);
+	display: inline-block;
+	font-size: 0.85em;
+	margin: 0 0.3rem 0.3rem 0;
+	padding: 0.1rem 0.5rem;
+}
+.sp-report th[data-key] {
+	cursor: pointer;
+	user-select: none;
+}
+.sp-report th[data-key]:hover {
+	color: var(--sp-accent);
+}
+.sp-report th[data-key]::after {
+	content: '';
+	display: inline-block;
+	width: 0.6em;
+}
+.sp-report th[data-sort-dir='asc']::after {
+	content: '\25b4';
+}
+.sp-report th[data-sort-dir='desc']::after {
+	content: '\25be';
+}
+.sp-report .spark {
+	display: block;
+}
+.sp-report .spark polygon {
+	fill: var(--sp-bar);
+	opacity: 0.4;
+}
+.sp-report .spark polyline {
+	fill: none;
+	stroke: var(--sp-accent);
+	stroke-width: 1.4;
+}
+.sp-report .empty-state {
+	color: var(--sp-muted);
+	font-style: italic;
+	text-align: center;
+}
+
+/* The filter bar */
+.sp-report.filter-bar {
+	align-items: center;
+	background: var(--sp-bg);
+	border-bottom: 1px solid var(--sp-line);
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.6rem;
+	margin: 0 0 1rem;
+	padding: 0.5rem 0;
+	position: sticky;
+	top: var(--sl-nav-height, 3.5rem);
+	z-index: 20;
+}
+.sp-report .region-limits {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.4rem;
+}
+.sp-report .region-limits label,
+.sp-report.filter-bar > label {
+	font-weight: 600;
+}
+.sp-report .region-limits label {
+	margin-left: 0.4rem;
+}
+.sp-report .region-limits input[type='range'] {
+	accent-color: var(--sp-accent);
+	width: 9rem;
+}
+.sp-report .region-limits output {
+	color: var(--sp-muted);
+	font-size: 0.9em;
+	font-variant-numeric: tabular-nums;
+	min-width: 8.5rem;
+}
+.sp-report .region-filter {
+	background: transparent;
+	border: 1px solid var(--sp-line-strong);
+	border-radius: 0.4rem;
+	color: inherit;
+	flex: 1;
+	font: inherit;
+	max-width: 34rem;
+	padding: 0.35rem 0.6rem;
+}
+.sp-report .region-filter:focus {
+	border-color: var(--sp-accent);
+	outline: 2px solid color-mix(in srgb, var(--sp-accent) 40%, transparent);
+}
+.sp-report .filter-count {
+	color: var(--sp-muted);
+	font-size: 0.9em;
+	white-space: nowrap;
+}
+.sp-report .selection-status {
+	color: var(--sp-warn-text);
+	font-size: 0.9em;
+	white-space: nowrap;
+}
+.sp-report .clear-selection {
+	background: transparent;
+	border: 0;
+	color: var(--sp-accent);
+	cursor: pointer;
+	font: inherit;
+	padding: 0.2rem;
+	text-decoration: underline;
+}
+.sp-report .clear-selection[hidden] {
+	display: none;
+}
+
+/* Chart panels */
+.sp-report .chart-controls {
+	display: flex;
+	gap: 0.5rem;
+	margin: 0.5rem 0;
+}
+.sp-report .chart-panel {
+	border: 1px solid var(--sp-line);
+	border-radius: 0.5rem;
+	margin: 0.75rem 0;
+	padding: 0.25rem 1rem;
+}
+.sp-report .chart-panel summary {
+	cursor: pointer;
+	font-weight: 600;
+}
+.sp-report .chart-heading {
+	font-size: 1.1em;
+	font-weight: 700;
+}
+.sp-report .chart-tools {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.4rem;
+	justify-content: flex-end;
+	margin: 0.25rem 0 -0.5rem;
+}
+.sp-report .chart-tools .chart-open {
+	margin-left: 0.6rem;
+}
+.sp-report .chart {
+	margin: 1rem 0 1.5rem;
+	min-height: 360px;
+}
+.sp-report .chart-duration {
+	min-height: 680px;
+}
+.sp-report .chart-error {
+	color: var(--sp-bad-text);
+	padding: 1rem;
+}
+
+/* Metadata, counters and line profiles */
+.sp-report .meta-table th {
+	background: none;
+	position: static;
+	vertical-align: top;
+	white-space: nowrap;
+	width: 1%;
+}
+.sp-report .meta-table td {
+	text-align: left;
+}
+.sp-report .meta-table td code {
+	white-space: pre-wrap;
+	word-break: break-all;
+}
+.sp-report details {
+	margin: 0.75rem 0;
+}
+.sp-report summary {
+	cursor: pointer;
+	font-weight: 600;
+}
+.sp-report .lp-functions {
+	border: 1px solid var(--sp-line);
+	border-radius: 0.5rem;
+	overflow: hidden;
+}
+.sp-report .lp-function {
+	border-bottom: 1px solid var(--sp-line);
+	margin: 0;
+}
+.sp-report .lp-function:last-child {
+	border-bottom: 0;
+}
+.sp-report .lp-functions:not(.show-all) .lp-extra {
+	display: none;
+}
+.sp-report .lp-function > summary {
+	align-items: center;
+	display: grid;
+	font-weight: 400;
+	gap: 0.75rem;
+	grid-template-columns: minmax(8rem, 16rem) minmax(5rem, 10rem) minmax(6rem, 1fr) 6rem 4.5rem 2.5rem;
+	padding: 0.3rem 0.8rem;
+}
+.sp-report .lp-function > summary:hover,
+.sp-report .lp-function[open] > summary {
+	background: var(--sp-hover);
+}
+.sp-report .lp-func {
+	font-family: var(--sp-mono);
+	font-weight: 650;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.sp-report .lp-region,
+.sp-report .lp-loc {
+	font-size: 0.85em;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.sp-report .lp-region {
+	color: var(--sp-accent);
+}
+.sp-report .lp-loc {
+	color: var(--sp-muted);
+}
+.sp-report .lp-bar {
+	background: var(--sp-hover);
+	height: 0.5rem;
+	overflow: hidden;
+}
+.sp-report .lp-bar > span {
+	background: var(--sp-bad);
+	display: block;
+	height: 100%;
+}
+.sp-report .lp-total,
+.sp-report .lp-share {
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+}
+.sp-report .lp-share {
+	color: var(--sp-muted);
+}
+.sp-report .lp-block {
+	margin: 0.25rem 0 1rem;
+}
+.sp-report .lp-head {
+	align-items: baseline;
+	display: flex;
+	gap: 0.75rem;
+	margin: 0.2rem 0 0.35rem;
+}
+.sp-report .lp-scroll {
+	max-height: 32rem;
+	overflow: auto;
+	padding-bottom: 0.6rem;
+}
+.sp-report .region-detail .lp-scroll {
+	background: var(--sp-bg);
+	border: 1px solid var(--sp-line);
+	border-radius: 0.4rem;
+	max-width: 62rem;
+}
+.sp-report .lp-table {
+	font-family: var(--sp-mono);
+	font-size: 0.85em;
+	margin: 0;
+	width: 100%;
+}
+.sp-report .lp-table th {
+	font-weight: 600;
+	top: 0;
+	z-index: 1;
+}
+.sp-report .lp-table th,
+.sp-report .lp-table td {
+	border-bottom: 0;
+	padding: 0.08rem 0.7rem;
+	text-align: right;
+	white-space: nowrap;
+}
+.sp-report .lp-table th.lp-src,
+.sp-report .lp-table td.lp-src {
+	text-align: left;
+	white-space: pre;
+	width: 100%;
+}
+.sp-report .lp-table td.lp-lineno {
+	color: var(--sp-faint);
+}
+.sp-report .lp-table td.lp-pct {
+	background: linear-gradient(
+		to right,
+		color-mix(in srgb, var(--sp-bad) 35%, transparent) var(--pct),
+		transparent var(--pct)
+	);
+}
+.sp-report .lp-table tr.lp-idle td {
+	color: var(--sp-faint);
+}
+.sp-report .lp-table tr.lp-idle td.lp-src {
+	color: var(--sp-text);
+}
+.sp-report .lp-table tr.lp-hot td {
+	background-color: color-mix(in srgb, var(--sp-bad) 14%, transparent);
+}
+.sp-report .lp-table tr.lp-hot td.lp-pct {
+	font-weight: 650;
+}
+.sp-report .lp-table tbody tr:hover td {
+	background-color: var(--sp-hover);
+}
+.sp-report .lp-src .tk-kw {
+	color: var(--sl-color-red);
+}
+.sp-report .lp-src .tk-const,
+.sp-report .lp-src .tk-num {
+	color: var(--sl-color-blue, var(--sp-accent));
+}
+.sp-report .lp-src .tk-str {
+	color: var(--sl-color-green);
+}
+.sp-report .lp-src .tk-com {
+	color: var(--sp-muted);
+	font-style: italic;
+}
+.sp-report .lp-src .tk-fn,
+.sp-report .lp-src .tk-dec {
+	color: var(--sl-color-purple, var(--sp-accent));
+}
+.sp-report .lp-src .tk-bi,
+.sp-report .lp-src .tk-self {
+	color: var(--sl-color-orange);
+}
+.sp-report .lp-src .tk-self {
+	font-style: italic;
+}
+
+/* Load balance and the rank matrix */
+.sp-report .balance-table td,
+.sp-report .balance-table th {
+	white-space: nowrap;
+}
+.sp-report .balance-table td:first-child {
+	max-width: 18rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.sp-report .balance-table tbody tr.extra {
+	display: none;
+}
+.sp-report .balance-table.show-all tbody tr.extra {
+	display: table-row;
+}
+.sp-report .spread {
+	background: var(--sp-hover);
+	border-radius: 0.2rem;
+	display: block;
+	height: 0.6rem;
+	min-width: 9rem;
+	position: relative;
+}
+.sp-report .spread-range {
+	background: color-mix(in srgb, var(--sp-bad) 55%, transparent);
+	border-radius: 0.2rem;
+	height: 100%;
+	position: absolute;
+	top: 0;
+}
+.sp-report .spread-mean {
+	background: var(--sp-text);
+	height: 140%;
+	position: absolute;
+	top: -20%;
+	width: 2px;
+}
+.sp-report .rank-matrix {
+	font-size: 0.85em;
+	width: auto;
+}
+.sp-report .rank-matrix th,
+.sp-report .rank-matrix td {
+	padding: 0.2rem 0.45rem;
+	white-space: nowrap;
+}
+.sp-report .rank-matrix td.heat {
+	font-variant-numeric: tabular-nums;
+	min-width: 2.6rem;
+	text-align: center;
+}
+.sp-report .rank-matrix.compact td.heat {
+	color: transparent;
+	min-width: 0.9rem;
+	padding: 0.2rem;
+}
+.sp-report .rank-matrix th.slowest {
+	color: var(--sp-bad-text);
+}
+.sp-report .rank-matrix tfoot td {
+	border-top: 2px solid var(--sp-line-strong);
+	font-weight: 600;
+}
+.sp-report .legend {
+	align-items: center;
+	color: var(--sp-muted);
+	display: flex;
+	font-size: 0.85em;
+	gap: 0.5rem;
+}
+.sp-report .legend-scale {
+	background: linear-gradient(to right, rgba(37, 99, 235, 0.55), transparent, rgba(220, 38, 38, 0.55));
+	border: 1px solid var(--sp-line);
+	border-radius: 0.2rem;
+	display: inline-block;
+	height: 0.7rem;
+	width: 8rem;
+}
+
+/* Comparisons */
+.sp-report .runs-table td,
+.sp-report .runs-table th {
+	text-align: left;
+	white-space: nowrap;
+}
+.sp-report .runs-table td.run-file {
+	max-width: 16rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.sp-report .compare-candidate {
+	margin: 1rem 0 2rem;
+}
+.sp-report .changes {
+	display: grid;
+	gap: 1.5rem;
+	grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+}
+.sp-report .changes h4 {
+	margin: 0.5rem 0;
+}
+.sp-report .change-list {
+	display: grid;
+	gap: 0.15rem;
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+.sp-report .change-item {
+	align-items: center;
+	display: grid;
+	gap: 0.1rem 0.6rem;
+	grid-template-columns: minmax(8rem, 1fr) 6rem 5.5rem;
+	margin: 0;
+	padding: 0.2rem 0.3rem;
+}
+.sp-report .change-item .hs-name {
+	font-size: 0.95em;
+}
+.sp-report .change-track {
+	background: var(--sp-hover);
+	height: 0.5rem;
+	overflow: hidden;
+}
+.sp-report .change-fill {
+	display: block;
+	height: 100%;
+}
+.sp-report .change-fill.faster {
+	background: var(--sp-good);
+}
+.sp-report .change-fill.slower {
+	background: var(--sp-bad);
+}
+.sp-report .change-value {
+	font-size: 0.9em;
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+}
+.sp-report .compare-table {
+	font-size: 0.92em;
+	min-width: 60%;
+	width: auto;
+}
+.sp-report .compare-table th {
+	white-space: nowrap;
+}
+.sp-report .compare-table td {
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+.sp-report .compare-table .cmp-cell {
+	display: grid;
+	grid-template-columns: minmax(0, max-content);
+	overflow: hidden;
+}
+.sp-report .compare-table .cmp-name {
+	max-width: 24rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.sp-report .compare-table.flat .cmp-name {
+	padding-left: 0 !important;
+}
+.sp-report .compare-table [data-m] {
+	display: none;
+}
+.sp-report .compare-table.metric-total [data-m='total'],
+.sp-report .compare-table.metric-own [data-m='own'],
+.sp-report .compare-table.metric-avg [data-m='avg'],
+.sp-report .compare-table.metric-calls [data-m='calls'] {
+	display: inline-flex;
+}
+.sp-report .delta {
+	justify-content: flex-end;
+}
+.sp-report .delta-text {
+	font-variant-numeric: tabular-nums;
+}
+.sp-report .faster .delta-text,
+.sp-report .delta-text.faster {
+	color: var(--sp-good-text);
+}
+.sp-report .slower .delta-text,
+.sp-report .delta-text.slower {
+	color: var(--sp-bad-text);
+}
+.sp-report .same .delta-text,
+.sp-report .neutral .delta-text {
+	color: var(--sp-muted);
+}
+.sp-report .badge {
+	color: var(--sp-muted);
+	font-size: 0.9em;
+	font-style: italic;
+}
+
+/* The toast that offers the jump to a region clicked in a chart */
+.region-toast {
+	align-items: center;
+	background: var(--sl-color-text);
+	border-radius: 0.5rem;
+	bottom: 1.25rem;
+	box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+	color: var(--sl-color-text-invert);
+	display: flex;
+	gap: 0.75rem;
+	padding: 0.55rem 0.6rem 0.55rem 1rem;
+	position: fixed;
+	right: 1.25rem;
+	/* above Starlight's right-hand "On this page" column, which would swallow its clicks */
+	z-index: 200;
+}
+.region-toast[hidden] {
+	display: none;
+}
+.region-toast button {
+	background: none;
+	border: 1px solid currentColor;
+	border-radius: 0.35rem;
+	color: inherit;
+	cursor: pointer;
+	font: inherit;
+	font-size: 0.9em;
+	padding: 0.15rem 0.55rem;
+}
+.region-toast .toast-close {
+	border: 0;
+	font-size: 1.1em;
+}
+
+/* Choosing the runs to compare */
+.sp-report .compare-controls {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem 0.75rem;
+	margin: 0.5rem 0 1rem;
+}
+.sp-report .compare-controls label {
+	font-weight: 600;
+}
+.sp-report .compare-controls label.compare-all {
+	font-weight: 400;
+	margin-left: 0.5rem;
+}
+.sp-report .compare-controls select,
+.sp-report .compare-controls button {
+	background: transparent;
+	border: 1px solid var(--sp-line-strong);
+	border-radius: 0.3rem;
+	color: var(--sp-text);
+	font: inherit;
+	max-width: 18rem;
+	padding: 0.25rem 0.5rem;
+}
+.sp-report .compare-controls select option {
+	background: var(--sp-bg);
+	color: var(--sp-text);
+}
+.sp-report .compare-controls button {
+	cursor: pointer;
+}
+.sp-report .compare-controls button:hover {
+	background: var(--sp-hover);
+}
+
+.sp-report .chart-scale {
+	align-items: center;
+	display: inline-flex;
+	gap: 0.3rem;
+	margin-right: 0.6rem;
+}
+.sp-report .chart-scale[hidden] {
+	display: none;
+}
+
+.sp-report .runs-table tbody tr.extra {
+	display: none;
+}
+.sp-report .runs-table.show-all tbody tr.extra {
+	display: table-row;
+}
+
+.sp-report .chart-stack {
+	align-items: center;
+	display: inline-flex;
+	font-size: 0.9em;
+	gap: 0.3rem;
+	margin-right: 0.6rem;
+}
+
+.sp-report .file-head {
+	margin: 0.4rem 0;
+}
+
+/* The scale controls of a chart sit at its axes: the y one above the y axis, the x one beside the
+   right end of the x axis; charts.js places them from the plot area's geometry. */
+.sp-report .chart-frame {
+	position: relative;
+}
+.sp-report .axis-scale {
+	align-items: center;
+	display: flex;
+	font-size: 0.72rem;
+	gap: 0.15rem;
+	position: absolute;
+	z-index: 2;
+}
+.sp-report .axis-scale[hidden] {
+	display: none;
+}
+.sp-report .axis-scale-x,
+.sp-report .axis-scale-y {
+	align-items: stretch;
+	flex-direction: column;
+}
+.sp-report .axis-scale-label {
+	color: var(--sp-muted);
+	padding: 0 0.2rem;
+}
+.sp-report .axis-scale-x .axis-scale-label,
+.sp-report .axis-scale-y .axis-scale-label {
+	text-align: left;
+}
+.sp-report .chart-scale-button {
+	background: transparent;
+	border: 1px solid var(--sp-line-strong);
+	border-radius: 0.25rem;
+	color: var(--sp-text);
+	cursor: pointer;
+	font: inherit;
+	line-height: 1.2;
+	padding: 0.05rem 0.35rem;
+}
+.sp-report .chart-scale-button:hover {
+	background: var(--sp-hover);
+}
+.sp-report .chart-scale-button[aria-pressed='true'] {
+	background: var(--sp-accent);
+	border-color: var(--sp-accent);
+	color: var(--sl-color-text-invert);
+}
+
+/* "bar labels": which of a run's identifying facts a chart writes above its bars */
+.sp-report .bar-labels {
+	font-size: 0.9em;
+	margin: 0 0.6rem 0 0;
+	position: relative;
+}
+.sp-report .bar-labels summary {
+	border: 1px solid var(--sp-line-strong);
+	border-radius: 0.3rem;
+	cursor: pointer;
+	font-weight: 400;
+	padding: 0.15rem 0.6rem;
+}
+.sp-report .bar-labels summary:hover {
+	background: var(--sp-hover);
+}
+.sp-report .bar-labels-list {
+	background: var(--sp-bg);
+	border: 1px solid var(--sp-line-strong);
+	border-radius: 0.4rem;
+	box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+	display: grid;
+	gap: 0.15rem;
+	padding: 0.5rem 0.75rem;
+	position: absolute;
+	right: 0;
+	top: 100%;
+	white-space: nowrap;
+	z-index: 5;
+}
+
+.sp-report tr.current-execution td {
+	background: color-mix(in srgb, var(--sl-color-accent) 12%, transparent);
+}
+
+/* Figures: a grid of captioned previews and the lightbox a click opens. */
+.sp-report .gallery-grid {
+	display: grid;
+	gap: 0.75rem;
+	grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+}
+.sp-report .gallery-item {
+	background: var(--sl-color-bg);
+	border: 1px solid var(--sp-line-strong);
+	border-radius: 0.4rem;
+	color: var(--sp-text);
+	cursor: pointer;
+	display: flex;
+	flex-direction: column;
+	gap: 0.35rem;
+	padding: 0.4rem;
+	text-align: left;
+	text-decoration: none;
+}
+.sp-report .gallery-item img,
+.sp-report .gallery-item embed {
+	background: #fff;
+	border-radius: 0.25rem;
+	height: 12rem;
+	object-fit: contain;
+	width: 100%;
+}
+.sp-report .gallery-caption {
+	color: var(--sp-muted);
+	font-size: 0.78rem;
+	overflow-wrap: anywhere;
+}
+.sp-lightbox {
+	align-items: center;
+	background: rgba(0, 0, 0, 0.85);
+	display: flex;
+	flex-direction: column;
+	gap: 0.6rem;
+	inset: 0;
+	justify-content: center;
+	padding: 2rem;
+	position: fixed;
+	z-index: 1000;
+}
+.sp-lightbox[hidden] {
+	display: none;
+}
+.sp-lightbox img {
+	background: #fff;
+	max-height: 82vh;
+	max-width: 92vw;
+	object-fit: contain;
+}
+.sp-lightbox .lightbox-caption {
+	color: #fff;
+	margin: 0;
+}
+.sp-lightbox button {
+	background: rgba(255, 255, 255, 0.15);
+	border: 0;
+	border-radius: 0.3rem;
+	color: #fff;
+	cursor: pointer;
+	font-size: 1.6rem;
+	line-height: 1;
+	padding: 0.3rem 0.7rem;
+	position: absolute;
+}
+.sp-lightbox .lightbox-close {
+	right: 1rem;
+	top: 1rem;
+}
+.sp-lightbox .lightbox-prev {
+	left: 1rem;
+	top: 50%;
+}
+.sp-lightbox .lightbox-next {
+	right: 1rem;
+	top: 50%;
+}
+
+/* The executions table wraps its cells rather than scrolling sideways. */
+.sp-report .executions-table td,
+.sp-report .executions-table th {
+	overflow-wrap: anywhere;
+	white-space: normal;
+}
+.sp-report .executions-table td:last-child,
+.sp-report .executions-table th:last-child {
+	white-space: nowrap;
+}

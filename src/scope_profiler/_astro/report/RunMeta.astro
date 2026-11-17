@@ -1,0 +1,16 @@
+---
+// One line on where, when and for how long a run was profiled.
+import './report.css';
+const { data } = Astro.props;
+const meta = data.report.meta;
+---
+<div class="sp-report not-content">
+	<p class="run-meta">
+		{meta.file && <span title={meta.file.path ?? undefined}><code>{meta.file.name}</code></span>}
+		{meta.timestamp && <span>{meta.timestamp}</span>}
+		{meta.host.map((host) => <span>{host}</span>)}
+		<span>{meta.ranks}</span>
+		<span>{meta.regions}</span>
+		{meta.profiled && <span title={meta.profiled.title}>{meta.profiled.text}</span>}
+	</p>
+</div>

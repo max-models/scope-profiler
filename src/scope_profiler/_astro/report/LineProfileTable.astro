@@ -1,0 +1,18 @@
+---
+// One profiled function's source, each line with the time spent on it.
+import { count } from './format.js';
+const { model, filename, tableId } = Astro.props;
+---
+<div class="lp-scroll">
+	<table class="lp-table" id={tableId}>
+		<thead><tr><th>line</th><th>hits</th><th>time</th><th>per hit</th><th>% time</th><th class="lp-src">source</th></tr></thead>
+		<tbody>
+			{model.rows.map((row) => row.recorded ? (
+				<tr class={row.hot ? 'lp-hot' : undefined}><td class="lp-lineno">{row.number}</td><td>{count(row.hits)}</td><td>{row.seconds_text}</td><td>{row.per_hit_text}</td><td class="lp-pct" style={`--pct:${Math.min(row.percent, 100).toPrecision(3)}%`}>{row.percent.toFixed(2)}%</td><td class="lp-src" set:html={row.source}></td></tr>
+			) : (
+				<tr class="lp-idle"><td class="lp-lineno">{row.number}</td><td></td><td></td><td></td><td></td><td class="lp-src" set:html={row.source}></td></tr>
+			))}
+		</tbody>
+	</table>
+</div>
+{!model.has_source && <p class="muted table-note">No source: this profile does not store it, and <code>{filename}</code> could not be read from here. Profiles recorded with the current scope-profiler carry the source with them.</p>}

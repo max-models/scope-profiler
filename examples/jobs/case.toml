@@ -30,3 +30,4 @@ description = "Ten million cells."
 # Pushed with --upload (or set $SCOPE_PROFILER_RESULTS_REPO):
 # [store]
 # url = "git@github.com:<you>/profiling-results.git"
+# path = "mycode/{label}"   # optional: a directory per case, as a catalogue reads it

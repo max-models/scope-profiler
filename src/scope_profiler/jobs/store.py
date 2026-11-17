@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 import shutil
 import subprocess
 import tempfile
@@ -24,6 +25,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 RESULTS_REPO_ENV_VAR = "SCOPE_PROFILER_RESULTS_REPO"
+
+
+def slug(value: str) -> str:
+    """``value`` as a file name: runs of other characters become ``_``."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._-") or "case"
 
 
 def _git(*args: str, check: bool = True, **kwargs) -> subprocess.CompletedProcess:
@@ -46,12 +52,28 @@ class GitResultsStore:
     push_attempts : int
         Pushes tried (rebasing on the remote in between) before giving up,
         since several runs may push to the same repository concurrently.
+    path : str
+        Directory inside the repository that packaged case folders go into;
+        ``{label}`` is replaced by the case's label. ``""`` (the default) puts
+        them at the top. A repository shared by several codes uses, say,
+        ``mycode/{label}``, which is the layout a catalogue
+        (``scope-profiler site``) finds a case's executions in.
     """
 
     url: str
     branch: str | None = None
     message: str = "Add profiling data for {label} at {commit}"
     push_attempts: int = 5
+    path: str = ""
+
+    def subdirectory(self, label: str) -> Path:
+        """Where the packaged folders of the case ``label`` go, relative to the clone."""
+        relative = Path(self.path.format(label=slug(label))) if self.path else Path()
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError(
+                f"the store's path must stay inside the repository, not {self.path!r}"
+            )
+        return relative
 
     @classmethod
     def from_env(cls, **kwargs) -> GitResultsStore:
@@ -140,9 +162,11 @@ class GitResultsStore:
 
         with tempfile.TemporaryDirectory(prefix="scope-profiler-results-") as tmp:
             clone_dir = self.clone(Path(tmp) / "results")
-            destination = clone_dir / case_dir.name
+            label = general.get("label", case_dir.name)
+            destination = clone_dir / self.subdirectory(label) / case_dir.name
             if destination.exists():
                 shutil.rmtree(destination)
+            destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copytree(case_dir, destination)
             return self.push(
                 clone_dir, label=general.get("label", case_dir.name), commit=commit

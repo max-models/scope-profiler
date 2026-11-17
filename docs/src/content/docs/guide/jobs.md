@@ -186,6 +186,23 @@ retried. A case packaged without upload can be pushed later, unchanged:
 scope-profiler jobs upload _profiling_jobs/packaged/<case> --repo <url>
 ```
 
+A repository shared by several codes keeps each code's cases in a directory of their own:
+`path` in the `[store]` table (or `GitResultsStore(path=...)`, or `--path` of `jobs upload`)
+names it, with `{label}` for the case's label.
+
+```toml
+[store]
+url = "git@github.com:me/profiling-results.git"
+path = "mycode/{label}"   # mycode/<label>/<timestamp>-<commit>-<label>/run01/...
+```
+
+That is the layout a catalogue reads: with
+`executions: {path: "mycode/<label>/{execution}/run*/profiling_data.h5"}` in its manifest,
+[`scope-profiler site`](/scope-profiler/reference/cli/#scope-profiler-site) makes every
+uploaded case folder an execution of the case, labelled by its date and commit, with the
+commit, branch and cluster from `case_metadata.json` as its metadata and each run named by its
+ranks (`np4`). New uploads need no change to the manifest.
+
 ## Sweeps
 
 Several cases started as separate processes would each prepare the shared

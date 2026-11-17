@@ -524,8 +524,10 @@ def _site(argv):
         description=(
             "Write the pages and chart data of a profiling catalogue, listed in "
             "a YAML manifest, into an Astro/Starlight project. Pages go to "
-            "<output>/src/content/docs/catalogue and chart data to "
-            "<output>/public/catalogue; both are replaced on every run."
+            "<output>/src/content/docs/<section> and chart data to "
+            "<output>/public/<section>; both are replaced on every run. The "
+            "components that draw the pages go to "
+            "<output>/src/components/scope-profiler."
         ),
     )
     parser.add_argument("manifest", help="YAML manifest listing the cases and runs")
@@ -539,6 +541,12 @@ def _site(argv):
         "--base",
         help="the site's base path, '/' plus the repository name on GitHub Pages "
         "(default: 'base' in the manifest)",
+    )
+    parser.add_argument(
+        "--section",
+        default="catalogue",
+        help="the part of the site the catalogue fills, e.g. 'profiling' for a "
+        "section of a code's documentation (default: catalogue)",
     )
     parser.add_argument(
         "--check",
@@ -569,6 +577,7 @@ def _site(argv):
             base=args.base,
             charts=not args.no_charts,
             clean=not args.no_clean,
+            section=args.section,
         )
     except SiteError as exc:
         parser.error(str(exc))

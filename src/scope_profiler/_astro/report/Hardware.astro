@@ -1,0 +1,23 @@
+---
+// Hardware counters, only for the runs and ranks that recorded them.
+import './report.css';
+const { data } = Astro.props;
+const panels = data.report.hardware;
+---
+<div class="sp-report not-content">
+	<p class="muted">Counters are shown only for runs and ranks that recorded them. LIKWID groups include their raw events and derived metrics; Linux perf-event values are totals across each region's calls.</p>
+	{panels.map((panel) => (
+		<details class="counter-panel">
+			<summary>{panel.title}</summary>
+			{panel.sections.map((section) => (<>
+				{section.heading && <h4>{section.heading}</h4>}
+				<div class="table-scroll">
+					<table class="rank-table">
+						<thead><tr>{section.columns.map((column) => <th>{column}</th>)}</tr></thead>
+						<tbody>{section.rows.map((row) => <tr>{row.map((value) => <td>{value}</td>)}</tr>)}</tbody>
+					</table>
+				</div>
+			</>))}
+		</details>
+	))}
+</div>

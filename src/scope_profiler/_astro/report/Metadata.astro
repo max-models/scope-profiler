@@ -1,0 +1,14 @@
+---
+// What is known about a run, or (with `rows`) about a case: recorded metadata and the facts the
+// manifest gives, as a table.
+import './report.css';
+const { data, rows: given } = Astro.props;
+const rows = given ?? data.report.metadata;
+---
+<div class="sp-report not-content">
+	{rows.length === 0 ? (
+		<p class="muted">No metadata recorded.</p>
+	) : (
+		<table class="meta-table"><tbody>{rows.map(([key, value]) => <tr><th>{key}</th><td><code>{value}</code></td></tr>)}</tbody></table>
+	)}
+</div>

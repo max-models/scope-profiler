@@ -1,0 +1,68 @@
+---
+// The images and PDFs of a page, as a grid of captioned previews; a click opens an image in a
+// lightbox (arrow keys move between them), a PDF opens in a new tab.
+import './report.css';
+const { data } = Astro.props;
+const figures = data.images ?? [];
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<div class="sp-report not-content figure-gallery">
+	<div class="gallery-grid">
+		{figures.map((figure, index) => figure.pdf ? (
+			<a class="gallery-item" href={`${base}${figure.url}`} target="_blank" rel="noopener">
+				<embed src={`${base}${figure.url}`} type="application/pdf" />
+				<span class="gallery-caption">{figure.name}</span>
+			</a>
+		) : (
+			<button class="gallery-item" type="button" data-figure={`${base}${figure.url}`} data-name={figure.name}>
+				<img src={`${base}${figure.url}`} alt={figure.name} loading="lazy" />
+				<span class="gallery-caption">{figure.name}</span>
+			</button>
+		))}
+	</div>
+</div>
+
+<script>
+	// One lightbox for every gallery on the page, built when first needed.
+	let box: HTMLDivElement | null = null;
+	let items: HTMLElement[] = [];
+	let at = 0;
+
+	function show(index: number) {
+		at = (index + items.length) % items.length;
+		const item = items[at];
+		box!.querySelector('img')!.src = item.dataset.figure ?? '';
+		box!.querySelector('.lightbox-caption')!.textContent = `${item.dataset.name}${items.length > 1 ? ` (${at + 1} / ${items.length})` : ''}`;
+		box!.querySelectorAll<HTMLElement>('.lightbox-nav').forEach((button) => (button.hidden = items.length < 2));
+	}
+	function close() {
+		if (box) box.hidden = true;
+	}
+	function open(list: HTMLElement[], index: number) {
+		if (!box) {
+			box = document.createElement('div');
+			box.className = 'sp-lightbox';
+			box.hidden = true;
+			box.innerHTML = '<button type="button" class="lightbox-close" aria-label="Close">×</button><button type="button" class="lightbox-nav lightbox-prev" aria-label="Previous image">‹</button><img alt="" /><button type="button" class="lightbox-nav lightbox-next" aria-label="Next image">›</button><p class="lightbox-caption"></p>';
+			box.addEventListener('click', (event) => {
+				if (event.target === box) close();
+			});
+			box.querySelector('.lightbox-close')!.addEventListener('click', close);
+			box.querySelector('.lightbox-prev')!.addEventListener('click', () => show(at - 1));
+			box.querySelector('.lightbox-next')!.addEventListener('click', () => show(at + 1));
+			document.addEventListener('keydown', (event) => {
+				if (!box || box.hidden) return;
+				if (event.key === 'Escape') close();
+				else if (event.key === 'ArrowLeft') show(at - 1);
+				else if (event.key === 'ArrowRight') show(at + 1);
+			});
+			document.body.appendChild(box);
+		}
+		items = list;
+		box.hidden = false;
+		show(index);
+	}
+
+	const all = Array.from(document.querySelectorAll<HTMLElement>('.figure-gallery [data-figure]'));
+	all.forEach((item, index) => item.addEventListener('click', () => open(all, index)));
+</script>

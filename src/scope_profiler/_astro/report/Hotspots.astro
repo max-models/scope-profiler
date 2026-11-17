@@ -1,0 +1,29 @@
+---
+// The largest leaves of the call tree, as a ranked bar list. A click finds the region in the table.
+import './report.css';
+const { data } = Astro.props;
+const { hotspots, label } = data.report;
+---
+{hotspots.items.length > 0 && (
+	<div class="sp-report not-content"><div class="hotspots">
+		<p class="muted">The leaves of the call tree with the most time: regions without nested regions, and the <em>own</em> time parents spend outside theirs. Shares are of the session. Click one to find it in the table.</p>
+		<ol>
+			{hotspots.items.map((item) => (
+				<li data-region={item.name} data-filter-region={item.name}>
+					<button class="hotspot" type="button" data-region={item.name} data-run={label} title={item.title}>
+						<span class="hs-rank">{item.rank}</span>
+						<span class="hs-name">
+							<span class="hs-label">{item.kind === 'outside' ? <em>outside any region</em> : <><strong>{item.name}</strong>{item.kind === 'own' && <span class="hs-tag" title="Time in this region outside its nested regions">(own)</span>}</>}</span>
+							{item.context.length > 0 && <span class="hs-path">in {item.context.join(' › ')}</span>}
+						</span>
+						<span class="hs-bar">
+							<span class="hs-track"><span class={`hs-fill ${item.kind}`} style={`width:${Math.min(item.share, 100).toPrecision(4)}%`}></span></span>
+							<span class="hs-detail">{item.details.join(' · ')}{item.flag && <>{' · '}<span class="flag">⚠ {item.flag}</span></>}</span>
+						</span>
+						<span class="hs-share">{item.share.toFixed(1)}%</span>
+					</button>
+				</li>
+			))}
+		</ol>
+	</div></div>
+)}

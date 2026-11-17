@@ -1,0 +1,5 @@
+---
+// A comparison cell: how a value moved against the baseline.
+const { change } = Astro.props;
+---
+{change.kind === 'none' ? '-' : change.kind === 'new' || change.kind === 'gone' ? <span class={`badge ${change.kind}`}>{change.kind}</span> : <span class={`delta ${change.tone}`} title={change.title}><span class="delta-text">{change.label}</span></span>}

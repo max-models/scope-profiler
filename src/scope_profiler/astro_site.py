@@ -53,11 +53,17 @@ from scope_profiler.report_data import (
 #: they are its own and may be replaced.
 MARKER = ".scope-profiler-site"
 
-#: Where the generated pages and chart data go, below the Astro project.
-CONTENT_DIR = Path("src/content/docs/catalogue")
-PUBLIC_DIR = Path("public/catalogue")
-#: The components the generated pages are made of.
-COMPONENTS = Path("src/components/report")
+#: Where the generated pages and chart data go, below the Astro project: the section's
+#: directory in each (``--section``, ``catalogue`` by default).
+CONTENT_ROOT = Path("src/content/docs")
+PUBLIC_ROOT = Path("public")
+DEFAULT_SECTION = "catalogue"
+#: Where the components the generated pages are made of go, below the Astro project; they
+#: ship with this package, so the pages and the components that draw them always match.
+COMPONENTS = Path("src/components/scope-profiler")
+COMPONENT_SOURCE = Path(__file__).parent / "_astro" / "report"
+#: The npm packages the components import, which the Astro project has to install.
+NPM_DEPENDENCIES = ("@scope-profiler/plotly", "plotly.js-dist-min")
 
 SCALING_CHOICES = ("strong", "weak", "both", "none")
 
@@ -431,12 +437,78 @@ def _expand_runs(runs, where: str, root: Path) -> tuple[RunSpec, ...]:
     return tuple(specs)
 
 
+def _read_json(path: Path) -> dict:
+    """A JSON object from ``path``; empty when it is missing or not a JSON object."""
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _jobs_package_meta(directory: Path) -> dict:
+    """Label, date and info of a case folder packaged by ``scope-profiler jobs``.
+
+    Empty for a directory without ``case_metadata.json``. Only what identifies the
+    execution is taken (the time, the commit and branch, the cluster), not the host,
+    the environment or the installed packages the file also records.
+    """
+    metadata = _read_json(directory / "case_metadata.json")
+    if not metadata:
+        return {}
+    general = metadata.get("general_information") or {}
+    software = metadata.get("software_information") or {}
+    hardware = metadata.get("hardware_information") or {}
+    cluster = (hardware.get("cluster") or {}).get("name") or hardware.get(
+        "slurm_cluster_name"
+    )
+    commit = (software.get("git_commit") or "")[:8]
+    info = {
+        "commit": commit or None,
+        "branch": software.get("git_branch"),
+        "cluster": cluster,
+        "scheduler": metadata.get("scheduler"),
+        **(metadata.get("metadata") or {}),
+    }
+    meta: dict = {"info": {key: value for key, value in info.items() if value}}
+    stamp = general.get("time_date_utc")
+    if stamp:
+        meta["date"] = str(stamp)
+        meta["label"] = " · ".join(
+            filter(None, [str(stamp)[:16].replace("T", " "), commit])
+        )
+    return meta
+
+
+def _run_labels(runs: list[str]) -> list[str | None]:
+    """Labels for the runs of an execution whose file names do not tell them apart.
+
+    A run packaged by ``scope-profiler jobs`` (``run01/profiling_data.h5``) is
+    labelled by its ranks from the ``run_metadata.json`` beside it (``np4``); other
+    runs whose file names repeat by their directory. None keeps the profile's own label.
+    """
+    paths = [Path(run) for run in runs]
+    labels = []
+    for path in paths:
+        ntasks = _read_json(path.parent / "run_metadata.json").get("ntasks")
+        labels.append(f"np{ntasks}" if ntasks else None)
+    if None not in labels and len(set(labels)) == len(labels):
+        return labels
+    stems = [path.stem for path in paths]
+    if len(set(stems)) == len(stems):
+        return [None] * len(paths)
+    return [path.parent.name for path in paths]
+
+
 def _discover_executions(spec: dict, where: str, root: Path) -> tuple[Execution, ...]:
     """The executions a pattern finds: ``path`` has ``{execution}`` where each one's name goes.
 
     ``data/poisson/{execution}/np*.h5`` finds an execution per directory below
     ``data/poisson`` that holds runs. A ``meta.yml`` (the ``meta`` key names another
     file) in an execution's directory may give its ``label``, ``date`` and ``info``.
+    A case folder packaged by ``scope-profiler jobs`` is an execution too, found with
+    ``<label>/{execution}/run*/profiling_data.h5``: its ``case_metadata.json`` gives
+    the date, commit and cluster, and each run's ``run_metadata.json`` its ranks.
     """
     here = f"{where}.executions"
     _check_keys(spec, _DISCOVER_KEYS, here)
@@ -463,13 +535,15 @@ def _discover_executions(spec: dict, where: str, root: Path) -> tuple[Execution,
         )
         if not runs:
             continue
-        meta = {}
+        # A package of `scope-profiler jobs` describes itself in case_metadata.json;
+        # a meta.yml next to it still has the last word.
+        meta = _jobs_package_meta(Path(candidate))
         meta_path = Path(candidate) / meta_name
         if after.startswith("/") and meta_path.is_file():
             try:
                 import yaml
 
-                meta = _mapping(
+                own = _mapping(
                     yaml.safe_load(meta_path.read_text(encoding="utf-8")) or {},
                     str(meta_path),
                 )
@@ -479,7 +553,9 @@ def _discover_executions(spec: dict, where: str, root: Path) -> tuple[Execution,
                 ) from exc
             except yaml.YAMLError as exc:
                 raise SiteError(f"{meta_path} is not valid YAML: {exc}") from exc
-            _check_keys(meta, {"label", "date", "info"}, str(meta_path))
+            _check_keys(own, {"label", "date", "info"}, str(meta_path))
+            info = {**meta.get("info", {}), **(own.get("info") or {})}
+            meta = {**meta, **own, "info": info}
         date = meta.get("date")
         label = _text(meta.get("label", name), f"{meta_path}: label")
         info = _mapping(meta.get("info") or {}, f"{meta_path}: info")
@@ -490,7 +566,10 @@ def _discover_executions(spec: dict, where: str, root: Path) -> tuple[Execution,
             Execution(
                 id=slug,
                 label=label,
-                runs=tuple(RunSpec(Path(run)) for run in runs),
+                runs=tuple(
+                    RunSpec(Path(run), label)
+                    for run, label in zip(runs, _run_labels(runs))
+                ),
                 date=None if date is None else str(date),
                 info={str(key): value for key, value in info.items()},
             )
@@ -1383,10 +1462,44 @@ def _write(path: Path, text: str, files: list[Path]) -> None:
     files.append(path)
 
 
-def _write(path: Path, text: str, files: list[Path]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8", newline="\n")
-    files.append(path)
+def _section_path(value, where: str) -> str:
+    """A section of the site: ``profiling``, or nested such as ``reference/profiling``."""
+    section = _text(value, where).strip().strip("/")
+    parts = section.split("/")
+    if not section or any(part != slugify(part) for part in parts):
+        raise SiteError(
+            f"{where} must be lowercase words joined by '-', optionally nested with '/' "
+            f"(such as 'profiling'), not {value!r}"
+        )
+    return section
+
+
+def _install_components(directory: Path, files: list[Path]) -> None:
+    """Copy the components that draw the pages into the Astro project, replacing old copies."""
+    _prepare(directory, clean=True)
+    for source in sorted(COMPONENT_SOURCE.iterdir()):
+        if source.is_file():
+            target = directory / source.name
+            shutil.copyfile(source, target)
+            files.append(target)
+
+
+def _missing_npm_dependencies(output: Path) -> list[str]:
+    """Notes on the npm packages the components need that the Astro project does not list."""
+    package = output / "package.json"
+    try:
+        listed = json.loads(package.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    declared = {**listed.get("dependencies", {}), **listed.get("devDependencies", {})}
+    missing = [name for name in NPM_DEPENDENCIES if name not in declared]
+    if not missing:
+        return []
+    note = (
+        f"{package} does not list {', '.join(missing)}, which the pages' components "
+        f"import: run `npm install {' '.join(missing)}` there"
+    )
+    return [note]
 
 
 def build_site(
@@ -1396,13 +1509,16 @@ def build_site(
     base: str | None = None,
     charts: bool = True,
     clean: bool = True,
+    section: str = DEFAULT_SECTION,
 ) -> SiteResult:
     """Write the catalogue's pages and chart data into the Astro project ``output``.
 
-    Pages go to ``src/content/docs/catalogue`` (an MDX file and a JSON data file
-    per page) and chart data to ``public/catalogue``; both are replaced on every
+    Pages go to ``src/content/docs/<section>`` (an MDX file and a JSON data file
+    per page) and chart data to ``public/<section>``; both are replaced on every
     run, but only when a previous run wrote them (``clean=False`` writes into
-    them as they are).
+    them as they are). ``section`` is ``catalogue`` for a site of its own and,
+    say, ``profiling`` for a section of a code's documentation. The components
+    the pages are made of are copied to ``src/components/scope-profiler``.
 
     ``base`` is the site's base path (``/repo`` on GitHub Pages), which the
     links between pages need; it defaults to the manifest's ``base``. Raises
@@ -1418,16 +1534,18 @@ def build_site(
             '\'base\' in the manifest ("/" plus the repository name, or "" for a '
             "site at the root of its domain), or pass --base"
         )
-    catalogue_link = f"{site_base}/{PUBLIC_DIR.name}/"
+    section = _section_path(section, "section")
+    catalogue_link = f"{site_base}/{section}/"
     output = Path(output)
-    content = output / CONTENT_DIR
-    public = output / PUBLIC_DIR
+    content = output / CONTENT_ROOT / section
+    public = output / PUBLIC_ROOT / section
     components = output / COMPONENTS
     _prepare(content, clean)
     _prepare(public, clean)
 
     files: list[Path] = []
-    notes: list[str] = []
+    notes: list[str] = _missing_npm_dependencies(output)
+    _install_components(components, files)
     summaries: list[dict] = []
     run_count = 0
 
@@ -1447,7 +1565,7 @@ def build_site(
         runs = runs if runs is not None else _load_runs(case)
         run_count += len(runs)
         case_dir = content / relative
-        case_url = f"/{PUBLIC_DIR.name}/{relative.as_posix()}"
+        case_url = f"/{section}/{relative.as_posix()}"
         case_public = public / relative
         case_link = f"{catalogue_link}{relative.as_posix()}/"
         include = list(case.include) if case.include else None
@@ -1684,7 +1802,7 @@ def build_site(
                 "base": f"{units[-2][0].label} · {pick(before).label}",
                 "cand": f"{units[-1][0].label} · {pick(after).label}",
             }
-        page_url = f"/{PUBLIC_DIR.name}/{relative.as_posix()}/_compare"
+        page_url = f"/{section}/{relative.as_posix()}/_compare"
         chart_data = None
         if charts and case.charts:
             chart_data = _chart_data(
