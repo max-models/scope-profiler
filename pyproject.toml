@@ -161,6 +161,9 @@ scope_profiler = [
   # Browser figure builders bundled at an exact npm-package version for
   # self-contained HTML reports.
   "_assets/*.js",
+  # The Astro components that draw the pages `scope-profiler site` writes; it copies
+  # them into the site, so they always match the pages.
+  "_astro/report/*",
   # PEP 561: the annotations on the public result and configuration objects
   # are only visible to a downstream type checker if this marker ships too.
   "py.typed",

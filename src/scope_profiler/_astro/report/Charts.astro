@@ -1,0 +1,62 @@
+---
+// The charts of a report page: collapsible panels, each drawn from the plot-data file that
+// `scope-profiler site` wrote, in the colours of the site theme. The panels follow the page's
+// region filter, Regions/Depth sliders and highlighted region (see charts.js).
+import './report.css';
+import plotly from 'plotly.js-dist-min/package.json';
+const { data } = Astro.props;
+const charts = data.charts;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const parts = (panel) => panel.description.split('{axis}');
+---
+<div class="sp-report not-content" id="sp-charts" data-region-index={JSON.stringify(charts.region_index)} data-run-meta={JSON.stringify(charts.run_meta ?? {})} data-plotly-version={plotly.version}>
+	{charts.panels.length > 0 && (
+		<div class="chart-controls" aria-label="Chart display controls">
+			<button type="button" data-chart-action="expand">Expand all charts</button>
+			<button type="button" data-chart-action="collapse">Collapse all charts</button>
+		</div>
+	)}
+	{charts.panels.map((panel) => (
+		<details class="chart-panel" open={panel.open}>
+			<summary><span class="chart-heading" role="heading" aria-level="3">{panel.title}</span></summary>
+			{panel.description && <p class="muted">{parts(panel).map((piece, index) => <>{index > 0 && <span data-axis-label>{panel.axis}</span>}{piece}</>)}</p>}
+			<div class="chart-tools">
+				{panel.variants && (<>
+					<span class="tools-label" id={`${panel.id}-axis`}>x-axis</span>
+					{panel.variants.map((variant, position) => <button type="button" class="chart-axis" data-chart={panel.id} data-axis={position} aria-describedby={`${panel.id}-axis`} aria-pressed={String(position === panel.default_variant)}>{variant.label}</button>)}
+				</>)}
+				{panel.duration && Object.keys(charts.run_meta ?? {}).length > 1 && (
+					<details class="bar-labels">
+						<summary title="Write what identifies each run above its bars">bar labels</summary>
+						<div class="bar-labels-list">
+							{[['label', 'run'], ['ranks', 'MPI ranks'], ['threads', 'OpenMP threads'], ['nodes', 'nodes'], ['cores', 'ranks × threads'], ['wall', 'wall time'], ['value', 'bar value']].map(([key, label]) => (
+								<label><input type="checkbox" class="bar-label-box" data-chart={panel.id} data-key={key} /> {label}</label>
+							))}
+						</div>
+					</details>
+				)}
+				{panel.stack && (
+					<label class="chart-stack" title="Split each bar into the region's own time and one segment per region it calls directly">
+						<input type="checkbox" class="chart-stack-box" data-chart={panel.id} checked={panel.stack.stacked} /> stack children
+					</label>
+				)}
+				<button type="button" class="chart-open" data-chart={panel.id} title="Open this chart on its own page">Open in new tab ↗</button>
+			</div>
+			<div class="chart-frame">
+				<div class:list={['chart', { 'chart-duration': panel.duration }]} id={panel.id} data-src={`${base}${panel.src}`} data-title={panel.title} data-options={JSON.stringify(panel.options)} data-stack={panel.stack ? JSON.stringify({ stacked_src: `${base}${panel.stack.stacked_src}`, flat_src: `${base}${panel.stack.flat_src}` }) : undefined} data-variants={panel.variants ? JSON.stringify(panel.variants.map((variant) => ({ label: variant.label, src: `${base}${variant.src}` }))) : undefined} data-default-variant={panel.default_variant ?? undefined}></div>
+				{['y', 'x'].map((axis) => (
+					<div class={`chart-scale axis-scale axis-scale-${axis}`} data-chart={panel.id} data-axis-name={axis} role="group" aria-label={`${axis}-axis scale`} hidden>
+						<span class="axis-scale-label">{axis}</span>
+						{[['linear', 'lin'], ['log2', 'log2'], ['log10', 'log10']].map(([scale, label]) => <button type="button" class="chart-scale-button" data-chart={panel.id} data-scale-axis={axis} data-scale={scale} aria-pressed={String(scale === 'linear')} title={scale === 'linear' ? `Linear ${axis}-axis` : `Logarithmic ${axis}-axis, ticks at powers of ${scale === 'log2' ? 2 : 10}`}>{label}</button>)}
+					</div>
+				))}
+			</div>
+		</details>
+	))}
+	{charts.notes.length > 0 && <p class="muted">Unavailable chart(s): {charts.notes.join('; ')}</p>}
+	{charts.panels.length === 0 && charts.notes.length === 0 && <p class="muted">No charts could be rendered.</p>}
+</div>
+
+<script>
+	import './charts.js';
+</script>

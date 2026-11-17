@@ -53,11 +53,17 @@ from scope_profiler.report_data import (
 #: they are its own and may be replaced.
 MARKER = ".scope-profiler-site"
 
-#: Where the generated pages and chart data go, below the Astro project.
-CONTENT_DIR = Path("src/content/docs/catalogue")
-PUBLIC_DIR = Path("public/catalogue")
-#: The components the generated pages are made of.
-COMPONENTS = Path("src/components/report")
+#: Where the generated pages and chart data go, below the Astro project: the section's
+#: directory in each (``--section``, ``catalogue`` by default).
+CONTENT_ROOT = Path("src/content/docs")
+PUBLIC_ROOT = Path("public")
+DEFAULT_SECTION = "catalogue"
+#: Where the components the generated pages are made of go, below the Astro project; they
+#: ship with this package, so the pages and the components that draw them always match.
+COMPONENTS = Path("src/components/scope-profiler")
+COMPONENT_SOURCE = Path(__file__).parent / "_astro" / "report"
+#: The npm packages the components import, which the Astro project has to install.
+NPM_DEPENDENCIES = ("@scope-profiler/plotly", "plotly.js-dist-min")
 
 SCALING_CHOICES = ("strong", "weak", "both", "none")
 
@@ -1383,10 +1389,44 @@ def _write(path: Path, text: str, files: list[Path]) -> None:
     files.append(path)
 
 
-def _write(path: Path, text: str, files: list[Path]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8", newline="\n")
-    files.append(path)
+def _section_path(value, where: str) -> str:
+    """A section of the site: ``profiling``, or nested such as ``reference/profiling``."""
+    section = _text(value, where).strip().strip("/")
+    parts = section.split("/")
+    if not section or any(part != slugify(part) for part in parts):
+        raise SiteError(
+            f"{where} must be lowercase words joined by '-', optionally nested with '/' "
+            f"(such as 'profiling'), not {value!r}"
+        )
+    return section
+
+
+def _install_components(directory: Path, files: list[Path]) -> None:
+    """Copy the components that draw the pages into the Astro project, replacing old copies."""
+    _prepare(directory, clean=True)
+    for source in sorted(COMPONENT_SOURCE.iterdir()):
+        if source.is_file():
+            target = directory / source.name
+            shutil.copyfile(source, target)
+            files.append(target)
+
+
+def _missing_npm_dependencies(output: Path) -> list[str]:
+    """Notes on the npm packages the components need that the Astro project does not list."""
+    package = output / "package.json"
+    try:
+        listed = json.loads(package.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    declared = {**listed.get("dependencies", {}), **listed.get("devDependencies", {})}
+    missing = [name for name in NPM_DEPENDENCIES if name not in declared]
+    if not missing:
+        return []
+    note = (
+        f"{package} does not list {', '.join(missing)}, which the pages' components "
+        f"import: run `npm install {' '.join(missing)}` there"
+    )
+    return [note]
 
 
 def build_site(
@@ -1396,13 +1436,16 @@ def build_site(
     base: str | None = None,
     charts: bool = True,
     clean: bool = True,
+    section: str = DEFAULT_SECTION,
 ) -> SiteResult:
     """Write the catalogue's pages and chart data into the Astro project ``output``.
 
-    Pages go to ``src/content/docs/catalogue`` (an MDX file and a JSON data file
-    per page) and chart data to ``public/catalogue``; both are replaced on every
+    Pages go to ``src/content/docs/<section>`` (an MDX file and a JSON data file
+    per page) and chart data to ``public/<section>``; both are replaced on every
     run, but only when a previous run wrote them (``clean=False`` writes into
-    them as they are).
+    them as they are). ``section`` is ``catalogue`` for a site of its own and,
+    say, ``profiling`` for a section of a code's documentation. The components
+    the pages are made of are copied to ``src/components/scope-profiler``.
 
     ``base`` is the site's base path (``/repo`` on GitHub Pages), which the
     links between pages need; it defaults to the manifest's ``base``. Raises
@@ -1418,16 +1461,18 @@ def build_site(
             '\'base\' in the manifest ("/" plus the repository name, or "" for a '
             "site at the root of its domain), or pass --base"
         )
-    catalogue_link = f"{site_base}/{PUBLIC_DIR.name}/"
+    section = _section_path(section, "section")
+    catalogue_link = f"{site_base}/{section}/"
     output = Path(output)
-    content = output / CONTENT_DIR
-    public = output / PUBLIC_DIR
+    content = output / CONTENT_ROOT / section
+    public = output / PUBLIC_ROOT / section
     components = output / COMPONENTS
     _prepare(content, clean)
     _prepare(public, clean)
 
     files: list[Path] = []
-    notes: list[str] = []
+    notes: list[str] = _missing_npm_dependencies(output)
+    _install_components(components, files)
     summaries: list[dict] = []
     run_count = 0
 
@@ -1447,7 +1492,7 @@ def build_site(
         runs = runs if runs is not None else _load_runs(case)
         run_count += len(runs)
         case_dir = content / relative
-        case_url = f"/{PUBLIC_DIR.name}/{relative.as_posix()}"
+        case_url = f"/{section}/{relative.as_posix()}"
         case_public = public / relative
         case_link = f"{catalogue_link}{relative.as_posix()}/"
         include = list(case.include) if case.include else None
@@ -1684,7 +1729,7 @@ def build_site(
                 "base": f"{units[-2][0].label} · {pick(before).label}",
                 "cand": f"{units[-1][0].label} · {pick(after).label}",
             }
-        page_url = f"/{PUBLIC_DIR.name}/{relative.as_posix()}/_compare"
+        page_url = f"/{section}/{relative.as_posix()}/_compare"
         chart_data = None
         if charts and case.charts:
             chart_data = _chart_data(

@@ -1,0 +1,31 @@
+---
+// How evenly each region's time is spread over the ranks.
+import './report.css';
+const { data } = Astro.props;
+const { balance, label } = data.report;
+const tableId = 'sp-balance-table';
+const more = balance.rows.length - balance.limit;
+---
+<div class="sp-report not-content">
+	<p class="muted">Each region's {balance.metric} per rank{balance.own ? ", excluding nested regions, so a parent does not repeat its children's imbalance" : ''}. <em>Excess</em> is how much longer the slowest rank spends than the average rank: the most balancing that region could save. Regions are ordered by it.</p>
+	<div class="table-scroll">
+		<table class="balance-table" id={tableId}>
+			<thead><tr><th>region</th><th>mean</th><th>min</th><th>max</th><th>slowest rank</th><th title="slowest rank over the per-rank mean">imbalance</th><th title="slowest rank minus the per-rank mean">excess</th><th>min · mean · max</th></tr></thead>
+			<tbody>
+				{balance.rows.map((row, index) => (
+					<tr class:list={['select-row', { extra: index >= balance.limit }]} data-region={row.name} data-run={label} data-filter-region={row.name}>
+						<td title={row.name}>{row.name}</td>
+						<td>{row.mean_text}</td>
+						<td>{row.min_text}</td>
+						<td>{row.max_text}</td>
+						<td>{row.slowest}</td>
+						<td class={row.flag ? 'flag' : undefined}>+{row.imbalance.toFixed(0)}%</td>
+						<td>{row.excess_text}</td>
+						<td><span class="spread"><span class="spread-range" style={`left:${row.low.toPrecision(3)}%;width:${Math.max(row.high - row.low, 0.5).toPrecision(3)}%`}></span><span class="spread-mean" style={`left:${row.mean_pos.toPrecision(3)}%`}></span></span></td>
+					</tr>
+				))}
+			</tbody>
+		</table>
+	</div>
+	{more > 0 && <div class="table-tools"><button type="button" data-show-all={tableId} data-more-label={`Show all ${balance.rows.length} regions`} data-less-label={`Show the top ${balance.limit}`}>Show all {balance.rows.length} regions</button></div>}
+</div>

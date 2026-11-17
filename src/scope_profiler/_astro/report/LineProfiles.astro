@@ -1,0 +1,28 @@
+---
+// Line profiles of regions the table does not show: one entry per function, largest first.
+import './report.css';
+import LineProfileTable from './LineProfileTable.astro';
+const { data } = Astro.props;
+const profiles = data.report.line_profiles;
+const listId = 'sp-lp-functions';
+const more = profiles.functions.length - profiles.limit;
+---
+<div class="sp-report not-content">
+	<p class="muted">Profiled functions whose region is not in the table above, largest first; a region in the table shows its line profile when its row is clicked. Times are summed over the selected ranks.</p>
+	<div class="lp-functions" id={listId}>
+		{profiles.functions.map((entry, index) => (
+			<details class:list={['lp-function', { 'lp-extra': index >= profiles.limit }]}>
+				<summary>
+					<span class="lp-func">{entry.function}</span>
+					<span class="lp-region">{entry.region}</span>
+					<span class="lp-loc" title={entry.location.title}>{entry.location.text}</span>
+					<span class="lp-bar"><span style={`width:${entry.share.toPrecision(3)}%`}></span></span>
+					<span class="lp-total">{entry.total_text}</span>
+					<span class="lp-share">{entry.share.toFixed(0)}%</span>
+				</summary>
+				<LineProfileTable model={entry.table} filename={entry.location.title} tableId={`sp-lp-${index}`} />
+			</details>
+		))}
+	</div>
+	{more > 0 && <div class="table-tools"><button type="button" data-show-all={listId} data-more-label={`Show all ${profiles.functions.length} functions`} data-less-label={`Show the top ${profiles.limit}`}>Show all {profiles.functions.length} functions</button></div>}
+</div>

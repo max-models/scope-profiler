@@ -1,0 +1,28 @@
+---
+// The scripts and parameter files attached to a run, or the code of a case: each shown with syntax
+// highlighting and a button to copy it, in tabs when there are several, and offered for download.
+// An entry can carry a link (`link`) to where the code lives; one with only a link is just that.
+import { Code, TabItem, Tabs } from '@astrojs/starlight/components';
+import './report.css';
+const { data } = Astro.props;
+const files = Astro.props.files ?? data.files;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const size = (bytes) => (bytes < 1024 ? `${bytes} B` : bytes < 1024 ** 2 ? `${(bytes / 1024).toFixed(1)} kB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`);
+---
+<div class="sp-report not-content attached-files">
+	{files.length > 1 ? (
+		<Tabs>
+			{files.map((file) => (
+				<TabItem label={file.name}>
+					<p class="file-head">{file.url && <><a href={`${base}${file.url}`} download>Download {file.name}</a> <span class="muted">({size(file.size)})</span></>}{file.link && <> <a href={file.link} target="_blank" rel="noopener">{file.url ? 'View source ↗' : `${file.name} ↗`}</a></>}</p>
+					{file.url && (file.text !== null ? <Code code={file.text} lang={file.language} /> : <p class="muted">This file is {file.reason}; download it above.</p>)}
+				</TabItem>
+			))}
+		</Tabs>
+	) : (
+		files.map((file) => (<>
+			<p class="file-head">{file.url && <><a href={`${base}${file.url}`} download>Download {file.name}</a> <span class="muted">({size(file.size)})</span></>}{file.link && <> <a href={file.link} target="_blank" rel="noopener">{file.url ? 'View source ↗' : `${file.name} ↗`}</a></>}</p>
+			{file.url && (file.text !== null ? <Code code={file.text} lang={file.language} /> : <p class="muted">This file is {file.reason}; download it above.</p>)}
+		</>))
+	)}
+</div>

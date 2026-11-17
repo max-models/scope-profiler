@@ -1,0 +1,6 @@
+---
+// A model's text parts: plain strings, links to a region's row in the table, links to a section.
+const { parts, regionIds = {} } = Astro.props;
+const sections = { balance: 'load-balance' };
+---
+{parts.map((part) => typeof part === 'string' ? part : part.region !== undefined ? (regionIds[part.region] ? <a href={`#${regionIds[part.region]}`}><code>{part.region}</code></a> : <code>{part.region}</code>) : <a href={`#${sections[part.anchor] ?? part.anchor}`}>{part.text}</a>)}

@@ -298,11 +298,13 @@ def test_pages_link_to_each_other_with_the_base_path(tmp_path):
     assert "[← Poisson solver](/cat/catalogue/solvers/poisson-solver/)" in run
     # The components are imported relative to the page, however deep it is.
     assert (
-        'import Summary from "../../../../../components/report/Summary.astro";' in run
+        'import Summary from "../../../../../components/scope-profiler/Summary.astro";'
+        in run
     )
     single = (content / "single-run" / "only-run.mdx").read_text()
     assert (
-        'import Summary from "../../../../components/report/Summary.astro";' in single
+        'import Summary from "../../../../components/scope-profiler/Summary.astro";'
+        in single
     )
     # The runs table links each run's page; chart data is addressed from the site
     # root, and the component adds the base path.
@@ -653,6 +655,95 @@ def test_site_command_takes_the_base_path_from_the_command_line(tmp_path):
 
     assert cli_main(["site", str(manifest), "-o", str(out), "--base", "/x"]) == 0
     assert "(/x/catalogue/single-run/)" in (out / CONTENT / "index.mdx").read_text()
+
+
+def test_a_section_puts_the_catalogue_into_a_part_of_a_docs_site(tmp_path):
+    _write_profiles(tmp_path / "data")
+    out = tmp_path / "docs"
+
+    build_site(load_manifest(_manifest(tmp_path, BASIC)), out, section="profiling")
+
+    index = (out / "src/content/docs/profiling/index.mdx").read_text()
+    assert "[Single run](/cat/profiling/single-run/)" in index
+    assert (out / "public/profiling/index.json").is_file()
+    assert not (out / CONTENT).exists()
+    data = json.loads(
+        (
+            out / "src/content/docs/profiling/solvers/poisson-solver.data.json"
+        ).read_text()
+    )
+    assert data["charts"]["panels"][0]["src"].startswith("/profiling/solvers/")
+
+
+def test_a_section_must_be_a_path_of_slugs(tmp_path):
+    _write_profiles(tmp_path / "data")
+    manifest = load_manifest(_manifest(tmp_path, BASIC))
+
+    with pytest.raises(SiteError, match="section must be lowercase"):
+        build_site(manifest, tmp_path / "docs", section="My Profiles")
+    build_site(manifest, tmp_path / "docs", section="/reference/profiling/")
+    assert (tmp_path / "docs/src/content/docs/reference/profiling/index.mdx").is_file()
+
+
+def test_the_components_are_copied_into_the_project(tmp_path):
+    _write_profiles(tmp_path / "data")
+    out = tmp_path / "docs"
+    components = out / "src/components/scope-profiler"
+    components.mkdir(parents=True)
+    (components / "Stale.astro").write_text("old")
+    (components / MARKER).write_text("")
+
+    build_site(load_manifest(_manifest(tmp_path, BASIC)), out)
+
+    assert (components / "Summary.astro").is_file()
+    assert (components / "report.css").is_file()
+    assert not (components / "Stale.astro").exists()
+
+
+def test_components_written_by_hand_are_not_replaced(tmp_path):
+    _write_profiles(tmp_path / "data")
+    out = tmp_path / "docs"
+    (out / "src/components/scope-profiler").mkdir(parents=True)
+    (out / "src/components/scope-profiler/Mine.astro").write_text("mine")
+
+    with pytest.raises(SiteError, match="was not written by scope-profiler site"):
+        build_site(load_manifest(_manifest(tmp_path, BASIC)), out)
+
+
+def test_missing_npm_packages_are_a_note(tmp_path):
+    _write_profiles(tmp_path / "data")
+    out = tmp_path / "docs"
+    out.mkdir()
+    (out / "package.json").write_text(
+        json.dumps({"dependencies": {"plotly.js-dist-min": "^4.2.0"}})
+    )
+    manifest = load_manifest(_manifest(tmp_path, BASIC))
+
+    result = build_site(manifest, out)
+    assert any("@scope-profiler/plotly" in note for note in result.notes)
+
+    (out / "package.json").write_text(
+        json.dumps(
+            {
+                "dependencies": {
+                    "plotly.js-dist-min": "^4.2.0",
+                    "@scope-profiler/plotly": "^0.4.0",
+                }
+            }
+        )
+    )
+    assert not any("npm" in note for note in build_site(manifest, out).notes)
+
+
+def test_site_command_takes_the_section(tmp_path):
+    _write_profiles(tmp_path / "data")
+    manifest = _manifest(tmp_path, BASIC)
+    out = tmp_path / "docs"
+
+    assert (
+        cli_main(["site", str(manifest), "-o", str(out), "--section", "profiling"]) == 0
+    )
+    assert (out / "src/content/docs/profiling/index.mdx").is_file()
 
 
 def test_site_command_check_only_validates(tmp_path, capsys):

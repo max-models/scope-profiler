@@ -461,7 +461,17 @@ its workflow fetch the profiling files, run this command and deploy.
 ```bash
 scope-profiler site catalogue.yaml -o docs
 scope-profiler site catalogue.yaml --check   # only validate the manifest
+scope-profiler site profiling.yaml -o docs --section profiling   # a section of a code's docs
 ```
+
+A catalogue does not need a site of its own: `--section profiling` writes it into
+`src/content/docs/profiling/` and `public/profiling/` of any Astro/Starlight site, such as a
+code's documentation, which then lists it in its sidebar with
+`{ label: 'Profiling', items: [{ autogenerate: { directory: 'profiling', collapsed: true } }] }`.
+The site needs the npm packages `@scope-profiler/plotly` and `plotly.js-dist-min` (the command
+prints a note when its `package.json` lacks them), and the generated directories belong in its
+`.gitignore`: `src/content/docs/profiling/`, `public/profiling/` and
+`src/components/scope-profiler/`.
 
 The manifest lists *cases*, each a set of runs shown together:
 
@@ -545,7 +555,7 @@ each entry a path (shown with syntax highlighting), a link, or both:
 
 The command writes, below the `-o` directory (the Astro project):
 
-- `src/content/docs/catalogue/`: an index of the cases, a page per case and a page per run. Each
+- `src/content/docs/catalogue/` (or the `--section`): an index of the cases, a page per case and a page per run. Each
   page is an MDX file made of components, with a JSON data file next to it that holds what the
   page shows. A **run page** has everything `scope-profiler report` shows for one run: the
   headline numbers and findings, the ranked hotspots, the region statistics table (call tree,
@@ -565,7 +575,7 @@ The command writes, below the `-o` directory (the Astro project):
   product, for the axes the runs differ in (`speedup_x` in the manifest picks the one a case
   opens on), and the durations chart of a run has a "stack children" checkbox, as in
   `scope-profiler plot durations --stack-children`.
-- `public/catalogue/`: the chart data, as the plot-data JSON that `scope-profiler export
+- `public/catalogue/` (or the `--section`): the chart data, as the plot-data JSON that `scope-profiler export
   plot-data` writes (a file per x-axis for the scaling charts), and an `index.json` of the cases.
 
 The text of the pages, the findings, the classification of changes and the hotspot ranking come
@@ -573,14 +583,17 @@ from the same code as the HTML report's (`scope_profiler.report_model`), so the 
 drift apart. A study's runs are not listed in the sidebar, which has one entry per case; the case page lists them, and each run
 page links the runs either side. Every chart has linear, log2 and log10 scales for its numeric axes.
 
-The Astro project draws the data with the components in
-`src/components/report/` (the template has them) and the charts with
+- `src/components/scope-profiler/`: the components the pages are made of. They ship with
+  scope-profiler and are copied on every run, so the pages and the components that draw them
+  always come from the same version.
+
+The components draw the charts with
 [`@scope-profiler/plotly`](https://www.npmjs.com/package/@scope-profiler/plotly), in the colours
 of the site's theme. As in the report, the filter bar at the top of a page filters the regions of
 every table and chart, a click on a region highlights it everywhere, and the Regions and Depth
 sliders limit what the charts draw.
 
-Both generated directories are replaced on every run, but only when a previous run wrote them
+The generated directories are replaced on every run, but only when a previous run wrote them
 (they hold a `.scope-profiler-site` marker); any other content there is never deleted, and
 `--no-clean` writes into the directories as they are. A published page shows only metadata that
 identifies the run (time, platform, chip, versions, threads, ranks, nodes), never the host, user

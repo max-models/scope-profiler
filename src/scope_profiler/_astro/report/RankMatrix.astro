@@ -1,0 +1,32 @@
+---
+// Every rank side by side, region by region, against the region's mean.
+import './report.css';
+import { shadeStyle } from './format.js';
+const { data } = Astro.props;
+const { matrix, label } = data.report;
+const compact = matrix.ranks.length > 24;
+---
+<div class="sp-report not-content">
+	<p class="muted">Each cell compares one rank's time in a region with the region's mean over the ranks. {matrix.overall} Hover a cell for its time.</p>
+	<p class="legend"><span>faster than the mean</span><span class="legend-scale"></span><span>slower</span></p>
+	<div class="table-scroll">
+		<table class:list={['rank-matrix', { compact }]}>
+			<thead>
+				<tr><th>region</th><th>mean</th>{matrix.ranks.map((rank) => rank === matrix.slowest_rank ? <th class="slowest" title="slowest rank overall">{rank}</th> : <th>{rank}</th>)}</tr>
+			</thead>
+			<tbody>
+				{matrix.rows.map((row) => (
+					<tr class="select-row" data-region={row.name} data-run={label} data-filter-region={row.name}>
+						<td title={row.name}>{row.name}</td>
+						<td>{row.mean_text}</td>
+						{row.cells.map((cell) => <td class="heat" style={shadeStyle(cell.shade)} title={cell.title}>{cell.label}</td>)}
+					</tr>
+				))}
+			</tbody>
+			<tfoot>
+				<tr><td>all regions</td><td>{matrix.totals.mean_text}</td>{matrix.totals.cells.map((cell) => <td class="heat" style={shadeStyle(cell.shade)} title={cell.title}>{cell.label}</td>)}</tr>
+			</tfoot>
+		</table>
+	</div>
+	{matrix.notes.length > 0 && <p class="muted table-note">{matrix.notes.join(' ')}</p>}
+</div>

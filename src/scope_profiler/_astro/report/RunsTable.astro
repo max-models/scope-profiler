@@ -1,0 +1,39 @@
+---
+// One line per compared run, with a link to its page.
+import './report.css';
+import Delta from './Delta.astro';
+const { data } = Astro.props;
+const { runs } = data.report;
+const links = data.links.runs;
+// A study can have hundreds of runs; the table shows the first few until asked for the rest.
+const limit = 12;
+const fileCounts = data.links.files ?? [];
+const hasFiles = fileCounts.some((count) => count > 0);
+const tableId = 'sp-runs-table';
+---
+<div class="sp-report not-content">
+	<div class="table-scroll">
+		<table class="runs-table" id={tableId}>
+			<thead>
+				<tr><th>run</th><th>file</th><th>recorded</th><th>ranks</th>{runs.show_threads && <th>threads</th>}<th>wall time</th><th>vs baseline</th>{hasFiles && <th>files</th>}<th>page</th></tr>
+			</thead>
+			<tbody>
+				{runs.rows.map((row, index) => (
+					<tr class={index >= limit ? 'extra' : undefined}>
+						<td><strong>{row.label}</strong></td>
+						{row.file ? <td class="run-file" title={row.file.path ?? undefined}><code>{row.file.name}</code></td> : <td>-</td>}
+						<td>{row.recorded ?? '-'}</td>
+						<td>{row.ranks}</td>
+						{runs.show_threads && <td>{row.threads ?? '-'}</td>}
+						<td>{row.wall_text}</td>
+						<td>{row.change.kind === 'base' ? <span class="badge base">baseline</span> : <Delta change={row.change} />}</td>
+						{hasFiles && <td>{fileCounts[index] > 0 ? <a href={`${links[index]}#files`}>{fileCounts[index]}</a> : '-'}</td>}
+						<td><a href={links[index]}>run page</a></td>
+					</tr>
+				))}
+			</tbody>
+		</table>
+	</div>
+	{runs.rows.length > limit && <div class="table-tools"><button type="button" data-show-all={tableId} data-more-label={`Show all ${runs.rows.length} runs`} data-less-label={`Show the first ${limit}`}>Show all {runs.rows.length} runs</button></div>}
+	<p class="muted table-note">Each run's page is linked on the right.</p>
+</div>

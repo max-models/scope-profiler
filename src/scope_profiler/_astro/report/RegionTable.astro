@@ -1,0 +1,88 @@
+---
+// Region statistics laid out like the terminal summary table: the call tree with its (own) rows,
+// sortable columns, a trend line per region, and a detail row with the call site, ranks and line
+// profile. Clicking a row opens its detail and highlights the region everywhere.
+import './report.css';
+import LineProfileTable from './LineProfileTable.astro';
+import { g6, sparkline } from './format.js';
+const { data } = Astro.props;
+const { regions: table, label } = data.report;
+const keys = table.columns.map((column) => column.key);
+const tableId = 'sp-regions';
+const seconds = (value) => (value === null ? '-' : g6(value));
+---
+<div class="sp-report not-content">
+	{table.tree && (
+		<div class="table-tools">
+			<button type="button" data-tree-action="collapse" data-table={tableId}>Collapse all</button>
+			<button type="button" data-tree-action="expand" data-table={tableId}>Expand all</button>
+		</div>
+	)}
+	<table class="region-stats" id={tableId}>
+		<thead>
+			<tr>{table.columns.map((column) => <th data-key={column.key}>{column.header}</th>)}<th>trend</th></tr>
+		</thead>
+		{table.empty ? (
+			<tbody><tr><td colspan={keys.length + 1}>No regions recorded.</td></tr></tbody>
+		) : (<>
+			{table.groups.map((group, index) => {
+				const spark = sparkline(group.durations);
+				const attrs = {
+					'data-region': group.name,
+					'data-run': group.run,
+					...(group.path !== null ? { 'data-path': group.path, 'data-depth': group.depth } : {}),
+					...Object.fromEntries(keys.map((key) => [`data-${key}`, group.sort[key]])),
+				};
+				const cells = (cellsByKey, bar, toggle) => keys.map((key) => {
+					const cell = cellsByKey[key];
+					const text = <>{cell.indent && <span class="indent">{cell.indent}</span>}{cell.text}</>;
+					if (key === 'name') return <td>{toggle}<span>{text}</span></td>;
+					if (key === 'total' && bar !== null && (cell.indent || cell.text)) {
+						return <td class="bar-cell"><span class="bar" style={`width:${bar.toPrecision(4)}%`}></span><span>{text}</span></td>;
+					}
+					return <td>{text}</td>;
+				});
+				const toggle = group.has_children
+					? <button class="tree-toggle" type="button" aria-expanded="true" title="Collapse or expand the nested regions">▾</button>
+					: <span class="tree-toggle"></span>;
+				const detail = group.detail;
+				return (
+					<tbody {...attrs}>
+						<tr class="region-row" tabindex="0" aria-expanded="false" id={group.id ?? undefined}>
+							{cells(group.cells, group.bar, toggle)}
+							<td>{spark && <svg class="spark" viewBox={`0 0 ${spark.width} ${spark.height}`} width={spark.width} height={spark.height} preserveAspectRatio="none"><polygon points={spark.fill}></polygon><polyline points={spark.points}></polyline></svg>}</td>
+						</tr>
+						{group.own && <tr class="own-row">{cells(group.own.cells, group.own.bar, <span class="tree-toggle"></span>)}<td></td></tr>}
+						<tr class="region-detail" hidden>
+							<td colspan={keys.length + 1}>
+								{detail.tags.length > 0 && <div>{detail.tags.map((tag) => <span class="tag">{tag}</span>)}</div>}
+								{detail.source && <p class="muted">{detail.source.file}:{detail.source.line}</p>}
+								{detail.source?.snippet && <pre><code>{detail.source.snippet}</code></pre>}
+								{detail.gpu && <p>GPU total: {g6(detail.gpu.total)} s, GPU average: {g6(detail.gpu.average)} s</p>}
+								{detail.ranks.length > 0 && (<>
+									<p class="muted">Per rank</p>
+									<table class="rank-table">
+										<thead><tr><th>rank</th><th>calls</th><th>total [s]</th><th>avg [s]</th><th>min [s]</th><th>max [s]</th></tr></thead>
+										<tbody>{detail.ranks.map((row) => <tr><td>{row.rank}</td><td>{row.calls}</td><td>{seconds(row.total)}</td><td>{seconds(row.avg)}</td><td>{seconds(row.min)}</td><td>{seconds(row.max)}</td></tr>)}</tbody>
+									</table>
+								</>)}
+								{detail.line_profiles.length > 0 && (<>
+									<p class="muted">Line profile</p>
+									{detail.line_profiles.map((entry, position) => (
+										<div class="lp-block">
+											<p class="lp-head"><span class="lp-func">{entry.function}</span><span class="lp-loc" title={entry.location.title}>{entry.location.text}</span><span class="lp-total">{entry.total_text}</span></p>
+											<LineProfileTable model={entry.table} filename={entry.location.title} tableId={`${tableId}-${index}-lp-${position}`} />
+										</div>
+									))}
+								</>)}
+								{!detail.tags.length && !detail.source && !detail.gpu && !detail.ranks.length && !detail.line_profiles.length && <p class="muted">No additional detail captured.</p>}
+							</td>
+						</tr>
+					</tbody>
+				);
+			})}
+			<tbody class="region-empty" hidden><tr><td colspan={keys.length + 1} class="empty-state">No regions match the filter.</td></tr></tbody>
+		</>)}
+	</table>
+	<p class="muted table-note">{table.notes.join(' ')}</p>
+</div>

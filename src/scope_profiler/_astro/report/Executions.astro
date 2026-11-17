@@ -1,0 +1,32 @@
+---
+// The executions of a case that is run again and again: newest first, with a link to each one's page.
+import './report.css';
+const { data } = Astro.props;
+const rows = data.executions ?? [];
+const limit = 10;
+const tableId = 'sp-executions-table';
+// The date is left out when the execution's label already carries it.
+const showDate = rows.some((row) => row.date && !row.label.includes(row.date.slice(0, 10)));
+---
+<div class="sp-report not-content">
+	<div class="table-scroll">
+		<table class="runs-table executions-table" id={tableId}>
+			<thead>
+				<tr><th>{showDate ? 'execution' : 'date'}</th>{showDate && <th>date</th>}<th>details</th><th>runs</th></tr>
+			</thead>
+			<tbody>
+				{rows.map((row, index) => (
+					<tr class={[index >= limit ? 'extra' : '', row.current ? 'current-execution' : ''].join(' ').trim() || undefined}>
+						<td>{row.current ? <strong>{row.label}</strong> : <a href={row.link}>{row.label}</a>}{index === 0 && <> <span class="badge base">latest</span></>}</td>
+						{showDate && <td>{row.date ?? '-'}</td>}
+						<td>{row.info.length ? row.info.map(([key, value]) => `${key}: ${value}`).join(', ') : '-'}</td>
+						<td>{row.runs}</td>
+					</tr>
+				))}
+			</tbody>
+		</table>
+	</div>
+	{rows.length > limit && <div class="table-tools"><button type="button" data-show-all={tableId} data-more-label={`Show all ${rows.length} executions`} data-less-label={`Show the latest ${limit}`}>Show all {rows.length} executions</button></div>}
+	{data.compare && <p><a href={data.compare}>Compare two executions →</a></p>}
+	<p class="muted table-note">This page shows {rows.find((row) => row.current)?.label}; the others are linked above.</p>
+</div>

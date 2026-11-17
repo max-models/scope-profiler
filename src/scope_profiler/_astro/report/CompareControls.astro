@@ -1,0 +1,33 @@
+---
+// Choose which two runs to compare: the baseline and the candidate. With a hundred runs a
+// comparison of each against the first would be unreadable, so the page shows the pair picked here
+// (the selection is kept in the URL, so it can be shared). A study of a few runs can also show
+// every run against the baseline. The comparison is computed in the browser, see compare.js.
+import './report.css';
+const { data } = Astro.props;
+const dataset = data.report.dataset;
+const labels = dataset.runs.map((run) => run.label);
+const canShowAll = labels.length <= 12;
+// Runs from several executions are listed under the execution they belong to.
+const groups = [...new Set(dataset.runs.map((run) => run.group).filter(Boolean))];
+const options = (group) => labels.map((label, index) => ({ label, index, group: dataset.runs[index].group })).filter((option) => !groups.length || option.group === group);
+// "<" would end the script element that carries the data.
+const json = JSON.stringify(dataset).replaceAll('<', '\\u003c');
+---
+<div class="sp-report not-content" id="sp-compare">
+	<script type="application/json" id="sp-compare-data" set:html={json}></script>
+	<div class="compare-controls">
+		<label for="sp-compare-base">Baseline</label>
+		<select id="sp-compare-base">{groups.length ? groups.map((group) => <optgroup label={group}>{options(group).map((option) => <option value={option.index}>{option.label}</option>)}</optgroup>) : labels.map((label, index) => <option value={index}>{label}</option>)}</select>
+		<label for="sp-compare-cand">Candidate</label>
+		<select id="sp-compare-cand">{groups.length ? groups.map((group) => <optgroup label={group}>{options(group).map((option) => <option value={option.index}>{option.label}</option>)}</optgroup>) : labels.map((label, index) => <option value={index}>{label}</option>)}</select>
+		<button type="button" id="sp-compare-swap" title="Swap the baseline and the candidate">⇄ swap</button>
+		{canShowAll && <label class="compare-all"><input type="checkbox" id="sp-compare-all" /> every run against the baseline</label>}
+	</div>
+	<noscript><p class="muted">The comparison of two runs needs JavaScript.</p></noscript>
+	<div id="sp-changes"></div>
+</div>
+
+<script>
+	import './compare.js';
+</script>

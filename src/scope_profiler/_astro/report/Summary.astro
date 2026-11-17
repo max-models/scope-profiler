@@ -1,0 +1,27 @@
+---
+// Headline numbers and a few sentences on what stands out in one run.
+import './report.css';
+import Parts from './Parts.astro';
+const { data } = Astro.props;
+const { summary, region_ids: regionIds } = data.report;
+---
+<div class="sp-report not-content">
+	{summary.empty ? (
+		<p class="muted">No timed regions to summarize.</p>
+	) : (<>
+		<div class="kpis">
+			{summary.kpis.map((kpi) => (
+				<div class:list={['kpi', kpi.tone]}>
+					<span class="kpi-label">{kpi.label}</span>
+					<span class="kpi-value"><Parts parts={kpi.value} regionIds={regionIds} /></span>
+					{kpi.detail && <span class="kpi-detail">{kpi.detail}</span>}
+				</div>
+			))}
+		</div>
+		{summary.findings.length > 0 && (
+			<ul class="findings">
+				{summary.findings.map((finding) => <li class={finding.tone}><Parts parts={finding.parts} regionIds={regionIds} /></li>)}
+			</ul>
+		)}
+	</>)}
+</div>

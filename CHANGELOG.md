@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+
+- `scope-profiler site --section NAME` writes a catalogue into a section of any
+  Astro/Starlight site (`src/content/docs/NAME`, `public/NAME`), such as a "Profiling"
+  section of a code's documentation, instead of only into `catalogue/` of a site of its own.
+
+### Changed
+
+- The Astro components that draw the catalogue pages ship with scope-profiler and
+  `scope-profiler site` copies them into `src/components/scope-profiler/` of the site, so the
+  pages and their components always match; a site no longer keeps its own copy in
+  `src/components/report/`. It prints a note when the site's `package.json` lacks the npm
+  packages the components import.
+
 ## 0.8.0 - 2026-11-16
 
 ### Added
