@@ -488,16 +488,16 @@ def _run_labels(runs: list[str]) -> list[str | None]:
     runs whose file names repeat by their directory. None keeps the profile's own label.
     """
     paths = [Path(run) for run in runs]
-    stems = [path.stem for path in paths]
-    if len(set(stems)) == len(stems):
-        return [None] * len(paths)
     labels = []
     for path in paths:
         ntasks = _read_json(path.parent / "run_metadata.json").get("ntasks")
         labels.append(f"np{ntasks}" if ntasks else None)
-    if None in labels or len(set(labels)) != len(labels):
-        labels = [path.parent.name for path in paths]
-    return labels
+    if None not in labels and len(set(labels)) == len(labels):
+        return labels
+    stems = [path.stem for path in paths]
+    if len(set(stems)) == len(stems):
+        return [None] * len(paths)
+    return [path.parent.name for path in paths]
 
 
 def _discover_executions(spec: dict, where: str, root: Path) -> tuple[Execution, ...]:

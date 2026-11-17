@@ -1141,6 +1141,20 @@ def test_packages_of_profiling_jobs_are_executions(tmp_path):
     assert "secret" not in data
 
 
+def test_a_single_packaged_run_is_named_by_its_ranks(tmp_path):
+    _jobs_package(
+        tmp_path / "heat", "2026-11-16T22:00:00+00:00", "aaaa1111", ranks=(4,)
+    )
+    text = (
+        "cases:\n  - title: Heat\n    executions:\n"
+        '      path: "heat/{execution}/run*/profiling_data.h5"\n'
+    )
+
+    (execution,) = load_manifest(_manifest(tmp_path, text)).cases[0].executions
+
+    assert [run.label for run in execution.runs] == ["np4"]
+
+
 def test_a_meta_file_overrides_the_package_metadata(tmp_path):
     folder = _jobs_package(tmp_path / "heat", "2026-11-16T22:00:00+00:00", "aaaa1111")
     (folder / "meta.yml").write_text("label: First night\ninfo: {system: 1 node}\n")
