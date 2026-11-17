@@ -825,3 +825,78 @@ def test_launch_does_not_do_a_reverse_dns_lookup(app, monkeypatch):
     case = _case(app)
     case.launch(1)
     case.finalize()
+
+
+# ---------------------------------------------------------------------------
+# Looking after a results repository
+# ---------------------------------------------------------------------------
+def _package(root, label, stamp, runs=("run01",), metadata=None):
+    from scope_profiler.tests.test_post_processing import _write_sample_h5
+
+    folder = root / label / f"{stamp.replace('-', '').replace(':', '')}-{label}"
+    listed = []
+    for index, name in enumerate(runs, start=1):
+        (folder / name).mkdir(parents=True)
+        _write_sample_h5(
+            folder / name / "profiling_data.h5", {0: {"a": ([0], [10])}}, {}
+        )
+        (folder / name / "run_metadata.json").write_text("{}")
+        listed.append(
+            {
+                "launch_id": index,
+                "folder": name,
+                "run_metadata": f"{name}/run_metadata.json",
+                "profiles": [f"{name}/profiling_data.h5"],
+            }
+        )
+    (folder / "case_metadata.json").write_text(
+        json.dumps(
+            metadata
+            or {
+                "general_information": {"label": label, "time_date_utc": stamp},
+                "runs": listed,
+            }
+        )
+    )
+    return folder
+
+
+def test_check_finds_broken_packages(tmp_path, capsys):
+    from scope_profiler.jobs.maintenance import check_results
+
+    good = _package(tmp_path, "heat", "2026-11-01T00:00:00+00:00")
+    assert check_results(tmp_path) == []
+    (good / "run01" / "profiling_data.h5").write_text("not hdf5")
+    broken = _package(tmp_path, "wave", "2026-11-02T00:00:00+00:00")
+    shutil.rmtree(broken / "run01")
+    (tmp_path / "bad").mkdir()
+    (tmp_path / "bad" / "case_metadata.json").write_text("{")
+
+    problems = check_results(tmp_path, max_bytes=100)
+
+    text = "\n".join(problems)
+    assert "cannot be opened" in text
+    assert "folder 'run01' is missing" in text
+    assert "not valid JSON" in text
+    assert "larger than" in text
+    assert cli_main(["jobs", "check", str(tmp_path)]) == 1
+    assert "problem(s)" in capsys.readouterr().out
+
+
+def test_prune_keeps_the_newest_executions(tmp_path, capsys):
+    from scope_profiler.jobs.maintenance import prune_results
+
+    days = [f"2026-11-{day:02d}T00:00:00+00:00" for day in (1, 2, 3, 4)]
+    folders = [_package(tmp_path, "heat", day) for day in days]
+    other = _package(tmp_path, "wave", days[0])
+
+    assert prune_results(tmp_path, keep=2) == folders[:2]
+    assert all(folder.exists() for folder in folders)
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 11, 4, 12, tzinfo=timezone.utc)
+    assert prune_results(tmp_path, keep=1, older_than_days=2, now=now) == folders[:2]
+    assert cli_main(["jobs", "prune", str(tmp_path), "--keep", "2", "--yes"]) == 0
+    assert [folder.exists() for folder in folders] == [False, False, True, True]
+    assert other.exists()
+    assert cli_main(["jobs", "prune", str(tmp_path), "--keep", "0"]) == 2

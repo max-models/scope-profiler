@@ -8,6 +8,10 @@
   a case packaged without ``--upload``, unchanged.
 - ``scope-profiler jobs clusters [--config FILE]`` -- list the cluster
   presets and the one detected on this machine.
+- ``scope-profiler jobs check DIR`` -- check a results repository: metadata,
+  missing runs, profiles that do not open, files that are too large.
+- ``scope-profiler jobs prune DIR --keep N [--older-than DAYS] [--yes]`` --
+  remove all but the newest executions of every case.
 """
 
 from __future__ import annotations
@@ -108,6 +112,40 @@ def _parser() -> argparse.ArgumentParser:
         "case's label (e.g. mycode/{label}; default: the top)",
     )
 
+    check = sub.add_parser(
+        "check",
+        help="check a results repository (metadata, missing runs, profiles, file sizes)",
+    )
+    check.add_argument("root", help="a checkout of the results repository")
+    check.add_argument(
+        "--max-mb",
+        type=float,
+        default=50.0,
+        help="largest file allowed, in MB (default: 50; GitHub refuses 100)",
+    )
+    check.add_argument(
+        "--no-open", action="store_true", help="do not open the .h5 files"
+    )
+
+    prune = sub.add_parser(
+        "prune", help="remove all but the newest executions of every case"
+    )
+    prune.add_argument("root", help="a checkout of the results repository")
+    prune.add_argument(
+        "--keep", type=int, required=True, help="executions to keep per case"
+    )
+    prune.add_argument(
+        "--older-than",
+        type=float,
+        metavar="DAYS",
+        help="only remove executions older than this",
+    )
+    prune.add_argument(
+        "--yes",
+        action="store_true",
+        help="delete the folders (without it, only list them)",
+    )
+
     presets = sub.add_parser(
         "clusters", help="list the cluster presets and the detected one"
     )
@@ -172,6 +210,36 @@ def main(argv: list[str]) -> int:
         except (FileNotFoundError, ValueError) as exc:
             print(f"error: {exc}")
             return 2
+        return 0
+
+    if args.action == "check":
+        from scope_profiler.jobs.maintenance import check_results, find_packages
+
+        problems = check_results(
+            args.root, max_bytes=int(args.max_mb * 1e6), open_profiles=not args.no_open
+        )
+        for problem in problems:
+            print(problem)
+        print(
+            f"{len(find_packages(args.root))} packaged case folder(s), {len(problems)} problem(s)"
+        )
+        return 1 if problems else 0
+
+    if args.action == "prune":
+        from scope_profiler.jobs.maintenance import prune_results
+
+        try:
+            removed = prune_results(
+                args.root, args.keep, older_than_days=args.older_than, apply=args.yes
+            )
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 2
+        for path in removed:
+            print(("removed " if args.yes else "would remove ") + str(path))
+        if not args.yes and removed:
+            print("Pass --yes to delete them, then commit the removal.")
+        print(f"{len(removed)} execution(s) {'removed' if args.yes else 'to remove'}")
         return 0
 
     # clusters

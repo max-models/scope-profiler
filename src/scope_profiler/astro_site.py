@@ -139,6 +139,7 @@ _CASE_KEYS = {
     "charts",
     "metadata",
     "files",
+    "regression",
 }
 _EXECUTION_KEYS = {"id", "label", "date", "info", "runs"}
 _DEFAULT_KEYS = {
@@ -149,6 +150,7 @@ _DEFAULT_KEYS = {
     "ranks",
     "charts",
     "metadata",
+    "regression",
 }
 _RUN_KEYS = {"path", "label", "files", "images"}
 _DISCOVER_KEYS = {"path", "meta"}
@@ -210,6 +212,9 @@ class Case:
     tags: tuple[str, ...] = ()
     scaling: str = "strong"
     speedup_x: str = "auto"
+    #: The change in a run's wall time from one execution to the next on the same machine
+    #: that is flagged as a regression (or, faster, an improvement); None flags nothing.
+    regression: float | None = 0.1
     info: dict = field(default_factory=dict)
     include: tuple[str, ...] | None = None
     exclude: tuple[str, ...] | None = None
@@ -730,6 +735,18 @@ def load_manifest(path: str | Path) -> Manifest:
                 f"{where}.speedup_x must be one of {', '.join(SPEEDUP_X_CHOICES)}, "
                 f"got {speedup_x!r}",
             )
+        regression = merged.get("regression", 0.1)
+        if regression is False:
+            regression = None
+        if regression is not None and (
+            isinstance(regression, bool)
+            or not isinstance(regression, (int, float))
+            or regression <= 0
+        ):
+            raise SiteError(
+                f"{where}.regression must be a positive fraction such as 0.1 "
+                f"(10 %), or false, got {regression!r}"
+            )
         charts = merged.get("charts", True)
         if not isinstance(charts, bool):
             raise SiteError(f"{where}.charts must be true or false")
@@ -769,6 +786,7 @@ def load_manifest(path: str | Path) -> Manifest:
                 tags=tuple(_text(tag, f"{where}.tags") for tag in tags),
                 scaling=scaling,
                 speedup_x=speedup_x,
+                regression=None if regression is None else float(regression),
                 info={str(key): value for key, value in info.items()},
                 include=_patterns(merged.get("include"), f"{where}.include"),
                 exclude=_patterns(merged.get("exclude"), f"{where}.exclude"),
@@ -1493,6 +1511,49 @@ def _run_key(units):
     return key, key is not by_label
 
 
+def _changes(units, threshold) -> list[dict]:
+    """The runs of each execution that got slower or faster than in the one before.
+
+    Each execution is compared with the previous execution on the same machine (see
+    :func:`_machine`), run by run (see :func:`_run_key`), by wall time. A change larger
+    than ``threshold`` (a fraction: 0.1 is 10 %) is listed under ``slower`` or
+    ``faster``, with the execution it is relative to. Nothing for the first execution
+    on a machine, or with ``threshold`` None.
+    """
+    found: list[dict] = [{} for _ in units]
+    if threshold is None or len(units) < 2:
+        return found
+    key, _ = _run_key(units)
+    machines = [_machine(execution, runs) for execution, _, runs in units]
+    for index, (execution, _, runs) in enumerate(units):
+        before = next(
+            (j for j in range(index - 1, -1, -1) if machines[j] == machines[index]),
+            None,
+        )
+        if before is None:
+            continue
+        old_runs = {key(run): run for run in units[before][2]}
+        slower, faster = [], []
+        for run in runs:
+            old = old_runs.get(key(run))
+            new_wall = run.results.time_span
+            old_wall = old.results.time_span if old else None
+            if not old_wall or not new_wall or not math.isfinite(new_wall / old_wall):
+                continue
+            change = new_wall / old_wall - 1
+            text = f"{run.label} {change:+.0%}"
+            if change > threshold:
+                slower.append(text)
+            elif change < -threshold:
+                faster.append(text)
+        label = units[before][0].label
+        if slower:
+            found[index][f"slower than {label}"] = ", ".join(slower)
+        if faster:
+            found[index][f"faster than {label}"] = ", ".join(faster)
+    return found
+
+
 def _trend_payload(case, units) -> dict:
     """The wall time of each run over the executions, one line per run and machine.
 
@@ -2048,6 +2109,17 @@ def build_site(
                 },
             )
             units.append((execution, unit, _load_runs(unit)))
+        # What changed against the previous execution on the same machine, written
+        # into each execution's metadata, so that its row and its page say it.
+        changes = _changes(units, case.regression)
+        units = [
+            (
+                replace(execution, info={**execution.info, **changes[index]}),
+                replace(unit, info={**unit.info, **changes[index]}),
+                runs,
+            )
+            for index, (execution, unit, runs) in enumerate(units)
+        ]
         latest = case.executions[-1].id
         link_of = {
             execution.id: (

@@ -1280,6 +1280,60 @@ def test_executions_on_other_machines_are_other_lines(tmp_path):
     )
 
 
+def test_slower_and_faster_runs_are_flagged_against_the_same_machine(tmp_path):
+    _jobs_package(tmp_path / "heat", "2026-11-14T22:00:00+00:00", "aaaa1111")
+    _jobs_package(
+        tmp_path / "heat",
+        "2026-11-15T22:00:00+00:00",
+        "bbbb2222",
+        cluster="viper",
+        scale=3,
+    )
+    _jobs_package(tmp_path / "heat", "2026-11-16T22:00:00+00:00", "cccc3333", scale=1.5)
+    _jobs_package(tmp_path / "heat", "2026-11-17T22:00:00+00:00", "dddd4444", scale=1.0)
+    out = tmp_path / "docs"
+
+    build_site(load_manifest(_manifest(tmp_path, JOBS_CASE)), out)
+
+    data = json.loads((out / CONTENT / "heat.data.json").read_text())
+    rows = {row["label"][:10]: dict(row["info"]) for row in data["executions"]}
+    # The viper execution is the first on its machine: nothing to compare with.
+    assert not any(k.startswith(("slower", "faster")) for k in rows["2026-11-15"])
+    # Compared with the raven execution before it, not with viper's.
+    assert rows["2026-11-16"]["slower than 2026-11-14 22:00 · aaaa1111"] == (
+        "np1 +50%, np2 +50%"
+    )
+    assert rows["2026-11-17"]["faster than 2026-11-16 22:00 · cccc3333"] == (
+        "np1 -33%, np2 -33%"
+    )
+    assert ["faster than 2026-11-16 22:00 · cccc3333", "np1 -33%, np2 -33%"] in data[
+        "info"
+    ]
+
+
+def test_regression_flags_can_be_turned_off(tmp_path):
+    _jobs_package(tmp_path / "heat", "2026-11-14T22:00:00+00:00", "aaaa1111")
+    _jobs_package(tmp_path / "heat", "2026-11-15T22:00:00+00:00", "bbbb2222", scale=2)
+    out = tmp_path / "docs"
+    text = JOBS_CASE.replace(
+        "    executions:", "    regression: false\n    executions:"
+    )
+
+    build_site(load_manifest(_manifest(tmp_path, text)), out)
+
+    data = json.loads((out / CONTENT / "heat.data.json").read_text())
+    assert not any(key.startswith("slower") for key, _ in data["info"])
+    with pytest.raises(SiteError, match="regression must be"):
+        load_manifest(
+            _manifest(
+                tmp_path,
+                JOBS_CASE.replace(
+                    "    executions:", "    regression: -1\n    executions:"
+                ),
+            )
+        )
+
+
 def test_failed_runs_of_a_package_are_shown(tmp_path):
     _jobs_package(
         tmp_path / "heat",
