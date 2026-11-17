@@ -139,6 +139,7 @@ _CASE_KEYS = {
     "charts",
     "metadata",
     "files",
+    "regression",
 }
 _EXECUTION_KEYS = {"id", "label", "date", "info", "runs"}
 _DEFAULT_KEYS = {
@@ -149,6 +150,7 @@ _DEFAULT_KEYS = {
     "ranks",
     "charts",
     "metadata",
+    "regression",
 }
 _RUN_KEYS = {"path", "label", "files", "images"}
 _DISCOVER_KEYS = {"path", "meta"}
@@ -170,6 +172,9 @@ class RunSpec:
     label: str | None = None
     files: tuple[Path, ...] = ()
     images: tuple[Path, ...] = ()
+    #: What sets the run apart besides its parallelism (a backend, a variant), from the
+    #: metadata ``scope-profiler jobs`` recorded for its launch; part of its label.
+    variant: str | None = None
 
 
 @dataclass(frozen=True)
@@ -190,6 +195,9 @@ class Execution:
     runs: tuple[RunSpec, ...]
     date: str | None = None
     info: dict = field(default_factory=dict)
+    #: Runs of the execution that left no profile (a crash, a time limit): their label,
+    #: scheduler state and the end of their log, from a package of ``scope-profiler jobs``.
+    failed: tuple[dict, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -204,6 +212,9 @@ class Case:
     tags: tuple[str, ...] = ()
     scaling: str = "strong"
     speedup_x: str = "auto"
+    #: The change in a run's wall time from one execution to the next on the same machine
+    #: that is flagged as a regression (or, faster, an improvement); None flags nothing.
+    regression: float | None = 0.1
     info: dict = field(default_factory=dict)
     include: tuple[str, ...] | None = None
     exclude: tuple[str, ...] | None = None
@@ -446,6 +457,25 @@ def _read_json(path: Path) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def _variant_of(record: dict) -> str | None:
+    """What a launch's metadata says sets the run apart (``{"backend": "cupy"}`` -> ``cupy``)."""
+    extra = record.get("metadata")
+    if not isinstance(extra, dict):
+        extra = {}
+    values = [str(v) for v in extra.values() if v not in (None, "")]
+    if not values and record.get("backend"):
+        values = [str(record["backend"])]
+    return " · ".join(values) or None
+
+
+def _ranks_label(ranks, threads, variant) -> str:
+    """A run's name from its parallelism: ``np4``, ``np4 x 2 threads``, ``np4 · cupy``."""
+    text = f"np{ranks}" if ranks else "run"
+    if threads and threads > 1:
+        text += f" x {threads} threads"
+    return f"{text} · {variant}" if variant else text
+
+
 def _jobs_package_meta(directory: Path) -> dict:
     """Label, date and info of a case folder packaged by ``scope-profiler jobs``.
 
@@ -462,7 +492,11 @@ def _jobs_package_meta(directory: Path) -> dict:
     cluster = (hardware.get("cluster") or {}).get("name") or hardware.get(
         "slurm_cluster_name"
     )
-    commit = (software.get("git_commit") or "")[:8]
+    commit = (
+        software.get("git_commit")
+        or next((v for k, v in software.items() if k.endswith("_commit") and v), None)
+        or ""
+    )[:8]
     info = {
         "commit": commit or None,
         "branch": software.get("git_branch"),
@@ -471,6 +505,21 @@ def _jobs_package_meta(directory: Path) -> dict:
         **(metadata.get("metadata") or {}),
     }
     meta: dict = {"info": {key: value for key, value in info.items() if value}}
+    failed = [
+        {
+            "label": _ranks_label(run.get("ntasks"), None, _variant_of(run)),
+            "state": run.get("state") or "no profile",
+            "log": run.get("log_tail") or "",
+        }
+        for run in metadata.get("runs") or []
+        if isinstance(run, dict)
+        and (
+            run.get("failed")
+            or (run.get("state") not in (None, "COMPLETED") and not run.get("profiles"))
+        )
+    ]
+    if failed:
+        meta["failed"] = failed
     stamp = general.get("time_date_utc")
     if stamp:
         meta["date"] = str(stamp)
@@ -480,24 +529,11 @@ def _jobs_package_meta(directory: Path) -> dict:
     return meta
 
 
-def _run_labels(runs: list[str]) -> list[str | None]:
-    """Labels for the runs of an execution whose file names do not tell them apart.
-
-    A run packaged by ``scope-profiler jobs`` (``run01/profiling_data.h5``) is
-    labelled by its ranks from the ``run_metadata.json`` beside it (``np4``); other
-    runs whose file names repeat by their directory. None keeps the profile's own label.
-    """
-    paths = [Path(run) for run in runs]
-    labels = []
-    for path in paths:
-        ntasks = _read_json(path.parent / "run_metadata.json").get("ntasks")
-        labels.append(f"np{ntasks}" if ntasks else None)
-    if None not in labels and len(set(labels)) == len(labels):
-        return labels
-    stems = [path.stem for path in paths]
-    if len(set(stems)) == len(stems):
-        return [None] * len(paths)
-    return [path.parent.name for path in paths]
+def _run_variants(runs: list[str]) -> list[str | None]:
+    """The variant of each run, from the ``run_metadata.json`` a profiling job wrote beside it."""
+    return [
+        _variant_of(_read_json(Path(run).parent / "run_metadata.json")) for run in runs
+    ]
 
 
 def _discover_executions(spec: dict, where: str, root: Path) -> tuple[Execution, ...]:
@@ -567,11 +603,24 @@ def _discover_executions(spec: dict, where: str, root: Path) -> tuple[Execution,
                 id=slug,
                 label=label,
                 runs=tuple(
-                    RunSpec(Path(run), label)
-                    for run, label in zip(runs, _run_labels(runs))
+                    RunSpec(Path(run), variant=variant)
+                    for run, variant in zip(runs, _run_variants(runs))
                 ),
                 date=None if date is None else str(date),
-                info={str(key): value for key, value in info.items()},
+                info={
+                    **{str(key): value for key, value in info.items()},
+                    **(
+                        {
+                            "failed runs": ", ".join(
+                                f"{run['label']} ({run['state']})"
+                                for run in meta["failed"]
+                            )
+                        }
+                        if meta.get("failed")
+                        else {}
+                    ),
+                },
+                failed=tuple(meta.get("failed") or ()),
             )
         )
     if not found:
@@ -686,6 +735,18 @@ def load_manifest(path: str | Path) -> Manifest:
                 f"{where}.speedup_x must be one of {', '.join(SPEEDUP_X_CHOICES)}, "
                 f"got {speedup_x!r}",
             )
+        regression = merged.get("regression", 0.1)
+        if regression is False:
+            regression = None
+        if regression is not None and (
+            isinstance(regression, bool)
+            or not isinstance(regression, (int, float))
+            or regression <= 0
+        ):
+            raise SiteError(
+                f"{where}.regression must be a positive fraction such as 0.1 "
+                f"(10 %), or false, got {regression!r}"
+            )
         charts = merged.get("charts", True)
         if not isinstance(charts, bool):
             raise SiteError(f"{where}.charts must be true or false")
@@ -725,6 +786,7 @@ def load_manifest(path: str | Path) -> Manifest:
                 tags=tuple(_text(tag, f"{where}.tags") for tag in tags),
                 scaling=scaling,
                 speedup_x=speedup_x,
+                regression=None if regression is None else float(regression),
                 info={str(key): value for key, value in info.items()},
                 include=_patterns(merged.get("include"), f"{where}.include"),
                 exclude=_patterns(merged.get("exclude"), f"{where}.exclude"),
@@ -817,12 +879,28 @@ class _LoadedRun:
     path: Path
     files: tuple[Path, ...] = ()
     images: tuple[Path, ...] = ()
+    variant: str | None = None
+
+
+#: File names that say nothing about the run: a profile named like this is called by its
+#: parallelism instead (``np4``).
+_GENERIC_NAME = re.compile(
+    r"^(profiling_data|profile|prof|data|results?|run[_-]?\d*)$", re.IGNORECASE
+)
 
 
 def _load_runs(case: Case) -> list[_LoadedRun]:
-    from scope_profiler.profile_io import read_profile
+    """Read the runs of a case and name them.
 
-    loaded: list[_LoadedRun] = []
+    A run is called by its label in the manifest, else by the label in its profile or the
+    name of its file, unless that says nothing about it (``profiling_data``, ``run01``) or
+    another run of the case has the same name: then by what its profile recorded, its
+    ranks and threads, and the variant of its launch (``np4 · cupy``).
+    """
+    from scope_profiler.profile_io import read_profile
+    from scope_profiler.report_data import _threads
+
+    read = []
     for spec in case.runs:
         try:
             results = read_profile(spec.path)
@@ -830,9 +908,25 @@ def _load_runs(case: Case) -> list[_LoadedRun]:
             raise SiteError(
                 f"case {case.id!r}: cannot read {spec.path}: {exc}"
             ) from exc
-        if spec.label:
-            results.label = spec.label
-        label = results.display_label
+        read.append((spec, results))
+
+    defaults = [spec.label or results.display_label for spec, results in read]
+    labels = []
+    for (spec, results), default in zip(read, defaults):
+        named = spec.label is not None
+        if named or (not _GENERIC_NAME.match(default) and defaults.count(default) == 1):
+            labels.append(default)
+            continue
+        labels.append(_ranks_label(results.num_ranks, _threads(results), spec.variant))
+    # Still the same name twice (two runs on as many ranks): their folders tell them apart.
+    repeated = {label for label in labels if labels.count(label) > 1}
+    for index, ((spec, _), label) in enumerate(zip(read, labels)):
+        if spec.label is None and label in repeated:
+            labels[index] = f"{label} ({spec.path.parent.name})"
+
+    loaded: list[_LoadedRun] = []
+    for (spec, results), label in zip(read, labels):
+        results.label = label
         slug = slugify(label) or "run"
         if any(run.slug == slug for run in loaded):
             raise SiteError(
@@ -842,7 +936,9 @@ def _load_runs(case: Case) -> list[_LoadedRun]:
         # The files of the case go with every run, then the run's own.
         attached = tuple(dict.fromkeys([*case.files, *spec.files]))
         loaded.append(
-            _LoadedRun(slug, label, results, spec.path, attached, spec.images)
+            _LoadedRun(
+                slug, label, results, spec.path, attached, spec.images, spec.variant
+            )
         )
     return loaded
 
@@ -1162,6 +1258,52 @@ def _chart_data(
     }
 
 
+def _charts_by_variant(case, runs, variants, directory, url_base, files) -> dict:
+    """The comparison charts of a case drawn once per variant of its runs, then merged.
+
+    Each variant's panels are titled with it (``Speedup · cupy``); a variant with a single
+    run has nothing to compare and draws no charts.
+    """
+    merged: dict = {"panels": [], "notes": [], "run_meta": {}, "region_index": {}}
+    for variant in variants:
+        subset = [run for run in runs if (run.variant or "") == variant]
+        name = variant or "default"
+        if len(subset) < 2:
+            merged["notes"].append(f"{name}: a single run, no comparison charts")
+            continue
+        try:
+            field_name = _check_speedup_x(
+                [run.results for run in subset], case.speedup_x
+            )
+        except SpeedupAxisError as exc:
+            raise SiteError(f"case {case.id!r}, {name}: {exc}") from exc
+        part = _chart_data(
+            case,
+            [run.results for run in subset],
+            comparison=True,
+            scaling_field=field_name,
+            directory=directory / f"_{slugify(name) or 'variant'}",
+            url_base=f"{url_base}/_{slugify(name) or 'variant'}",
+            files=files,
+        )
+        for panel in part["panels"]:
+            merged["panels"].append(
+                {
+                    **panel,
+                    "id": f"{panel['id']}-{slugify(name)}",
+                    "title": f"{panel['title']} · {name}",
+                }
+            )
+        merged["notes"].extend(f"{name}: {note}" for note in part["notes"])
+        merged["run_meta"].update(part["run_meta"])
+        merged["region_index"].update(part["region_index"])
+        merged.setdefault("limits", part["limits"])
+    if "limits" not in merged:
+        depths = [0]
+        merged["limits"] = {"regions": 0, "max_depth": max(depths), "top": None}
+    return merged
+
+
 def _import_lines(page_dir: Path, components: Path, names) -> str:
     """MDX imports of the report components, relative to the page."""
     relative = os.path.relpath(components, page_dir).replace(os.sep, "/")
@@ -1328,12 +1470,29 @@ def _executions_table(units, link_of: dict, current: str) -> list[dict]:
     return rows
 
 
-def _trend_payload(case, units) -> dict:
-    """The wall time of each run over the executions.
+def _machine(execution, runs) -> str:
+    """The machine an execution ran on, so that its runs are compared only with the same machine's.
 
-    A run is followed by the MPI ranks it ran on (or, when an execution has two runs on as many,
-    by ranks and OpenMP threads, and failing that by label), because labels drift between
-    executions: a label from the file is often the job's own name.
+    The cluster or machine its metadata names (``cluster`` from a profiling job, or
+    ``cluster``, ``machine`` or ``system`` in a ``meta.yml``), else the processor its
+    profiles recorded.
+    """
+    for key in ("cluster", "machine", "system"):
+        if execution.info.get(key):
+            return str(execution.info[key])
+    for run in runs:
+        chip = (run.results.metadata or {}).get("chip_information")
+        if chip:
+            return str(chip)
+    return ""
+
+
+def _run_key(units):
+    """How a run is followed over the executions, and whether the keys sort as numbers.
+
+    By the MPI ranks it ran on and its variant (or, when an execution has two runs on as
+    many, by ranks, OpenMP threads and variant, and failing that by label), because labels
+    drift between executions: a label from the file is often the job's own name.
     """
     from scope_profiler.report_data import _threads
 
@@ -1341,29 +1500,92 @@ def _trend_payload(case, units) -> dict:
         return all(len({key(run) for run in runs}) == len(runs) for _, _, runs in units)
 
     # The ranks first: the thread counts of older profiles are not always recorded alike.
-    by_ranks = lambda run: run.results.num_ranks
+    by_ranks = lambda run: (run.results.num_ranks, run.variant or "")
     by_size = lambda run: (
         run.results.num_ranks,
         _threads(run.results) or 1,
+        run.variant or "",
     )
     by_label = lambda run: run.label
     key = next((k for k in (by_ranks, by_size) if unique(k)), by_label)
-    by_number = key is not by_label
+    return key, key is not by_label
+
+
+def _changes(units, threshold) -> list[dict]:
+    """The runs of each execution that got slower or faster than in the one before.
+
+    Each execution is compared with the previous execution on the same machine (see
+    :func:`_machine`), run by run (see :func:`_run_key`), by wall time. A change larger
+    than ``threshold`` (a fraction: 0.1 is 10 %) is listed under ``slower`` or
+    ``faster``, with the execution it is relative to. Nothing for the first execution
+    on a machine, or with ``threshold`` None.
+    """
+    found: list[dict] = [{} for _ in units]
+    if threshold is None or len(units) < 2:
+        return found
+    key, _ = _run_key(units)
+    machines = [_machine(execution, runs) for execution, _, runs in units]
+    for index, (execution, _, runs) in enumerate(units):
+        before = next(
+            (j for j in range(index - 1, -1, -1) if machines[j] == machines[index]),
+            None,
+        )
+        if before is None:
+            continue
+        old_runs = {key(run): run for run in units[before][2]}
+        slower, faster = [], []
+        for run in runs:
+            old = old_runs.get(key(run))
+            new_wall = run.results.time_span
+            old_wall = old.results.time_span if old else None
+            if not old_wall or not new_wall or not math.isfinite(new_wall / old_wall):
+                continue
+            change = new_wall / old_wall - 1
+            text = f"{run.label} {change:+.0%}"
+            if change > threshold:
+                slower.append(text)
+            elif change < -threshold:
+                faster.append(text)
+        label = units[before][0].label
+        if slower:
+            found[index][f"slower than {label}"] = ", ".join(slower)
+        if faster:
+            found[index][f"faster than {label}"] = ", ".join(faster)
+    return found
+
+
+def _trend_payload(case, units) -> dict:
+    """The wall time of each run over the executions, one line per run and machine.
+
+    A run is followed by :func:`_run_key`. Executions on different machines (see
+    :func:`_machine`) are never joined into one line: a run that moves from one cluster
+    to another is a new line, not a speedup or a regression.
+    """
+    key, by_number = _run_key(units)
+    machines = [_machine(execution, runs) for execution, _, runs in units]
+    several = len(set(machines)) > 1
     keys: list = []
     names: dict = {}
-    for _, _, runs in units:
+    for machine, (_, _, runs) in zip(machines, units):
         for run in runs:
-            if key(run) not in keys:
-                keys.append(key(run))
+            item = (machine, key(run))
+            if item not in keys:
+                keys.append(item)
             # The newest execution's label names the run.
-            names[key(run)] = run.label
+            names[item] = (
+                f"{run.label} · {machine}" if several and machine else run.label
+            )
     if by_number:
         keys.sort()
     series = []
     for item in keys:
         values = []
-        for _, _, runs in units:
-            found = next((run for run in runs if key(run) == item), None)
+        for machine, (_, _, runs) in zip(machines, units):
+            found = (
+                next((run for run in runs if key(run) == item[1]), None)
+                if machine == item[0]
+                else None
+            )
             wall = found.results.time_span if found else None
             values.append(float(wall) if wall and math.isfinite(wall) else None)
         series.append({"label": names[item], "values": values})
@@ -1626,7 +1848,14 @@ def build_site(
                     row["host"] = None
                     if row["file"]:
                         row["file"] = {"name": row["file"]["name"], "path": None}
-            if with_charts and case.scaling != "none":
+            variants = list(dict.fromkeys(run.variant or "" for run in runs))
+            if with_charts and case.scaling != "none" and len(variants) > 1:
+                # Runs of several variants (a CPU and a GPU backend): one set of scaling
+                # charts per variant, since a speedup across them would mix two codes.
+                chart_data = _charts_by_variant(
+                    case, runs, variants, case_public, case_url, files
+                )
+            elif with_charts and case.scaling != "none":
                 try:
                     field_name = _check_speedup_x(
                         [run.results for run in runs], case.speedup_x
@@ -1789,9 +2018,14 @@ def build_site(
         dataset = report["dataset"]
         for entry, group_name in zip(dataset["runs"], groups):
             entry["group"] = group_name
-        # Open on the same run in the newest execution and the one before it: the biggest
-        # run both have.
-        (_, _, before), (_, _, after) = units[-2:]
+        # Open on the same run in the newest execution and the one before it on the same
+        # machine (else the one before it): the biggest run both have.
+        newest = _machine(units[-1][0], units[-1][2])
+        earlier = [
+            unit for unit in units[:-1] if _machine(unit[0], unit[2]) == newest
+        ] or units[:-1]
+        before_unit, after_unit = earlier[-1], units[-1]
+        (_, _, before), (_, _, after) = before_unit, after_unit
         shared = {r.results.num_ranks for r in before} & {
             r.results.num_ranks for r in after
         }
@@ -1799,8 +2033,8 @@ def build_site(
             size = max(shared)
             pick = lambda loaded: next(r for r in loaded if r.results.num_ranks == size)
             dataset["default"] = {
-                "base": f"{units[-2][0].label} · {pick(before).label}",
-                "cand": f"{units[-1][0].label} · {pick(after).label}",
+                "base": f"{before_unit[0].label} · {pick(before).label}",
+                "cand": f"{after_unit[0].label} · {pick(after).label}",
             }
         page_url = f"/{section}/{relative.as_posix()}/_compare"
         chart_data = None
@@ -1875,6 +2109,17 @@ def build_site(
                 },
             )
             units.append((execution, unit, _load_runs(unit)))
+        # What changed against the previous execution on the same machine, written
+        # into each execution's metadata, so that its row and its page say it.
+        changes = _changes(units, case.regression)
+        units = [
+            (
+                replace(execution, info={**execution.info, **changes[index]}),
+                replace(unit, info={**unit.info, **changes[index]}),
+                runs,
+            )
+            for index, (execution, unit, runs) in enumerate(units)
+        ]
         latest = case.executions[-1].id
         link_of = {
             execution.id: (

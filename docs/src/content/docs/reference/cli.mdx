@@ -536,8 +536,22 @@ A `meta.yml` in an execution's directory (the `meta` key names another file) may
 directory. A case folder that [`scope-profiler jobs`](/scope-profiler/guide/jobs/) packaged is an
 execution as it stands: with `path: "<label>/{execution}/run*/profiling_data.h5"` its
 `case_metadata.json` gives the date, commit, branch and cluster (never the host or environment it
-also records), and each run is named by its ranks from its `run_metadata.json` (`np4`). Runs whose
-file names repeat in other cases are named by their directory.
+also records), and the runs that left no profile are listed as failed runs, with their job state.
+
+A run is named by its label in the manifest, else by the label in its profile or its file name,
+unless that says nothing (`profiling_data`, `run01`) or another run of the case has the same name:
+then by what its profile recorded, its ranks and threads (`np4`, `np4 x 2 threads`), and the
+variant of its launch from the `metadata` of a profiling job (`np4 · cupy`); runs that still share
+a name get their folder's name added. When the runs of a case differ in variant, its scaling
+charts are drawn once per variant, since a speedup from a CPU run to a GPU run measures two codes.
+
+Executions on different machines are never compared with each other. An execution's machine is
+the `cluster`, `machine` or `system` in its metadata, else the processor its profiles recorded.
+The chart of the executions over time has a line per run and machine, the comparison page opens
+on the newest execution and the previous one on its machine, and every execution lists the runs
+that got slower or faster than in the previous execution on its machine by more than
+`regression` (a fraction, 0.1 by default, per case or under `defaults`; `false` turns it off),
+as `slower than <execution>: np4 +23%` in its row of the executions table and in its metadata.
 
 Each execution has an `id` (default: its `label` or `date`), an optional `label`, `date` and
 `info`, and its own `runs`. The case keeps one sidebar entry; its page is the latest execution

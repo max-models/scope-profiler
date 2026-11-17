@@ -1080,15 +1080,69 @@ def test_found_executions_need_no_meta_file(tmp_path):
     ]
 
 
-def _jobs_package(root, stamp, commit, ranks=(1, 2), **extra):
+def _labels(case, execution):
+    """The names the pages give the runs of one execution of ``case``."""
+    from dataclasses import replace
+
+    from scope_profiler.astro_site import _load_runs
+
+    return [run.label for run in _load_runs(replace(case, runs=execution.runs))]
+
+
+def _write_scaled(path, ranks, scale):
+    """Rewrite a profile of ``_write_profiles`` with every duration times ``scale``."""
+    setup = int(10_000_000 // ranks * scale)
+    solve = int(50_000_000 // ranks * scale)
+    data = {
+        rank: {"setup": ([0], [setup]), "solve": ([setup + 10], [setup + 10 + solve])}
+        for rank in range(ranks)
+    }
+    _write_sample_h5(
+        path,
+        data,
+        {
+            "mpi_size": ranks,
+            "omp_num_threads": 1,
+            "num_nodes": 1,
+            "chip_information": "Test CPU",
+        },
+    )
+
+
+def _jobs_package(
+    root,
+    stamp,
+    commit,
+    ranks=(1, 2),
+    cluster="raven",
+    variants=None,
+    failed=(),
+    scale=1,
+    **extra,
+):
     """A case folder as ``scope-profiler jobs`` packages it: run01/profiling_data.h5, ..."""
     folder = root / f"{stamp.replace('-', '').replace(':', '')}-{commit}-heat"
+    runs = []
     for index, count in enumerate(ranks, start=1):
         run = folder / f"run{index:02d}"
         _write_profiles(run, ranks=(count,))
+        if scale != 1:
+            _write_scaled(run / f"np{count}.h5", count, scale)
         (run / f"np{count}.h5").rename(run / "profiling_data.h5")
+        launch = {} if variants is None else {"backend": variants[index - 1]}
         (run / "run_metadata.json").write_text(
-            json.dumps({"launch_id": index, "ntasks": count})
+            json.dumps({"launch_id": index, "ntasks": count, "metadata": launch})
+        )
+        runs.append({"launch_id": index, "ntasks": count, "state": "COMPLETED"})
+    for offset, (count, state) in enumerate(failed, start=len(ranks) + 1):
+        runs.append(
+            {
+                "launch_id": offset,
+                "ntasks": count,
+                "state": state,
+                "failed": True,
+                "log_tail": "Killed: out of time",
+            }
         )
     (folder / "case_metadata.json").write_text(
         json.dumps(
@@ -1100,11 +1154,12 @@ def _jobs_package(root, stamp, commit, ranks=(1, 2), **extra):
                     "git_repository": "/home/secret/heat",
                 },
                 "hardware_information": {
-                    "cluster": {"name": "raven"},
+                    "cluster": {"name": cluster},
                     "submit_host": "secret-host",
                 },
                 "scheduler": "slurm",
                 "metadata": extra,
+                "runs": runs,
             }
         )
     )
@@ -1133,7 +1188,7 @@ def test_packages_of_profiling_jobs_are_executions(tmp_path):
         "scheduler": "slurm",
         "grid": "64^3",
     }
-    assert [run.label for run in second.runs] == ["np1", "np2"]
+    assert _labels(manifest.cases[0], second) == ["np1", "np2"]
     build_site(manifest, tmp_path / "docs")
     page = (tmp_path / "docs" / CONTENT / "heat.mdx").read_text()
     assert "secret" not in page
@@ -1150,9 +1205,153 @@ def test_a_single_packaged_run_is_named_by_its_ranks(tmp_path):
         '      path: "heat/{execution}/run*/profiling_data.h5"\n'
     )
 
-    (execution,) = load_manifest(_manifest(tmp_path, text)).cases[0].executions
+    case = load_manifest(_manifest(tmp_path, text)).cases[0]
 
-    assert [run.label for run in execution.runs] == ["np4"]
+    assert _labels(case, case.executions[0]) == ["np4"]
+
+
+JOBS_CASE = (
+    "cases:\n  - title: Heat\n    executions:\n"
+    '      path: "heat/{execution}/run*/profiling_data.h5"\n'
+)
+
+
+def test_runs_of_one_rank_count_are_told_apart_by_their_variant(tmp_path):
+    _jobs_package(
+        tmp_path / "heat",
+        "2026-11-16T22:00:00+00:00",
+        "aaaa1111",
+        ranks=(4, 4),
+        variants=["numpy", "cupy"],
+    )
+
+    case = load_manifest(_manifest(tmp_path, JOBS_CASE)).cases[0]
+
+    assert _labels(case, case.executions[0]) == ["np4 · numpy", "np4 · cupy"]
+    build_site(load_manifest(_manifest(tmp_path, JOBS_CASE)), tmp_path / "docs")
+
+
+def test_scaling_charts_are_drawn_per_variant(tmp_path):
+    _jobs_package(
+        tmp_path / "heat",
+        "2026-11-16T22:00:00+00:00",
+        "aaaa1111",
+        ranks=(1, 2, 1, 2),
+        variants=["numpy", "numpy", "cupy", "cupy"],
+    )
+    out = tmp_path / "docs"
+
+    build_site(load_manifest(_manifest(tmp_path, JOBS_CASE)), out)
+
+    data = json.loads((out / CONTENT / "heat.data.json").read_text())
+    titles = [panel["title"] for panel in data["charts"]["panels"]]
+    assert any(title.endswith("· numpy") for title in titles)
+    assert any(title.endswith("· cupy") for title in titles)
+    ids = [panel["id"] for panel in data["charts"]["panels"]]
+    assert len(ids) == len(set(ids))
+    for panel in data["charts"]["panels"]:
+        assert (out / "public" / panel["src"].lstrip("/")).is_file()
+
+
+def test_executions_on_other_machines_are_other_lines(tmp_path):
+    _jobs_package(tmp_path / "heat", "2026-11-15T22:00:00+00:00", "aaaa1111")
+    _jobs_package(
+        tmp_path / "heat", "2026-11-16T22:00:00+00:00", "bbbb2222", cluster="viper"
+    )
+    _jobs_package(tmp_path / "heat", "2026-11-17T22:00:00+00:00", "cccc3333")
+    out = tmp_path / "docs"
+
+    build_site(load_manifest(_manifest(tmp_path, JOBS_CASE)), out)
+
+    data = json.loads((out / CONTENT / "heat.data.json").read_text())
+    (trend,) = [
+        json.loads((out / "public" / panel["src"].lstrip("/")).read_text())
+        for panel in data["charts"]["panels"]
+        if panel["title"] == "Executions over time"
+    ]
+    lines = {line["label"]: line["values"] for line in trend["series"]}
+    assert set(lines) == {"np1 · raven", "np2 · raven", "np1 · viper", "np2 · viper"}
+    assert lines["np1 · viper"][0] is None and lines["np1 · viper"][1] is not None
+    assert lines["np1 · raven"][1] is None
+    compare = json.loads((out / CONTENT / "heat" / "compare.data.json").read_text())
+    default = compare["report"]["dataset"]["default"]
+    assert default["base"].startswith("2026-11-15") and default["cand"].startswith(
+        "2026-11-17"
+    )
+
+
+def test_slower_and_faster_runs_are_flagged_against_the_same_machine(tmp_path):
+    _jobs_package(tmp_path / "heat", "2026-11-14T22:00:00+00:00", "aaaa1111")
+    _jobs_package(
+        tmp_path / "heat",
+        "2026-11-15T22:00:00+00:00",
+        "bbbb2222",
+        cluster="viper",
+        scale=3,
+    )
+    _jobs_package(tmp_path / "heat", "2026-11-16T22:00:00+00:00", "cccc3333", scale=1.5)
+    _jobs_package(tmp_path / "heat", "2026-11-17T22:00:00+00:00", "dddd4444", scale=1.0)
+    out = tmp_path / "docs"
+
+    build_site(load_manifest(_manifest(tmp_path, JOBS_CASE)), out)
+
+    data = json.loads((out / CONTENT / "heat.data.json").read_text())
+    rows = {row["label"][:10]: dict(row["info"]) for row in data["executions"]}
+    # The viper execution is the first on its machine: nothing to compare with.
+    assert not any(k.startswith(("slower", "faster")) for k in rows["2026-11-15"])
+    # Compared with the raven execution before it, not with viper's.
+    assert rows["2026-11-16"]["slower than 2026-11-14 22:00 · aaaa1111"] == (
+        "np1 +50%, np2 +50%"
+    )
+    assert rows["2026-11-17"]["faster than 2026-11-16 22:00 · cccc3333"] == (
+        "np1 -33%, np2 -33%"
+    )
+    assert ["faster than 2026-11-16 22:00 · cccc3333", "np1 -33%, np2 -33%"] in data[
+        "info"
+    ]
+
+
+def test_regression_flags_can_be_turned_off(tmp_path):
+    _jobs_package(tmp_path / "heat", "2026-11-14T22:00:00+00:00", "aaaa1111")
+    _jobs_package(tmp_path / "heat", "2026-11-15T22:00:00+00:00", "bbbb2222", scale=2)
+    out = tmp_path / "docs"
+    text = JOBS_CASE.replace(
+        "    executions:", "    regression: false\n    executions:"
+    )
+
+    build_site(load_manifest(_manifest(tmp_path, text)), out)
+
+    data = json.loads((out / CONTENT / "heat.data.json").read_text())
+    assert not any(key.startswith("slower") for key, _ in data["info"])
+    with pytest.raises(SiteError, match="regression must be"):
+        load_manifest(
+            _manifest(
+                tmp_path,
+                JOBS_CASE.replace(
+                    "    executions:", "    regression: -1\n    executions:"
+                ),
+            )
+        )
+
+
+def test_failed_runs_of_a_package_are_shown(tmp_path):
+    _jobs_package(
+        tmp_path / "heat",
+        "2026-11-16T22:00:00+00:00",
+        "aaaa1111",
+        failed=[(8, "TIMEOUT")],
+    )
+    out = tmp_path / "docs"
+    manifest = load_manifest(_manifest(tmp_path, JOBS_CASE))
+
+    (execution,) = manifest.cases[0].executions
+    assert execution.failed[0]["label"] == "np8"
+    assert execution.failed[0]["state"] == "TIMEOUT"
+    build_site(manifest, out)
+    data = json.loads((out / CONTENT / "heat.data.json").read_text())
+    (row,) = data["executions"]
+    assert ["failed runs", "np8 (TIMEOUT)"] in row["info"]
+    assert ["failed runs", "np8 (TIMEOUT)"] in data["info"]
 
 
 def test_a_meta_file_overrides_the_package_metadata(tmp_path):
@@ -1178,9 +1377,9 @@ def test_runs_with_the_same_file_name_are_told_apart_by_their_directory(tmp_path
         '      path: "data/{execution}/*/np2.h5"\n'
     )
 
-    (execution,) = load_manifest(_manifest(tmp_path, text)).cases[0].executions
+    case = load_manifest(_manifest(tmp_path, text)).cases[0]
 
-    assert [run.label for run in execution.runs] == ["a", "b"]
+    assert _labels(case, case.executions[0]) == ["np2 (a)", "np2 (b)"]
 
 
 @pytest.mark.parametrize(

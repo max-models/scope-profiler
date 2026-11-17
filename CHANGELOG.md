@@ -4,6 +4,22 @@
 
 ### Added
 
+- Catalogues (`scope-profiler site`): runs named by their parallelism and variant when their
+  file names say nothing or repeat (`np4`, `np4 x 2 threads`, `np4 · cupy`), scaling charts per
+  variant, executions on different machines kept apart (a line per run and machine over time,
+  comparisons within one machine), runs that got slower or faster than in the previous
+  execution on the same machine flagged (`regression`, 0.1 by default), and failed runs of a
+  profiling job listed with their job state.
+- Profiling jobs: a `prepare` command run once before the first launch (e.g. a build), recorded
+  in the case metadata; placeholders (`{run_dir}`, `{ntasks}`, ...) in `env`, `setup` and
+  `#SBATCH` values; `redact=True` (and stores marked `public`) replaces host names and private
+  paths in the packaged metadata; `after_push` commands of a store (e.g. to rebuild the docs
+  that show the results); runs that left no output listed as failed in `case_metadata.json`
+  with their state and the end of their output.
+- `scope-profiler jobs check DIR` checks a results repository (metadata, missing runs,
+  profiles that do not open, file sizes) and `scope-profiler jobs prune DIR --keep N` removes
+  all but the newest executions of every case.
+
 - `scope-profiler site --section NAME` writes a catalogue into a section of any
   Astro/Starlight site (`src/content/docs/NAME`, `public/NAME`), such as a "Profiling"
   section of a code's documentation, instead of only into `catalogue/` of a site of its own.

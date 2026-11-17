@@ -116,7 +116,15 @@ def load_case_config(path: str | os.PathLike[str]) -> dict[str, Any]:
         _check_keys(
             f"{path} [store]",
             store,
-            {"url", "branch", "message", "push_attempts", "path"},
+            {
+                "url",
+                "branch",
+                "message",
+                "push_attempts",
+                "path",
+                "public",
+                "after_push",
+            },
         )
 
     for name, table in raw.get("clusters", {}).items():

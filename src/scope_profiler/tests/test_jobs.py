@@ -252,18 +252,21 @@ def test_local_case_runs_and_packages(app):
     assert second["job_script"].startswith("#!/bin/bash")
 
 
-def test_failed_local_run_is_not_packaged(app, capsys):
+def test_failed_local_run_is_listed_as_failed(app, capsys):
     case = _case(app)
     info = case.launch(1, args=["--fail"])
     assert info["state"] == "FAILED"
     assert info["returncode"] == 3
     case.finalize()
     out = capsys.readouterr().out
-    assert "nothing to package" in out
-    assert (
-        json.loads((case.destination_dir / "case_metadata.json").read_text())["runs"]
-        == []
-    )
+    assert "listed as failed" in out
+    (run,) = json.loads((case.destination_dir / "case_metadata.json").read_text())[
+        "runs"
+    ]
+    assert run["failed"] is True
+    assert run["state"] == "FAILED"
+    assert run["profiles"] == []
+    assert not (case.destination_dir / "run01").exists()
 
 
 def test_local_run_skips_rank_counts_above_the_core_count(app, monkeypatch):
@@ -390,7 +393,8 @@ def test_slurm_case_submits_polls_and_packages(app, fake_slurm):
     assert ok["state"] == "COMPLETED"
     assert bad["state"] == "FAILED"
     runs = json.loads((case.destination_dir / "case_metadata.json").read_text())["runs"]
-    assert [run["launch_id"] for run in runs] == [1]
+    assert [run["launch_id"] for run in runs] == [1, 2]
+    assert [run.get("failed", False) for run in runs] == [False, True]
 
 
 def test_slurm_job_states_without_sacct(monkeypatch):
@@ -504,10 +508,87 @@ def test_a_catalogue_reads_the_uploaded_runs(app, results_repo, tmp_path):
     )
 
     manifest = load_manifest(data / "profiling.yaml")
+    from dataclasses import replace
+
+    from scope_profiler.astro_site import _load_runs
+
     (execution,) = manifest.cases[0].executions
-    assert [run.label for run in execution.runs] == ["np1", "np2"]
+    runs = _load_runs(replace(manifest.cases[0], runs=execution.runs))
+    assert [run.label for run in runs] == ["np1", "np2"]
     build_site(manifest, tmp_path / "docs", section="profiling")
     assert (tmp_path / "docs/src/content/docs/profiling/heat.mdx").is_file()
+
+
+def test_placeholders_in_env_setup_and_sbatch(app):
+    case = _case(
+        app,
+        scheduler="dry-run",
+        env={"APP_LOG": "{run_dir}/app.log"},
+        setup=["echo setting up {label} with {ntasks} ranks"],
+    )
+    info = case.launch(2, sbatch={"time": "00:{ntasks}0:00", "comment": "{label}"})
+    script = info["job_script"]
+    run_dir = info["run_directory"]
+    assert f"export APP_LOG={run_dir}/app.log" in script
+    assert "echo setting up demo case with 2 ranks" in script
+    assert info["sbatch"]["time"] == "00:20:00"
+    assert info["sbatch"]["comment"] == "demo case"
+
+
+def test_prepare_runs_once_before_the_first_launch(app):
+    case = _case(app, prepare="echo built {label} > built.txt; echo done")
+    case.launch(1)
+    case.launch(1)
+    built = (case.case_dir / "built.txt").read_text().strip()
+    assert built == "built demo case"
+    assert "done" in (case.case_dir / "prepare.out").read_text()
+    case.finalize()
+    metadata = json.loads((case.destination_dir / "case_metadata.json").read_text())
+    assert metadata["prepare"]["returncode"] == 0
+    assert metadata["prepare"]["seconds"] >= 0
+
+
+def test_a_failing_prepare_stops_the_case(app):
+    case = _case(app, prepare=["bash", "-c", "echo broken build; exit 4"])
+    with pytest.raises(RuntimeError, match=r"exit code 4\)[\s\S]*broken build"):
+        case.launch(1)
+    assert case.job_infos == []
+
+
+def test_redacted_metadata_leaves_out_hosts_and_private_paths(app, monkeypatch):
+    import socket
+
+    monkeypatch.setattr(socket, "gethostname", lambda: "secret-node7")
+    case = _case(app, redact=True)
+    case.launch(1)
+    case.finalize()
+    text = (case.destination_dir / "case_metadata.json").read_text()
+    run_text = (case.destination_dir / "run01" / "run_metadata.json").read_text()
+    for written in (text, run_text):
+        assert "secret-node7" not in written
+        assert str(case.work_dir) not in written
+    assert "<work_dir>" in run_text
+    assert json.loads(text)["hardware_information"]["submit_host"] == "<host>"
+
+
+def test_a_public_store_redacts_by_default(app, results_repo):
+    store = GitResultsStore(url=str(results_repo), public=True)
+    assert _case(app, upload=True, store=store).redacting
+    assert not _case(app, upload=True, store=store, redact=False).redacting
+    assert not _case(app).redacting
+
+
+def test_after_push_commands_run_after_a_push(app, results_repo, tmp_path):
+    marker = tmp_path / "pushed.txt"
+    store = GitResultsStore(
+        url=str(results_repo),
+        after_push=[f"echo {{label}} {{commit}} >> {marker}", "exit 3"],
+    )
+    case = _case(app, upload=True, store=store)
+    case.launch(1)
+    case.finalize()
+    lines = marker.read_text().splitlines()
+    assert lines and all(line.startswith("demo case") for line in lines)
 
 
 def test_upload_requires_a_repository(app):
@@ -744,3 +825,78 @@ def test_launch_does_not_do_a_reverse_dns_lookup(app, monkeypatch):
     case = _case(app)
     case.launch(1)
     case.finalize()
+
+
+# ---------------------------------------------------------------------------
+# Looking after a results repository
+# ---------------------------------------------------------------------------
+def _package(root, label, stamp, runs=("run01",), metadata=None):
+    from scope_profiler.tests.test_post_processing import _write_sample_h5
+
+    folder = root / label / f"{stamp.replace('-', '').replace(':', '')}-{label}"
+    listed = []
+    for index, name in enumerate(runs, start=1):
+        (folder / name).mkdir(parents=True)
+        _write_sample_h5(
+            folder / name / "profiling_data.h5", {0: {"a": ([0], [10])}}, {}
+        )
+        (folder / name / "run_metadata.json").write_text("{}")
+        listed.append(
+            {
+                "launch_id": index,
+                "folder": name,
+                "run_metadata": f"{name}/run_metadata.json",
+                "profiles": [f"{name}/profiling_data.h5"],
+            }
+        )
+    (folder / "case_metadata.json").write_text(
+        json.dumps(
+            metadata
+            or {
+                "general_information": {"label": label, "time_date_utc": stamp},
+                "runs": listed,
+            }
+        )
+    )
+    return folder
+
+
+def test_check_finds_broken_packages(tmp_path, capsys):
+    from scope_profiler.jobs.maintenance import check_results
+
+    good = _package(tmp_path, "heat", "2026-11-01T00:00:00+00:00")
+    assert check_results(tmp_path) == []
+    (good / "run01" / "profiling_data.h5").write_text("not hdf5")
+    broken = _package(tmp_path, "wave", "2026-11-02T00:00:00+00:00")
+    shutil.rmtree(broken / "run01")
+    (tmp_path / "bad").mkdir()
+    (tmp_path / "bad" / "case_metadata.json").write_text("{")
+
+    problems = check_results(tmp_path, max_bytes=100)
+
+    text = "\n".join(problems)
+    assert "cannot be opened" in text
+    assert "folder 'run01' is missing" in text
+    assert "not valid JSON" in text
+    assert "larger than" in text
+    assert cli_main(["jobs", "check", str(tmp_path)]) == 1
+    assert "problem(s)" in capsys.readouterr().out
+
+
+def test_prune_keeps_the_newest_executions(tmp_path, capsys):
+    from scope_profiler.jobs.maintenance import prune_results
+
+    days = [f"2026-11-{day:02d}T00:00:00+00:00" for day in (1, 2, 3, 4)]
+    folders = [_package(tmp_path, "heat", day) for day in days]
+    other = _package(tmp_path, "wave", days[0])
+
+    assert prune_results(tmp_path, keep=2) == folders[:2]
+    assert all(folder.exists() for folder in folders)
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 11, 4, 12, tzinfo=timezone.utc)
+    assert prune_results(tmp_path, keep=1, older_than_days=2, now=now) == folders[:2]
+    assert cli_main(["jobs", "prune", str(tmp_path), "--keep", "2", "--yes"]) == 0
+    assert [folder.exists() for folder in folders] == [False, False, True, True]
+    assert other.exists()
+    assert cli_main(["jobs", "prune", str(tmp_path), "--keep", "0"]) == 2
