@@ -252,18 +252,21 @@ def test_local_case_runs_and_packages(app):
     assert second["job_script"].startswith("#!/bin/bash")
 
 
-def test_failed_local_run_is_not_packaged(app, capsys):
+def test_failed_local_run_is_listed_as_failed(app, capsys):
     case = _case(app)
     info = case.launch(1, args=["--fail"])
     assert info["state"] == "FAILED"
     assert info["returncode"] == 3
     case.finalize()
     out = capsys.readouterr().out
-    assert "nothing to package" in out
-    assert (
-        json.loads((case.destination_dir / "case_metadata.json").read_text())["runs"]
-        == []
-    )
+    assert "listed as failed" in out
+    (run,) = json.loads((case.destination_dir / "case_metadata.json").read_text())[
+        "runs"
+    ]
+    assert run["failed"] is True
+    assert run["state"] == "FAILED"
+    assert run["profiles"] == []
+    assert not (case.destination_dir / "run01").exists()
 
 
 def test_local_run_skips_rank_counts_above_the_core_count(app, monkeypatch):
@@ -390,7 +393,8 @@ def test_slurm_case_submits_polls_and_packages(app, fake_slurm):
     assert ok["state"] == "COMPLETED"
     assert bad["state"] == "FAILED"
     runs = json.loads((case.destination_dir / "case_metadata.json").read_text())["runs"]
-    assert [run["launch_id"] for run in runs] == [1]
+    assert [run["launch_id"] for run in runs] == [1, 2]
+    assert [run.get("failed", False) for run in runs] == [False, True]
 
 
 def test_slurm_job_states_without_sacct(monkeypatch):
@@ -504,8 +508,13 @@ def test_a_catalogue_reads_the_uploaded_runs(app, results_repo, tmp_path):
     )
 
     manifest = load_manifest(data / "profiling.yaml")
+    from dataclasses import replace
+
+    from scope_profiler.astro_site import _load_runs
+
     (execution,) = manifest.cases[0].executions
-    assert [run.label for run in execution.runs] == ["np1", "np2"]
+    runs = _load_runs(replace(manifest.cases[0], runs=execution.runs))
+    assert [run.label for run in runs] == ["np1", "np2"]
     build_site(manifest, tmp_path / "docs", section="profiling")
     assert (tmp_path / "docs/src/content/docs/profiling/heat.mdx").is_file()
 

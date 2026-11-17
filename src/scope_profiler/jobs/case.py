@@ -91,6 +91,19 @@ _PLACEHOLDER = re.compile(
 )
 
 
+def _log_tail(run_dir: Path, lines: int = 40) -> str:
+    """The end of a run's output (``run.out``, else a SLURM log), to say why it failed."""
+    candidates = [run_dir / "run.out", *sorted(run_dir.glob("slurm-*.err"))]
+    for path in candidates:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if text.strip():
+            return "\n".join(text.rstrip().splitlines()[-lines:])
+    return ""
+
+
 def _unique_dir(path: Path) -> Path:
     candidate, suffix = path, 1
     while candidate.exists():
@@ -632,12 +645,15 @@ class ProfilingCase:
         ``run_metadata.json`` the program itself left in its run directory,
         if any, under ``application_metadata``) and refreshes
         ``case_metadata.json``. A run that produced neither profiles nor
-        results (it never started, or failed early) is not packaged.
+        results (it crashed, hit its time limit, never started) has no folder,
+        but is still listed in ``case_metadata.json``, marked ``failed`` with
+        its scheduler state and the end of its log, so that a catalogue shows
+        the missing point instead of silently leaving it out.
 
         Returns
         -------
         bool
-            Whether anything was packaged.
+            Whether any output was packaged.
         """
         if self.destination_dir is None:
             self.package_case_metadata()
@@ -664,6 +680,18 @@ class ProfilingCase:
         )
         results = [path for path in results if path not in profiles]
         if not profiles and not results:
+            self.packaged_runs.append(
+                {
+                    "launch_id": info["launch_id"],
+                    "ntasks": info["ntasks"],
+                    "metadata": info.get("metadata") or {},
+                    "state": info.get("state") or "no output",
+                    "failed": True,
+                    "profiles": [],
+                    "log_tail": _log_tail(run_dir),
+                },
+            )
+            self.package_case_metadata()
             return False
 
         packaged_profiles = []
@@ -706,9 +734,11 @@ class ProfilingCase:
             {
                 "launch_id": info["launch_id"],
                 "ntasks": info["ntasks"],
+                "metadata": info.get("metadata") or {},
                 "folder": destination.name,
                 "run_metadata": f"{destination.name}/{RUN_METADATA_FILE}",
                 "state": info.get("state"),
+                "profiles": packaged_profiles,
             },
         )
         self.package_case_metadata()
@@ -741,12 +771,18 @@ class ProfilingCase:
 
     def report(self) -> None:
         """Print what was packaged, and how to push or inspect it."""
-        if not self.packaged_runs:
+        failed = [run for run in self.packaged_runs if run.get("failed")]
+        for run in failed:
+            print(
+                f"Run {run['launch_id']:02d} of {self.label!r} ({run['ntasks']} ranks) left no output "
+                f"({run['state']}); it is listed as failed in case_metadata.json."
+            )
+        if not [run for run in self.packaged_runs if not run.get("failed")]:
             print(
                 f"No profiling output found for {self.label!r}; nothing was packaged."
             )
             return
-        ids = [run["launch_id"] for run in self.packaged_runs]
+        ids = [run["launch_id"] for run in self.packaged_runs if not run.get("failed")]
         print(
             f"Packaged {len(ids)} run(s) of {self.label!r} (ids {sorted(ids)}) into {self.destination_dir}"
         )
@@ -755,7 +791,9 @@ class ProfilingCase:
             print(
                 f"    scope-profiler jobs upload {shlex.quote(str(self.destination_dir))} --repo <url>"
             )
-        first = self.destination_dir / self.packaged_runs[0]["folder"]
+        first = self.destination_dir / next(
+            run["folder"] for run in self.packaged_runs if not run.get("failed")
+        )
         print("Inspect a run with, e.g.:")
         print(f"    scope-profiler inspect {shlex.quote(str(first))}/*.h5 --sort total")
 
@@ -855,8 +893,10 @@ def finalize_all(cases: Sequence[ProfilingCase], poll_interval: float = 30.0) ->
             _push_all([case])
         else:
             print(
-                f"No profiling output for {case.label!r} run {info['launch_id']:02d}; nothing to package."
+                f"No profiling output for {case.label!r} run {info['launch_id']:02d}; "
+                "listed as failed in case_metadata.json."
             )
+            _push_all([case])
 
     for case in cases:
         case.report()
